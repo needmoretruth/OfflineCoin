@@ -1,0 +1,5 @@
+target/
+.embuild/
+*.key
+blocks.log
+.olc/

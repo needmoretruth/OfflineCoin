@@ -1,0 +1,12 @@
+[package]
+name = "olc-core"
+description = "Blocks, transactions, rules and the chain itself. Knows nothing about devices or networks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-crypto.workspace = true
+serde.workspace = true
+postcard.workspace = true

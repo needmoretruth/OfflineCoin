@@ -1,0 +1,11 @@
+[package]
+name = "olc-lang"
+description = "OLCL, the lock languages of OfflineCoin: alpha, beta and omega."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-core.workspace = true
+olc-crypto.workspace = true

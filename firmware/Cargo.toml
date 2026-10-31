@@ -1,0 +1,48 @@
+[package]
+name = "olc-firmware"
+description = "OfflineCoin node for the ESP32-S3: mines, gossips over ESP-NOW and shows its state on an OLED."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "olc-firmware"
+path = "src/main.rs"
+
+[workspace]
+
+[dependencies]
+olc-core = { path = "../crates/olc-core" }
+olc-crypto = { path = "../crates/olc-crypto" }
+olc-lang = { path = "../crates/olc-lang" }
+olc-logo = { path = "../crates/olc-logo" }
+olc-node = { path = "../crates/olc-node" }
+olc-pow = { path = "../crates/olc-pow" }
+olc-wallet = { path = "../crates/olc-wallet" }
+
+esp-hal = { version = "~1.2.2", features = ["esp32s3", "log-04", "unstable"] }
+esp-rtos = { version = "0.4.0", features = ["embassy", "esp-alloc", "esp-radio", "esp32s3", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32s3", "log-04"] }
+esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
+esp-backtrace = { version = "0.20.0", features = ["esp32s3", "panic-handler", "println"] }
+esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
+esp-radio = { version = "1.0.0-beta.1", features = ["esp-alloc", "esp-now", "esp32s3", "log-04", "unstable", "wifi"] }
+log = "0.4.27"
+embassy-executor = "0.10"
+embassy-time = "0.5"
+embassy-futures = "0.1"
+embassy-net = { version = "0.9.1", features = ["dhcpv4", "medium-ethernet", "tcp", "udp", "proto-ipv4"] }
+edge-dhcp = { version = "0.8", features = ["io", "embassy-time"] }
+edge-nal = "0.7"
+edge-nal-embassy = "0.9"
+static_cell = "2"
+embedded-graphics = "0.8"
+esp-storage = { version = "0.10", features = ["esp32s3"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+[profile.release]
+codegen-units = 1
+debug = 2
+lto = "fat"
+opt-level = 3

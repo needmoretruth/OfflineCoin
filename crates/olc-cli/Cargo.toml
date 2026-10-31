@@ -1,0 +1,27 @@
+[package]
+name = "olc-cli"
+description = "The OfflineCoin program for computers: nodes, a test network and the browser screen."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "olc"
+path = "src/main.rs"
+
+[dependencies]
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-pow.workspace = true
+olc-lang.workspace = true
+olc-wallet.workspace = true
+olc-node.workspace = true
+olc-link-tcp.workspace = true
+olc-link-serial.workspace = true
+olc-logo.workspace = true
+postcard.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+getrandom = "0.3"
+tiny_http = "0.12"

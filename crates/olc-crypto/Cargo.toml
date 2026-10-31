@@ -1,0 +1,11 @@
+[package]
+name = "olc-crypto"
+description = "Hashing and signatures used by OfflineCoin. Replace this crate to change the cryptography."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+k256.workspace = true
+sha2.workspace = true

@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/olc-crypto",
+    "crates/olc-core",
+    "crates/olc-pow",
+    "crates/olc-lang",
+    "crates/olc-wallet",
+    "crates/olc-node",
+    "crates/olc-link-tcp",
+    "crates/olc-link-serial",
+    "crates/olc-logo",
+    "crates/olc-cli",
+]
+# The firmware targets Xtensa and has its own workspace.
+exclude = ["firmware"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/needmoretruth/OfflineCoin"
+
+[workspace.dependencies]
+olc-crypto = { path = "crates/olc-crypto", default-features = false }
+olc-core = { path = "crates/olc-core", default-features = false }
+olc-pow = { path = "crates/olc-pow", default-features = false }
+olc-lang = { path = "crates/olc-lang", default-features = false }
+olc-wallet = { path = "crates/olc-wallet", default-features = false }
+olc-node = { path = "crates/olc-node", default-features = false }
+olc-logo = { path = "crates/olc-logo" }
+olc-link-tcp = { path = "crates/olc-link-tcp" }
+olc-link-serial = { path = "crates/olc-link-serial" }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

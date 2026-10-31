@@ -1,0 +1,10 @@
+[package]
+name = "olc-logo"
+description = "The OfflineCoin logo: a spinning coin stamped with a crossed-out Wi-Fi symbol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libm = "0.2"

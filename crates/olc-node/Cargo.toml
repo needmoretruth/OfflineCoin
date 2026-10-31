@@ -1,0 +1,18 @@
+[package]
+name = "olc-node"
+description = "The node engine: mempool, gossip and mining. Moves no bytes itself, so every device can run it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-wallet.workspace = true
+serde.workspace = true
+postcard.workspace = true
+
+[dev-dependencies]
+olc-pow.workspace = true
+olc-lang.workspace = true

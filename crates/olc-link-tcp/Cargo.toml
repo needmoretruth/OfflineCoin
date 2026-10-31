@@ -1,0 +1,10 @@
+[package]
+name = "olc-link-tcp"
+description = "TCP transport for computers: a home network, a VPN or the internet."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-node.workspace = true

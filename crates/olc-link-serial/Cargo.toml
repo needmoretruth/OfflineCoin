@@ -1,0 +1,10 @@
+[package]
+name = "olc-link-serial"
+description = "USB serial transport: joins a computer to a board that is plugged into it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-node.workspace = true

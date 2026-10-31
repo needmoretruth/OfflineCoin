@@ -1,0 +1,15 @@
+[package]
+name = "olc-wallet"
+description = "One key, its address and payments."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-lang.workspace = true
+
+[dev-dependencies]
+olc-pow.workspace = true

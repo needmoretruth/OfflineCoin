@@ -1,0 +1,10 @@
+[package]
+name = "olc-pow"
+description = "Proof of work with double SHA-256: the default consensus of OfflineCoin."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-core.workspace = true
