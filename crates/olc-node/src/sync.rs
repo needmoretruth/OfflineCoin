@@ -24,6 +24,7 @@ pub struct Sync {
     target: Option<Target>,
     asked_ms: u64,
     expected: usize,
+    blocks_came: bool,
     /// The newest block that came from the target, which may be on a branch the node has not
     /// moved to yet.
     position: Option<(u64, Hash)>,
@@ -44,6 +45,14 @@ impl Sync {
                 work,
                 heard_ms: now,
             });
+        }
+    }
+
+    /// Called once a turn, before the blocks of that turn: checking a heavy block can outlast the
+    /// wait, and that says nothing about the peer.
+    pub fn new_turn(&mut self, now: u64) {
+        if core::mem::take(&mut self.blocks_came) {
+            self.asked_ms = now;
         }
     }
 
@@ -72,8 +81,11 @@ impl Sync {
     }
 
     /// A requested block arrived. Only one that connected moves the position.
-    pub fn arrived(&mut self, connected: Option<(u64, Hash)>) {
-        self.expected = self.expected.saturating_sub(1);
+    pub fn arrived(&mut self, connected: Option<(u64, Hash)>, known: bool) {
+        if !known {
+            self.expected = self.expected.saturating_sub(1);
+            self.blocks_came = true;
+        }
         self.position = connected.or(self.position);
     }
 

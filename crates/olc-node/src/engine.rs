@@ -224,6 +224,7 @@ impl Engine {
         }
         self.history.tick(self.chain.height(), device_ms);
         self.keep_fetching();
+        self.sync.new_turn(device_ms);
         self.ask_for_blocks();
         self.chain.keep_up(STATE_SECTORS_PER_TICK);
     }
@@ -425,7 +426,7 @@ impl Engine {
             Ok(AddOutcome::Orphan { .. }) => None,
             _ => height.map(|height| (height, id)),
         };
-        self.sync.arrived(connected);
+        self.sync.arrived(connected, outcome == Err(ChainError::AlreadyKnown));
         match outcome {
             Ok(AddOutcome::NewTip) => {
                 let height = self.chain.height();
