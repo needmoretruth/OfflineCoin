@@ -67,6 +67,8 @@ pub struct Settings {
     pub bright: String,
     /// `off` keeps the board's own network down. Empty means up.
     pub own_network: String,
+    /// Processor speed in MHz. Empty means the default.
+    pub clock: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -82,8 +84,6 @@ pub struct Store {
     genesis_matches: bool,
     /// This start's place in the boot log.
     boot_word: Option<(u32, u8)>,
-    /// A start after a brown-out may not last. Its stages wait until the supply has held.
-    pub marks_held: bool,
 }
 
 /// `FlashStorage` as the wear rings see it.
@@ -120,24 +120,14 @@ impl Store {
             head: LOG_START,
             genesis_matches: false,
             boot_word: None,
-            marks_held: false,
         }
     }
 
-    /// Notes this start. Writes without erasing, and a start that died before its next stage
-    /// shares the word of the last one like it, so a restart loop wears nothing.
+    /// Notes this start.
     ///
     /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
         let mut flash = Nor(&mut self.flash);
-        let same = BOOT_LOG.newest(&mut flash).filter(|at| {
-            let mut bytes = [0u8; 4];
-            flash.read(*at, &mut bytes) && word(&bytes) == bootlog::word(reason, Stage::Started)
-        });
-        if let Some(at) = same {
-            self.boot_word = Some((at, reason));
-            return;
-        }
         let at = BOOT_LOG.next(&mut flash);
         self.boot_word = Some((at, reason));
         self.reach(Stage::Started);
@@ -145,9 +135,6 @@ impl Store {
     }
 
     pub fn reach(&mut self, stage: Stage) {
-        if self.marks_held {
-            return;
-        }
         if let Some((at, reason)) = self.boot_word {
             let bytes = bootlog::word(reason, stage).to_le_bytes();
             let _ = self.flash.write_nor(at, &bytes);
@@ -195,12 +182,13 @@ impl Store {
             power: lines.next().unwrap_or_default(),
             bright: lines.next().unwrap_or_default(),
             own_network: lines.next().unwrap_or_default(),
+            clock: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -212,6 +200,7 @@ impl Store {
             settings.power,
             settings.bright,
             settings.own_network,
+            settings.clock,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {

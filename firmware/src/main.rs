@@ -4,6 +4,7 @@
 #![no_main]
 extern crate alloc;
 
+mod clock;
 mod control;
 mod hangul;
 mod node;
@@ -26,7 +27,6 @@ use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_time::Timer;
 use esp_backtrace as _;
-use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
@@ -82,7 +82,8 @@ fn chosen_limit(settings: &store::Settings) -> Option<u32> {
 async fn main(spawner: Spawner) -> ! {
     // What the steps before this program left behind. `init` turns the watchdog off.
     let boot_watchdog = LPWR::regs().wdtconfig0().read().wdt_en().bit_is_set();
-    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
+    let clock_mhz = clock::running_mhz();
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(clock::cpu_clock(clock_mhz)));
 
     // A board with no cable has nobody to press its reset button. It restarts itself if it stops
     // before the radio is up, and the word below shows how far the stopped start got.
@@ -94,7 +95,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
     let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
     store.begin_boot(reset);
-    store.marks_held = reset == BROWN_OUT;
 
     // PSRAM comes first, so the chain lands there and internal memory stays free for the radio.
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
@@ -119,6 +119,9 @@ async fn main(spawner: Spawner) -> ! {
     // A long chain takes a while to load, and a dark panel looks like a dead board.
     thermo::start();
     let settings = store.settings();
+    if clock::saved_mhz(&settings) != clock_mhz {
+        clock::restart_at(clock::saved_mhz(&settings));
+    }
     let bright = settings.bright.parse().unwrap_or(screen::DEFAULT_BRIGHT);
     let mut screen = Screen::new(bus);
     screen.set_bright(bright);
@@ -137,7 +140,6 @@ async fn main(spawner: Spawner) -> ! {
         _ => SETTLE_MS,
     };
     Timer::after_millis(settle).await;
-    store.marks_held = false;
     store.reach(Stage::Panel);
     let (espnow, wifi_link, network) =
         wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
@@ -217,6 +219,7 @@ async fn main(spawner: Spawner) -> ! {
         coins,
         bright,
         boot_watchdog,
+        clock_mhz,
         busy_us: 0,
         busy_percent: 0,
         smooth: settings.smooth.parse().unwrap_or(node::DEFAULT_SMOOTH),

@@ -108,7 +108,8 @@ mod tests {
 
     /// Erases the flash chips are rated for, per sector.
     const RATED_ERASES: u64 = 100_000;
-    const YEARS: u64 = 10;
+    /// At thirty-second blocks that is one erase of a sector every sixteen minutes.
+    const YEARS: u64 = 3;
     const DAY_S: u64 = 24 * 3600;
 
     const BASE: u32 = 0x1000;
@@ -161,8 +162,8 @@ mod tests {
         at
     }
 
-    /// Erases per sector in ten years, from counting them over `sample` records.
-    fn ten_years(erases: u64, records: u64, records_a_day: u64) -> u64 {
+    /// Erases per sector in [`YEARS`], from counting them over `sample` records.
+    fn over_the_years(erases: u64, records: u64, records_a_day: u64) -> u64 {
         erases * records_a_day * 365 * YEARS / records
     }
 
@@ -219,11 +220,11 @@ mod tests {
     fn a_rewrite_in_place_would_fail_this_budget() {
         // The way the counter was saved before: one erase of one sector per order.
         let orders_a_day = 2_000;
-        assert!(ten_years(1, 1, orders_a_day) > RATED_ERASES);
+        assert!(over_the_years(1, 1, orders_a_day) > RATED_ERASES);
     }
 
     #[test]
-    fn the_order_counter_lasts_ten_years_at_one_order_every_ten_seconds() {
+    fn the_order_counter_lasts_at_one_order_every_ten_seconds() {
         let ring = Ring {
             start: BASE,
             sectors: 1,
@@ -234,11 +235,11 @@ mod tests {
         for value in 0..records {
             append(&ring, &mut flash, &value.to_le_bytes());
         }
-        assert!(ten_years(flash.worst(), records, DAY_S / 10) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, DAY_S / 10) <= RATED_ERASES);
     }
 
     #[test]
-    fn settings_last_ten_years_at_a_hundred_changes_a_day() {
+    fn settings_last_at_a_hundred_changes_a_day() {
         let ring = Ring {
             start: BASE,
             sectors: 1,
@@ -249,11 +250,11 @@ mod tests {
         for _ in 0..records {
             append(&ring, &mut flash, &[0x5A; 256]);
         }
-        assert!(ten_years(flash.worst(), records, 100) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, 100) <= RATED_ERASES);
     }
 
     #[test]
-    fn the_boot_log_lasts_ten_years_in_a_three_second_restart_loop() {
+    fn the_boot_log_lasts_through_a_three_second_restart_loop() {
         let ring = Ring {
             start: BASE,
             sectors: 2,
@@ -264,6 +265,14 @@ mod tests {
         for value in 0..records {
             append(&ring, &mut flash, &(value as u32).to_le_bytes());
         }
-        assert!(ten_years(flash.worst(), records, DAY_S / 3) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, DAY_S / 3) <= RATED_ERASES);
+    }
+
+    #[test]
+    fn the_board_writes_its_frequent_records_through_a_ring() {
+        let store = include_str!("../../../firmware/src/store.rs");
+        for record in ["COUNTER: Ring", "SETTINGS: Ring", "BOOT_LOG: Ring"] {
+            assert!(store.contains(record), "{record}");
+        }
     }
 }

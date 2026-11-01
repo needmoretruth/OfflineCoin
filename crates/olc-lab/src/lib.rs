@@ -16,7 +16,7 @@ impl Extra for Lab {
 
     fn usage(&self) -> &'static str {
         "  olc attack  --attacker PORT --victim PORT [--amount 10] [--confirmations 2]
-              [--victim-limit 5000] [--timeout 1800]
+              [--victim-limit N] [--timeout 1800]
 "
     }
 

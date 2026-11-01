@@ -4,6 +4,7 @@ use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
 use crate::store::{Settings, Store};
 use crate::usb::Commands;
+use crate::clock;
 use crate::views::{self, Coins, Info, Language, Note, State, View};
 use crate::wifi::Network;
 use alloc::collections::VecDeque;
@@ -119,6 +120,7 @@ pub struct Node {
     pub bright: u8,
     /// Whether the watchdog was running when this program got the chip.
     pub boot_watchdog: bool,
+    pub clock_mhz: u32,
     /// Time spent working in this second, and how much of the last second that was.
     pub busy_us: u64,
     pub busy_percent: u64,
@@ -426,6 +428,20 @@ impl Node {
                 self.rename(line["name".len()..].trim());
                 self.say("named".into());
             }
+            (Some("clock"), Some(value), _) => match value.parse() {
+                Ok(mhz) if clock::is_speed(mhz) => {
+                    self.restart_with(|settings| settings.clock = format!("{mhz}"));
+                }
+                _ => self.say("error clock 80 160 240".into()),
+            },
+            (Some("full"), Some("on"), _) => self.restart_with(|settings| {
+                settings.cap = "0".into();
+                settings.clock = "240".into();
+            }),
+            (Some("full"), Some("off"), _) => self.restart_with(|settings| {
+                settings.cap.clear();
+                settings.clock.clear();
+            }),
             (Some("network"), Some(state @ ("on" | "off")), _) => {
                 self.restart_with(|settings| settings.own_network = state.into());
             }
@@ -443,7 +459,7 @@ impl Node {
             }
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
-                 smooth FPS, bright 0-255, network on|off, power DBM, ignore MAC-END|none, \
+                 smooth FPS, bright 0-255, clock 80|160|240, full on|off, network on|off, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY"
