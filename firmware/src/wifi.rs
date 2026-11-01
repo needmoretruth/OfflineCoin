@@ -1,4 +1,4 @@
-//! Wi-Fi. Every board hosts an open network of its own, so a computer or phone can reach it with
+//! Wi-Fi. A board can host an open network of its own, so a computer or phone can reach it with
 //! no router. A board can also join a router and dial a computer. Nodes speak the same TCP
 //! framing as `olc-link-tcp`: `olc node --connect 192.168.4.1:7000`.
 use crate::store::Settings;
@@ -274,7 +274,11 @@ pub fn start(
         }
     }
     let network = Network {
-        own_name: own_name.into(),
+        own_name: if settings.own_network == "off" {
+            Default::default()
+        } else {
+            own_name.into()
+        },
         router,
         joins_router,
     };
