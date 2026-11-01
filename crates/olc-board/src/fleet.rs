@@ -1,5 +1,6 @@
 //! This computer's view of every board it can hear, and the packets it sends them.
 use crate::control_key::ControlKey;
+use crate::pins::Pins;
 use olc_control::{
     sign, Action, Beacon, BoardId, Body, Forward, Order, Packet, Read, Refusal, Router, Signed,
 };
@@ -46,6 +47,7 @@ pub struct Fleet {
     refusals: BTreeMap<BoardId, VecDeque<Refusal>>,
     progress: BTreeMap<u32, u32>,
     outgoing: VecDeque<(Forward, Vec<u8>)>,
+    pins: Pins,
 }
 
 fn random_id() -> Result<(BoardId, u32), String> {
@@ -74,7 +76,13 @@ impl Fleet {
             refusals: BTreeMap::new(),
             progress: BTreeMap::new(),
             outgoing: VecDeque::new(),
+            pins: Pins::default(),
         })
+    }
+
+    /// Remembers across runs which board spoke with which address.
+    pub fn keep_pins(&mut self, pins: Pins) {
+        self.pins = pins;
     }
 
     pub fn public_key(&self) -> Result<olc_crypto::PublicKey, String> {
@@ -86,6 +94,14 @@ impl Fleet {
         let Some(mut packet) = Packet::decode(bytes) else {
             return;
         };
+        if let Body::Beacon(signed) = &packet.body {
+            // Hops count only what the board itself sent: zero means its own cable.
+            let on_cable = packet.hops == 0;
+            let address = signed.beacon.address;
+            if !signed.is_from(&packet.from) || !self.pins.accept(packet.from, address, on_cable) {
+                return;
+            }
+        }
         if let (Body::Beacon(_), Some(known)) = (&packet.body, self.boards.get_mut(&packet.from)) {
             // Copies count here: the first to arrive may be the one that took the long way.
             if packet.hops == 0 {
@@ -106,7 +122,8 @@ impl Fleet {
     fn take_in(&mut self, peer: u32, packet: Packet) {
         let from = packet.from;
         match packet.body {
-            Body::Beacon(beacon) => {
+            Body::Beacon(signed) => {
+                let beacon = signed.beacon;
                 let link = (self.link_of)(peer);
                 let direct = (packet.hops == 0).then(|| (Instant::now(), link));
                 let old = self.boards.get(&from).and_then(|known| known.direct);
@@ -260,10 +277,12 @@ impl Fleet {
 mod tests {
     use super::*;
     use crate::control_key::ControlKey;
+    use olc_control::sign_beacon;
 
     const LINK_SHIFT: u32 = 24;
     const BOARD: BoardId = [1, 2, 3, 4, 5, 6];
     const CABLE: u32 = 1 << LINK_SHIFT;
+    const SECRET: [u8; 32] = [3; 32];
 
     fn link_of(peer: u32) -> usize {
         (peer >> LINK_SHIFT) as usize
@@ -278,9 +297,10 @@ mod tests {
     }
 
     fn beacon(id: u32, hops: u8, from: BoardId) -> Vec<u8> {
+        let key = olc_crypto::public_key(&SECRET).unwrap();
         let beacon = Beacon {
             name: "one".into(),
-            address: [0; 20],
+            address: olc_crypto::address_of(&key),
             height: 9,
             tip: [0; 32],
             balance: 0,
@@ -297,15 +317,48 @@ mod tests {
             counter: 41,
             trusts_a_key: true,
             refused: 0,
+            ..Beacon::default()
         };
         Packet {
             from,
             to: None,
             id,
             hops,
-            body: Body::Beacon(beacon),
+            body: Body::Beacon(sign_beacon(&SECRET, &from, beacon).unwrap()),
         }
         .encode()
+    }
+
+    #[test]
+    fn a_beacon_nobody_signed_shows_no_board() {
+        let mut fleet = fleet("forged");
+        let mut packet = Packet::decode(&beacon(1, 1, BOARD)).unwrap();
+        if let Body::Beacon(signed) = &mut packet.body {
+            signed.beacon.height = 10;
+        }
+        fleet.hear(CABLE, &packet.encode());
+        assert!(fleet.boards().is_empty());
+    }
+
+    #[test]
+    fn another_key_cannot_take_over_a_board_by_radio() {
+        let mut fleet = fleet("taken");
+        fleet.hear(CABLE, &beacon(1, 1, BOARD));
+        let other = olc_crypto::address_of(&olc_crypto::public_key(&[9; 32]).unwrap());
+        let forged = Beacon {
+            address: other,
+            height: 99,
+            ..Beacon::default()
+        };
+        let forged = Packet {
+            from: BOARD,
+            to: None,
+            id: 2,
+            hops: 1,
+            body: Body::Beacon(sign_beacon(&[9; 32], &BOARD, forged).unwrap()),
+        };
+        fleet.hear(CABLE, &forged.encode());
+        assert_eq!(fleet.boards()[0].beacon.height, 9);
     }
 
     #[test]

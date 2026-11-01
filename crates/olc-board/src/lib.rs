@@ -10,6 +10,7 @@ pub mod fleet;
 pub mod install;
 pub mod journal;
 pub mod manager;
+pub mod pins;
 pub mod remote;
 
 pub use args::Args;

@@ -1,4 +1,5 @@
 //! What travels between boards and the computer that runs them.
+use crate::beacon::SignedBeacon;
 use alloc::string::String;
 use alloc::vec::Vec;
 use olc_crypto::Hash;
@@ -31,7 +32,7 @@ impl Packet {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Body {
     /// A board saying what it shows on its own, every few seconds.
-    Beacon(Beacon),
+    Beacon(SignedBeacon),
     /// A question anyone may ask. The answer comes back as `Line`.
     Read(Read),
     /// A line the board printed, for whoever is running it.
@@ -79,6 +80,12 @@ pub struct Beacon {
     pub trusts_a_key: bool,
     /// Orders and images it has refused since it started.
     pub refused: u32,
+    /// The coin's frames per second on the panel, and how far the setting goes.
+    pub smooth: u32,
+    pub smooth_range: (u32, u32),
+    /// The coin it runs and the work behind its tip, to compare with what it says when asked.
+    pub genesis: Hash,
+    pub work: u128,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

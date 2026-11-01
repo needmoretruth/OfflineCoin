@@ -9,6 +9,7 @@ mod hangul;
 mod node;
 mod pages;
 mod radio;
+mod report;
 mod screen;
 mod store;
 mod thermo;
@@ -104,6 +105,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut coins = Coins::new();
     coins.first_frame();
     views::splash(&mut screen, &coins, 0);
+    let panel_ms = node::device_ms();
     store.reach(Stage::Panel);
 
     let coin = CoinConfig::olc();
@@ -167,7 +169,7 @@ async fn main(spawner: Spawner) -> ! {
     let identity = store.identity();
     let counter = store.counter();
     let slot = store.running_slot();
-    let control = Control::new(me, Rng::new().random(), identity, counter, slot);
+    let control = Control::new(me, Rng::new().random(), identity, counter, slot, secret);
 
     let mut runner = Runner::new(engine);
     runner.add_link(Box::new(RadioLink::new(espnow, runner.mark())));
@@ -184,6 +186,7 @@ async fn main(spawner: Spawner) -> ! {
         screen,
         started: node::Started {
             reset,
+            panel_ms,
             read_ms,
             placed_ms,
             loaded_ms,
