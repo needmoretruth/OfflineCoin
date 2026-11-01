@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{channel as queue, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 type Macs = Arc<Mutex<BTreeMap<u32, [u8; 6]>>>;
 
@@ -25,13 +26,16 @@ fn number_of(mac: &[u8; 6]) -> u32 {
     u32::from_be_bytes([0, mac[3], mac[4], mac[5]])
 }
 
+/// How long a card may keep a frame waiting. The node stands still for that long.
+const WRITE_WAIT: Duration = Duration::from_millis(20);
+
 impl EspNowCard {
     /// Opens `interface`, and hears frames of this coin and everyone's Hellos.
     pub fn open(interface: &str, mark: Mark) -> Result<Self, String> {
         let card = interfaces().into_iter().find(|card| card.name == interface);
         let card = card.ok_or_else(|| format!("no card named {interface}"))?;
         let me = card.mac.map(|mac| mac.octets()).ok_or("the card has no address")?;
-        let config = Config { read_timeout: None, ..Config::default() };
+        let config = Config { read_timeout: None, write_timeout: Some(WRITE_WAIT), ..Config::default() };
         let (to_card, mut card_reader) = match channel(&card, config) {
             Ok(Channel::Ethernet(sending, reading)) => (sending, reading),
             Ok(_) => return Err("the card offers no raw frames".into()),
@@ -80,7 +84,11 @@ impl Link for EspNowCard {
         self.next_message = self.next_message.wrapping_add(1);
         for piece in split(self.next_message, message, MOST_BODY) {
             let bytes = frame(&to, &self.me, &piece);
-            let _ = self.to_card.send_to(&bytes, None);
+            // A card that stopped taking frames must not stop the node. The rest of a message
+            // would be of no use without this piece.
+            if !matches!(self.to_card.send_to(&bytes, None), Some(Ok(()))) {
+                return;
+            }
         }
     }
 
