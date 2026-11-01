@@ -104,6 +104,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut coins = Coins::new();
     coins.first_frame();
     views::splash(&mut screen, &coins, 0);
+    let panel_ms = node::device_ms();
     store.reach(Stage::Panel);
 
     let coin = CoinConfig::olc();
@@ -184,6 +185,7 @@ async fn main(spawner: Spawner) -> ! {
         screen,
         started: node::Started {
             reset,
+            panel_ms,
             read_ms,
             placed_ms,
             loaded_ms,

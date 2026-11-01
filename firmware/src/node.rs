@@ -95,6 +95,7 @@ fn decode_hash(text: &str, out: &mut Hash) -> bool {
 /// How this start went, kept for `status`.
 pub struct Started {
     pub reset: u8,
+    pub panel_ms: u64,
     pub read_ms: u64,
     pub placed_ms: u64,
     pub loaded_ms: u64,
@@ -479,7 +480,7 @@ impl Node {
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
-             temp={:.1} reset={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
+             temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
              power={} rssi={} key={} name={}",
             status.height,
             hex(&status.tip),
@@ -508,6 +509,7 @@ impl Node {
             self.control.slot,
             self.temperature(),
             bootlog::reason_name(self.started.reset),
+            self.started.panel_ms,
             self.started.read_ms,
             self.started.placed_ms,
             self.started.loaded_ms,
