@@ -203,11 +203,16 @@ pub fn secret_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> R
 
 /// A number typed as text and taken when it reads as one. Returns the new value once.
 pub fn number_field(ui: &mut Ui, value: &mut u64, width: f32) -> bool {
+    named_number(ui, value, "", width)
+}
+
+/// A number field a screen reader can name when the label beside it is not tied to it.
+pub fn named_number(ui: &mut Ui, value: &mut u64, name: &str, width: f32) -> bool {
     let id = ui.next_auto_id().with("typed");
     let mut typed: String = ui
         .data_mut(|data| data.get_temp(id))
         .unwrap_or_else(|| value.to_string());
-    let response = field(ui, &mut typed, "", width);
+    let response = field(ui, &mut typed, name, width);
     let mut changed = false;
     if response.changed() {
         if let Ok(number) = typed.trim().parse::<u64>() {

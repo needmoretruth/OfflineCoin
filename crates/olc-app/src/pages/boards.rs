@@ -5,7 +5,7 @@ use crate::discovery::Reach;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
-    self, button, card, cell, dot, field, header_cell, meta, number_field, section, segments,
+    self, button, card, cell, dot, field, header_cell, meta, named_number, section, segments,
     switch_row, Columns, Kind,
 };
 use crate::ui::Icon;
@@ -154,7 +154,7 @@ impl Boards {
             {
                 Self::tell(cx, id, BoardAction::FullSpeed(!full));
             }
-            number_field(ui, &mut self.cap, 90.0);
+            named_number(ui, &mut self.cap, cx.say("mining.cap"), 90.0);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
                 Self::tell(cx, id, BoardAction::Cap(self.cap));
             }
@@ -193,7 +193,7 @@ impl Boards {
             }
         });
         labelled(ui, cx.say("boards.smooth"), |ui| {
-            number_field(ui, &mut self.smooth, 70.0);
+            named_number(ui, &mut self.smooth, cx.say("boards.smooth"), 70.0);
             let (lowest, highest) = beacon.smooth_range;
             let range = [lowest.to_string(), highest.to_string()];
             meta(ui, &cx.fill("boards.frames_per_second", &[&range[0], &range[1]]), t);
@@ -205,7 +205,7 @@ impl Boards {
         labelled(ui, cx.say("boards.bright"), |ui| {
             let said = board.bright.map_or(BRIGHT_FALLBACK, u64::from);
             let mut level = self.bright.unwrap_or(said);
-            if number_field(ui, &mut level, 70.0) {
+            if named_number(ui, &mut level, cx.say("boards.bright"), 70.0) {
                 self.bright = Some(level);
             }
             meta(ui, &cx.fill("boards.bright_range", &[&BRIGHT_MAX.to_string()]), t);
