@@ -174,6 +174,11 @@ impl App {
         }
     }
 
+    #[cfg(test)]
+    pub fn send(&self, command: Command) {
+        self.core.send(command);
+    }
+
     pub fn snapshot(&self) -> Arc<Snapshot> {
         self.core.snapshot()
     }

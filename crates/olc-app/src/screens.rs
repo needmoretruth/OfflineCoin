@@ -2,10 +2,10 @@
 //! real core. Node processes in the pictures are real, and a real board appears only in a real
 //! window, so these leave USB alone.
 use crate::app::App;
-use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Host, Plan, Snapshot};
+use crate::core::{coin_folder, save_coin, Command, Core, CoreLaunch, Host, Plan, Snapshot};
 use crate::discovery::Entry;
 use crate::i18n::Lang;
-use crate::local::{NodeSpec, Preset, Supervisor};
+use crate::local::{Holding, NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
@@ -210,6 +210,56 @@ fn the_first_run_starts_real_node_processes() {
         std::thread::sleep(Duration::from_millis(300));
     }
     assert!(heights.len() > 1, "the chain never moved");
+}
+
+/// The owner's scene: one node full without mining, one pruned and mining, one light, all on one
+/// chain, and each set in the window as a person would set it.
+#[test]
+fn each_node_is_the_kind_its_person_chose() {
+    let settings = Settings {
+        port: 7330,
+        ..quiet_settings()
+    };
+    let window = app(scratch("kinds"), settings, Some(node_program()));
+    let mut harness = harness(window, SIZES[1]);
+    let mut coin = CoinConfig::olc();
+    coin.name = "Kinds".into();
+    coin.rules.block_time_ms = 1_000;
+    coin.rules.min_difficulty = 100;
+    coin.initial_difficulty = 100;
+    harness.state().send(Command::Join { coin: Box::new(coin), address: None });
+    harness.run_steps(2);
+    let spec = |id: u32, mining, holding| NodeSpec {
+        mining,
+        holding,
+        recent: 300,
+        ..Preset::Custom.spec(id)
+    };
+    for node in [
+        spec(10, false, Holding::Everything),
+        spec(11, true, Holding::Recent),
+        spec(12, false, Holding::Headers),
+    ] {
+        harness.state().send(Command::AddNode(Box::new(node)));
+    }
+    wait_until(&mut harness, |app| {
+        let local = &app.snapshot().local;
+        let at = |index: usize| local.get(index).and_then(|view| view.status.as_ref());
+        let held = at(2).and_then(|status| status.headers).unwrap_or(0);
+        let miner = at(1).is_some_and(|status| status.height >= 5 && status.hashrate > 0);
+        local.len() == 3 && held >= 5 && miner
+    });
+    let snap = harness.state().snapshot().clone();
+    let status: Vec<_> = snap.local.iter().filter_map(|view| view.status.clone()).collect();
+    assert_eq!(status[0].headers, None);
+    assert!(!status[0].mining, "a full node here only validates");
+    assert!(status[1].mining);
+    assert!(!status[2].mining);
+    assert!(status[0].height.abs_diff(status[2].height) <= MOST_BLOCKS_BEHIND);
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        harness.state_mut().open("page.local");
+        shot(&mut harness, &folder, "scene-kinds");
+    }
 }
 
 /// The owner's scene: a note goes into a block and shows in the explorer, and a second key is made,

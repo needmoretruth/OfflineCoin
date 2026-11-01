@@ -40,6 +40,16 @@ pub enum Holding {
     Headers,
 }
 
+impl Holding {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Everything => "local.keep_all",
+            Self::Recent => "local.keep_recent",
+            Self::Headers => "local.keep_headers",
+        }
+    }
+}
+
 /// One node process as a person set it up.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

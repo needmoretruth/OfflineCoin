@@ -80,6 +80,8 @@ pub enum Command {
     },
     StopExperiment,
     AddNode(Box<NodeSpec>),
+    /// Whether this app's own node holds headers only.
+    SetLight(bool),
     RemoveNode(u32),
     StartNode(u32),
     StopNode(u32),

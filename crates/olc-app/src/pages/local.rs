@@ -51,14 +51,6 @@ fn preset_name(cx: &Cx, preset: Preset) -> &'static str {
     })
 }
 
-fn holding_name(cx: &Cx, holding: Holding) -> &'static str {
-    cx.say(match holding {
-        Holding::Everything => "local.keep_all",
-        Holding::Recent => "local.keep_recent",
-        Holding::Headers => "local.keep_headers",
-    })
-}
-
 fn given_line(cx: &Cx, index: usize, spec: &NodeSpec, given: &str) -> String {
     let none = (index == 0 && spec.hash_cap == 0) || (index == 2 && spec.cpu_percent == 0);
     match none {
@@ -129,7 +121,7 @@ impl Local {
                     WalletChoice::Shared => "local.wallet_shared",
                 };
                 chip(ui, cx.say(wallet), t.muted, t);
-                chip(ui, holding_name(cx, view.spec.holding), t.muted, t);
+                chip(ui, cx.say(view.spec.holding.key()), t.muted, t);
                 if let Some(ended) = &view.ended {
                     chip(ui, &cx.fill("local.ended", &[ended]), t.bad, t);
                 }
@@ -142,13 +134,17 @@ impl Local {
             }
             if let Some(status) = &view.status {
                 let ticker = cx.snap.node.coin.as_ref().map_or("", |coin| coin.ticker.as_str());
+                let (key, last) = match status.headers {
+                    Some(headers) => ("local.line_light", headers),
+                    None => ("local.line", status.blocks_mined),
+                };
                 let line = cx.fill(
-                    "local.line",
+                    key,
                     &[
                         &format::number(status.height.into()),
                         &status.peers.to_string(),
                         &format::coins(status.balance, ticker),
-                        &format::number(status.blocks_mined.into()),
+                        &format::number(last.into()),
                     ],
                 );
                 meta(ui, &line, t);
@@ -161,7 +157,8 @@ impl Local {
                     }
                     let mining = view.status.as_ref().is_some_and(|status| status.mining);
                     let key = if mining { "boards.stop_mining" } else { "boards.start_mining" };
-                    if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    let can_mine = view.spec.holding != Holding::Headers;
+                    if can_mine && button(ui, t, cx.say(key), Kind::Plain).clicked() {
                         cx.send(Command::NodeMining { id, on: !mining });
                     }
                     if button(ui, t, cx.say("local.pay_from"), Kind::Plain).clicked() {
@@ -281,7 +278,7 @@ impl Local {
             });
             ui.horizontal(|ui| {
                 let items = [Holding::Everything, Holding::Recent, Holding::Headers]
-                    .map(|holding| (holding, holding_name(cx, holding).to_string()));
+                    .map(|holding| (holding, cx.say(holding.key()).to_string()));
                 if let Some(holding) = segments(ui, t, &items, Some(form.holding)) {
                     form.holding = holding;
                     form.mining &= holding != Holding::Headers;
