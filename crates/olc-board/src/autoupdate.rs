@@ -1,6 +1,7 @@
 //! Keeps every trusted board on the build this program carries.
 use crate::control_key::config_folder;
 use crate::manager::Manager;
+use crate::Connection;
 use olc_control::BoardId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -83,11 +84,14 @@ fn next_board(
     attempts: &BTreeMap<BoardId, Attempts>,
 ) -> Option<BoardId> {
     let boards = manager.fleet.lock().ok()?.boards();
-    boards
+    let waiting = boards
         .iter()
         .filter(|board| board.online && board.beacon.trusts_a_key)
         .filter(|board| is_older(&board.beacon.build, carried))
-        .find(|board| attempts.get(&board.id).is_none_or(Attempts::may_try))
+        .filter(|board| attempts.get(&board.id).is_none_or(Attempts::may_try));
+    // Boards with a cable go first, because they are where a build proves itself.
+    waiting
+        .min_by_key(|board| !matches!(board.connection, Connection::Direct { .. }))
         .map(|board| board.id)
 }
 

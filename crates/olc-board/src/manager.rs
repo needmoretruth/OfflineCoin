@@ -1,10 +1,11 @@
 //! What a program that manages boards needs, whatever its face: the boards on the cables, the
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
+use crate::clearance::{deliver, Ledger, PORT_FOLDER, UNPROVEN};
 use crate::control_key::{config_folder, ControlKey};
 use crate::install::{app_image, install as install_board};
 use crate::journal::{Entry, Journal};
 use crate::pins::Pins;
-use crate::remote::{command, hash_of, send_image};
+use crate::remote::{command, hash_of};
 use crate::rom;
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
@@ -20,7 +21,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const PORT_FOLDER: &str = "/dev/serial/by-id";
 const PORT_MARK: &str = "Espressif";
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
@@ -399,7 +399,11 @@ impl Manager {
             eprintln!("update: {error}");
         }
         let done = result.is_ok();
-        self.set_job(&key, (!done).then(|| "update_failed".to_string()));
+        let failed = match &result {
+            Err(error) if error == UNPROVEN => "unproven",
+            _ => "update_failed",
+        };
+        self.set_job(&key, (!done).then(|| failed.to_string()));
         done
     }
 
@@ -413,7 +417,8 @@ impl Manager {
                 Some(format!("{:.0}%", f64::from(next) * 100.0 / total)),
             )
         };
-        send_image(&self.fleet, board, &image, hash_of(&image), &shown)?;
+        let ledger = Ledger::open(&config_folder()?);
+        let delivery = deliver(&self.fleet, &ledger, board, &image, hash_of(&image), &shown)?;
         self.set_job(key, Some("restarting".into()));
         let deadline = Instant::now() + RETURN_WAIT;
         thread::sleep(Duration::from_secs(5));
@@ -425,7 +430,8 @@ impl Manager {
                     .any(|seen| seen.id == board && seen.silent_for < Duration::from_secs(3))
             });
             if back.unwrap_or(false) {
-                return Ok(());
+                command(&self.fleet, board, "status")?;
+                return ledger.landed(&delivery);
             }
             thread::sleep(Duration::from_millis(500));
         }
