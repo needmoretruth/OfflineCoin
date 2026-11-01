@@ -1,10 +1,10 @@
 //! One pass of the board's work: move messages, mine a little, save, redraw.
+use crate::clock;
 use crate::control::{cable_is_busy, parse_key, Control, BUILD};
 use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
 use crate::store::{Settings, Store};
 use crate::usb::Commands;
-use crate::clock;
 use crate::views::{self, Coins, Info, Language, Note, State, View};
 use crate::wifi::Network;
 use alloc::collections::VecDeque;
@@ -43,6 +43,7 @@ const COIN_MINING_BATCH: u32 = 60;
 const COIN_ROWS_PER_TURN: usize = 2;
 /// The coin's frames a second on a board whose owner never chose.
 pub const DEFAULT_SMOOTH: u32 = 10;
+const RESTART_DELAY_MS: u64 = 300;
 /// Radio power on a board whose owner never chose, enough for one desk or one room.
 pub const DEFAULT_POWER_DBM: i8 = 5;
 const POWER_RANGE: core::ops::RangeInclusive<i8> = 2..=20;
@@ -121,6 +122,8 @@ pub struct Node {
     /// Whether the watchdog was running when this program got the chip.
     pub boot_watchdog: bool,
     pub clock_mhz: u32,
+    /// When to restart, so that the answer to the order leaves first.
+    pub restart_ms: Option<u64>,
     /// Time spent working in this second, and how much of the last second that was.
     pub busy_us: u64,
     pub busy_percent: u64,
@@ -161,6 +164,9 @@ pub struct Node {
 impl Node {
     /// Returns true when it did mining work, false when the caller may sleep.
     pub fn turn(&mut self) -> bool {
+        if self.restart_ms.is_some_and(|at| device_ms() >= at) {
+            esp_hal::system::software_reset();
+        }
         let now = device_ms();
         self.runner.step(now);
         self.serve_control(now);
@@ -486,7 +492,7 @@ impl Node {
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
     fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
         self.save(change);
-        esp_hal::system::software_reset();
+        self.restart_ms = Some(device_ms() + RESTART_DELAY_MS);
     }
 
     /// Prints what was drawn and what the panel's own memory holds, row by row.

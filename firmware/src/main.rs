@@ -83,7 +83,8 @@ async fn main(spawner: Spawner) -> ! {
     // What the steps before this program left behind. `init` turns the watchdog off.
     let boot_watchdog = LPWR::regs().wdtconfig0().read().wdt_en().bit_is_set();
     let clock_mhz = clock::running_mhz();
-    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(clock::cpu_clock(clock_mhz)));
+    let peripherals =
+        esp_hal::init(esp_hal::Config::default().with_cpu_clock(clock::cpu_clock(clock_mhz)));
 
     // A board with no cable has nobody to press its reset button. It restarts itself if it stops
     // before the radio is up, and the word below shows how far the stopped start got.
@@ -220,6 +221,7 @@ async fn main(spawner: Spawner) -> ! {
         bright,
         boot_watchdog,
         clock_mhz,
+        restart_ms: None,
         busy_us: 0,
         busy_percent: 0,
         smooth: settings.smooth.parse().unwrap_or(node::DEFAULT_SMOOTH),

@@ -5,8 +5,9 @@ use crate::store::Settings;
 use esp_hal::clock::CpuClock;
 use portable_atomic::{AtomicU32, Ordering};
 
-/// The slowest speed that holds the default hash cap with room to spare, and the coolest.
-pub const DEFAULT_MHZ: u32 = 80;
+/// The slowest speed that holds the default hash cap with room to spare on every screen.
+/// At 80 MHz a screen with the coin stays under the cap, with the processor always busy.
+pub const DEFAULT_MHZ: u32 = 160;
 /// Tells a saved wish from what power-on leaves in this memory.
 const MARK: u32 = 0x4F4C_0000;
 
