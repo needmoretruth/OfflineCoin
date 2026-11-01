@@ -15,6 +15,9 @@ pub const STEADY_MS: u64 = 30_000;
 /// a large payment stops a board's every link for seconds, and it comes back on the same one.
 /// Traffic moves at [`SILENT_MS`] when another link is alive, so waiting costs nothing.
 pub const CLOSE_MS: u64 = 15_000;
+/// A link to move to must have been heard this lately. A board that stalls goes quiet on every
+/// link, and the one it spoke on last would otherwise look alive for a moment longer.
+const FRESH_MS: u64 = 1_500;
 const MOST: usize = 32;
 /// The top byte of a neighbour's peer id. Link positions never reach it.
 const NEIGHBOUR: u32 = 0xFF << 24;
@@ -211,10 +214,13 @@ impl Neighbours {
         let by_rank = |path: &&Path| self.place(path.link);
         match one.active_path().filter(|path| path.is_live(now)) {
             // Moving away is at once, to whatever is alive. With nothing alive it stays put.
-            None => live().min_by_key(by_rank).map(|path| path.link).or_else(|| {
+            None => {
+                let fresh = |path: &&Path| now.saturating_sub(path.heard_ms) < FRESH_MS;
                 let kept = one.paths.iter().filter(|path| Some(path.link) == one.active);
-                kept.filter(|path| path.is_worth_keeping(now)).map(|path| path.link).next()
-            }),
+                let kept = kept.filter(|path| path.is_worth_keeping(now)).map(|path| path.link).next();
+                let best = |only_fresh: bool| live().filter(|path| !only_fresh || fresh(path)).min_by_key(by_rank);
+                best(true).map(|path| path.link).or(kept).or(best(false).map(|path| path.link))
+            }
             Some(active) => {
                 let steady = |path: &&Path| now.saturating_sub(path.steady_from_ms) >= STEADY_MS;
                 let better = live()
