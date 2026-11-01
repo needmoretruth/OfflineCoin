@@ -95,6 +95,10 @@ pub struct Settings {
     pub merge: String,
     /// Processor speed in MHz. Empty means the default.
     pub clock: String,
+    /// `on` starts Bluetooth. Empty means off.
+    pub bluetooth: String,
+    /// The order links are preferred in. Empty means the usual one.
+    pub links: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -230,12 +234,14 @@ impl Store {
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
             clock: lines.next().unwrap_or_default(),
+            bluetooth: lines.next().unwrap_or_default(),
+            links: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -248,6 +254,8 @@ impl Store {
             settings.bright,
             settings.own_network,
             settings.clock,
+            settings.bluetooth,
+            settings.links,
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(

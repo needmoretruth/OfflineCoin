@@ -30,7 +30,7 @@ esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
 esp-backtrace = { version = "0.20.0", features = ["esp32s3", "panic-handler", "println"] }
 esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
 portable-atomic = { version = "1", default-features = false }
-esp-radio = { version = "1.0.0-beta.1", features = ["esp-alloc", "esp-now", "esp32s3", "log-04", "unstable", "wifi"] }
+esp-radio = { version = "1.0.0-beta.1", features = ["ble", "coex", "esp-alloc", "esp-now", "esp32s3", "log-04", "unstable", "wifi"] }
 log = "0.4.27"
 embassy-executor = "0.10"
 embassy-time = "0.5"
@@ -40,6 +40,8 @@ edge-dhcp = { version = "0.8", features = ["io", "embassy-time"] }
 edge-nal = "0.7"
 edge-nal-embassy = "0.9"
 static_cell = "2"
+bt-hci = "0.9"
+trouble-host = { version = "0.7", default-features = false, features = ["central", "peripheral", "default-packet-pool", "scan"] }
 embedded-graphics = "0.8"
 esp-storage = { version = "0.10", features = ["esp32s3"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }

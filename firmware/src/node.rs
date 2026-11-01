@@ -11,7 +11,6 @@ use crate::wifi::Network;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
-use core::sync::atomic::Ordering;
 use esp_hal::gpio::Input;
 use esp_hal::time::Instant;
 use esp_println::println;
@@ -26,6 +25,9 @@ use olc_wallet::{format_address, parse_address};
 pub const LINK_RADIO: usize = 0;
 pub const LINK_USB: usize = 1;
 pub const LINK_WIFI: usize = 2;
+pub const LINK_WIRES: usize = 3;
+/// Only on a board that turned Bluetooth on.
+pub const LINK_BLUETOOTH: usize = 4;
 
 /// About 13 ms of work, short enough to answer the radio between batches.
 const MINING_BATCH: u32 = 200;
@@ -173,6 +175,7 @@ impl Node {
         }
         let now = device_ms();
         self.runner.step(now);
+        self.report_moves();
         self.serve_control(now);
         while let Some(line) = self.next_command() {
             self.run_command(&line);
@@ -440,9 +443,7 @@ impl Node {
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
-            (Some("espnow"), Some(state), _) => {
-                radio::ENABLED.store(state == "on", Ordering::Relaxed);
-            }
+            (Some("espnow" | "bluetooth" | "links" | "near" | "wires"), _, _) => self.run_links_command(line),
             (Some("pay"), Some(address), Some(amount)) => self.pay(address, amount),
             (Some("pool"), Some("clear"), _) => self.runner.engine.clear_pool(),
             (Some("tx"), Some(id), _) => self.print_tx(id),
@@ -517,7 +518,7 @@ impl Node {
 
     /// Says where a transaction is: at a height on the best chain, waiting, or nowhere.
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
-    fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
+    pub fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
         self.save(change);
         self.restart_ms = Some(device_ms() + RESTART_DELAY_MS);
     }
