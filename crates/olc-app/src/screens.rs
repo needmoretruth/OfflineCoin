@@ -255,7 +255,11 @@ fn each_node_is_the_kind_its_person_chose() {
     assert!(!status[0].mining, "a full node here only validates");
     assert!(status[1].mining);
     assert!(!status[2].mining);
-    assert!(status[0].height.abs_diff(status[2].height) <= MOST_BLOCKS_BEHIND);
+    wait_until(&mut harness, |app| {
+        let local = &app.snapshot().local;
+        let height = |index: usize| local[index].status.as_ref().map_or(0, |status| status.height);
+        height(0).abs_diff(height(2)) <= MOST_BLOCKS_BEHIND
+    });
     if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
         harness.state_mut().open("page.local");
         shot(&mut harness, &folder, "scene-kinds");
@@ -313,6 +317,8 @@ fn a_note_and_a_key_go_through_the_window() {
     wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
 
     let backup = root.join("wallet.backup");
+    harness.set_size(egui::vec2(1280.0, 1400.0));
+    harness.run_steps(SETTLE_STEPS);
     // Export path, watched address, then backup path. The password and the import are hidden.
     type_into(&mut harness, 2, backup.to_str().unwrap());
     type_secret(&mut harness, 1, "a long password");
