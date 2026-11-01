@@ -29,6 +29,7 @@ olc-node.workspace = true
 olc-pool.workspace = true
 olc-pow.workspace = true
 olc-store.workspace = true
+getrandom = "0.3"
 olc-wallet.workspace = true
 postcard.workspace = true
 serde.workspace = true

@@ -4,6 +4,7 @@ use crate::settings::Settings;
 use olc_board::Args;
 use olc_control::BoardId;
 use olc_core::CoinConfig;
+use olc_node::Rank;
 
 /// Which coin the first screen settled on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,6 +39,7 @@ pub enum Personal {
     SetMineNote(String),
     SetRecent(Option<u64>),
     SetMerging(bool),
+    SetLinks(Rank),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),
@@ -59,6 +61,8 @@ pub enum Command {
         amount: String,
     },
     AddAddress(String),
+    /// The order links are preferred in, here and on the boards.
+    SetLinks(Rank),
     Rescan,
     BoardLine {
         id: BoardId,

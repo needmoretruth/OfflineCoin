@@ -49,11 +49,7 @@ fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
 }
 
 fn connection(cx: &Cx, board: &BoardView) -> String {
-    match &board.reach {
-        Reach::Usb => cx.say("reach.usb").into(),
-        Reach::Radio(Some(through)) => cx.fill("reach.radio_through", &[through]),
-        _ => cx.say("reach.radio").into(),
-    }
+    super::network::reach_text(cx, &board.reach)
 }
 
 /// A job is a word from the manager, or how far an update got.
@@ -214,6 +210,14 @@ impl Boards {
                 }
             }
             meta(ui, cx.say("boards.wifi_note"), t);
+        });
+        labelled(ui, cx.say("boards.bluetooth"), |ui| {
+            for (key, line) in [("boards.wifi_on", "bluetooth on"), ("boards.wifi_off", "bluetooth off")] {
+                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    Self::line(cx, id, line.into());
+                }
+            }
+            meta(ui, cx.say("boards.bluetooth_note"), t);
         });
         labelled(ui, cx.say("boards.name"), |ui| {
             field(ui, &mut self.name, cx.say("boards.name"), 200.0);

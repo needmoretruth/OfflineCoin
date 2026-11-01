@@ -6,6 +6,7 @@ use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
 use olc_board::Seen;
 use olc_core::{CoinConfig, Hash};
+use olc_node::Rank;
 
 #[derive(Clone, Debug, Default)]
 pub struct NodeView {
@@ -38,6 +39,7 @@ pub struct NodeView {
     pub miner_is_chosen: bool,
     pub mine_note: String,
     pub merging: bool,
+    pub links: Rank,
     /// The oldest block whose body is here.
     pub oldest: u64,
     pub recent: Option<u64>,

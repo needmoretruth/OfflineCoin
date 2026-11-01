@@ -202,7 +202,7 @@ fn sort_key(entry: &Entry) -> (u8, String) {
         Reach::ThisApp => 0,
         Reach::ThisComputer => 1,
         Reach::Usb => 2,
-        Reach::Radio(_) => 3,
+        Reach::Radio(_) | Reach::Link(..) => 3,
         Reach::Lan => 4,
         Reach::Internet => 5,
     };

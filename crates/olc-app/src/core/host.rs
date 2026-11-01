@@ -5,7 +5,7 @@ use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened, Plugins};
 use olc_link_tcp::{TcpControl, TcpLink};
-use olc_node::{Card, Engine, Hello, Runner};
+use olc_node::{Card, Engine, Hello, Rank, Runner};
 use olc_pow::ProofOfWork;
 use olc_store::{load_wallet, open_chain, NodeSettings};
 use olc_wallet::{format_address, parse_address, WalletError};
@@ -103,6 +103,13 @@ pub struct Host {
     pub port: Option<u16>,
 }
 
+/// What this run goes by on the links. Nothing about it needs to last.
+fn fresh_id() -> Result<u64, String> {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
 fn plugins() -> Plugins {
     Plugins {
         consensus: Box::new(ProofOfWork),
@@ -141,6 +148,7 @@ impl Host {
         let port = listen_somewhere(&tcp, &plan);
         let control = tcp.control();
         let mut runner = Runner::new(engine);
+        runner.set_id(fresh_id()?);
         runner.card = Card {
             port: port.unwrap_or(0),
             ..plan.card.clone()
@@ -267,8 +275,14 @@ impl Host {
         }
     }
 
+    /// Keeps a way to reach a node. The node dials it when nothing else reaches that node.
     pub fn connect(&self, address: String) {
-        self.tcp.connect(address);
+        if let (Ok(mut runner), Some(rank)) = (self.runner.lock(), Rank::parse(&settings.links)) {
+            runner.set_rank(rank);
+        }
+        if let Ok(mut runner) = self.runner.lock() {
+            runner.add_address(TCP_LINK, address);
+        }
     }
 
     /// Pays at the lowest fee the coin allows.
@@ -448,11 +462,15 @@ impl Worker {
         self.history = History::default();
         self.last_tip = [0; 32];
         self.tcp.drop_peers();
+        if let (Ok(mut runner), Some(rank)) = (self.runner.lock(), Rank::parse(&settings.links)) {
+            runner.set_rank(rank);
+        }
         if let Ok(mut runner) = self.runner.lock() {
             runner.set_engine(engine);
-        }
-        for peer in switch.peers {
-            self.tcp.connect(peer);
+            runner.forget_addresses();
+            for peer in switch.peers {
+                runner.add_address(TCP_LINK, peer);
+            }
         }
     }
 
@@ -501,8 +519,7 @@ impl Worker {
             height: status.height,
             work: status.work,
             difficulty: status.difficulty,
-            // The engine remembers every peer it has heard. This counts those still connected.
-            peers: self.tcp.count() + status.peers.saturating_sub(runner.peers_on(0)),
+            peers: runner.neighbour_count(),
             pool: status.pool,
             hashrate: self.state.hashrate.load(Ordering::Relaxed),
             cap: self.state.cap.load(Ordering::Relaxed),
@@ -523,6 +540,7 @@ impl Worker {
             miner_is_chosen: engine.miner_is_chosen(),
             mine_note: text_of(engine.note()),
             merging: engine.merging(),
+            links: runner.rank(),
             oldest: held.oldest,
             recent: held.recent,
             fits: held.fits,

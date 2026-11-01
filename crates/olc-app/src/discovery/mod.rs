@@ -5,7 +5,8 @@ mod probe;
 mod sweep;
 mod udp;
 
-pub use group::{group, ChainGroup, CoinGroup, Entry, Identity, Relation, Work};
+pub use olc_node::Medium;
+use group::{group, ChainGroup, CoinGroup, Entry, Identity, Relation, Work};
 pub use probe::ask;
 pub use sweep::{Scanner, ScanPlan};
 pub use udp::Shout;
@@ -20,6 +21,8 @@ pub enum Reach {
     Usb,
     /// By radio, through the named board when known.
     Radio(Option<String>),
+    /// By this kind of link, through the named board when known.
+    Link(Medium, Option<String>),
     Lan,
     Internet,
 }
