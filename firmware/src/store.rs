@@ -65,7 +65,7 @@ pub struct Settings {
     pub power: String,
     /// The panel's contrast. Empty means the owner never chose.
     pub bright: String,
-    /// `on` brings up the board's own network. Empty means down.
+    /// `off` keeps the board's own network down. Empty means up.
     pub own_network: String,
     /// Processor speed in MHz. Empty means the default.
     pub clock: String,

@@ -220,11 +220,10 @@ pub fn start(
     let access_point = AccessPointConfig::default()
         .with_ssid(name)
         .with_channel(CHANNEL);
-    // Boards reach each other without it, and its beacons warm the chip by two degrees.
-    let config = if settings.own_network == "on" {
-        Config::AccessPointStation(station, access_point)
-    } else {
+    let config = if settings.own_network == "off" {
         Config::Station(station)
+    } else {
+        Config::AccessPointStation(station, access_point)
     };
     controller
         .set_config(&config)
@@ -275,10 +274,10 @@ pub fn start(
         }
     }
     let network = Network {
-        own_name: if settings.own_network == "on" {
-            own_name.into()
-        } else {
+        own_name: if settings.own_network == "off" {
             Default::default()
+        } else {
+            own_name.into()
         },
         router,
         joins_router,
