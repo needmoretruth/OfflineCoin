@@ -2,13 +2,13 @@
 use crate::app::App;
 use crate::{coinfile, web, window};
 use olc_board::{autoupdate, carried, Args};
-use olc_core::Plugins;
+use olc_core::{CoinConfig, Plugins};
 use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
 use olc_node::{Card, Engine, Event, Runner};
 use olc_pow::ProofOfWork;
-use olc_store::{load_or_create_secret, Store};
-use olc_wallet::Wallet;
+use olc_store::{load_wallet, open_chain, NodeSettings};
+use olc_wallet::parse_address;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -81,20 +81,7 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
     let web_port: u16 = args.number("web", default_web)?;
     let hash_limit = chosen_limit(args, &directory)?;
 
-    let secret = load_or_create_secret(&directory)?;
-    let wallet = Wallet::from_secret(secret).map_err(|_| "The key file holds a bad key")?;
-    let plugins = Plugins {
-        consensus: Box::new(ProofOfWork),
-        languages: olc_lang::all(),
-    };
-    let mut engine = Engine::new(coin, plugins, wallet);
-    let (mut store, saved) = Store::open(&directory)?;
-    engine.begin_restoring();
-    for block in saved {
-        engine.restore_block(block);
-    }
-    engine.finish_restoring(|_, _| {});
-
+    let engine = open_engine(&directory, coin)?;
     let mut runner = Runner::new(engine);
     let tcp = TcpLink::new();
     let listen_on = if app.is_some() { host } else { "0.0.0.0" };
@@ -153,8 +140,24 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         }
         None => println!("http://127.0.0.1:{web_port}"),
     }
-    main_loop(&shared, &mut store);
+    main_loop(&shared);
     Ok(())
+}
+
+/// Opens the chain and wallet in `directory` and applies what the owner chose for this node.
+fn open_engine(directory: &Path, coin: CoinConfig) -> Result<Engine, String> {
+    let wallet = load_wallet(directory)?;
+    let plugins = Plugins {
+        consensus: Box::new(ProofOfWork),
+        languages: olc_lang::all(),
+    };
+    let chain = open_chain(directory, coin, plugins, None)?;
+    let mut engine = Engine::on_chain(chain, wallet);
+    let settings = NodeSettings::load(directory);
+    engine.set_miner(settings.miner.as_deref().and_then(parse_address));
+    engine.set_note(settings.note.as_bytes());
+    engine.set_merging(!settings.no_merge);
+    Ok(engine)
 }
 
 /// The cap to start with: this run's flag, then the saved choice, then the relaxed default.
@@ -198,7 +201,7 @@ fn measure_full_rate() -> u64 {
     u64::from(ROUNDS) * 1_000_000 / micros
 }
 
-fn main_loop(shared: &Shared, store: &mut Store) {
+fn main_loop(shared: &Shared) {
     let mut window = Instant::now();
     let mut hashes = 0u64;
     loop {
@@ -222,9 +225,6 @@ fn main_loop(shared: &Shared, store: &mut Store) {
                 app.pump(&mut runner);
             }
             record_events(shared, &mut runner.engine);
-            while let Some(block) = runner.engine.take_fresh_block() {
-                store.append(&block);
-            }
         }
         if elapsed_ms >= 1_000 {
             shared

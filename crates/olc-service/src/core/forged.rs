@@ -46,6 +46,9 @@ impl FleetPort for Listening {
     fn run_line(&self, _board: BoardId, _line: &str) -> Result<(), LineError> {
         Ok(())
     }
+    fn ask(&self, _board: BoardId, _line: &str) -> Result<Option<String>, LineError> {
+        Ok(None)
+    }
     fn start_update(&self, _board: BoardId) {}
     fn start_install(&self, _path: &str, _name: &str) -> bool {
         false

@@ -14,11 +14,12 @@ members = [
     "crates/olc-board",
     "crates/olc-lab",
     "crates/olc-cli",
+    "crates/olc-pool",
     "crates/olc-store",
     "crates/olc-app",
 ]
 # The firmware targets Xtensa and has its own workspace.
-exclude = ["firmware"]
+exclude = ["firmware", "crates/olc-compat"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,6 +40,7 @@ olc-link-tcp = { path = "crates/olc-link-tcp" }
 olc-link-serial = { path = "crates/olc-link-serial" }
 olc-board = { path = "crates/olc-board" }
 olc-lab = { path = "crates/olc-lab" }
+olc-pool = { path = "crates/olc-pool" }
 olc-store = { path = "crates/olc-store" }
 olc-platform = { path = "crates/olc-platform" }
 olc-service = { path = "crates/olc-service" }

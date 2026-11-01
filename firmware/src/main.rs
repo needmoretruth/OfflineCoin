@@ -5,7 +5,9 @@
 extern crate alloc;
 
 mod clock;
+mod commands;
 mod control;
+mod flash;
 mod hangul;
 mod node;
 mod pages;
@@ -40,11 +42,11 @@ use esp_println::println;
 use esp_storage::FlashStorage;
 use node::Node;
 use olc_control::bootlog::Stage;
-use olc_core::{CoinConfig, Plugins};
+use olc_core::{Chain, CoinConfig, Plugins};
 use olc_crypto::Signer;
 use olc_node::{Engine, Runner};
 use olc_pow::ProofOfWork;
-use olc_wallet::{format_address, Wallet};
+use olc_wallet::{format_address, parse_address, Wallet};
 use radio::RadioLink;
 use screen::Screen;
 use store::Store;
@@ -93,7 +95,8 @@ async fn main(spawner: Spawner) -> ! {
     rtc.rwdt
         .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
     rtc.rwdt.enable();
-    let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
+    flash::give(FlashStorage::new(peripherals.FLASH));
+    let mut store = Store::default();
     let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
     store.begin_boot(reset);
 
@@ -132,7 +135,7 @@ async fn main(spawner: Spawner) -> ! {
     let panel_ms = node::device_ms();
     store.reach(Stage::Panel);
 
-    let coin = CoinConfig::olc();
+    let coin = store.coin().unwrap_or_else(CoinConfig::olc);
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let name = own_network_name();
     let power_dbm = settings.power.parse().unwrap_or(node::DEFAULT_POWER_DBM);
@@ -148,39 +151,44 @@ async fn main(spawner: Spawner) -> ! {
     store.reach(Stage::Radio);
     rtc.rwdt.disable();
 
-    let secret = store.secret(&coin.genesis().id(), || {
+    let (secrets, receiving) = store.keys(|| {
         // The radio is on, so this is true hardware randomness.
         let mut secret = [0u8; 32];
         Rng::new().read(&mut secret);
         secret
     });
-    let wallet = Wallet::from_secret(secret).expect("a random key is valid");
-    let signer = Signer::new(&secret).expect("a random key is valid");
+    let wallet = Wallet::from_secrets(&secrets, receiving).expect("saved keys are valid");
+    let secret = secrets[receiving.min(secrets.len() - 1)];
+    let signer = Signer::new(&secret).expect("a saved key is valid");
     let plugins = Plugins {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),
     };
-    let mut engine = Engine::new(coin, plugins, wallet);
-    let blocks = store.load_blocks();
+    let old_blocks = store.old_blocks(&coin.genesis().id());
+    let keep = store.keep(settings.recent.parse().ok());
     let read_ms = node::device_ms();
+    let chain = Chain::open(coin, plugins, keep);
+    let mut engine = Engine::on_chain(chain, wallet);
+    engine.set_miner(parse_address(&settings.miner));
+    engine.set_note(&commands::note_bytes(&settings.note));
+    engine.set_merging(settings.merge != "off");
     store.reach(Stage::ChainRead);
-    let total = blocks.len();
+    let placed_ms = node::device_ms();
+    let total = old_blocks.len();
     let mut frame_ms = 0;
-    let mut show = |coins: &mut Coins, done: usize, total: usize| {
+    for (done, block) in old_blocks.into_iter().enumerate() {
+        let _ = engine.chain_mut().add_block(block);
         coins.work_on_logo(LOAD_COIN_ROWS);
         let now = node::device_ms();
         if now >= frame_ms {
             frame_ms = now + LOAD_FRAME_MS;
-            views::loading(&mut screen, coins, now, done, total);
+            views::loading(&mut screen, &coins, now, done, total);
         }
-    };
-    engine.begin_restoring();
-    for (done, block) in blocks.into_iter().enumerate() {
-        engine.restore_block(block);
-        show(&mut coins, done, total * 2);
     }
-    let placed_ms = node::device_ms();
-    engine.finish_restoring(|done, path| show(&mut coins, path + done, path * 2));
+    store.forget_old_blocks();
+    if total > 0 {
+        engine.chain_mut().save_now();
+    }
     let loaded_ms = node::device_ms();
     store.reach(Stage::ChainLoaded);
     println!(
@@ -237,6 +245,8 @@ async fn main(spawner: Spawner) -> ! {
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
         mining: true,
+        work: None,
+        waiting_coin: None,
         limit: limit.unwrap_or(node::RELAXED_LIMIT),
         limit_chosen: limit.is_some(),
         memory_full: false,

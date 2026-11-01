@@ -2,7 +2,7 @@
 //! real core. Node processes in the pictures are real, and a real board appears only in a real
 //! window, so these leave USB alone.
 use crate::app::App;
-use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Snapshot};
+use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Host, Plan, Snapshot};
 use crate::discovery::Entry;
 use crate::i18n::Lang;
 use crate::local::{is_running, NodeSpec, Preset, Supervisor};
@@ -10,7 +10,8 @@ use crate::settings::{Device, Paths, Settings, Theme};
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
-use olc_core::CoinConfig;
+use olc_core::{CoinConfig, FEWEST_RECENT};
+use olc_node::Card;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -107,15 +108,17 @@ fn node_program() -> PathBuf {
     program
 }
 
+/// Long enough for a password's hash on a busy computer without optimisation.
+#[track_caller]
 fn wait_until(harness: &mut Harness<'static, App>, mut done: impl FnMut(&App) -> bool) {
-    for _ in 0..200 {
+    for _ in 0..600 {
         harness.run_steps(1);
         if done(harness.state()) {
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    panic!("waited 20 s");
+    panic!("waited 60 s");
 }
 
 /// A new node first reports after its first second.
@@ -196,6 +199,134 @@ fn the_first_run_starts_real_node_processes() {
         std::thread::sleep(Duration::from_millis(300));
     }
     assert!(heights.len() > 1, "the chain never moved");
+}
+
+/// The owner's scene: a note goes into a block and shows in the explorer, and a second key is made,
+/// backed up and restored, all by clicking in the window on a real node.
+#[test]
+fn a_note_and_a_key_go_through_the_window() {
+    let root = scratch("scene");
+    let mut coin = CoinConfig::olc();
+    coin.name = "Scene".into();
+    coin.ticker = "SCN".into();
+    coin.initial_difficulty = 200;
+    save_coin(&Paths { root: root.clone() }, &coin).unwrap();
+    let mut settings = quiet_settings();
+    settings.coin = Some(coin_folder(&coin));
+    settings.device = Device::ThisComputer;
+    settings.mine_on_start = true;
+    settings.port = 7330;
+    let window = app(root.clone(), settings, Some(node_program()));
+    let mut harness = harness(window, SIZES[0]);
+    harness.state_mut().settings_mut().language = Lang::En;
+
+    harness.state_mut().open("page.keys");
+    wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 1);
+    harness.run_steps(2);
+    harness.get_by_label("Make a new key").click();
+    wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 2);
+    harness.run_steps(2);
+    harness.get_by_label("Receive here").click();
+    wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
+
+    let backup = root.join("wallet.backup");
+    type_into(&mut harness, 2, backup.to_str().unwrap());
+    type_into(&mut harness, 3, "a long password");
+    harness.get_by_label("Back up").click();
+    wait_until(&mut harness, |_| backup.exists());
+    type_into(&mut harness, 3, "a long password");
+    harness.get_by_label("Restore").click();
+    wait_until(&mut harness, |app| {
+        app.snapshot().notice.as_ref().is_some_and(|notice| notice.key == "notice.restored")
+    });
+    let file = std::fs::read_to_string(&backup).unwrap();
+    assert!(!file.contains("\"keys\""), "a password hides the keys");
+
+    harness.state_mut().open("page.explorer");
+    wait_until(&mut harness, |app| app.snapshot().node.height > 2);
+    harness.run_steps(2);
+    type_into(&mut harness, 1, "written by hand");
+    harness.get_by_label("Send").click();
+    wait_until(&mut harness, |app| {
+        app.snapshot().node.notes.iter().any(|note| note.text == "written by hand")
+    });
+    harness.run_steps(SETTLE_STEPS);
+    assert!(harness.query_all_by_label_contains("written by hand").next().is_some());
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-explorer");
+    }
+}
+
+/// A real node that mined `blocks` and dropped all but the fewest recent ones.
+fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
+    let host = Host::start(
+        Plan {
+            coin: coin.clone(),
+            folder: root.join("chain"),
+            wallet_folder: root.join("wallet"),
+            bind_host: "127.0.0.1".into(),
+            port,
+            port_tries: 1,
+            peers: Vec::new(),
+            cap: 0,
+            mining: false,
+            card: Card::default(),
+            storage: None,
+        },
+        None,
+    )
+    .unwrap();
+    host.set_recent(Some(FEWEST_RECENT)).unwrap();
+    let block_time = coin.rules.block_time_ms;
+    for _ in 0..blocks {
+        let mut runner = host.runner.lock().unwrap();
+        let now = runner.engine.chain().tip_header().time_ms + block_time;
+        while !runner.engine.mine(100_000, now) {}
+    }
+    // Nothing a boot still reads is dropped, so the state is saved first, as a tick would.
+    let mut runner = host.runner.lock().unwrap();
+    runner.engine.chain_mut().save_now();
+    runner.engine.chain_mut().set_recent(Some(FEWEST_RECENT));
+    assert!(runner.engine.chain().held().oldest > 1);
+    drop(runner);
+    host
+}
+
+/// Nobody holds the first blocks, so the node asks, and goes on only after the person says yes.
+#[test]
+fn a_snapshot_waits_for_the_person_in_the_window() {
+    let root = scratch("history");
+    let mut coin = CoinConfig::olc();
+    coin.name = "Cut".into();
+    coin.ticker = "CUT".into();
+    coin.initial_difficulty = 16;
+    let peer = pruned_peer(&root.join("peer"), &coin, 7340, 700);
+    let tip = peer.view().height;
+
+    let app_root = root.join("app");
+    save_coin(&Paths { root: app_root.clone() }, &coin).unwrap();
+    let mut settings = quiet_settings();
+    settings.coin = Some(coin_folder(&coin));
+    settings.device = Device::ThisComputer;
+    settings.mine_on_start = false;
+    settings.port = 7341;
+    settings.peers = vec!["127.0.0.1:7340".into()];
+    let mut harness = harness(app(app_root, settings, Some(node_program())), SIZES[0]);
+    harness.state_mut().settings_mut().language = Lang::En;
+    harness.state_mut().open("page.network");
+    wait_until(&mut harness, |app| app.snapshot().node.needs_history.is_some());
+    assert_eq!(harness.state().snapshot().node.height, 0, "nothing moves without a yes");
+    harness.run_steps(SETTLE_STEPS);
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-history");
+    }
+    harness.get_by_label("Trust this peer").click();
+    wait_until(&mut harness, |app| app.snapshot().node.height >= tip);
+    assert!(harness.state().snapshot().node.assumed_from.is_some());
+    harness.run_steps(SETTLE_STEPS);
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-history-after");
+    }
 }
 
 /// A coin running on this computer is found, and picking it needs no file.

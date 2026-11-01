@@ -3,7 +3,7 @@
 use crate::hello::Hello;
 use alloc::vec::Vec;
 use olc_core::{Block, Hash, Tx};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Message {
@@ -15,8 +15,9 @@ pub enum Message {
         height: u64,
         work: u128,
     },
-    /// Asks for the blocks after the newest of these the peer also has.
-    GetBlocks(Vec<Hash>),
+    /// Asks for the blocks after the newest of these the peer also has. Older builds read the ids
+    /// and stop there, so the heights come last and may be missing.
+    GetBlocks(Vec<Hash>, Heights),
     Block(Block),
     Tx(Tx),
     /// Running boards from afar. Carried for whoever reads it; the chain ignores it.
@@ -25,6 +26,29 @@ pub enum Message {
     Who,
     /// The answer to [`Message::Who`].
     Hello(alloc::boxed::Box<Hello>),
+    /// This peer no longer holds the blocks that were asked for. `oldest` is its first one.
+    Pruned { oldest: u64 },
+    /// Asks for part of a peer's unspent set. Only ever sent because a person chose to.
+    GetSnapshot { part: u32 },
+    /// One part of a snapshot, about a kilobyte, whatever the transport.
+    SnapshotPart {
+        height: u64,
+        /// Hash of the whole snapshot.
+        sum: Hash,
+        part: u32,
+        parts: u32,
+        bytes: Vec<u8>,
+    },
+}
+
+/// The height of each id in a request. Empty when an older build asked.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Heights(pub Vec<u64>);
+
+impl<'de> Deserialize<'de> for Heights {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        Ok(Self(Vec::deserialize(reader).unwrap_or_default()))
+    }
 }
 
 impl Message {

@@ -6,21 +6,22 @@ use super::coins::{
 use super::board_lines::{read_bright, run_line, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
+use super::host::{full_rate, Host, PayError, Plan};
+use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
-use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
 use super::rows::{
     board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
 use super::returning::{is_returning, Returning};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
-use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
+use crate::discovery::{group, Identity, Scanner, Shout};
 use crate::fleet::{BoardRow, CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
-use olc_node::{Card, Hello};
+use olc_node::Card;
 use olc_wallet::WalletError;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -86,6 +87,8 @@ fn bind_host(settings: &Settings) -> String {
 /// Notices from threads the service started: key, detail, and whether it went well.
 pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
+mod listen;
+
 struct Service {
     paths: Paths,
     settings: Settings,
@@ -103,6 +106,7 @@ struct Service {
     notices: Arc<AtomicU64>,
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
+    pool: PoolSeat,
     out: Arc<Mutex<Arc<Snapshot>>>,
 }
 
@@ -160,6 +164,7 @@ impl Service {
             notice: None,
             notices: Arc::default(),
             late: Arc::default(),
+            pool: PoolSeat::default(),
             out,
         };
         Ok(service)
@@ -208,6 +213,12 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
+            Command::Own(order) => {
+                let (key, detail, good) = self.host.obey(order);
+                if !key.is_empty() {
+                    self.say(key, detail, good);
+                }
+            }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => {
                 self.settings.take_choices(&settings);
@@ -237,6 +248,13 @@ impl Service {
                 if let Some(fleet) = &self.fleet {
                     fleet.start_update(id);
                 }
+            }
+            Command::MoveBoard(id) => {
+                let coin = current_coin(&self.paths, &self.settings);
+                let bytes = postcard::to_allocvec(&coin).unwrap_or_default();
+                let text: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                self.board_line(id, format!("coin {text}"));
+                self.board_line(id, "coin confirm".into());
             }
             Command::InstallBoard { path, name } => {
                 let started = self
@@ -304,6 +322,25 @@ impl Service {
                 let word = if on { "on" } else { "off" };
                 let _ = self.local.send(id, &format!("mine {word}"));
             }
+            Command::NodeMiner { id, to } => {
+                let target = if to.trim().is_empty() { "own" } else { to.trim() };
+                let _ = self.local.send(id, &format!("mineto {target}"));
+            }
+            Command::StartPool {
+                share_difficulty,
+                nodes,
+                boards,
+            } => {
+                let specs = self.settings.nodes.clone();
+                let start = PoolStart {
+                    share_difficulty,
+                    specs: &specs,
+                    nodes: &nodes,
+                    boards: &boards,
+                };
+                self.pool.start(&self.host, &mut self.local, self.fleet.as_ref(), &start);
+            }
+            Command::StopPool => self.pool.stop(&mut self.local, self.fleet.as_ref()),
             Command::NodePay { id, to, amount } => {
                 let _ = self.local.send(id, &format!("pay {} {}", to.trim(), amount.trim()));
             }
@@ -439,80 +476,6 @@ impl Service {
         }
     }
 
-    fn plan_scan(&self) {
-        let mut addresses = self.found.addresses();
-        addresses.extend(self.settings.added.iter().cloned());
-        addresses.extend(self.settings.book.iter().cloned());
-        addresses.extend(self.settings.peers.iter().cloned());
-        self.scanner.set_plan(ScanPlan {
-            lan: self.settings.scan_lan,
-            ports: self.settings.scan_ports.clone(),
-            addresses,
-        });
-    }
-
-    fn take_answer(&mut self, address: &str, hello: Hello) {
-        for (passed, via) in self.found.heard(address, hello) {
-            self.found.passed_on(&passed, &via);
-            self.settings.remember(&passed);
-        }
-    }
-
-    /// Takes in everything heard since the last round.
-    fn listen(&mut self) {
-        let before = self.found.addresses().len();
-        for (address, hello) in self.scanner.take_found() {
-            self.take_answer(&address, hello);
-        }
-        self.scanner.take_silent();
-        for (from, hello) in self.host.take_heard() {
-            match from {
-                HeardFrom::Network(ip) if hello.card.port != 0 => {
-                    self.take_answer(&format!("{ip}:{}", hello.card.port), hello);
-                }
-                HeardFrom::Network(_) => {}
-                HeardFrom::Board => self.found.board_said(hello),
-            }
-        }
-        for (from, hello) in self.shout.take_heard() {
-            if hello.card.port != 0 {
-                self.take_answer(&format!("{}:{}", from.ip(), hello.card.port), hello);
-            }
-        }
-        self.found.forget_old();
-        if self.found.addresses().len() != before {
-            self.plan_scan();
-        }
-        self.host.set_known(self.found.reachable());
-        let shout = self.settings.broadcast.then(|| self.own_hello()).flatten();
-        self.shout.set_me(shout);
-        let late = self.late.lock().map(|mut late| std::mem::take(&mut *late));
-        for (key, detail, good) in late.unwrap_or_default() {
-            self.say(key, detail, good);
-        }
-        for (id, answer) in self.local.take_answers() {
-            match (answer.paid, answer.error) {
-                (Some(_), _) => self.say("notice.node_paid", id.to_string(), true),
-                (_, Some(error)) => self.say("notice.pay_failed", error, false),
-                _ => {}
-            }
-        }
-        self.local.reap();
-    }
-
-    fn own_hello(&self) -> Option<Hello> {
-        let runner = self.host.runner.try_lock().ok()?;
-        let chain = runner.engine.chain();
-        Some(Hello {
-            coin: chain.config().clone(),
-            tip: chain.tip(),
-            height: chain.height(),
-            work: chain.total_work(),
-            address: runner.engine.address(),
-            card: runner.card.clone(),
-        })
-    }
-
     fn publish(&mut self) {
         let node = self.host.view();
         let identity = node.coin.clone().map(Identity::of);
@@ -578,6 +541,7 @@ impl Service {
                 age_secs: self.scanner.age().map(|age| age.as_secs()),
             },
             experiment: ExperimentView { lines, running },
+            pool: self.pool.view(),
             notice: self.notice.clone(),
             usb: self.usb,
             full_rate: self.full_rate,

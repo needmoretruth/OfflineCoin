@@ -1,13 +1,16 @@
 //! Every number and choice the app starts from.
 use super::{Cx, Page};
-use crate::core::Command;
+use crate::core::{Command, Personal};
 use crate::i18n::Lang;
 use crate::settings::{Device, Theme};
+use crate::ui::format;
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, card, field, meta, mono, number_field, section, segments, switch_row};
-use crate::ui::widgets::Kind;
+use crate::ui::widgets::{
+    self, button, card, field, meta, mono, number_field, section, segments, switch_row, Kind,
+};
 use crate::ui::Icon;
 use egui::Ui;
+use olc_core::FEWEST_RECENT;
 
 pub fn device_name(device: Device) -> &'static str {
     match device {
@@ -22,6 +25,7 @@ pub fn device_name(device: Device) -> &'static str {
 #[derive(Default)]
 pub struct SettingsPage {
     ports: String,
+    recent: u64,
 }
 
 fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
@@ -131,6 +135,43 @@ impl SettingsPage {
     }
 }
 
+impl SettingsPage {
+    /// How much of the chain this node keeps. Nothing about it changes the coin.
+    fn storage(&mut self, cx: &Cx, ui: &mut Ui) {
+        let t = cx.t;
+        let node = &cx.snap.node;
+        section(ui, cx.say("storage.title"));
+        let held = format::number(node.oldest.into());
+        meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
+        if let Some(fits) = node.fits {
+            meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+        }
+        let mut keep_all = node.recent.is_none();
+        if switch_row(ui, t, &mut keep_all, cx.say("storage.all")) {
+            let recent = (!keep_all).then_some(self.recent.max(FEWEST_RECENT));
+            cx.send(Command::Own(Personal::SetRecent(recent)));
+        }
+        if !keep_all {
+            if self.recent == 0 {
+                self.recent = node.recent.unwrap_or(FEWEST_RECENT);
+            }
+            labelled(ui, cx.say("storage.blocks"), |ui| {
+                number_field(ui, &mut self.recent, 120.0);
+                if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
+                    cx.send(Command::Own(Personal::SetRecent(Some(self.recent))));
+                }
+            });
+        }
+        let mut merging = node.merging;
+        if switch_row(ui, t, &mut merging, cx.say("storage.merge")) {
+            cx.send(Command::Own(Personal::SetMerging(merging)));
+        }
+        if node.rebuilt {
+            meta(ui, cx.say("storage.rebuilt"), t);
+        }
+    }
+}
+
 impl Page for SettingsPage {
     fn title(&self) -> &'static str {
         "page.settings"
@@ -153,6 +194,8 @@ impl Page for SettingsPage {
         card(ui, t, |ui| Self::data(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.network(cx, ui));
+        ui.add_space(tokens::GAP);
+        card(ui, t, |ui| self.storage(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| {
             section(ui, cx.say("settings.setup"));

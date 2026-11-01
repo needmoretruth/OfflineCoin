@@ -16,7 +16,35 @@ pub enum StartCoin {
     },
 }
 
+/// What a person changes on this app's own node.
+pub enum Personal {
+    NewKey,
+    ImportKey(String),
+    UseKey(usize),
+    ExportKey {
+        index: usize,
+        path: String,
+    },
+    BackUp {
+        path: String,
+        password: Option<String>,
+    },
+    Restore {
+        path: String,
+        password: Option<String>,
+    },
+    /// Empty goes back to this node's own key.
+    SetMiner(String),
+    SetMineNote(String),
+    SetRecent(Option<u64>),
+    SetMerging(bool),
+    WriteNote(String),
+    AcceptSnapshot,
+    Explore(String),
+}
+
 pub enum Command {
+    Own(Personal),
     FinishSetup(Box<Settings>, StartCoin),
     /// Saves the settings and applies what can change at once.
     Save(Box<Settings>),
@@ -38,6 +66,8 @@ pub enum Command {
         line: String,
     },
     UpdateBoard(BoardId),
+    /// Puts a board on the coin this app runs. The person already said yes.
+    MoveBoard(BoardId),
     StartCapTest(BoardId),
     ReadBright(BoardId),
     InstallBoard {
@@ -61,6 +91,16 @@ pub enum Command {
         id: u32,
         on: bool,
     },
+    NodeMiner {
+        id: u32,
+        to: String,
+    },
+    StartPool {
+        share_difficulty: u64,
+        nodes: Vec<u32>,
+        boards: Vec<BoardId>,
+    },
+    StopPool,
     NodePay {
         id: u32,
         to: String,

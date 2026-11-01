@@ -25,6 +25,25 @@ pub struct TxOut {
     pub lock: Vec<u8>,
 }
 
+/// The language byte of a data output. No language has it, so under the existing rules nothing
+/// can ever spend such an output, and no node needs to remember one.
+pub const DATA_LANGUAGE: u8 = 0xFF;
+
+impl TxOut {
+    /// An output that carries bytes and no value, like Bitcoin's OP_RETURN.
+    pub fn data(bytes: Vec<u8>) -> Self {
+        Self {
+            value: 0,
+            language: DATA_LANGUAGE,
+            lock: bytes,
+        }
+    }
+
+    pub fn is_data(&self) -> bool {
+        self.language == DATA_LANGUAGE
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tx {
     pub version: u32,
@@ -85,6 +104,22 @@ impl BlockHeader {
         out[76..84].copy_from_slice(&self.difficulty.to_le_bytes());
         out[84..88].copy_from_slice(&self.nonce.to_le_bytes());
         out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        let word = |at: usize| bytes.get(at..at + 8)?.try_into().ok().map(u64::from_le_bytes);
+        let mut previous = [0; 32];
+        let mut merkle_root = [0; 32];
+        previous.copy_from_slice(bytes.get(4..36)?);
+        merkle_root.copy_from_slice(bytes.get(36..68)?);
+        Some(Self {
+            version: u32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?),
+            previous,
+            merkle_root,
+            time_ms: word(68)?,
+            difficulty: word(76)?,
+            nonce: u32::from_le_bytes(bytes.get(84..88)?.try_into().ok()?),
+        })
     }
 
     pub fn id(&self) -> Hash {

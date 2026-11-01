@@ -20,17 +20,6 @@ fn a_late_node_catches_up_through_tip_announcements() {
 }
 
 #[test]
-fn every_new_block_is_queued_for_saving() {
-    let mut node = engine(1);
-    mine(&mut node, 1_000);
-    mine(&mut node, 2_000);
-    let first = node.take_fresh_block().unwrap();
-    let second = node.take_fresh_block().unwrap();
-    assert_eq!(second.header.previous, first.id());
-    assert!(node.take_fresh_block().is_none());
-}
-
-#[test]
 fn a_payment_crosses_the_network() {
     let mut nodes = [engine(1), engine(2)];
     for block in 0..3 {

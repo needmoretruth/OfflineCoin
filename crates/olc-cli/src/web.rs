@@ -58,6 +58,7 @@ fn handle(shared: &Shared, mut request: Request) {
         (Method::Get, "/api/status") => json_response(&status(shared)),
         (Method::Get, "/api/logo") => json_response(&json!(logo::frames_for_page())),
         (Method::Post, "/api/send") => json_response(&send(shared, &body)),
+        (Method::Post, "/api/note") => json_response(&write_note(shared, &body)),
         (Method::Post, "/api/limit") => json_response(&set_limit(shared, &body)),
         (Method::Post, "/api/mining") => json_response(&set_mining(shared, &body)),
         _ => Response::from_string("not found").with_status_code(404),
@@ -93,6 +94,12 @@ fn event_json(time_ms: u64, event: &Event) -> Value {
         Event::TxRejected { reason } => ("tx_rejected", 0, format!("{reason:?}")),
         Event::TxReturned { id } => ("tx_returned", 0, hex(id)),
         Event::TxDropped { id, .. } => ("tx_dropped", 0, hex(id)),
+        Event::NeedsHistory { peer } => ("needs_history", 0, peer.to_string()),
+        Event::ReorgRefused => ("reorg_refused", 0, String::new()),
+        Event::SnapshotAdopted { peer, height } => ("snapshot", *height, peer.to_string()),
+        Event::SnapshotRefused { peer } => ("snapshot_refused", 0, peer.to_string()),
+        Event::DataRefused => ("data_refused", 0, String::new()),
+        Event::CoinsMerged { inputs } => ("merged", 0, inputs.to_string()),
     };
     json!({ "time": time_ms, "kind": kind, "height": height, "detail": detail })
 }
@@ -178,6 +185,20 @@ fn send(shared: &Shared, body: &str) -> Value {
     };
     let units = |coins: f64| (coins * COIN as f64).round() as u64;
     match runner.engine.pay(to, units(amount), units(fee)) {
+        Ok(id) => json!({ "id": hex(&id) }),
+        Err(error) => json!({ "error": format!("{error:?}") }),
+    }
+}
+
+fn write_note(shared: &Shared, body: &str) -> Value {
+    let request: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let Some(text) = request["text"].as_str() else {
+        return json!({ "error": "bad_request" });
+    };
+    let Ok(mut runner) = shared.runner.lock() else {
+        return json!({ "error": "busy" });
+    };
+    match runner.engine.write_note(text.as_bytes()) {
         Ok(id) => json!({ "id": hex(&id) }),
         Err(error) => json!({ "error": format!("{error:?}") }),
     }

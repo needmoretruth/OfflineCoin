@@ -48,6 +48,27 @@ pub enum Event {
         id: Hash,
         reason: Option<ChainError>,
     },
+    /// A peer has more work, but the blocks this node needs from it are gone.
+    NeedsHistory {
+        peer: PeerId,
+    },
+    /// A peer's branch parts below the blocks held here, so this node stays on its own.
+    ReorgRefused,
+    /// This chain now starts from a peer's unspent set. Everything before it rests on trust.
+    SnapshotAdopted {
+        peer: PeerId,
+        height: u64,
+    },
+    /// The peer's snapshot did not pass.
+    SnapshotRefused {
+        peer: PeerId,
+    },
+    /// A data output was over this node's size limit.
+    DataRefused,
+    /// Small coins went into one with an ordinary transaction.
+    CoinsMerged {
+        inputs: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,4 +82,10 @@ pub struct Status {
     pub peers: usize,
     /// The height being caught up to, while well behind it.
     pub syncing_to: Option<u64>,
+    /// The peer ahead of this node that no longer holds the blocks it needs, and the peer's height.
+    pub needs_history: Option<(PeerId, u64)>,
+    /// The peer this chain's unspent set came from, when it did not come from blocks.
+    pub assumed_from: Option<u32>,
+    /// How far a snapshot download has come, as (parts, all parts).
+    pub fetching: Option<(u32, u32)>,
 }

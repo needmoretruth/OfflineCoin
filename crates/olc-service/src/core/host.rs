@@ -1,13 +1,14 @@
 //! One node on this computer: its links, its chain on disk and its mining loop.
+use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
-use super::snapshot::NodeView;
+use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
-use olc_core::{Address, CoinConfig, Hash, Plugins};
+use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened, Plugins};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Runner};
 use olc_pow::ProofOfWork;
-use olc_store::{load_or_create_secret, Store};
-use olc_wallet::{format_address, parse_address, Wallet, WalletError};
+use olc_store::{load_wallet, open_chain, NodeSettings};
+use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -23,7 +24,6 @@ const VIEW_EVERY: Duration = Duration::from_millis(250);
 const ASK_EVERY: Duration = Duration::from_secs(20);
 /// How often connected nodes are asked how they stand, so their rows stay true.
 const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
-const RESTORE_STEP: usize = 64;
 const MAX_HEARD: usize = 64;
 
 pub fn unix_ms() -> u64 {
@@ -84,6 +84,14 @@ struct State {
     known: Mutex<Vec<String>>,
     waiting: Mutex<Vec<Waiting>>,
     storage: Option<u64>,
+    /// The folder of the coin this node runs.
+    folder: Mutex<Option<PathBuf>>,
+    /// A header from outside to grind in place of mining, with its difficulty.
+    work: Mutex<Option<(BlockHeader, u64)>>,
+    /// Headers that reached that difficulty, until someone takes them.
+    shares: Mutex<Vec<BlockHeader>>,
+    /// The last thing a person looked up.
+    explored: Mutex<Explored>,
 }
 
 pub struct Host {
@@ -91,17 +99,15 @@ pub struct Host {
     tcp: TcpControl,
     state: Arc<State>,
     done: Option<thread::JoinHandle<()>>,
-    address: Address,
+    wallet_folder: PathBuf,
     pub port: Option<u16>,
 }
 
-fn new_engine(coin: CoinConfig, secret: [u8; 32]) -> Result<Engine, String> {
-    let wallet = Wallet::from_secret(secret).map_err(|_| "The key file holds a bad key")?;
-    let plugins = Plugins {
+fn plugins() -> Plugins {
+    Plugins {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),
-    };
-    Ok(Engine::new(coin, plugins, wallet))
+    }
 }
 
 /// Who said a thing, as far as this node can tell.
@@ -127,9 +133,8 @@ fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
 impl Host {
     /// Returns at once. The chain loads on the host's own thread.
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
-        let secret = load_or_create_secret(&plan.wallet_folder)?;
-        let engine = new_engine(plan.coin.clone(), secret)?;
-        let address = engine.address();
+        let wallet = load_wallet(&plan.wallet_folder)?;
+        let engine = Engine::new(plan.coin.clone(), plugins(), wallet);
         let tcp = TcpLink::new();
         // Boards are reached by USB here. Nothing on the network may speak for one.
         tcp.refuse_control();
@@ -158,19 +163,22 @@ impl Host {
             known: Mutex::default(),
             waiting: Mutex::default(),
             storage: plan.storage,
+            folder: Mutex::default(),
+            work: Mutex::default(),
+            shares: Mutex::default(),
+            explored: Mutex::default(),
         });
         let worker = Worker {
             runner: runner.clone(),
             state: state.clone(),
             tcp: control.clone(),
             fleet,
-            secret,
-            address,
-            store: None,
+            wallet_folder: plan.wallet_folder.clone(),
             history: History::default(),
             port,
             tips: 0,
             last_tip: [0; 32],
+            blocks: Vec::new(),
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -178,13 +186,44 @@ impl Host {
             tcp: control,
             state,
             done: Some(done),
-            address,
+            wallet_folder: plan.wallet_folder,
             port,
         })
     }
 
     pub fn address(&self) -> Address {
-        self.address
+        self.runner
+            .lock()
+            .map(|runner| runner.engine.address())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn wallet_folder(&self) -> PathBuf {
+        self.wallet_folder.clone()
+    }
+
+    pub(super) fn chain_folder(&self) -> Option<PathBuf> {
+        self.state.folder.lock().ok().and_then(|folder| folder.clone())
+    }
+
+    pub(super) fn set_explored(&self, explored: Explored) {
+        if let Ok(mut slot) = self.state.explored.lock() {
+            *slot = explored;
+        }
+    }
+
+    pub(super) fn set_work(&self, work: Option<(BlockHeader, u64)>) {
+        if let Ok(mut slot) = self.state.work.lock() {
+            *slot = work;
+        }
+    }
+
+    pub fn take_shares(&self) -> Vec<BlockHeader> {
+        self.state
+            .shares
+            .lock()
+            .map(|mut shares| shares.drain(..).collect())
+            .unwrap_or_default()
     }
 
     pub fn view(&self) -> NodeView {
@@ -273,13 +312,12 @@ struct Worker {
     state: Arc<State>,
     tcp: TcpControl,
     fleet: Option<Arc<dyn FleetPort>>,
-    secret: [u8; 32],
-    address: Address,
-    store: Option<Store>,
+    wallet_folder: PathBuf,
     history: History,
     port: Option<u16>,
     tips: u64,
     last_tip: Hash,
+    blocks: Vec<BlockRow>,
 }
 
 impl Worker {
@@ -306,7 +344,9 @@ impl Worker {
                 let now = unix_ms();
                 runner.step(now);
                 // A node catching up does not mine, so it counts nothing either.
-                if mining && runner.engine.syncing_to().is_none() {
+                if self.ground(&runner, batch) {
+                    hashes += u64::from(batch);
+                } else if mining && runner.engine.syncing_to().is_none() {
                     runner.engine.mine(batch, now);
                     hashes += u64::from(batch);
                 }
@@ -334,12 +374,24 @@ impl Worker {
         }
     }
 
-    fn keep(&mut self, runner: &mut Runner, asked: &mut Asked) {
-        while let Some(block) = runner.engine.take_fresh_block() {
-            if let Some(store) = &mut self.store {
-                store.append(&block);
+    /// Tries a batch of work from outside, when there is any.
+    fn ground(&self, runner: &Runner, batch: u32) -> bool {
+        let Ok(mut slot) = self.state.work.lock() else {
+            return false;
+        };
+        let Some((header, difficulty)) = slot.as_mut() else {
+            return false;
+        };
+        if runner.engine.grind(header, *difficulty, batch) {
+            if let Ok(mut shares) = self.state.shares.lock() {
+                shares.push(*header);
             }
+            header.nonce = header.nonce.wrapping_add(1);
         }
+        true
+    }
+
+    fn keep(&mut self, runner: &mut Runner, asked: &mut Asked) {
         while runner.engine.take_event().is_some() {}
         while let Some((peer, hello)) = runner.take_hello() {
             if let Ok(mut heard) = self.state.heard.lock() {
@@ -374,37 +426,30 @@ impl Worker {
         let Some(switch) = switch else {
             return;
         };
-        let (mut store, saved) = match Store::open(&switch.folder) {
-            Ok(opened) => opened,
+        let Ok(wallet) = load_wallet(&self.wallet_folder) else {
+            return;
+        };
+        let opened = open_chain(&switch.folder, switch.coin, plugins(), self.state.storage);
+        let chain = match opened {
+            Ok(chain) => chain,
             Err(error) => {
                 eprintln!("{error}");
                 return;
             }
         };
-        let Ok(engine) = new_engine(switch.coin, self.secret) else {
-            return;
-        };
-        store.set_limit(self.state.storage);
-        self.store = Some(store);
+        let mut engine = Engine::on_chain(chain, wallet);
+        let settings = NodeSettings::load(&switch.folder);
+        engine.set_miner(settings.miner.as_deref().and_then(parse_address));
+        engine.set_note(settings.note.as_bytes());
+        engine.set_merging(!settings.no_merge);
+        if let Ok(mut folder) = self.state.folder.lock() {
+            *folder = Some(switch.folder);
+        }
         self.history = History::default();
         self.last_tip = [0; 32];
         self.tcp.drop_peers();
         if let Ok(mut runner) = self.runner.lock() {
             runner.set_engine(engine);
-        }
-        let total = saved.len();
-        for (index, chunk) in saved.chunks(RESTORE_STEP).enumerate() {
-            if self.state.stop.load(Ordering::Relaxed) {
-                return;
-            }
-            if let Ok(mut runner) = self.runner.lock() {
-                chunk
-                    .iter()
-                    .for_each(|block| runner.engine.restore_block(block.clone()));
-            }
-            if let Ok(mut view) = self.state.view.lock() {
-                view.loading = Some(((index + 1) * RESTORE_STEP, total));
-            }
         }
         for peer in switch.peers {
             self.tcp.connect(peer);
@@ -415,18 +460,28 @@ impl Worker {
         let engine = &runner.engine;
         let chain = engine.chain();
         let status = engine.status();
-        self.history.follow(chain, &self.address);
+        let wallet = engine.wallet();
+        let own: Vec<Address> = wallet.keys().map(|(address, _)| address).collect();
+        self.history.follow(chain, &own);
         if status.tip != self.last_tip {
             self.last_tip = status.tip;
             self.tips += 1;
+            self.blocks = recent_blocks(chain);
         }
         let next = chain.height() + 1;
-        let spendable = chain
-            .unspent_of(&self.address)
+        let spendable = own
             .iter()
+            .flat_map(|address| chain.unspent_of(address))
             .filter(|(_, entry)| chain.is_mature(entry, next))
             .map(|(_, entry)| entry.output.value)
             .sum();
+        let receiving = wallet.receiving();
+        let keys = wallet.keys().enumerate().map(|(index, (address, public))| KeyView {
+            address: format_address(&address),
+            public: public.iter().map(|byte| format!("{byte:02x}")).collect(),
+            receiving: index == receiving,
+        });
+        let held = chain.held();
         let mut activity = Vec::new();
         if let Ok(mut waiting) = self.state.waiting.lock() {
             waiting.retain(|item| engine.in_pool(&item.id));
@@ -456,13 +511,29 @@ impl Worker {
             loading: None,
             balance: status.balance,
             spendable,
-            address: format_address(&self.address),
+            address: format_address(&engine.address()),
             activity,
             blocks_mined: self.history.blocks_mined(),
             port: self.port,
             tip_changes: self.tips,
-            stored_bytes: self.store.as_ref().map_or(0, Store::written),
-            storage_full: self.store.as_ref().is_some_and(Store::is_full),
+            stored_bytes: held.bytes,
+            storage_full: held.oldest > 0,
+            keys: keys.collect(),
+            miner: format_address(&engine.miner()),
+            miner_is_chosen: engine.miner_is_chosen(),
+            mine_note: text_of(engine.note()),
+            merging: engine.merging(),
+            oldest: held.oldest,
+            recent: held.recent,
+            fits: held.fits,
+            unspent: chain.unspent_count(),
+            needs_history: status.needs_history,
+            assumed_from: status.assumed_from,
+            fetching: status.fetching,
+            rebuilt: matches!(chain.opened(), Opened::Rebuilt { .. } | Opened::Lost),
+            blocks: self.blocks.clone(),
+            notes: self.history.notes().cloned().collect(),
+            explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

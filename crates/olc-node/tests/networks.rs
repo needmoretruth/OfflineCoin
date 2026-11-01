@@ -112,7 +112,7 @@ fn exchange(nodes: &mut [Engine; 2]) -> usize {
             while let Some(outgoing) = nodes[sender].take_outgoing() {
                 moved = true;
                 let (Outgoing::To(_, message) | Outgoing::All { message, .. }) = outgoing;
-                requests += usize::from(matches!(message, Message::GetBlocks(_)));
+                requests += usize::from(matches!(message, Message::GetBlocks(..)));
                 nodes[1 - sender].on_message(sender as u32, message);
             }
         }

@@ -42,6 +42,9 @@ pub struct ChildStatus {
     pub loading: bool,
     pub paid: Option<String>,
     pub error: Option<String>,
+    /// Headers found on work from outside since the last line.
+    #[serde(default)]
+    pub shares: Vec<String>,
 }
 
 impl ChildStatus {
@@ -65,6 +68,7 @@ impl ChildStatus {
             loading: view.loading.is_some(),
             paid: None,
             error: None,
+            shares: Vec::new(),
         }
     }
 }
@@ -116,7 +120,7 @@ fn read_status(
             let Ok(parsed) = serde_json::from_str::<ChildStatus>(&line) else {
                 continue;
             };
-            if parsed.paid.is_some() || parsed.error.is_some() {
+            if parsed.paid.is_some() || parsed.error.is_some() || !parsed.shares.is_empty() {
                 if let Ok(mut answers) = answers.lock() {
                     answers.push((id, parsed.clone()));
                 }

@@ -1,6 +1,6 @@
 //! Everything found, sorted into coins and chains. Nothing joins until a person picks it.
 use super::{Cx, Page};
-use crate::core::Command;
+use crate::core::{Command, Personal};
 use crate::discovery::{ChainGroup, CoinGroup, Entry, Identity, Reach, Relation, Work};
 use crate::ui::format;
 use crate::ui::tokens;
@@ -16,6 +16,31 @@ const WEIGHTS: [f32; 7] = [1.5, 2.3, 0.9, 1.4, 0.8, 1.8, 0.8];
 #[derive(Default)]
 pub struct Network {
     address: String,
+}
+
+/// Shown only when this node cannot go on by itself. Taking a peer's word is the person's call.
+fn history_card(ui: &mut Ui, cx: &Cx) {
+    let t = cx.t;
+    let node = &cx.snap.node;
+    if let Some(peer) = node.assumed_from {
+        meta(ui, &cx.fill("history.assumed", &[&peer.to_string()]), t);
+    }
+    if let Some((got, parts)) = node.fetching {
+        meta(ui, &cx.fill("history.fetching", &[&got.to_string(), &parts.to_string()]), t);
+    }
+    let Some((peer, height)) = node.needs_history.filter(|_| node.fetching.is_none()) else {
+        return;
+    };
+    card(ui, t, |ui| {
+        section(ui, cx.say("history.title"));
+        let words = [peer.to_string(), format::number(height.into())];
+        ui.label(cx.fill("history.body", &[&words[0], &words[1]]));
+        ui.label(cx.say("history.trust"));
+        if button(ui, t, cx.say("history.accept"), Kind::Main).clicked() {
+            cx.send(Command::Own(Personal::AcceptSnapshot));
+        }
+    });
+    ui.add_space(tokens::GAP);
 }
 
 fn reach_text(cx: &Cx, reach: &Reach) -> String {
@@ -202,6 +227,7 @@ impl Page for Network {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         widgets::title(ui, cx.say("page.network"));
+        history_card(ui, cx);
         ui.horizontal(|ui| {
             let hint = cx.say("network.address_hint");
             let response = field(ui, &mut self.address, hint, 260.0);

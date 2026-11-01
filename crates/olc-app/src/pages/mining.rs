@@ -1,15 +1,51 @@
 //! Mining with this computer, up to a number a person chooses.
 use super::{Cx, Page};
-use crate::core::Command;
+use crate::core::{Command, Personal};
 use crate::settings::RELAXED_CAP;
 use crate::ui::format;
 use crate::ui::tokens;
-use crate::ui::widgets::{self, card, meta, number_field, section, segments, stats, switch_row};
+use crate::ui::widgets::{
+    self, button, card, field, meta, mono, number_field, section, segments, stats, switch_row, Kind,
+};
 use crate::ui::Icon;
 use egui::Ui;
 
 #[derive(Default)]
-pub struct Mining;
+pub struct Mining {
+    miner: String,
+    note: String,
+    loaded: bool,
+}
+
+impl Mining {
+    /// Where the coins go, and what each block says.
+    fn pay_to(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        let node = &cx.snap.node;
+        if !self.loaded && !node.miner.is_empty() {
+            self.loaded = true;
+            self.note.clone_from(&node.mine_note);
+            if node.miner_is_chosen {
+                self.miner.clone_from(&node.miner);
+            }
+        }
+        section(ui, cx.say("mining.pay_to"));
+        ui.label(mono(node.miner.clone()));
+        ui.horizontal(|ui| {
+            field(ui, &mut self.miner, cx.say("mining.pay_to_hint"), 380.0);
+            if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
+                cx.send(Command::Own(Personal::SetMiner(self.miner.clone())));
+            }
+        });
+        section(ui, cx.say("mining.note"));
+        ui.horizontal(|ui| {
+            field(ui, &mut self.note, cx.say("mining.note_hint"), 380.0);
+            if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
+                cx.send(Command::Own(Personal::SetMineNote(self.note.clone())));
+            }
+        });
+    }
+}
 
 impl Page for Mining {
     fn title(&self) -> &'static str {
@@ -50,6 +86,8 @@ impl Page for Mining {
                 ],
             );
         });
+        ui.add_space(tokens::GAP);
+        card(ui, t, |ui| self.pay_to(ui, cx));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| {
             section(ui, cx.say("mining.cap"));

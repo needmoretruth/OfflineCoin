@@ -4,6 +4,7 @@
 use super::supervisor::ChildStatus;
 use crate::core::{parse_coins, Host, Plan};
 use crate::settings::PORT_TRIES;
+use olc_core::BlockHeader;
 use olc_node::Card;
 use olc_store::coin_file;
 use std::io::{BufRead, Write};
@@ -89,6 +90,13 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
     match words.as_slice() {
         ["limit", cap] => host.set_cap(cap.parse().ok()?),
         ["mine", on] => host.set_mining(*on == "on"),
+        ["mineto", "own"] => drop(host.set_miner("")),
+        ["mineto", address] => drop(host.set_miner(address)),
+        ["work", "stop"] => host.take_work(None),
+        ["work", header, difficulty] => {
+            let header = unhex(header).and_then(|bytes| BlockHeader::decode(&bytes));
+            host.take_work(Some((header?, difficulty.parse().ok()?)));
+        }
         ["pay", to, amount] => {
             let paid = parse_coins(amount)
                 .ok_or_else(|| "bad_amount".to_string())
@@ -107,6 +115,17 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    let bytes = (0..text.len() / 2).map(|at| u8::from_str_radix(text.get(at * 2..at * 2 + 2)?, 16).ok());
+    bytes.collect()
+}
+
+fn status_of(host: &Host) -> ChildStatus {
+    let mut status = ChildStatus::from_view(&host.view());
+    status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
+    status
 }
 
 /// `olc-core node ...`: runs until told to stop or until its input closes.
@@ -147,6 +166,6 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
-        say(&ChildStatus::from_view(&host.view()));
+        say(&status_of(&host));
     }
 }

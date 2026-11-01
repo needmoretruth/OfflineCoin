@@ -16,7 +16,8 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .create_new(true)
         .mode(OWNER_ONLY)
         .open(path)?;
-    file.write_all(bytes)
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 pub fn is_private(path: &Path) -> bool {

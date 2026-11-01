@@ -1,0 +1,22 @@
+[package]
+name = "olc-compat"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace: two versions of each crate in one would make every `cargo -p` ambiguous.
+[workspace]
+
+[dev-dependencies]
+olc-core = { path = "../olc-core" }
+olc-lang = { path = "../olc-lang" }
+olc-node = { path = "../olc-node" }
+olc-pow = { path = "../olc-pow" }
+olc-wallet = { path = "../olc-wallet" }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+old-core = { package = "olc-core", git = "https://github.com/needmoretruth/OfflineCoin", rev = "ed110aa79bb875c8f833f7a3e1943eac63ceb4b9" }
+old-lang = { package = "olc-lang", git = "https://github.com/needmoretruth/OfflineCoin", rev = "ed110aa79bb875c8f833f7a3e1943eac63ceb4b9" }
+old-node = { package = "olc-node", git = "https://github.com/needmoretruth/OfflineCoin", rev = "ed110aa79bb875c8f833f7a3e1943eac63ceb4b9" }
+old-pow = { package = "olc-pow", git = "https://github.com/needmoretruth/OfflineCoin", rev = "ed110aa79bb875c8f833f7a3e1943eac63ceb4b9" }
+old-wallet = { package = "olc-wallet", git = "https://github.com/needmoretruth/OfflineCoin", rev = "ed110aa79bb875c8f833f7a3e1943eac63ceb4b9" }

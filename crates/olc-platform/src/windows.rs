@@ -100,7 +100,8 @@ impl Platform for Os {
     /// The folder under the person's profile already shuts others out.
     fn write_private(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-        file.write_all(bytes)
+        file.write_all(bytes)?;
+        file.sync_all()
     }
 
     fn is_private(&self, path: &Path) -> bool {

@@ -4,12 +4,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// These crates do the work, and a window is no part of it.
-const NO_WINDOW_HERE: [&str; 8] = [
+const NO_WINDOW_HERE: [&str; 9] = [
     "olc-board",
     "olc-link-serial",
     "olc-link-tcp",
     "olc-node",
     "olc-platform",
+    "olc-pool",
     "olc-service",
     "olc-store",
     "olc-wallet",

@@ -10,6 +10,9 @@ pub enum Icon {
     Nodes,
     Experiments,
     Settings,
+    Keys,
+    Explorer,
+    Pool,
 }
 
 const WIDTH: f32 = 1.5;
@@ -75,6 +78,23 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
                 line(&[(knob + 1.8, y), (15.5, y)]);
                 painter.circle_stroke(at(knob, y), 1.8 * scale, stroke);
             }
+        }
+        Icon::Keys => {
+            painter.circle_stroke(at(5.5, 9.0), 3.0 * scale, stroke);
+            line(&[(8.5, 9.0), (15.5, 9.0)]);
+            line(&[(12.5, 9.0), (12.5, 12.0)]);
+            line(&[(15.5, 9.0), (15.5, 12.0)]);
+        }
+        Icon::Explorer => {
+            painter.circle_stroke(at(7.5, 7.5), 4.5 * scale, stroke);
+            line(&[(11.0, 11.0), (15.5, 15.5)]);
+        }
+        Icon::Pool => {
+            for (x, y) in [(3.5, 4.0), (9.0, 4.0), (14.5, 4.0)] {
+                painter.circle_stroke(at(x, y), 1.8 * scale, stroke);
+                line(&[(x, y + 1.8), (9.0, 11.5)]);
+            }
+            boxed(6.5, 11.5, 11.5, 15.5, 1.0);
         }
     }
 }

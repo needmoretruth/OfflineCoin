@@ -82,6 +82,13 @@ fn event_text(event: Event, language: Language) -> String {
             format!("payment: {}", reason_text(reason, language))
         }
         Event::TxDropped { .. } => language.pick("payment dropped", "송금 취소됨").into(),
+        Event::NeedsHistory { .. } => language.pick("needs old blocks", "옛 블록 필요").into(),
+        Event::ReorgRefused => language.pick("fork too deep", "분기가 너무 깊음").into(),
+        Event::SnapshotAdopted { .. } => language.pick("snapshot taken", "스냅샷 받음").into(),
+        Event::SnapshotRefused { .. } => language.pick("snapshot refused", "스냅샷 거부").into(),
+        Event::DataRefused => language.pick("data too long", "데이터가 너무 김").into(),
+        Event::CoinsMerged { inputs } if korean => format!("코인 {inputs}개 합침"),
+        Event::CoinsMerged { inputs } => format!("merged {inputs} coins"),
     }
 }
 

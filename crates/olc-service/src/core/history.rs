@@ -1,9 +1,13 @@
 //! The wallet's recent activity, read from the chain so it survives a restart. It remembers which
 //! outputs are the wallet's as it walks, because a payment shows only that it spends them.
+use super::explorer::{text_of, NoteRow};
 use olc_core::{Address, Block, Chain, Hash, OutPoint};
 use std::collections::{BTreeSet, VecDeque};
 
 const SHOWN: usize = 100;
+const NOTES_SHOWN: usize = 100;
+/// Blocks read in one go, so a long chain never holds the node up.
+const STEP: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActivityKind {
@@ -25,9 +29,11 @@ pub struct Activity {
 #[derive(Default)]
 pub struct History {
     tip: Hash,
+    last: Hash,
     next_height: u64,
     mine: BTreeSet<OutPoint>,
     items: VecDeque<Activity>,
+    notes: VecDeque<NoteRow>,
     blocks_mined: u64,
 }
 
@@ -40,28 +46,32 @@ impl History {
         self.blocks_mined
     }
 
-    /// Reads the blocks since the last call, or all of them after a branch change.
-    pub fn follow(&mut self, chain: &Chain, me: &Address) {
+    pub fn notes(&self) -> impl Iterator<Item = &NoteRow> {
+        self.notes.iter().rev()
+    }
+
+    /// Reads some of the blocks since the last call, or starts over after a branch change.
+    /// Blocks this node dropped are skipped: what they did is gone from here.
+    pub fn follow(&mut self, chain: &Chain, me: &[Address]) {
         if chain.tip() == self.tip {
             return;
         }
-        let blocks = chain.best_chain_from(self.next_height);
-        let joins = self.next_height == 0
-            || blocks
-                .first()
-                .is_some_and(|block| block.header.previous == self.tip);
-        if joins {
-            blocks.iter().for_each(|block| self.read(block, me));
-        } else {
+        let parted = self.next_height > 0 && chain.id_at(self.next_height - 1) != Some(self.last);
+        if parted {
             *self = Self::default();
-            let all = chain.best_chain_from(0);
-            all.iter().for_each(|block| self.read(block, me));
         }
-        self.tip = chain.tip();
-        self.next_height = chain.height() + 1;
+        self.next_height = self.next_height.max(chain.oldest_held());
+        let blocks = chain.blocks_from(self.next_height, STEP);
+        for block in &blocks {
+            self.read(block, me);
+            self.last = block.id();
+        }
+        if self.next_height > chain.height() {
+            self.tip = chain.tip();
+        }
     }
 
-    fn read(&mut self, block: &Block, me: &Address) {
+    fn read(&mut self, block: &Block, me: &[Address]) {
         let height = self.next_height;
         self.next_height += 1;
         for tx in &block.txs {
@@ -74,7 +84,16 @@ impl History {
                 > 0;
             let (mut to_me, mut to_others) = (0, 0);
             for (index, output) in tx.outputs.iter().enumerate() {
-                if output.lock.as_slice() == me.as_slice() {
+                if output.is_data() {
+                    if self.notes.len() >= NOTES_SHOWN {
+                        self.notes.pop_front();
+                    }
+                    self.notes.push_back(NoteRow {
+                        height,
+                        time_ms: block.header.time_ms,
+                        text: text_of(&output.lock),
+                    });
+                } else if me.iter().any(|own| output.lock.as_slice() == own.as_slice()) {
                     to_me += output.value;
                     self.mine.insert(OutPoint {
                         txid,

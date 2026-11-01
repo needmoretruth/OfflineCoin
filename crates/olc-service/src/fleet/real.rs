@@ -60,6 +60,10 @@ impl FleetPort for RealFleet {
         self.manager.run_line(board, line)
     }
 
+    fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError> {
+        self.manager.ask(board, line)
+    }
+
     fn start_update(&self, board: BoardId) {
         self.manager.start_update(board);
     }

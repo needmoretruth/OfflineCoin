@@ -1,9 +1,12 @@
 //! The pages. Adding one is one file and one line in [`all`].
 mod boards;
 mod experiments;
+mod explorer;
+mod keys;
 mod local;
 mod mining;
 mod network;
+mod pool;
 mod settings;
 pub mod setup;
 mod wallet;
@@ -57,8 +60,11 @@ pub fn all() -> Vec<Box<dyn Page>> {
         Box::<network::Network>::default(),
         Box::<mining::Mining>::default(),
         Box::<wallet::Wallet>::default(),
+        Box::<keys::Keys>::default(),
+        Box::<explorer::Explorer>::default(),
         Box::<boards::Boards>::default(),
         Box::<local::Local>::default(),
+        Box::<pool::PoolPage>::default(),
         Box::<experiments::Experiments>::default(),
         Box::<settings::SettingsPage>::default(),
     ]

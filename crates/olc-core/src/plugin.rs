@@ -23,7 +23,15 @@ pub trait Consensus: Send {
     fn work(&self, header: &BlockHeader) -> u128;
     fn next_difficulty(&self, input: &RetargetInput) -> u64;
     /// Tries `attempts` times to seal the header. Returns true when it succeeded.
-    fn try_seal(&self, header: &mut BlockHeader, attempts: u32) -> bool;
+    fn try_seal(&self, header: &mut BlockHeader, attempts: u32) -> bool {
+        let difficulty = header.difficulty;
+        self.try_meet(header, difficulty, attempts)
+    }
+    /// Does this header carry proof of `difficulty`, which may differ from its own? This lets
+    /// someone show work on a block that does not win.
+    fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool;
+    /// Tries `attempts` times to reach `difficulty`. Returns true when it did.
+    fn try_meet(&self, header: &mut BlockHeader, difficulty: u64, attempts: u32) -> bool;
 }
 
 /// What a lock language may look at when an output is spent.

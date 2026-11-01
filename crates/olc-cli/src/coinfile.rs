@@ -24,6 +24,10 @@ pub fn create(args: &Args) -> Result<(), String> {
         coin.name = name.to_string();
         coin.message = format!("{name} genesis");
     }
+    if let Some(message) = args.value("message") {
+        coin.message = message.to_string();
+    }
+    coin.message_in_block = true;
     if let Some(ticker) = args.value("ticker") {
         coin.ticker = ticker.to_string();
     }

@@ -1,5 +1,7 @@
 //! One consistent picture of the app for the screen.
+use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
+use super::pool_run::PoolView;
 use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
 use olc_board::Seen;
@@ -31,6 +33,33 @@ pub struct NodeView {
     pub tip_changes: u64,
     pub stored_bytes: u64,
     pub storage_full: bool,
+    pub keys: Vec<KeyView>,
+    pub miner: String,
+    pub miner_is_chosen: bool,
+    pub mine_note: String,
+    pub merging: bool,
+    /// The oldest block whose body is here.
+    pub oldest: u64,
+    pub recent: Option<u64>,
+    pub fits: Option<u64>,
+    /// Unspent coins the whole node tracks.
+    pub unspent: usize,
+    /// The peer ahead of this node whose blocks nobody can give it, and how far it is.
+    pub needs_history: Option<(u32, u64)>,
+    /// Set after a person chose to trust a peer's snapshot.
+    pub assumed_from: Option<u32>,
+    pub fetching: Option<(u32, u32)>,
+    pub rebuilt: bool,
+    pub blocks: Vec<BlockRow>,
+    pub notes: Vec<NoteRow>,
+    pub explored: Explored,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyView {
+    pub address: String,
+    pub public: String,
+    pub receiving: bool,
 }
 
 impl NodeView {
@@ -84,6 +113,7 @@ pub struct Snapshot {
     pub new_ports: Vec<(String, Option<String>)>,
     pub scan: ScanView,
     pub experiment: ExperimentView,
+    pub pool: PoolView,
     pub notice: Option<Notice>,
     /// False when this run leaves USB alone.
     pub usb: bool,

@@ -3,8 +3,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const OUTSIDE: [&str; 2] = ["olc-lab", "olc-cli"];
-const OWN_NAME: &str = "olc-lab";
+const OUTSIDE: [&str; 4] = ["olc-lab", "olc-cli", "olc-pool", "olc-app"];
+const OWN_NAMES: [&str; 2] = ["olc-lab", "olc-pool"];
+/// Pool as a kind of mining. A waiting pool of payments is another thing and stays allowed.
+const POOL_WORDS: [&str; 5] = [
+    "olc pool",
+    "mining pool",
+    "pool mining",
+    "share difficulty",
+    "payout",
+];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -62,6 +70,9 @@ fn banned(text: &str) -> Option<&'static str> {
     if flat.contains("double spend") || flat.contains("doublespend") {
         return Some("double spend");
     }
+    if let Some(word) = POOL_WORDS.iter().find(|word| flat.contains(**word)) {
+        return Some(word);
+    }
     has_number(&flat, "51").then_some("51")
 }
 
@@ -69,11 +80,13 @@ fn banned(text: &str) -> Option<&'static str> {
 fn no_coin_crate_depends_on_the_lab() {
     for folder in coin_crates() {
         let manifest = fs::read_to_string(folder.join("Cargo.toml")).unwrap();
-        assert!(
-            !manifest.contains(OWN_NAME),
-            "{} depends on the lab",
-            folder.display()
-        );
+        for name in OWN_NAMES {
+            assert!(
+                !manifest.contains(name),
+                "{} depends on {name}",
+                folder.display()
+            );
+        }
     }
 }
 
@@ -100,4 +113,6 @@ fn the_check_catches_what_it_looks_for() {
     assert_eq!(banned("at 51 percent"), Some("51"));
     assert_eq!(banned("51%"), Some("51"));
     assert_eq!(banned("0x51ab 1510"), None);
+    assert_eq!(banned("use olc_pool::Pool;"), Some("olc pool"));
+    assert_eq!(banned("the payment pool is full"), None);
 }

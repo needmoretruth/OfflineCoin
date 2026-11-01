@@ -1,74 +1,70 @@
-//! A node's files: its secret key and the blocks it has seen.
-use olc_core::Block;
-use olc_platform::platform;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+//! Opening a node's chain on a computer. Blocks live in segment files behind the same log a board
+//! uses. Blocks an older version left in `blocks.log` join the new store once.
+use crate::files::keep_in;
+use olc_core::{Block, Chain, CoinConfig, Plugins};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
-pub struct Store {
-    blocks: File,
-    written: u64,
-    /// Bytes this store may hold, for a node given a fixed amount of disk.
-    limit: Option<u64>,
-    full: bool,
+const OLD_BLOCKS: &str = "blocks.log";
+const OLD_BLOCKS_DONE: &str = "blocks.log.imported";
+const SETTINGS: &str = "node.json";
+
+/// What a person chose for this node.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeSettings {
+    /// Recent blocks to keep. `None` keeps everything, because a computer has the space.
+    #[serde(default)]
+    pub recent: Option<u64>,
+    /// Address mined coins go to. `None` is the key that receives.
+    #[serde(default)]
+    pub miner: Option<String>,
+    /// Text every mined block carries.
+    #[serde(default)]
+    pub note: String,
+    /// Leaves small coins as they are when set.
+    #[serde(default)]
+    pub no_merge: bool,
 }
 
-impl Store {
-    pub fn open(directory: &Path) -> Result<(Self, Vec<Block>), String> {
+impl NodeSettings {
+    pub fn load(directory: &Path) -> Self {
+        let text = fs::read_to_string(directory.join(SETTINGS)).unwrap_or_default();
+        serde_json::from_str(&text).unwrap_or_default()
+    }
+
+    pub fn save(&self, directory: &Path) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(self).map_err(|error| error.to_string())?;
         fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let path = directory.join("blocks.log");
-        let saved = read_blocks(&path);
-        let blocks = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|error| error.to_string())?;
-        let written = fs::metadata(&path).map_or(0, |file| file.len());
-        let store = Self {
-            blocks,
-            written,
-            limit: None,
-            full: false,
-        };
-        Ok((store, saved))
-    }
-
-    pub fn set_limit(&mut self, limit: Option<u64>) {
-        self.limit = limit;
-    }
-
-    pub fn written(&self) -> u64 {
-        self.written
-    }
-
-    /// True once a block did not fit. The node runs on, and that block lasts only until it stops.
-    pub fn is_full(&self) -> bool {
-        self.full
-    }
-
-    pub fn append(&mut self, block: &Block) {
-        let Ok(bytes) = postcard::to_allocvec(block) else {
-            return;
-        };
-        let size = bytes.len() as u64 + 4;
-        if self.limit.is_some_and(|limit| self.written + size > limit) {
-            self.full = true;
-            return;
-        }
-        let _ = self.blocks.write_all(&(bytes.len() as u32).to_le_bytes());
-        let _ = self.blocks.write_all(&bytes);
-        self.written += size;
+        fs::write(directory.join(SETTINGS), text).map_err(|error| error.to_string())
     }
 }
 
-fn read_blocks(path: &PathBuf) -> Vec<Block> {
-    let mut data = Vec::new();
-    if File::open(path)
-        .and_then(|mut file| file.read_to_end(&mut data))
-        .is_err()
-    {
-        return Vec::new();
+/// Opens the chain in `directory`, with `limit` bytes of disk if it has a limit.
+pub fn open_chain(
+    directory: &Path,
+    config: CoinConfig,
+    plugins: Plugins,
+    limit: Option<u64>,
+) -> Result<Chain, String> {
+    let recent = NodeSettings::load(directory).recent;
+    let keep = keep_in(directory, recent, limit)?;
+    let mut chain = Chain::open(config, plugins, keep);
+    let old = directory.join(OLD_BLOCKS);
+    if old.exists() {
+        for block in read_blocks(&old) {
+            let _ = chain.add_block(block);
+        }
+        chain.save_now();
+        fs::rename(&old, directory.join(OLD_BLOCKS_DONE)).map_err(|error| error.to_string())?;
     }
+    Ok(chain)
+}
+
+fn read_blocks(path: &Path) -> Vec<Block> {
+    let Ok(data) = fs::read(path) else {
+        return Vec::new();
+    };
     let mut blocks = Vec::new();
     let mut rest = data.as_slice();
     while rest.len() >= 4 {
@@ -83,29 +79,4 @@ fn read_blocks(path: &PathBuf) -> Vec<Block> {
         rest = &rest[4 + size..];
     }
     blocks
-}
-
-/// Reads the secret key, creating one the first time. Only the owner can read the file.
-pub fn load_or_create_secret(directory: &Path) -> Result<[u8; 32], String> {
-    let path = directory.join("wallet.key");
-    if let Ok(text) = fs::read_to_string(&path) {
-        return parse_secret(text.trim()).ok_or(format!("{}: bad key", path.display()));
-    }
-    let mut secret = [0u8; 32];
-    getrandom::fill(&mut secret).map_err(|error| error.to_string())?;
-    let text: String = secret.iter().map(|byte| format!("{byte:02x}")).collect();
-    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    platform().write_private(&path, text.as_bytes()).map_err(|error| error.to_string())?;
-    Ok(secret)
-}
-
-fn parse_secret(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 || !text.is_ascii() {
-        return None;
-    }
-    let mut secret = [0u8; 32];
-    for (index, byte) in secret.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
-    }
-    Some(secret)
 }
