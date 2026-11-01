@@ -3,6 +3,7 @@
 //! The rule for simplicity: after any reorganisation the unspent set is rebuilt from genesis.
 //! That is slow on a chain with millions of blocks and instant on the chains this coin is for.
 use crate::coin::{CoinConfig, Rules};
+use crate::ledger::{apply_block, spend_and_create, TxHeights};
 use crate::orphans::Orphans;
 use crate::plugin::{Plugins, RetargetInput, SpendContext};
 use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
@@ -57,7 +58,7 @@ pub struct Unspent {
     pub coinbase: bool,
 }
 
-type UnspentSet = BTreeMap<OutPoint, Unspent>;
+pub(crate) type UnspentSet = BTreeMap<OutPoint, Unspent>;
 
 pub struct Chain {
     config: CoinConfig,
@@ -67,6 +68,7 @@ pub struct Chain {
     orphans: Orphans,
     pub(crate) tip: Hash,
     unspent: UnspentSet,
+    tx_heights: TxHeights,
     /// While saved blocks come back: the heaviest seen so far, first come first.
     restoring: Option<(Hash, u128)>,
 }
@@ -76,7 +78,8 @@ impl Chain {
         let block = config.genesis();
         let id = block.id();
         let mut unspent = UnspentSet::new();
-        apply_block(&block, 0, &mut unspent);
+        let mut tx_heights = TxHeights::new();
+        apply_block(&block, 0, &mut unspent, &mut tx_heights);
         let entry = Entry {
             block,
             height: 0,
@@ -93,6 +96,7 @@ impl Chain {
             orphans: Orphans::default(),
             tip: id,
             unspent,
+            tx_heights,
             restoring: None,
         }
     }
@@ -289,7 +293,7 @@ impl Chain {
                 &self.config.rules,
                 &self.plugins,
             )?;
-            apply_block(&block, height, &mut self.unspent);
+            apply_block(&block, height, &mut self.unspent, &mut self.tx_heights);
             self.entries.insert(
                 id,
                 Entry {
@@ -380,20 +384,9 @@ impl Chain {
         self.orphans.take_children(parent)
     }
 
-    /// The height of a transaction on the best chain. Hashes every transaction, so it is for
-    /// someone asking, not for a loop.
+    /// The height of a transaction on the best chain.
     pub fn find_tx(&self, id: &Hash) -> Option<u64> {
-        let mut cursor = self.tip;
-        while let Some(entry) = self.entries.get(&cursor) {
-            if entry.block.txs.iter().any(|tx| tx.id() == *id) {
-                return Some(entry.height);
-            }
-            if entry.height == 0 {
-                return None;
-            }
-            cursor = entry.block.header.previous;
-        }
-        None
+        self.tx_heights.get(id).copied()
     }
 
     /// Selects transactions and builds an unsealed block on the tip.
@@ -482,6 +475,7 @@ impl Chain {
         }
         path.reverse();
         let mut unspent = UnspentSet::new();
+        let mut tx_heights = TxHeights::new();
         for (done, id) in path.iter().enumerate() {
             tick(done, path.len());
             let entry = &self.entries[id];
@@ -494,7 +488,7 @@ impl Chain {
                     &self.plugins,
                 )?;
             }
-            apply_block(&entry.block, entry.height, &mut unspent);
+            apply_block(&entry.block, entry.height, &mut unspent, &mut tx_heights);
         }
         for id in &path {
             if let Some(entry) = self.entries.get_mut(id) {
@@ -502,6 +496,7 @@ impl Chain {
             }
         }
         self.unspent = unspent;
+        self.tx_heights = tx_heights;
         self.tip = *new_tip;
         Ok(())
     }
@@ -582,29 +577,4 @@ fn check_block_body(
         return Err(ChainError::BadCoinbase);
     }
     Ok(())
-}
-
-fn spend_and_create(tx: &Tx, height: u64, unspent: &mut UnspentSet) {
-    for input in &tx.inputs {
-        unspent.remove(&input.previous);
-    }
-    let txid = tx.id();
-    for (index, output) in tx.outputs.iter().enumerate() {
-        let point = OutPoint {
-            txid,
-            index: index as u32,
-        };
-        let entry = Unspent {
-            output: output.clone(),
-            height,
-            coinbase: tx.is_coinbase(),
-        };
-        unspent.insert(point, entry);
-    }
-}
-
-fn apply_block(block: &Block, height: u64, unspent: &mut UnspentSet) {
-    for tx in &block.txs {
-        spend_and_create(tx, height, unspent);
-    }
 }

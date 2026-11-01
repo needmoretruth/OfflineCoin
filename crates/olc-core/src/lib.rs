@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod chain;
 pub mod coin;
+mod ledger;
 mod locator;
 mod orphans;
 pub mod plugin;
