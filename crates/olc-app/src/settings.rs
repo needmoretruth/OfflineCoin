@@ -12,7 +12,7 @@ pub const NODE_PORT: u16 = 7000;
 pub const PORT_TRIES: u16 = 10;
 /// A computer's node, relaxed.
 pub const RELAXED_CAP: u64 = 20_000;
-pub const BOARD_CAP: u64 = 3_000;
+pub const BOARD_CAP: u64 = 1_000;
 pub const NEW_COIN_DIFFICULTY: u64 = 30_000;
 const FILE: &str = "core.json";
 const MAX_BOOK: usize = 64;

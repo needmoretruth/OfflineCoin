@@ -3,7 +3,7 @@ use super::settings::device_name;
 use super::Cx;
 use crate::core::{parse_coins, Command, StartCoin};
 use crate::discovery::{CoinGroup, Reach};
-use crate::settings::{Device, NEW_COIN_DIFFICULTY};
+use crate::settings::{Device, BOARD_CAP, NEW_COIN_DIFFICULTY};
 use crate::ui::format;
 use crate::ui::paint::{surface, Surface};
 use crate::ui::tokens;
@@ -131,8 +131,8 @@ impl Setup {
         widgets::title(ui, cx.say("setup.using"));
         for device in Device::ALL {
             let name = cx.say(device_name(device));
-            let about = cx.say(device_about(device));
-            if choice(ui, cx, name, about, cx.settings.device == device) {
+            let about = cx.fill(device_about(device), &[&format::number(BOARD_CAP.into())]);
+            if choice(ui, cx, name, &about, cx.settings.device == device) {
                 cx.settings.apply_device(device);
             }
         }

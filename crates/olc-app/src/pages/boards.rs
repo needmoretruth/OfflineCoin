@@ -204,6 +204,14 @@ impl Boards {
                 Self::line(cx, id, format!("bright {level}"));
             }
         });
+        labelled(ui, cx.say("boards.wifi"), |ui| {
+            for (key, line) in [("boards.wifi_on", "network on"), ("boards.wifi_off", "network off")] {
+                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    Self::line(cx, id, line.into());
+                }
+            }
+            meta(ui, cx.say("boards.wifi_note"), t);
+        });
         labelled(ui, cx.say("boards.name"), |ui| {
             field(ui, &mut self.name, cx.say("boards.name"), 200.0);
             if button(ui, t, cx.say("boards.rename"), Kind::Plain).clicked() {

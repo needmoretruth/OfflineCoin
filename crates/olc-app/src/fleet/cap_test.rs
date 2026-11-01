@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
-const LOWEST_CAP: u64 = 1_000;
+/// Below the default cap, so a board at the default can still be lowered.
+const LOWEST_CAP: u64 = 250;
 /// The board's own rate needs this long to forget the old cap.
 const SETTLE: Duration = Duration::from_secs(12);
 const SAMPLES: u32 = 8;
@@ -109,6 +110,7 @@ mod tests {
     fn the_test_cap_is_one_the_board_can_reach() {
         assert_eq!(lower_cap(15_000, 15_000), 7_500);
         assert_eq!(lower_cap(0, 24_000), 12_000);
-        assert_eq!(lower_cap(1_500, 1_500), LOWEST_CAP);
+        assert_eq!(lower_cap(1_000, 1_000), 500);
+        assert_eq!(lower_cap(300, 300), LOWEST_CAP);
     }
 }

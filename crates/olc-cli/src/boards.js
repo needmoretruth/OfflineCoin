@@ -64,7 +64,7 @@ function capControl(half, apply) {
   return cap;
 }
 
-const BOARD_RELAXED = 3000;
+const BOARD_RELAXED = 1000;
 const BOARD_HALF = 7500;
 const COMPUTER_RELAXED = 20000;
 const computerCap = capControl(0, async (limit) => {
