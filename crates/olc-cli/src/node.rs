@@ -89,9 +89,11 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
     };
     let mut engine = Engine::new(coin, plugins, wallet);
     let (mut store, saved) = Store::open(&directory)?;
+    engine.begin_restoring();
     for block in saved {
         engine.restore_block(block);
     }
+    engine.finish_restoring(|_, _| {});
 
     let mut runner = Runner::new(engine);
     let tcp = TcpLink::new();

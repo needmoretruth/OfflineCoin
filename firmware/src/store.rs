@@ -45,6 +45,10 @@ pub struct Settings {
     pub limit: String,
     /// The chosen hash cap, 0 for full. Empty means the owner never chose.
     pub cap: String,
+    /// Frames a second of the coin. Empty means the owner never chose.
+    pub smooth: String,
+    /// Radio power in dBm. Empty means the owner never chose.
+    pub power: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -83,7 +87,10 @@ impl Store {
     /// Notes this start. Writes without erasing, so a board that restarts in a loop wears
     /// nothing until the sector is full.
     pub fn begin_boot(&mut self, reason: u8) {
-        let free = self.boot_words().iter().position(|word| *word == bootlog::FREE);
+        let free = self
+            .boot_words()
+            .iter()
+            .position(|word| *word == bootlog::FREE);
         let index = free.unwrap_or_else(|| {
             let _ = self.flash.erase(BOOT_LOG, BOOT_LOG + SECTOR);
             0
@@ -123,12 +130,14 @@ impl Store {
             language: lines.next().unwrap_or_default(),
             limit: lines.next().unwrap_or_default(),
             cap: lines.next().unwrap_or_default(),
+            smooth: lines.next().unwrap_or_default(),
+            power: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -136,6 +145,8 @@ impl Store {
             settings.language,
             settings.limit,
             settings.cap,
+            settings.smooth,
+            settings.power,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {

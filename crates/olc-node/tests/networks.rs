@@ -159,7 +159,10 @@ fn rivals_on_one_genesis_stop_asking_for_blocks_they_refused() {
         .any(|event| matches!(event, Event::BlockRejected { .. }));
     assert!(saw_a_refusal);
     assert_eq!(nodes[0].status().syncing_to, None);
-    assert!(nodes[0].mine(1_000_000, 100_000), "a taller rival must not stop a miner");
+    assert!(
+        nodes[0].mine(1_000_000, 100_000),
+        "a taller rival must not stop a miner"
+    );
 }
 
 #[test]

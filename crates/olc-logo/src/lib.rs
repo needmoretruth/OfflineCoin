@@ -2,13 +2,26 @@
 //! terminal, the browser and the OLED, each of which only decides how to show the brightness.
 #![no_std]
 
-use libm::{atan2f, cosf, powf, sinf, sqrtf};
+extern crate alloc;
+
+mod reel;
+
+pub use reel::Reel;
+
+use libm::{atan2f, cosf, sinf, sqrtf};
 
 const THICKNESS: f32 = 0.17;
 const RIM: f32 = 0.87;
 const REEDS: f32 = 36.0;
 /// The coin stays inside the frame at every angle.
-const FIT: f32 = 1.08;
+const FIT: f32 = 1.2;
+/// How far the eye sits from the coin, in coin radii. Closer shows more perspective.
+const EYE: f32 = 3.2;
+/// How far the turning axis leans towards the viewer, in radians.
+const LEAN: f32 = 0.30;
+const SHEEN_TRAVEL: f32 = 1.6;
+const SHEEN_WIDTH: f32 = 0.32;
+const SHEEN_SLANT: f32 = 0.4;
 
 /// Whether a point on the coin's face belongs to the stamped symbol. The face runs from -1 to 1.
 fn stamped(x: f32, y: f32) -> bool {
@@ -26,8 +39,6 @@ fn stamped(x: f32, y: f32) -> bool {
 }
 
 struct Hit {
-    /// Surface direction in the coin's own space.
-    normal: [f32; 3],
     /// How much light this part of the metal gives back.
     albedo: f32,
 }
@@ -41,70 +52,136 @@ fn face(x: f32, y: f32, z_sign: f32) -> Hit {
     } else {
         0.42
     };
-    Hit {
-        normal: [0.0, 0.0, z_sign],
-        albedo,
-    }
+    Hit { albedo }
 }
 
 fn edge(x: f32, y: f32) -> Hit {
     let reed = sinf(atan2f(y, x) * REEDS);
     Hit {
-        normal: [x, y, 0.0],
         albedo: 0.62 + 0.38 * reed,
     }
 }
 
-/// One rotation of the coin, kept so a frame costs a sine and a cosine once.
+/// One turn on every surface, so the board, the terminal and the app spin alike.
+pub const TURN_MS: u64 = 6_000;
+/// Frames in a turn. No frame shows twice at [`MAX_FPS`].
+pub const FRAMES: usize = (TURN_MS * MAX_FPS as u64 / 1_000) as usize;
+/// The most frames a second any surface shows.
+pub const MAX_FPS: u32 = 30;
+/// The fewest frames a second. Any slower and the steps grow towards a half turn. Both faces look
+/// alike, so at that point the eye sees the coin swing to and fro instead of turning.
+pub const MIN_FPS: u32 = 5;
+
+const TAU: f32 = core::f32::consts::TAU;
+
+/// The angle of a frame of the turn.
+pub fn frame_angle(frame: usize) -> f32 {
+    frame as f32 / FRAMES as f32 * TAU
+}
+
+/// The frame of the turn to show at a moment.
+pub fn frame_at(now_ms: u64) -> usize {
+    ((now_ms % TURN_MS) * FRAMES as u64 / TURN_MS) as usize
+}
+
+type Vector = [f32; 3];
+
+fn dot(a: Vector, b: Vector) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// `a` plus `b` times `scale`.
+fn along(a: Vector, b: Vector, scale: f32) -> Vector {
+    [
+        a[0] + b[0] * scale,
+        a[1] + b[1] * scale,
+        a[2] + b[2] * scale,
+    ]
+}
+
+/// One rotation of the coin, kept so a frame costs a sine and a cosine once. The turn is seen in
+/// true perspective from a little above, which is what tells the eye which way it goes: the near
+/// side passes lower and faster than the far side, always to the right.
 #[derive(Clone, Copy)]
 pub struct Spin {
-    sin: f32,
-    cos: f32,
+    /// The coin's own axes as seen by the viewer. Its face lies along the first two.
+    axes: [Vector; 3],
+    /// The eye in the coin's space.
+    eye: Vector,
+    /// Where the sheen stands on the frame.
+    sheen: f32,
 }
 
 impl Spin {
     pub fn new(angle: f32) -> Self {
-        Self { sin: sinf(angle), cos: cosf(angle) }
+        let (sin, cos) = (sinf(angle), cosf(angle));
+        let (lean_sin, lean_cos) = (sinf(LEAN), cosf(LEAN));
+        let lean =
+            |[x, y, z]: Vector| [x, y * lean_cos - z * lean_sin, y * lean_sin + z * lean_cos];
+        let axes = [
+            lean([cos, 0.0, -sin]),
+            lean([0.0, 1.0, 0.0]),
+            lean([sin, 0.0, cos]),
+        ];
+        let eye = [axes[0][2] * EYE, axes[1][2] * EYE, axes[2][2] * EYE];
+        // Crosses the frame once for each face that passes, always the way the near side moves.
+        let sheen = (if cos < 0.0 { -sin } else { sin }) * SHEEN_TRAVEL;
+        Self { axes, eye, sheen }
     }
 
     /// Brightness from 0 to 1 at a point of a frame running from -1 to 1 with y up, or `None`
     /// off the coin.
     pub fn shade(self, x: f32, y: f32) -> Option<f32> {
         let (x, y) = (x * FIT, y * FIT);
-        let Self { sin, cos } = self;
-        // A ray towards the coin, as a line in the coin's space: s runs towards the viewer.
-        let across = |s: f32| x * cos - s * sin;
-        let depth = |s: f32| x * sin + s * cos;
+        let [ex, ey, ez] = self.axes;
+        let ray = [x, y, -EYE];
+        let ray = [dot(ray, ex), dot(ray, ey), dot(ray, ez)];
+        let eye = self.eye;
 
-        let mut best: Option<(f32, Hit)> = None;
-        let mut consider = |s: f32, hit: Hit| {
-            if best.as_ref().is_none_or(|(nearest, _)| s > *nearest) {
-                best = Some((s, hit));
+        // The ray is inside the round wall between these two moments.
+        let round = ray[0] * ray[0] + ray[1] * ray[1];
+        let near = eye[0] * ray[0] + eye[1] * ray[1];
+        let room = near * near - round * (eye[0] * eye[0] + eye[1] * eye[1] - 1.0);
+        if room < 0.0 || round < 1e-9 {
+            return None;
+        }
+        let root = sqrtf(room);
+        let (wall_in, wall_out) = ((-near - root) / round, (-near + root) / round);
+        // And between the two faces between these.
+        let (face_in, face_out) = if ray[2].abs() < 1e-6 {
+            if eye[2].abs() > THICKNESS {
+                return None;
             }
+            (f32::MIN, f32::MAX)
+        } else {
+            let (a, b) = (
+                (THICKNESS - eye[2]) / ray[2],
+                (-THICKNESS - eye[2]) / ray[2],
+            );
+            (a.min(b), a.max(b))
         };
-        if cos.abs() > 1e-4 {
-            for side in [1.0, -1.0] {
-                let s = (side * THICKNESS - x * sin) / cos;
-                let u = across(s);
-                if u * u + y * y <= 1.0 {
-                    consider(s, face(u, y, side));
-                }
-            }
+        if wall_in.max(face_in) > wall_out.min(face_out) {
+            return None;
         }
-        if sin.abs() > 1e-4 && y.abs() <= 1.0 {
-            let half = sqrtf(1.0 - y * y);
-            for side in [1.0, -1.0] {
-                let u = side * half;
-                let s = (x * cos - u) / sin;
-                if depth(s).abs() <= THICKNESS {
-                    consider(s, edge(u, y));
-                }
-            }
-        }
-        let (_, hit) = best?;
-        let [nx, ny, nz] = hit.normal;
-        let normal = [nx * cos + nz * sin, ny, -nx * sin + nz * cos];
-        Some(light(normal, hit.albedo))
+        let (hit, normal) = if face_in > wall_in {
+            let side = if eye[2] > 0.0 { 1.0 } else { -1.0 };
+            let at = along(eye, ray, face_in);
+            (face(at[0], at[1], side), along([0.0; 3], ez, side))
+        } else {
+            let at = along(eye, ray, wall_in);
+            let normal = along(along([0.0; 3], ex, at[0]), ey, at[1]);
+            (edge(at[0], at[1]), normal)
+        };
+        Some(self.light(normal, hit, x, y))
+    }
+
+    fn light(self, normal: Vector, hit: Hit, x: f32, y: f32) -> f32 {
+        // One light from above and in front: nothing swaps sides as the coin turns.
+        const KEY: Vector = [0.0, 0.60, 0.80];
+        let diffuse = dot(normal, KEY).max(0.0);
+        let band = (x + y * SHEEN_SLANT - self.sheen) / SHEEN_WIDTH;
+        let sheen = (1.0 - band * band).max(0.0);
+        ((0.30 + 0.62 * diffuse) * hit.albedo + 0.60 * sheen * sheen * hit.albedo).clamp(0.0, 1.0)
     }
 }
 
@@ -113,18 +190,23 @@ pub fn shade(angle: f32, x: f32, y: f32) -> Option<f32> {
     Spin::new(angle).shade(x, y)
 }
 
-fn light(normal: [f32; 3], albedo: f32) -> f32 {
-    const LIGHT: [f32; 3] = [-0.44, 0.53, 0.72];
-    // A weaker light on the other side keeps the symbol visible all the way round.
-    const FILL: [f32; 3] = [0.60, 0.20, 0.77];
-    const FILL_STRENGTH: f32 = 0.85;
-    const HALFWAY: [f32; 3] = [-0.24, 0.29, 0.93];
-    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    let diffuse = dot(normal, LIGHT)
-        .max(dot(normal, FILL) * FILL_STRENGTH)
-        .max(0.0);
-    let shine = powf(dot(normal, HALFWAY).max(0.0), 24.0);
-    ((0.30 + 0.62 * diffuse) * albedo + 0.55 * shine).clamp(0.0, 1.0)
+/// Whether a pixel lights on a one-bit panel. Bright metal is solid, the rest is dithered.
+pub fn lit(spin: Spin, x: i32, y: i32, radius: i32) -> bool {
+    const BAYER: [[f32; 4]; 4] = [
+        [0.03, 0.53, 0.16, 0.66],
+        [0.78, 0.28, 0.91, 0.41],
+        [0.22, 0.72, 0.09, 0.59],
+        [0.97, 0.47, 0.84, 0.34],
+    ];
+    const SOLID: f32 = 0.48;
+    const DIM: f32 = 0.45;
+    let (u, v) = (
+        (x as f32 + 0.5) / radius as f32,
+        -(y as f32 + 0.5) / radius as f32,
+    );
+    spin.shade(u, v).is_some_and(|light| {
+        light > SOLID || light * DIM > BAYER[(y & 3) as usize][(x & 3) as usize]
+    })
 }
 
 /// Darkest to brightest, for terminals.
@@ -149,15 +231,137 @@ pub fn ascii_row(angle: f32, row: usize, rows: usize, columns: usize, mut put: i
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
     use super::*;
+    use std::vec::Vec;
+
+    const GRID: usize = 120;
+
+    fn field(frame: usize) -> Vec<Option<f32>> {
+        let spin = Spin::new(frame_angle(frame));
+        let place = |index: usize| (index as f32 + 0.5) * 2.0 / GRID as f32 - 1.0;
+        (0..GRID * GRID)
+            .map(|at| spin.shade(place(at % GRID), -place(at / GRID)))
+            .collect()
+    }
+
+    /// How far the coin's face moved to the right between two frames, by optical flow. Only the
+    /// inside counts: the outline of any turning disc squeezes in from both sides.
+    fn net_motion(from: &[Option<f32>], to: &[Option<f32>]) -> f32 {
+        motion_within(from, to, 0..GRID)
+    }
+
+    fn motion_within(
+        from: &[Option<f32>],
+        to: &[Option<f32>],
+        columns: core::ops::Range<usize>,
+    ) -> f32 {
+        const MARGIN: usize = 6;
+        let inside = |at: usize| {
+            (0..=MARGIN).all(|step| {
+                [at - step, at + step, at - step * GRID, at + step * GRID]
+                    .iter()
+                    .all(|near| from[*near].is_some() && to[*near].is_some())
+            })
+        };
+        let value = |picture: &[Option<f32>], at: usize| picture[at].unwrap_or(0.0);
+        let (mut across, mut power) = (0.0, 0.0);
+        for at in (MARGIN + 1) * GRID..GRID * GRID - (MARGIN + 1) * GRID {
+            if columns.contains(&(at % GRID)) && inside(at) {
+                let slope = (value(from, at + 1) + value(to, at + 1)
+                    - value(from, at - 1)
+                    - value(to, at - 1))
+                    / 4.0;
+                across += slope * (value(to, at) - value(from, at));
+                power += slope * slope;
+            }
+        }
+        -across / power
+    }
 
     #[test]
-    fn the_coin_is_round_and_turns_edge_on() {
-        assert!(shade(0.0, 0.0, 0.8).is_some());
-        assert!(shade(0.0, 0.9, 0.9).is_none());
-        let edge_on = core::f32::consts::FRAC_PI_2;
-        assert!(shade(edge_on, 0.5, 0.0).is_none());
-        assert!(shade(edge_on, 0.1, 0.0).is_some());
+    fn the_coin_moves_one_way_all_the_way_round() {
+        const STEP: usize = 3;
+        let mut against = Vec::new();
+        for frame in (0..FRAMES).step_by(STEP) {
+            let middle = frame_angle(frame) + frame_angle(STEP) / 2.0;
+            let motion = net_motion(&field(frame), &field(frame + STEP));
+            if cosf(middle).abs() > 0.25 && motion <= 0.0 {
+                against.push((frame, motion));
+            }
+        }
+        assert!(against.is_empty(), "moved backwards at {against:?}");
+    }
+
+    /// Seen from above, the near half of a turned coin passes lower than the far half. This is
+    /// what settles the direction: a coin seen straight on looks the same turning either way.
+    #[test]
+    fn the_near_side_passes_below_the_far_side() {
+        for frame in (6..FRAMES / 4 - 3).step_by(3) {
+            let picture = field(frame);
+            let height = |columns: core::ops::Range<usize>| {
+                let (mut sum, mut count) = (0, 0);
+                for at in 0..picture.len() {
+                    if columns.contains(&(at % GRID)) && picture[at].is_some() {
+                        sum += at / GRID;
+                        count += 1;
+                    }
+                }
+                sum as f32 / count as f32
+            };
+            let (near, far) = (height(0..GRID / 2), height(GRID / 2..GRID));
+            assert!(near > far + 1.0, "frame {frame}: {near} against {far}");
+        }
+    }
+
+    /// The light goes across in the direction of travel, once for each face that passes.
+    #[test]
+    fn the_shine_crosses_with_the_turn() {
+        for middle in [0, FRAMES / 2] {
+            let sheen = |step: usize| Spin::new(frame_angle(FRAMES + middle + step - 40)).sheen;
+            for step in 0..79 {
+                assert!(sheen(step + 1) > sheen(step), "{middle} {step}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_slowest_steps_stay_far_from_a_half_turn() {
+        let step = 360.0 * 1_000.0 / (TURN_MS as f32 * MIN_FPS as f32);
+        assert!(step <= 15.0, "{step}");
+    }
+
+    #[test]
+    fn the_coin_stays_inside_the_frame() {
+        for frame in 0..FRAMES {
+            let spin = Spin::new(frame_angle(frame));
+            for step in 0..64 {
+                let at = step as f32 / 32.0 - 1.0;
+                for (x, y) in [(at, 1.0), (at, -1.0), (1.0, at), (-1.0, at)] {
+                    assert!(spin.shade(x, y).is_none(), "frame {frame} at {x} {y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_coin_turns_edge_on() {
+        let wide = |frame: usize| {
+            let spin = Spin::new(frame_angle(frame));
+            (0..100)
+                .filter(|step| spin.shade(*step as f32 / 50.0 - 1.0, 0.0).is_some())
+                .count()
+        };
+        assert!(wide(0) > 70);
+        assert!(wide(FRAMES / 4) < 25);
+    }
+
+    #[test]
+    fn the_turn_runs_over_every_frame() {
+        assert_eq!(frame_at(0), 0);
+        assert_eq!(frame_at(TURN_MS - 1), FRAMES - 1);
+        assert_eq!(frame_at(TURN_MS), 0);
+        assert_eq!(frame_angle(FRAMES / 2), core::f32::consts::PI);
     }
 
     #[test]

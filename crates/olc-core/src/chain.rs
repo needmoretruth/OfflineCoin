@@ -67,6 +67,8 @@ pub struct Chain {
     orphans: Orphans,
     pub(crate) tip: Hash,
     unspent: UnspentSet,
+    /// While saved blocks come back: the heaviest seen so far, first come first.
+    restoring: Option<(Hash, u128)>,
 }
 
 impl Chain {
@@ -91,6 +93,7 @@ impl Chain {
             orphans: Orphans::default(),
             tip: id,
             unspent,
+            restoring: None,
         }
     }
 
@@ -214,6 +217,27 @@ impl Chain {
         check_tx(tx, height, &self.unspent, &self.config.rules, &self.plugins)
     }
 
+    /// Puts saved blocks back without following them yet, however often they changed branch in
+    /// the past. [`Chain::finish_restoring`] then checks the winning branch once.
+    pub fn begin_restoring(&mut self) {
+        self.restoring = Some((self.tip, self.total_work()));
+    }
+
+    /// Follows the heaviest branch that passes every check. `tick` hears how far that got.
+    pub fn finish_restoring(&mut self, mut tick: impl FnMut(usize, usize)) {
+        let Some((mut best, _)) = self.restoring.take() else {
+            return;
+        };
+        while best != self.genesis && self.replay(&best, &mut tick).is_err() {
+            self.entries.remove(&best);
+            let heaviest = self
+                .entries
+                .iter()
+                .max_by_key(|(_, entry)| entry.total_work);
+            best = heaviest.map_or(self.genesis, |(id, _)| *id);
+        }
+    }
+
     /// Adds a block and follows it if its branch now has the most work.
     pub fn add_block(&mut self, block: Block) -> Result<AddOutcome, ChainError> {
         let id = block.id();
@@ -244,6 +268,19 @@ impl Chain {
         let total_work = parent.total_work + self.plugins.consensus.work(&block.header);
         let extends_tip = previous == self.tip;
 
+        if let Some((best, best_work)) = &mut self.restoring {
+            if total_work > *best_work {
+                (*best, *best_work) = (id, total_work);
+            }
+            let entry = Entry {
+                block,
+                height,
+                total_work,
+                validated: false,
+            };
+            self.entries.insert(id, entry);
+            return Ok(AddOutcome::SideBranch);
+        }
         if extends_tip {
             check_block_body(
                 &block,
@@ -280,7 +317,7 @@ impl Chain {
         }
         let old_height = self.height();
         let fork_height = self.fork_height(&id);
-        match self.replay(&id) {
+        match self.replay(&id, &mut |_, _| {}) {
             Ok(()) => Ok(AddOutcome::Reorganized {
                 replaced: old_height - fork_height,
             }),
@@ -429,7 +466,11 @@ impl Chain {
 
     /// Replays the branch ending at `new_tip` from genesis and makes it the best chain.
     /// Leaves the current state untouched when a block on the branch is invalid.
-    fn replay(&mut self, new_tip: &Hash) -> Result<(), ChainError> {
+    fn replay(
+        &mut self,
+        new_tip: &Hash,
+        tick: &mut dyn FnMut(usize, usize),
+    ) -> Result<(), ChainError> {
         let mut path = Vec::new();
         let mut cursor = *new_tip;
         while let Some(entry) = self.entries.get(&cursor) {
@@ -441,7 +482,8 @@ impl Chain {
         }
         path.reverse();
         let mut unspent = UnspentSet::new();
-        for id in &path {
+        for (done, id) in path.iter().enumerate() {
+            tick(done, path.len());
             let entry = &self.entries[id];
             if !entry.validated {
                 check_block_body(

@@ -4,7 +4,7 @@ use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
 use crate::store::{Settings, Store};
 use crate::usb::Commands;
-use crate::views::{self, coins, Info, Language, Note, SmallCoin, State, View};
+use crate::views::{self, coins, Coins, Info, Language, Note, State, View};
 use crate::wifi::Network;
 use alloc::collections::VecDeque;
 use alloc::format;
@@ -16,6 +16,7 @@ use esp_println::println;
 use olc_control::bootlog;
 use olc_core::coin::COIN;
 use olc_core::Hash;
+use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Event, Runner};
 use olc_wallet::{format_address, parse_address};
 
@@ -33,7 +34,17 @@ const BLOCKS_AVERAGED: u64 = 10;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
 /// The cap of a board whose owner never chose one: enough to mine, little heat.
 pub const RELAXED_LIMIT: u32 = 3_000;
-const SPLASH_REDRAW_MS: u64 = 80;
+/// How often words and numbers change. The coin has its own pace.
+const TEXT_EVERY_MS: u64 = 250;
+/// A short mining batch while the coin shows, so a frame never waits long.
+const COIN_MINING_BATCH: u32 = 60;
+/// Coin rows drawn on each pass of the loop, about 0.3 ms each.
+const COIN_ROWS_PER_TURN: usize = 2;
+/// The coin's frames a second on a board whose owner never chose.
+pub const DEFAULT_SMOOTH: u32 = 10;
+/// Radio power on a board whose owner never chose, enough for one desk or one room.
+pub const DEFAULT_POWER_DBM: i8 = 5;
+const POWER_RANGE: core::ops::RangeInclusive<i8> = 2..=20;
 const BOOTS_SHOWN: usize = 8;
 const BUTTON_DEBOUNCE_MS: u64 = 30;
 const BUTTON_HOLD_MS: u64 = 800;
@@ -41,6 +52,22 @@ const BUTTON_HOLD_MS: u64 = 800;
 const MIN_FREE_HEAP: usize = 256 * 1024;
 /// A line on the cable counts as finished this long after its last byte.
 pub const CABLE_QUIET_MS: u32 = 20;
+
+/// How the coin really ran, for the status line.
+#[derive(Default)]
+pub struct FrameCount {
+    pub sent: u32,
+    pub slowest_us: u64,
+    pub last_second: u32,
+    pub last_slowest_us: u64,
+}
+
+impl FrameCount {
+    fn roll(&mut self) {
+        self.last_second = core::mem::take(&mut self.sent);
+        self.last_slowest_us = core::mem::take(&mut self.slowest_us);
+    }
+}
 
 pub fn device_ms() -> u64 {
     Instant::now().duration_since_epoch().as_millis()
@@ -69,6 +96,7 @@ fn decode_hash(text: &str, out: &mut Hash) -> bool {
 pub struct Started {
     pub reset: u8,
     pub read_ms: u64,
+    pub placed_ms: u64,
     pub loaded_ms: u64,
 }
 
@@ -79,7 +107,13 @@ pub struct Node {
     pub screen: Screen,
     pub commands: Commands,
     pub network: Network,
-    pub small_coin: SmallCoin,
+    pub coins: Coins,
+    /// Frames a second of the coin.
+    pub smooth: u32,
+    pub coin_ms: u64,
+    /// Coin frames sent and the slowest send, over the last second and the one before.
+    pub frames: FrameCount,
+    pub power_dbm: i8,
     /// The BOOT button: a press changes the view, a long press changes the language.
     pub button: Input<'static>,
     pub view: View,
@@ -129,14 +163,20 @@ impl Node {
             self.rate = (u64::from(self.attempts) * 1_000 / window) as u32;
             self.attempts = 0;
             self.window_ms = now;
+            self.frames.roll();
         }
         if esp_alloc::HEAP.free() < MIN_FREE_HEAP {
             self.mining = false;
             self.memory_full = true;
         }
+        let longest = if self.coin_shows(now) {
+            COIN_MINING_BATCH
+        } else {
+            MINING_BATCH
+        };
         let batch = match self.limit {
-            0 => MINING_BATCH,
-            limit => MINING_BATCH.min(limit.saturating_sub(self.attempts)),
+            0 => longest,
+            limit => longest.min(limit.saturating_sub(self.attempts)),
         };
         let worked =
             self.mining && batch > 0 && !cable_is_busy(now) && !self.control.taking_an_image(now);
@@ -156,14 +196,34 @@ impl Node {
             self.tip_attempts = 0;
             self.block_time_ms = self.recent_block_time();
         }
+        self.coins.work(COIN_ROWS_PER_TURN);
+        let started = Instant::now();
+        let frame_due = now >= self.coin_ms && self.coin_shows(now);
         if now >= self.screen_ms {
             self.draw(now);
+        } else if frame_due {
+            self.coins
+                .next_frame(&mut self.screen, now, now < self.splash_until_ms);
+        }
+        if frame_due {
+            self.count_coin_frame(now, started);
         }
         if now >= self.status_ms {
             self.status_ms = now + STATUS_EVERY_MS;
             self.print_status();
         }
         worked
+    }
+
+    fn coin_shows(&self, now: u64) -> bool {
+        now < self.splash_until_ms || self.view == View::Easy
+    }
+
+    /// Keeps to the pace rather than restarting it, so waiting a moment costs no frame.
+    fn count_coin_frame(&mut self, now: u64, started: Instant) {
+        self.coin_ms = (self.coin_ms + u64::from(1_000 / self.smooth)).max(now);
+        self.frames.sent += 1;
+        self.frames.slowest_us = self.frames.slowest_us.max(started.elapsed().as_micros());
     }
 
     fn next_command(&self) -> Option<String> {
@@ -211,6 +271,13 @@ impl Node {
                 settings.limit.clear();
                 settings.cap = choice.map(|limit| format!("{limit}")).unwrap_or_default();
             });
+        }
+    }
+
+    fn set_smooth(&mut self, fps: u32) {
+        if fps != self.smooth {
+            self.smooth = fps;
+            self.save(|settings| settings.smooth = format!("{fps}"));
         }
     }
 
@@ -306,6 +373,23 @@ impl Node {
                     self.set_limit(Some(limit));
                 }
             }
+            (Some("smooth"), Some(value), _) => match value.parse() {
+                Ok(fps) if (MIN_FPS..=MAX_FPS).contains(&fps) => self.set_smooth(fps),
+                _ => self.say(format!("error smooth {MIN_FPS} to {MAX_FPS}")),
+            },
+            (Some("power"), Some(value), _) => match value.parse() {
+                Ok(dbm) if POWER_RANGE.contains(&dbm) => {
+                    self.restart_with(|settings| settings.power = format!("{dbm}"));
+                }
+                _ => self.say("error power 2 to 20".into()),
+            },
+            (Some("ignore"), Some("none"), _) => radio::hear_everyone(),
+            (Some("ignore"), Some(peer), _) => {
+                match u32::from_str_radix(peer, 16).map(radio::ignore) {
+                    Ok(true) => {}
+                    _ => self.say("error ignore MAC-END".into()),
+                }
+            }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
             (Some("espnow"), Some(state), _) => {
                 radio::ENABLED.store(state == "on", Ordering::Relaxed);
@@ -338,6 +422,7 @@ impl Node {
             }
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
+                 smooth FPS, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY"
@@ -394,7 +479,8 @@ impl Node {
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
-             temp={:.1} reset={} read_ms={} loaded_ms={} key={} name={}",
+             temp={:.1} reset={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
+             power={} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -423,7 +509,12 @@ impl Node {
             self.temperature(),
             bootlog::reason_name(self.started.reset),
             self.started.read_ms,
+            self.started.placed_ms,
             self.started.loaded_ms,
+            self.smooth,
+            self.frames.last_second,
+            self.frames.last_slowest_us,
+            self.power_dbm,
             self.control.gate.has_key(),
             self.control.identity.name,
         );
@@ -473,11 +564,11 @@ impl Node {
 
     fn draw(&mut self, now: u64) {
         if now < self.splash_until_ms {
-            self.screen_ms = now + SPLASH_REDRAW_MS;
-            views::splash(&mut self.screen, now);
+            self.screen_ms = now + TEXT_EVERY_MS;
+            views::splash(&mut self.screen, &self.coins, now);
             return;
         }
-        self.screen_ms = now + self.view.redraw_ms();
+        self.screen_ms = now + TEXT_EVERY_MS;
         let engine = &self.runner.engine;
         let status = engine.status();
         let state = self.state(now);
@@ -524,7 +615,7 @@ impl Node {
         };
         views::draw(
             &mut self.screen,
-            &self.small_coin,
+            &self.coins,
             &info,
             self.view,
             self.language,

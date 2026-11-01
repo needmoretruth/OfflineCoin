@@ -114,9 +114,17 @@ impl Engine {
         self.candidate = None;
     }
 
-    /// Puts a block saved by an earlier run back on the chain.
+    /// Puts a block saved by an earlier run back. Call [`Engine::finish_restoring`] after the last.
     pub fn restore_block(&mut self, block: Block) {
         let _ = self.chain.add_block(block);
+    }
+
+    pub fn begin_restoring(&mut self) {
+        self.chain.begin_restoring();
+    }
+
+    pub fn finish_restoring(&mut self, tick: impl FnMut(usize, usize)) {
+        self.chain.finish_restoring(tick);
     }
 
     /// The next block to save. Call this regularly: the queue holds every new block.

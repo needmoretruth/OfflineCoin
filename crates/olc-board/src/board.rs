@@ -57,6 +57,8 @@ pub struct Status {
     pub mining: bool,
     pub offline: bool,
     pub view: Option<String>,
+    /// The coin's frames a second on the panel.
+    pub smooth: Option<u32>,
     pub address: String,
     /// The last branch change as (height, blocks replaced).
     pub reorg: (u64, u64),
@@ -95,6 +97,7 @@ impl Status {
             mining: fields.get("mining")?.parse().ok()?,
             offline: fields.get("offline")?.parse().ok()?,
             view: fields.get("view").map(|view| view.to_string()),
+            smooth: fields.get("smooth").and_then(|fps| fps.parse().ok()),
             address: fields.get("address")?.to_string(),
             reorg: fields
                 .get("reorg")

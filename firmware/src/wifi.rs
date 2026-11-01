@@ -210,6 +210,7 @@ pub fn start(
     device: WIFI<'static>,
     settings: &Settings,
     own_name: &str,
+    power_dbm: i8,
     seed: u64,
 ) -> (EspNow, WifiLink, Network) {
     let mut controller = WifiController::new(device, Default::default()).expect("Wi-Fi starts");
@@ -222,6 +223,8 @@ pub fn start(
     controller
         .set_config(&Config::AccessPointStation(station, access_point))
         .expect("the Wi-Fi settings are valid");
+    // In quarters of a dBm, and only possible once Wi-Fi runs.
+    let _ = controller.set_max_tx_power(power_dbm.saturating_mul(4));
     let espnow = controller.esp_now();
     let _ = espnow.set_channel(CHANNEL);
 
