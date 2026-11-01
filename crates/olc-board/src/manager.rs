@@ -10,7 +10,7 @@ use crate::remote::{command, hash_of};
 use crate::rom;
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
-use olc_link_serial::SerialLink;
+use olc_link_serial::{SerialLink, Typing};
 use olc_node::{Message, Outgoing, Runner};
 use olc_wallet::format_address;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -24,6 +24,7 @@ const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
+const MAX_HEARD: usize = 40;
 const MAX_LOADER_WAKES: u32 = 3;
 const RETURN_WAIT: Duration = Duration::from_secs(600);
 
@@ -31,6 +32,15 @@ struct Port {
     link: usize,
     opened: Instant,
     closer: Arc<AtomicBool>,
+    cable: Cable,
+}
+
+/// One board's cable, for lines a person types.
+#[derive(Clone)]
+pub(crate) struct Cable {
+    pub typed: Typing,
+    /// What the board printed outside the node's own messages.
+    pub heard: Arc<Mutex<VecDeque<String>>>,
 }
 
 /// A run of an experiment or other optional program.
@@ -249,10 +259,21 @@ impl Manager {
             if self.wake_from_loader(&path) {
                 continue;
             }
-            let Ok(link) = SerialLink::open(&path, |_| {}) else {
+            let heard = Arc::new(Mutex::new(VecDeque::new()));
+            let hearing = heard.clone();
+            let keep = move |line: &str| {
+                if let Ok(mut hearing) = hearing.lock() {
+                    if hearing.len() >= MAX_HEARD {
+                        hearing.pop_front();
+                    }
+                    hearing.push_back(line.to_string());
+                }
+            };
+            let Ok(link) = SerialLink::open(&path, keep) else {
                 continue;
             };
             let closer = link.closer();
+            let cable = Cable { typed: link.typing(), heard };
             if let Ok(mut runner) = runner.lock() {
                 let link = runner.add_link(Box::new(link));
                 let opened = Instant::now();
@@ -262,6 +283,7 @@ impl Manager {
                         link,
                         opened,
                         closer,
+                        cable,
                     },
                 );
             }
@@ -324,6 +346,11 @@ impl Manager {
     }
 
     /// Every board heard, with what is known about how it is reached.
+    pub(crate) fn cable_of_link(&self, link: usize) -> Option<Cable> {
+        let ports = self.ports.lock().ok()?;
+        ports.values().find(|port| port.link == link).map(|port| port.cable.clone())
+    }
+
     pub fn board_rows(&self) -> Vec<BoardRow> {
         let seen = self
             .fleet

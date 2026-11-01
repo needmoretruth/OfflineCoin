@@ -53,3 +53,20 @@ pub fn claim(root: &Path) -> Result<Option<Instance>, String> {
         raised,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_second_start_calls_the_first_forward_and_ends() {
+        let root = std::env::temp_dir().join(format!("olc-instance-{}", std::process::id()));
+        let first = claim(&root).unwrap().expect("the first start runs");
+        assert!(claim(&root).unwrap().is_none(), "the second start ends");
+        let heard = first.raised.recv_timeout(LOOK_EVERY * 5);
+        assert!(heard.is_ok(), "the first start was told");
+        drop(first);
+        assert!(claim(&root).unwrap().is_some(), "a later start runs again");
+        let _ = fs::remove_dir_all(root);
+    }
+}

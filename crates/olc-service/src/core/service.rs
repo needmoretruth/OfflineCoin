@@ -1,9 +1,11 @@
 //! The thread behind the window: it takes commands, keeps the node, the looks around and the node
 //! processes going, and publishes a fresh snapshot a few times a second.
 use super::coins::{
-    bring_old_blocks, coin_folder, format_coins, load_coin, parse_coins, save_coin,
+    bring_old_blocks, coin_folder, format_coins, load_coin, parse_coins, read_coin_file,
+    save_coin, write_coin_file,
 };
-use super::board_lines::{read_bright, run_line, Brights};
+use super::board_action::BoardAction;
+use super::board_lines::{read_bright, run_action, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
 use super::host::{full_rate, Host, PayError, Plan};
@@ -243,7 +245,18 @@ impl Service {
             Command::OpenDataFolder => {
                 let _ = platform().open_folder(&self.paths.root);
             }
-            Command::BoardLine { id, line } => self.board_line(id, line),
+            Command::Board { id, action } => self.board_action(id, action),
+            Command::JoinCoinFile(path) => match read_coin_file(&path) {
+                Ok(coin) => self.join(coin, None),
+                Err(detail) => self.say("notice.coin_file", detail, false),
+            },
+            Command::SaveCoinFile(path) => {
+                let coin = current_coin(&self.paths, &self.settings);
+                match write_coin_file(&coin, &path) {
+                    Ok(()) => self.say("notice.coin_saved", path, true),
+                    Err(detail) => self.say("notice.coin_file", detail, false),
+                }
+            }
             Command::UpdateBoard(id) => {
                 if let Some(fleet) = &self.fleet {
                     fleet.start_update(id);
@@ -253,8 +266,8 @@ impl Service {
                 let coin = current_coin(&self.paths, &self.settings);
                 let bytes = postcard::to_allocvec(&coin).unwrap_or_default();
                 let text: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-                self.board_line(id, format!("coin {text}"));
-                self.board_line(id, "coin confirm".into());
+                self.board_action(id, BoardAction::MoveToCoin(text));
+                self.board_action(id, BoardAction::ConfirmCoin);
             }
             Command::InstallBoard { path, name } => {
                 let started = self
@@ -469,10 +482,10 @@ impl Service {
         }
     }
 
-    fn board_line(&mut self, id: BoardId, line: String) {
-        self.returning.note_line(id, &line);
+    fn board_action(&mut self, id: BoardId, action: BoardAction) {
+        self.returning.note_line(id, &action.line().unwrap_or_default());
         if let Some(fleet) = self.fleet.clone() {
-            run_line(fleet, (self.late.clone(), self.brights.clone()), id, line);
+            run_action(fleet, (self.late.clone(), self.brights.clone()), id, action);
         }
     }
 
@@ -511,7 +524,8 @@ impl Service {
             .map(|row| BoardView {
                 returning: is_returning(&row),
                 reach: reach_of_board(&row),
-                bright: brights.get(&row.seen.id).copied(),
+                bright: brights.get(&row.seen.id).and_then(|told| told.bright),
+                answer: brights.get(&row.seen.id).and_then(|told| told.answer.clone()),
                 seen: row.seen,
                 job: row.job,
             })

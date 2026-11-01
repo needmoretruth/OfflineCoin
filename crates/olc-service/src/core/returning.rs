@@ -52,3 +52,55 @@ impl Returning {
 pub fn is_returning(row: &BoardRow) -> bool {
     !row.seen.online && row.job.as_deref().is_some_and(|job| job != FAILED)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_board::fleet::Seen;
+    use olc_board::Connection;
+    use olc_control::Beacon;
+
+    const BOARD: BoardId = [3; 6];
+
+    fn row(online: bool) -> BoardRow {
+        BoardRow {
+            seen: Seen {
+                id: BOARD,
+                beacon: Beacon::default(),
+                connection: Connection::Direct { link: 0 },
+                online,
+                silent_for: Duration::ZERO,
+                old_format: false,
+            },
+            on_cable: true,
+            through: None,
+            job: None,
+        }
+    }
+
+    fn after(returning: &mut Returning, online: bool) -> BoardRow {
+        let mut rows = [row(online)];
+        returning.mark(&mut rows);
+        let [row] = rows;
+        row
+    }
+
+    #[test]
+    fn a_board_told_to_restart_is_no_fault_until_it_is_back() {
+        let mut returning = Returning::default();
+        returning.note_line(BOARD, "clock 240");
+        assert!(!is_returning(&after(&mut returning, true)));
+        assert!(is_returning(&after(&mut returning, false)));
+        assert!(!is_returning(&after(&mut returning, true)));
+        assert!(!is_returning(&after(&mut returning, false)), "gone again is a fault");
+    }
+
+    #[test]
+    fn other_lines_and_a_failed_update_stay_faults() {
+        let mut returning = Returning::default();
+        returning.note_line(BOARD, "limit 1000");
+        assert!(!is_returning(&after(&mut returning, false)));
+        let failed = BoardRow { job: Some(FAILED.into()), ..row(false) };
+        assert!(!is_returning(&failed));
+    }
+}

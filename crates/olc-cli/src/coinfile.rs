@@ -19,22 +19,18 @@ pub fn create(args: &Args) -> Result<(), String> {
     let path = args
         .word(1)
         .ok_or("Name the file: olc new-coin mycoin.json")?;
-    let mut coin = CoinConfig::olc();
-    if let Some(name) = args.value("name") {
-        coin.name = name.to_string();
-        coin.message = format!("{name} genesis");
-    }
-    if let Some(message) = args.value("message") {
-        coin.message = message.to_string();
-    }
-    coin.message_in_block = true;
-    if let Some(ticker) = args.value("ticker") {
-        coin.ticker = ticker.to_string();
-    }
-    coin.rules.block_time_ms = args.number("block-time-ms", coin.rules.block_time_ms)?;
-    coin.rules.reward = args.number("reward", coin.rules.reward / COIN)? * COIN;
-    coin.rules.halving_interval = args.number("halving", coin.rules.halving_interval)?;
-    coin.initial_difficulty = args.number("difficulty", NEW_COIN_DIFFICULTY)?;
+    let olc = CoinConfig::olc();
+    let coin = coin_file::new_coin(coin_file::NewCoin {
+        name: args.value("name").map(str::to_string),
+        message: args.value("message").map(str::to_string),
+        message_in_block: true,
+        ticker: args.value("ticker").map(str::to_string),
+        block_time_ms: Some(args.number("block-time-ms", olc.rules.block_time_ms)?),
+        reward: Some(args.number("reward", olc.rules.reward / COIN)?),
+        halving: Some(args.number("halving", olc.rules.halving_interval)?),
+        difficulty: Some(args.number("difficulty", NEW_COIN_DIFFICULTY)?),
+        ..coin_file::NewCoin::default()
+    });
     let text = coin_file::to_json(&coin)?;
     std::fs::write(path, text + "\n").map_err(|error| format!("{path}: {error}"))?;
     println!("{path}");

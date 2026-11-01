@@ -3,7 +3,7 @@ mod cap_test;
 mod real;
 
 pub use cap_test::CapTest;
-pub use olc_board::Args;
+pub use olc_board::{Args, Connection, Seen};
 pub use olc_board::manager::{BoardRow, ExtraRun, LineError, StartError};
 pub use real::RealFleet;
 
@@ -34,6 +34,10 @@ pub trait FleetPort: Send + Sync {
     fn job(&self, key: &str) -> Option<String>;
     /// Blocks for up to a few seconds.
     fn run_line(&self, board: BoardId, line: &str) -> Result<(), LineError>;
+    /// Asks down the board's own cable. A board with no cable here refuses it.
+    fn cable_ask(&self, _board: BoardId, _line: &str) -> Result<Option<String>, LineError> {
+        Err(LineError::BadRequest)
+    }
     /// Like `run_line`, with what the board answered.
     fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError>;
     fn start_update(&self, board: BoardId);

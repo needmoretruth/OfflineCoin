@@ -69,6 +69,18 @@ pub fn bring_old_blocks(paths: &Paths, coin: &CoinConfig) {
     }
 }
 
+/// Reads a coin someone gave as a file.
+pub fn read_coin_file(path: &str) -> Result<CoinConfig, String> {
+    let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+    coin_file::from_json(&text).map_err(|error| format!("{path}: {error}"))
+}
+
+/// Writes a coin as a file to give someone.
+pub fn write_coin_file(coin: &CoinConfig, path: &str) -> Result<(), String> {
+    let text = coin_file::to_json(coin)?;
+    fs::write(path, text + "\n").map_err(|error| format!("{path}: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

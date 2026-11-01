@@ -60,6 +60,10 @@ impl FleetPort for RealFleet {
         self.manager.run_line(board, line)
     }
 
+    fn cable_ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError> {
+        self.manager.cable_ask(board, line)
+    }
+
     fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError> {
         self.manager.ask(board, line)
     }

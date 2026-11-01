@@ -1,7 +1,7 @@
 //! The first run: what a person is using, then a coin to start or one to join.
 use super::settings::device_name;
 use super::Cx;
-use crate::core::{parse_coins, Command, StartCoin};
+use crate::core::{new_coin, parse_coins, Command, NewCoin, StartCoin};
 use crate::discovery::{CoinGroup, Reach};
 use crate::settings::{Device, BOARD_CAP, NEW_COIN_DIFFICULTY};
 use crate::ui::format;
@@ -173,22 +173,23 @@ impl Setup {
         if name.is_empty() || ticker.is_empty() || self.block_seconds == 0 {
             return None;
         }
-        let mut coin = CoinConfig::olc();
-        coin.name = name.to_string();
-        coin.ticker = ticker.to_string();
-        coin.message = format!("{name} genesis");
-        coin.genesis_time_ms = crate::core::unix_ms();
-        coin.initial_difficulty = self.difficulty;
-        coin.rules.block_time_ms = self.block_seconds * 1000;
-        coin.rules.reward = self.reward * COIN;
-        coin.rules.halving_interval = self.halving;
         let premine = self.premine.trim();
-        if !premine.is_empty() && premine != "0" {
-            let amount = parse_coins(premine)?;
-            let address = parse_address(&cx.snap.node.address)?;
-            coin.premine = vec![(address, amount)];
-        }
-        Some(coin)
+        let premine = if premine.is_empty() || premine == "0" {
+            Vec::new()
+        } else {
+            vec![(parse_address(&cx.snap.node.address)?, parse_coins(premine)?)]
+        };
+        Some(new_coin(NewCoin {
+            name: Some(name.to_string()),
+            ticker: Some(ticker.to_string()),
+            block_time_ms: Some(self.block_seconds * 1000),
+            reward: Some(self.reward),
+            halving: Some(self.halving),
+            difficulty: Some(self.difficulty),
+            genesis_time_ms: Some(crate::core::unix_ms()),
+            premine,
+            ..NewCoin::default()
+        }))
     }
 
     fn finish(cx: &mut Cx, start: StartCoin) {

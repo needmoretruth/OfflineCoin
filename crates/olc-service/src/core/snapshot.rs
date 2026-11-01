@@ -73,6 +73,8 @@ pub struct BoardView {
     pub seen: Seen,
     pub reach: Reach,
     pub job: Option<String>,
+    /// The last answer to something a person asked of this board.
+    pub answer: Option<String>,
     /// Quiet because it is restarting, not because something is wrong.
     pub returning: bool,
     /// The panel's stored brightness, once the board has said it.

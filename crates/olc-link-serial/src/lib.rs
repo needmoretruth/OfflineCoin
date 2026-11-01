@@ -5,7 +5,9 @@ use serial2::{SerialPort, Settings};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{
+    channel, sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError,
+};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -107,11 +109,13 @@ impl SerialLink {
         let (writer, writer_closed) = (port.clone(), closed.clone());
         // A board that takes nothing blocks the write, and a node must not wait for one board.
         let (writes, waiting) = sync_channel::<Vec<u8>>(WRITES_WAITING);
-        thread::spawn(move || {
-            while let Ok(bytes) = waiting.recv() {
-                if !write_out(&writer, &bytes, &writer_closed) {
-                    return;
-                }
+        thread::spawn(move || loop {
+            // Waits a little at a time, since Windows lets nobody else open a port still held.
+            match waiting.recv_timeout(WAIT) {
+                Ok(bytes) if write_out(&writer, &bytes, &writer_closed) => {}
+                Ok(_) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) if writer_closed.load(Ordering::Relaxed) => return,
+                Err(RecvTimeoutError::Timeout) => {}
             }
         });
         let (sender, incoming) = channel();
@@ -153,6 +157,22 @@ impl SerialLink {
     /// Sends a typed command, as a person at a serial terminal would.
     pub fn send_line(&mut self, line: &str) -> std::io::Result<()> {
         self.write(format!("{LINE_START}{line}\n").into_bytes())
+    }
+
+    /// A way to type on this link after the node took it over.
+    pub fn typing(&self) -> Typing {
+        Typing(self.writes.clone())
+    }
+}
+
+/// Types lines on a link that belongs to a node.
+#[derive(Clone)]
+pub struct Typing(SyncSender<Vec<u8>>);
+
+impl Typing {
+    /// False when the link has gone, or the board has stopped taking anything.
+    pub fn send(&self, line: &str) -> bool {
+        self.0.try_send(format!("{LINE_START}{line}\n").into_bytes()).is_ok()
     }
 }
 

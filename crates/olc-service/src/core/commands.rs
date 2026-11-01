@@ -1,4 +1,5 @@
 //! Everything the screen can ask of the app.
+use super::board_action::BoardAction;
 use crate::local::NodeSpec;
 use crate::settings::Settings;
 use olc_board::Args;
@@ -61,10 +62,14 @@ pub enum Command {
     AddAddress(String),
     Rescan,
     OpenDataFolder,
-    BoardLine {
+    Board {
         id: BoardId,
-        line: String,
+        action: BoardAction,
     },
+    /// Joins the coin a file describes.
+    JoinCoinFile(String),
+    /// Writes the running coin to a file someone else can join from.
+    SaveCoinFile(String),
     UpdateBoard(BoardId),
     /// Puts a board on the coin this app runs. The person already said yes.
     MoveBoard(BoardId),
