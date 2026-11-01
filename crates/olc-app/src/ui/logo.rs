@@ -2,17 +2,15 @@
 //! repaints for it only while it turns: while mining with the window in front, or once around
 //! when a new block arrives.
 use egui::{Color32, ColorImage, Context, Image, Rect, TextureHandle, TextureOptions, Ui, Vec2};
-use olc_logo::Spin;
-use std::f32::consts::TAU;
+use olc_logo::{frame_angle, Spin, FRAMES, MAX_FPS, TURN_MS};
 use std::time::Duration;
 
-const FRAMES: usize = 120;
 /// Twice the shown size, for sharp edges on a scaled screen.
 const PIXELS: usize = 72;
 const SAMPLES: usize = 3;
-const TURN_SECONDS: f64 = 4.0;
+const TURN_SECONDS: f64 = TURN_MS as f64 / 1_000.0;
 const NEW_BLOCK_TURN_SECONDS: f64 = 1.6;
-const FRAME_TIME: Duration = Duration::from_millis(33);
+const FRAME_TIME: Duration = Duration::from_millis(1_000 / MAX_FPS as u64);
 const REST_FRAME: usize = FRAMES / 16;
 
 /// Draws one view of the coin. White with coverage as alpha, tinted when painted.
@@ -79,10 +77,9 @@ pub struct LogoState {
 impl Logo {
     fn frame(&mut self, ctx: &Context, index: usize) -> &TextureHandle {
         self.frames[index].get_or_insert_with(|| {
-            let angle = index as f32 / FRAMES as f32 * TAU;
             ctx.load_texture(
                 format!("coin-{index}"),
-                render(angle, PIXELS),
+                render(frame_angle(index), PIXELS),
                 TextureOptions::LINEAR,
             )
         })

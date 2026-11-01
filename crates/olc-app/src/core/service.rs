@@ -5,7 +5,9 @@ use super::coins::{
 };
 use super::commands::{Command, StartCoin};
 use super::found::Found;
-use super::rows::{board_entry, device_kind, hostname, own_entry, reach_of_board};
+use super::rows::{
+    board_entry, device_kind, hostname, own_entry, reach_of_board, refresh_local,
+};
 use super::host::{full_rate, Host, PayError, Plan};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
@@ -75,6 +77,9 @@ fn bind_host(settings: &Settings) -> String {
     }
 }
 
+/// Notices from threads the service started: key, detail, and whether it went well.
+type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
+
 struct Service {
     paths: Paths,
     settings: Settings,
@@ -89,7 +94,7 @@ struct Service {
     notice: Option<Notice>,
     notices: Arc<AtomicU64>,
     /// Payments and board lines end on threads of their own and report here.
-    late: Arc<Mutex<Vec<(&'static str, String, bool)>>>,
+    late: LateNotices,
     out: Arc<Mutex<Arc<Snapshot>>>,
 }
 
@@ -502,6 +507,9 @@ impl Service {
             by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned())
         };
         entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
+        let specs = self.settings.nodes.clone();
+        let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
+        entries.iter_mut().for_each(|entry| refresh_local(entry, &local));
         let boards = rows
             .into_iter()
             .map(|row| BoardView {
@@ -522,8 +530,6 @@ impl Service {
                 .collect()
         });
         let (lines, running) = fleet.map_or_else(Default::default, |fleet| fleet.run_log());
-        let specs = self.settings.nodes.clone();
-        let local = specs.iter().map(|spec| self.local.view(spec)).collect();
         let snapshot = Snapshot {
             groups: group(&entries, identity.as_ref()),
             node,

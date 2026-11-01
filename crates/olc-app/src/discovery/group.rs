@@ -2,7 +2,7 @@
 //! different rules is a split chain. Both the same is one network, even if its nodes compete.
 use super::Reach;
 use olc_core::{CoinConfig, Hash, Rules};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The coin something runs, when it has said.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,8 +80,19 @@ impl CoinGroup {
     }
 }
 
+/// Tips compete at one height. A node a block behind is only behind.
+fn competing_tips(entries: &[Entry]) -> usize {
+    let mut by_height: BTreeMap<u64, BTreeSet<Hash>> = BTreeMap::new();
+    for entry in entries {
+        if let (Some(height), Some(tip)) = (entry.height, entry.tip) {
+            by_height.entry(height).or_default().insert(tip);
+        }
+    }
+    by_height.values().map(BTreeSet::len).max().unwrap_or(0)
+}
+
 fn chain_of(rules: Option<Rules>, entries: Vec<Entry>, split: bool, yours: bool) -> ChainGroup {
-    let tips: BTreeSet<Hash> = entries.iter().filter_map(|entry| entry.tip).collect();
+    let tips = competing_tips(&entries);
     let relation = match (&rules, yours, split) {
         (None, _, _) => Relation::Unknown,
         (_, true, _) => Relation::Yours,
@@ -92,7 +103,7 @@ fn chain_of(rules: Option<Rules>, entries: Vec<Entry>, split: bool, yours: bool)
         rules,
         relation,
         entries,
-        tips: tips.len(),
+        tips,
     }
 }
 
@@ -269,6 +280,16 @@ mod tests {
         assert_eq!(groups[0].chains.len(), 1);
         assert_eq!(groups[0].chains[0].entries.len(), 2);
         assert_eq!(groups[0].chains[0].tips, 2);
+    }
+
+    #[test]
+    fn a_node_a_block_behind_does_not_compete() {
+        let ahead = entry("a", Some(coin("One")), 1);
+        let behind = Entry {
+            height: ahead.height.map(|height| height - 1),
+            ..entry("b", Some(coin("One")), 2)
+        };
+        assert_eq!(group(&[ahead, behind], None)[0].chains[0].tips, 1);
     }
 
     #[test]

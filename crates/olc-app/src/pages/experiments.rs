@@ -67,6 +67,11 @@ impl Page for Experiments {
                 meta(ui, cx.say("lab.two_boards"), t);
                 return;
             }
+            let mut boards = cx.snap.boards.iter().filter(|board| board.seen.online);
+            let first = boards.next().map(|board| board.seen.id);
+            let second = boards.next().map(|board| board.seen.id);
+            self.attacker = self.attacker.or(first);
+            self.victim = self.victim.or(second);
             ui.horizontal(|ui| {
                 pick(ui, cx, cx.say("lab.attacker"), &mut self.attacker);
                 pick(ui, cx, cx.say("lab.victim"), &mut self.victim);

@@ -83,7 +83,7 @@ impl Run {
     fn peers(&self, spec: &NodeSpec) -> Vec<String> {
         self.specs
             .iter()
-            .filter(|other| other.id != spec.id)
+            .filter(|other| other.id < spec.id)
             .map(address_of)
             .collect()
     }
@@ -173,7 +173,7 @@ impl Run {
         self.supervisor.send(from, &format!("pay {address} {coins}")).expect("pay");
         loop {
             thread::sleep(Duration::from_millis(200));
-            for (id, answer) in self.supervisor.take_answers() {
+            if let Some((id, answer)) = self.supervisor.take_answers().into_iter().next() {
                 assert_eq!(id, from);
                 assert_eq!(answer.error, None);
                 return answer.paid.unwrap_or_default();

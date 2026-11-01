@@ -1,5 +1,6 @@
 //! Every board this app can reach, and what can be done to one.
 use super::{Cx, Page};
+use olc_logo::{MAX_FPS, MIN_FPS};
 use crate::core::{BoardView, Command};
 use crate::discovery::Reach;
 use crate::ui::format;
@@ -9,12 +10,14 @@ use crate::ui::widgets::{
     Columns, Kind,
 };
 use crate::ui::Icon;
-use egui::{CollapsingHeader, Ui};
+use egui::Ui;
 use olc_control::BoardId;
 
 const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
+/// What a board starts at. The status beacon does not carry its present value.
 const SMOOTH_DEFAULT: u64 = 10;
 const HALF_CAP: u64 = 7_500;
+const LABEL_WIDTH: f32 = 150.0;
 
 #[derive(Default)]
 pub struct Boards {
@@ -25,6 +28,19 @@ pub struct Boards {
     pay_to: String,
     pay_amount: String,
     new_name: String,
+}
+
+/// One action row, its name in a column of its own so the controls line up.
+fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
+    ui.horizontal_wrapped(|ui| {
+        let area = egui::vec2(LABEL_WIDTH, tokens::CONTROL);
+        let left = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(area, left, |ui| {
+            ui.set_width(area.x);
+            section(ui, label);
+        });
+        add(ui);
+    });
 }
 
 fn connection(cx: &Cx, board: &BoardView) -> String {
@@ -84,8 +100,7 @@ impl Boards {
         let t = cx.t;
         let id = board.seen.id;
         let beacon = &board.seen.beacon;
-        ui.horizontal_wrapped(|ui| {
-            section(ui, cx.say("boards.cap"));
+        labelled(ui, cx.say("boards.cap"), |ui| {
             let items = [
                 (cx.settings.board_cap, format::number(cx.settings.board_cap.into())),
                 (HALF_CAP, format::number(HALF_CAP.into())),
@@ -99,7 +114,7 @@ impl Boards {
                 Self::line(cx, id, format!("limit {}", self.cap));
             }
         });
-        ui.horizontal_wrapped(|ui| {
+        labelled(ui, cx.say("boards.state"), |ui| {
             let offline = beacon.offline;
             let key = if offline { "boards.go_online" } else { "boards.go_offline" };
             if button(ui, t, cx.say(key), Kind::Plain).clicked() {
@@ -115,8 +130,7 @@ impl Boards {
                 cx.send(Command::UpdateBoard(id));
             }
         });
-        ui.horizontal_wrapped(|ui| {
-            section(ui, cx.say("boards.screen"));
+        labelled(ui, cx.say("boards.screen"), |ui| {
             for (word, key) in [
                 ("basic", "boards.view_basic"),
                 ("detail", "boards.view_detail"),
@@ -135,21 +149,22 @@ impl Boards {
                 }
             }
         });
-        ui.horizontal_wrapped(|ui| {
-            section(ui, cx.say("boards.smooth"));
+        labelled(ui, cx.say("boards.smooth"), |ui| {
             number_field(ui, &mut self.smooth, 70.0);
-            ui.label(cx.say("boards.frames_per_second"));
+            let range = [MIN_FPS.to_string(), MAX_FPS.to_string()];
+            meta(ui, &cx.fill("boards.frames_per_second", &[&range[0], &range[1]]), t);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
-                Self::line(cx, id, format!("smooth {}", self.smooth.max(1)));
+                self.smooth = self.smooth.clamp(u64::from(MIN_FPS), u64::from(MAX_FPS));
+                Self::line(cx, id, format!("smooth {}", self.smooth));
             }
-            ui.add_space(tokens::GAP);
-            field(ui, &mut self.name, cx.say("boards.name"), 150.0);
+        });
+        labelled(ui, cx.say("boards.name"), |ui| {
+            field(ui, &mut self.name, cx.say("boards.name"), 200.0);
             if button(ui, t, cx.say("boards.rename"), Kind::Plain).clicked() {
                 Self::line(cx, id, format!("name {}", self.name.trim()));
             }
         });
-        ui.horizontal_wrapped(|ui| {
-            section(ui, cx.say("boards.pay"));
+        labelled(ui, cx.say("boards.pay"), |ui| {
             field(ui, &mut self.pay_to, cx.say("wallet.to"), 300.0);
             field(ui, &mut self.pay_amount, cx.say("wallet.amount"), 110.0);
             if button(ui, t, cx.say("wallet.send"), Kind::Plain).clicked() {
@@ -229,10 +244,12 @@ impl Page for Boards {
                 for board in &cx.snap.boards {
                     self.row(ui, cx, &columns, board);
                     if self.open == Some(board.seen.id) {
-                        CollapsingHeader::new("")
-                            .id_salt(board.seen.id)
-                            .default_open(true)
-                            .show_unindented(ui, |ui| self.actions(ui, cx, board));
+                        ui.add_space(4.0);
+                        widgets::divider(ui, t);
+                        ui.add_space(tokens::GAP);
+                        self.actions(ui, cx, board);
+                        ui.add_space(tokens::GAP);
+                        widgets::divider(ui, t);
                     }
                 }
             });

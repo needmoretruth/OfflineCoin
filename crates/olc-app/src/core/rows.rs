@@ -2,6 +2,8 @@
 use super::snapshot::NodeView;
 use crate::discovery::{Entry, Identity, Reach, Work};
 use crate::fleet::BoardRow;
+use crate::local::LocalView;
+use olc_core::Hash;
 use olc_node::Hello;
 
 const BOARD_KIND: &str = "esp32-s3";
@@ -38,6 +40,36 @@ pub fn own_entry(view: &NodeView, identity: Option<Identity>) -> Entry {
             false => Work::Idle,
         },
     }
+}
+
+/// A node this app runs reads live, rather than as it stood at the last look around.
+pub fn refresh_local(entry: &mut Entry, nodes: &[LocalView]) {
+    let port = entry.address.as_deref().and_then(|address| address.rsplit(':').next());
+    let port = port.and_then(|port| port.parse::<u16>().ok());
+    let live = nodes
+        .iter()
+        .filter_map(|node| node.status.as_ref())
+        .find(|status| entry.reach == Reach::ThisComputer && status.port == port && port.is_some());
+    if let Some(status) = live {
+        entry.height = Some(status.height);
+        entry.work_done = status.work.parse().ok().or(entry.work_done);
+        entry.tip = hash_of(&status.tip).or(entry.tip);
+        entry.work = match status.mining {
+            true => Work::Mining(status.hashrate),
+            false => Work::Idle,
+        };
+    }
+}
+
+fn hash_of(text: &str) -> Option<Hash> {
+    let mut hash = Hash::default();
+    if text.len() != hash.len() * 2 || !text.is_ascii() {
+        return None;
+    }
+    for (index, byte) in hash.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(hash)
 }
 
 pub fn reach_of_board(row: &BoardRow) -> Reach {
