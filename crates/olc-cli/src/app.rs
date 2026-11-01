@@ -1,7 +1,5 @@
 //! What the app adds to a node: a [`Manager`] for the boards, and what the page needs from it.
 use olc_board::carried::firmware_path;
-use olc_board::control_key::{config_folder, ControlKey};
-use olc_board::install::install as install_board;
 use olc_board::{Args, Manager};
 use std::ops::Deref;
 use std::sync::atomic::AtomicU16;
@@ -20,14 +18,6 @@ impl Deref for App {
     fn deref(&self) -> &Self::Target {
         &self.manager
     }
-}
-
-/// `olc install`: the same steps as the page, for a port given by hand.
-pub fn install(args: &Args) -> Result<(), String> {
-    let port = args.value("port").ok_or("--port needs a port")?;
-    let name = args.value("name").ok_or("--name needs a name")?;
-    let key = ControlKey::load_or_create(&config_folder()?)?.public()?;
-    install_board(port, name, &firmware_path(args.value("firmware")), key)
 }
 
 impl App {

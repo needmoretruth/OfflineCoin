@@ -4,7 +4,7 @@ use olc_core::medium::{Keep, Medium, SECTOR};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::os::unix::fs::FileExt;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const SEGMENT: u64 = 64 * 1024 * 1024;
@@ -97,9 +97,12 @@ impl Medium for Segments {
         for (number, inside, start, size) in Self::pieces(at, bytes.len()) {
             let part = &mut bytes[start..start + size];
             let mut filled = 0;
-            let done = self.with(number, false, |file| {
+            let done = self.with(number, false, |mut file| {
+                if file.seek(SeekFrom::Start(inside)).is_err() {
+                    return;
+                }
                 while filled < part.len() {
-                    match file.read_at(&mut part[filled..], inside + filled as u64) {
+                    match file.read(&mut part[filled..]) {
                         Ok(0) | Err(_) => break,
                         Ok(count) => filled += count,
                     }
@@ -119,7 +122,9 @@ impl Medium for Segments {
         let mut fine = true;
         for (number, inside, start, size) in Self::pieces(at, bytes.len()) {
             let part = &bytes[start..start + size];
-            let wrote = self.with(number, true, |file| file.write_all_at(part, inside).is_ok());
+            let wrote = self.with(number, true, |mut file| {
+                file.seek(SeekFrom::Start(inside)).and_then(|_| file.write_all(part)).is_ok()
+            });
             fine &= wrote == Some(true);
             self.written = Some(number);
         }

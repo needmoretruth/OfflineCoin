@@ -3,29 +3,19 @@ use super::tokens::{self, Tokens, DARK, LIGHT};
 use crate::settings::Theme;
 use egui::epaint::Shadow;
 use egui::{Color32, Context, CornerRadius, FontFamily, FontId, Stroke, Style, TextStyle};
-use std::process::Command;
+use olc_service::platform;
 use std::sync::OnceLock;
 
 /// The desktop's own setting, for when the toolkit cannot tell.
 fn desktop_prefers_dark() -> bool {
     static FOUND: OnceLock<bool> = OnceLock::new();
-    *FOUND.get_or_init(|| {
-        Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
-            .output()
-            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("dark"))
-    })
+    *FOUND.get_or_init(|| platform().prefers_dark())
 }
 
 /// egui does not report a reduced-motion preference, so the desktop's setting is read once.
 pub fn desktop_reduces_motion() -> bool {
     static FOUND: OnceLock<bool> = OnceLock::new();
-    *FOUND.get_or_init(|| {
-        Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "enable-animations"])
-            .output()
-            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("false"))
-    })
+    *FOUND.get_or_init(|| platform().reduces_motion())
 }
 
 pub fn tokens_for(ctx: &Context, theme: Theme) -> Tokens {

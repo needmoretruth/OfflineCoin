@@ -3,6 +3,7 @@
 mod args;
 pub mod autoupdate;
 mod board;
+mod cable;
 pub mod carried;
 pub mod clearance;
 pub mod control_key;
@@ -12,6 +13,7 @@ pub mod install;
 pub mod journal;
 pub mod manager;
 pub mod pins;
+mod ports;
 pub mod remote;
 pub mod rom;
 

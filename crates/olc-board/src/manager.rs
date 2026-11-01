@@ -1,6 +1,7 @@
 //! What a program that manages boards needs, whatever its face: the boards on the cables, the
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
-use crate::clearance::{deliver, Ledger, PORT_FOLDER, UNPROVEN};
+use crate::clearance::{deliver, Ledger, UNPROVEN};
+use crate::ports::board_ports;
 use crate::control_key::{config_folder, ControlKey};
 use crate::install::{app_image, install as install_board};
 use crate::journal::{Entry, Journal};
@@ -9,23 +10,21 @@ use crate::remote::{command, hash_of};
 use crate::rom;
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
-use olc_link_serial::SerialLink;
+use olc_link_serial::{SerialLink, Typing};
 use olc_node::{Message, Outgoing, Runner};
 use olc_wallet::format_address;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const PORT_MARK: &str = "Espressif";
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
+const MAX_HEARD: usize = 40;
 const MAX_LOADER_WAKES: u32 = 3;
 const RETURN_WAIT: Duration = Duration::from_secs(600);
 
@@ -33,7 +32,15 @@ struct Port {
     link: usize,
     opened: Instant,
     closer: Arc<AtomicBool>,
-    device: u64,
+    cable: Cable,
+}
+
+/// One board's cable, for lines a person types.
+#[derive(Clone)]
+pub(crate) struct Cable {
+    pub typed: Typing,
+    /// What the board printed outside the node's own messages.
+    pub heard: Arc<Mutex<VecDeque<String>>>,
 }
 
 /// A run of an experiment or other optional program.
@@ -207,14 +214,7 @@ impl Manager {
         if !self.fixed_ports.is_empty() {
             return self.fixed_ports.clone();
         }
-        let Ok(entries) = fs::read_dir(PORT_FOLDER) else {
-            return Vec::new();
-        };
-        entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().display().to_string())
-            .filter(|path| path.contains(PORT_MARK))
-            .collect()
+        board_ports().into_iter().map(|port| port.path).collect()
     }
 
     /// A board that came up in the chip's loader stays dark until something restarts it. It
@@ -244,9 +244,9 @@ impl Manager {
         };
         ports.retain(|path, port| {
             // A board that left and came back between two looks has a new device behind the
-            // same name, and the file open on the old one hears nothing any more.
-            let same = device_of(path) == Some(port.device);
-            let keep = same && present.contains(path) && !busy.contains(path);
+            // same name, and the link open on the old one has ended.
+            let alive = !port.closer.load(Ordering::Relaxed);
+            let keep = alive && present.contains(path) && !busy.contains(path);
             if !keep {
                 port.closer.store(true, Ordering::Relaxed);
             }
@@ -256,16 +256,24 @@ impl Manager {
             if ports.contains_key(&path) || busy.contains(&path) {
                 continue;
             }
-            let Some(device) = device_of(&path) else {
-                continue;
-            };
             if self.wake_from_loader(&path) {
                 continue;
             }
-            let Ok(link) = SerialLink::open(&path, |_| {}) else {
+            let heard = Arc::new(Mutex::new(VecDeque::new()));
+            let hearing = heard.clone();
+            let keep = move |line: &str| {
+                if let Ok(mut hearing) = hearing.lock() {
+                    if hearing.len() >= MAX_HEARD {
+                        hearing.pop_front();
+                    }
+                    hearing.push_back(line.to_string());
+                }
+            };
+            let Ok(link) = SerialLink::open(&path, keep) else {
                 continue;
             };
             let closer = link.closer();
+            let cable = Cable { typed: link.typing(), heard };
             if let Ok(mut runner) = runner.lock() {
                 let link = runner.add_link(Box::new(link));
                 let opened = Instant::now();
@@ -275,7 +283,7 @@ impl Manager {
                         link,
                         opened,
                         closer,
-                        device,
+                        cable,
                     },
                 );
             }
@@ -338,6 +346,11 @@ impl Manager {
     }
 
     /// Every board heard, with what is known about how it is reached.
+    pub(crate) fn cable_of_link(&self, link: usize) -> Option<Cable> {
+        let ports = self.ports.lock().ok()?;
+        ports.values().find(|port| port.link == link).map(|port| port.cable.clone())
+    }
+
     pub fn board_rows(&self) -> Vec<BoardRow> {
         let seen = self
             .fleet
@@ -514,9 +527,4 @@ fn push_line(run: &Mutex<ExtraRun>, line: String) {
         }
         run.lines.push_back(line);
     }
-}
-
-/// Which device file a port name leads to right now.
-fn device_of(path: &str) -> Option<u64> {
-    fs::metadata(path).ok().map(|found| found.ino())
 }

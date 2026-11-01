@@ -2,6 +2,7 @@
 use crate::control_key::config_folder;
 use crate::fleet::Seen;
 use crate::manager::Manager;
+use crate::Connection;
 use olc_control::BoardId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -146,6 +147,7 @@ mod tests {
             connection: Connection::Direct { link: 0 },
             online: true,
             silent_for: Duration::ZERO,
+            old_format: false,
         };
         let boards = [board(1), board(2)];
         let attempts = BTreeMap::new();

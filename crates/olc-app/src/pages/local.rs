@@ -285,8 +285,10 @@ impl Local {
 fn enforcement_line(cx: &Cx) -> Option<&'static str> {
     let view = cx.snap.local.first()?;
     Some(cx.say(match view.enforcement {
-        Enforcement::Systemd => "local.held_systemd",
-        Enforcement::Rlimit => "local.held_rlimit",
+        Enforcement::Cgroup => "local.held_systemd",
+        Enforcement::AddressSpace => "local.held_rlimit",
+        Enforcement::JobObject => "local.held_job",
+        Enforcement::Priority => "local.held_priority",
         Enforcement::Nothing => "local.held_nothing",
     }))
 }

@@ -7,7 +7,7 @@ use super::paint::{gradient, surface, Surface};
 use super::tokens::{self, Tokens};
 use super::widgets::{button, strong_text, Kind};
 use crate::core::{Notice, Snapshot};
-use crate::i18n::{self, Lang};
+use crate::i18n::{self, Voice};
 use crate::pages::Page;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Frame, Label, Layout, Margin, Panel, Rect, RichText, Sense, Ui};
 
@@ -60,7 +60,7 @@ fn side_row(ui: &mut Ui, t: &Tokens, icon: icons::Icon, text: &str, current: boo
 pub fn side_bar(
     ui: &mut Ui,
     t: &Tokens,
-    lang: Lang,
+    voice: Voice,
     pages: &[Box<dyn Page>],
     current: usize,
 ) -> Option<usize> {
@@ -76,14 +76,14 @@ pub fn side_bar(
             let (main, apart): (Vec<_>, Vec<_>) =
                 pages.iter().enumerate().partition(|(_, page)| !page.apart());
             for (index, page) in main {
-                if side_row(ui, t, page.icon(), i18n::text(lang, page.title()), index == current) {
+                if side_row(ui, t, page.icon(), i18n::text(voice, page.title()), index == current) {
                     chosen = Some(index);
                 }
             }
             let rest = ui.available_height() - apart.len() as f32 * (tokens::SIDE_ROW + 2.0) - 8.0;
             ui.add_space(rest.max(tokens::GAP));
             for (index, page) in apart {
-                if side_row(ui, t, page.icon(), i18n::text(lang, page.title()), index == current) {
+                if side_row(ui, t, page.icon(), i18n::text(voice, page.title()), index == current) {
                     chosen = Some(index);
                 }
             }
@@ -114,7 +114,7 @@ pub struct HeaderLook {
 pub fn header(
     ui: &mut Ui,
     t: &Tokens,
-    lang: Lang,
+    voice: Voice,
     snap: &Snapshot,
     logo: &mut Logo,
     look: &HeaderLook,
@@ -136,13 +136,13 @@ pub fn header(
                 let name = strong_text("OLC Core").size(tokens::SECTION + 1.0);
                 ui.add(Label::new(name).selectable(false));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let other = i18n::text(lang, "language.other");
+                    let other = i18n::text(voice, "language.other");
                     out.language_clicked = button(ui, t, other, Kind::Plain).clicked();
                     ui.add_space(tokens::GAP_WIDE);
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         ui.add_space(tokens::GAP_WIDE);
                         if look.strip {
-                            strip(ui, t, lang, snap);
+                            strip(ui, t, voice, snap);
                         }
                     });
                 });
@@ -154,12 +154,12 @@ pub fn header(
     out
 }
 
-fn strip(ui: &mut Ui, t: &Tokens, lang: Lang, snap: &Snapshot) {
+fn strip(ui: &mut Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
     let node = &snap.node;
     let Some(coin) = &node.coin else {
         return;
     };
-    let say = |key| i18n::text(lang, key);
+    let say = |key| i18n::text(voice, key);
     strip_item(ui, t, say("strip.coin"), &coin.name);
     strip_item(ui, t, say("strip.height"), &format::number(node.height.into()));
     strip_item(ui, t, say("strip.peers"), &node.peers.to_string());
@@ -169,13 +169,13 @@ fn strip(ui: &mut Ui, t: &Tokens, lang: Lang, snap: &Snapshot) {
     strip_item(ui, t, say("strip.balance"), &format::coins(node.balance, &coin.ticker));
 }
 
-pub fn notice_bar(ui: &mut Ui, t: &Tokens, lang: Lang, notice: &Notice) {
+pub fn notice_bar(ui: &mut Ui, t: &Tokens, voice: Voice, notice: &Notice) {
     let colour = if notice.good { t.good } else { t.bad };
     let frame = Frame::new().fill(t.side).inner_margin(Margin::symmetric(tokens::PAGE_MARGIN, 8));
     Panel::bottom("notice").frame(frame).show(ui, |ui| {
         ui.horizontal(|ui| {
             super::widgets::dot(ui, colour);
-            let text = i18n::text(lang, notice.key);
+            let text = i18n::text(voice, notice.key);
             let line = i18n::fill(text, &[notice.detail.as_str()]);
             ui.add(Label::new(line).wrap());
         });

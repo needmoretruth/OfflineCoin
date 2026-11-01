@@ -8,3 +8,5 @@ repository.workspace = true
 
 [dependencies]
 olc-node.workspace = true
+olc-platform.workspace = true
+serial2 = "0.2"

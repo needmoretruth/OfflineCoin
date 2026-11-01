@@ -64,7 +64,6 @@ function capControl(half, apply) {
   return cap;
 }
 
-const BOARD_HALF = 7500;
 const COMPUTER_RELAXED = 20000;
 const computerCap = capControl(0, async (limit) => {
   await post("/api/limit", { limit });
@@ -90,7 +89,7 @@ function makeRow(board) {
     head.setAttribute("aria-expanded", String(!row.controls.hidden));
   };
 
-  row.cap = capControl(BOARD_HALF, (limit) =>
+  row.cap = capControl(0, (limit) =>
     run(row, row.cap.field, `limit ${limit ?? "default"}`));
   row.mine = make("button", { type: "button" });
   row.mine.onclick = () => run(row, row.mine, `mine ${row.last.mining ? "off" : "on"}`);
@@ -151,6 +150,7 @@ function fill(row, board) {
   row.node.classList.toggle("silent", !board.online);
   row.title.textContent = board.name || board.id.slice(-4).toUpperCase();
   row.where.textContent = board.job ? say(board.job) : where(board);
+  row.cap.half = Math.round(board.default_cap / 2);
   row.cap.show(board.limit, board.default_cap);
   const facts = [
     [say("block"), board.height.toLocaleString()],

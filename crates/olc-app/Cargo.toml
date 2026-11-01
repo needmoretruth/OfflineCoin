@@ -17,25 +17,19 @@ path = "src/lib.rs"
 [dependencies]
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "clipboard", "accesskit"] }
 egui = { version = "0.37", default-features = false }
-olc-board.workspace = true
 olc-control.workspace = true
 olc-core.workspace = true
 olc-crypto.workspace = true
 olc-lab.workspace = true
 olc-lang.workspace = true
-olc-link-tcp.workspace = true
 olc-logo.workspace = true
 olc-node.workspace = true
-olc-pool.workspace = true
-olc-pow.workspace = true
-olc-store.workspace = true
-getrandom = "0.3"
+olc-service.workspace = true
 olc-wallet.workspace = true
-postcard.workspace = true
-serde.workspace = true
 serde_json.workspace = true
-if-addrs = "0.15"
 
 [dev-dependencies]
+olc-pow.workspace = true
+olc-store.workspace = true
 egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
 png = "0.18"

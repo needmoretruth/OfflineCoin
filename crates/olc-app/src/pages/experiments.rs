@@ -6,9 +6,9 @@ use crate::discovery::Reach;
 use crate::i18n::lab_line;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, meta, number_field, section, Kind};
+use crate::fleet::Args;
 use crate::ui::Icon;
 use egui::{ComboBox, Ui};
-use olc_board::Args;
 use olc_control::BoardId;
 
 #[derive(Default)]
