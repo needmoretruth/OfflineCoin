@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OLC Core
+Comment=Run a node, mine, hold a wallet and manage boards
+Comment[ko]=노드 실행, 채굴, 지갑, 보드 관리
+Exec=olc-core
+Icon=olc-core
+Terminal=false
+Categories=Network;Finance;
+StartupWMClass=olc-core

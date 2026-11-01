@@ -1,0 +1,38 @@
+[package]
+name = "olc-app"
+description = "OLC Core: the desktop app that runs a node and a miner, holds a wallet, finds every OLC it can reach and manages boards."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "olc-core"
+path = "src/main.rs"
+
+[lib]
+name = "olc_app"
+path = "src/lib.rs"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "clipboard", "accesskit"] }
+egui = { version = "0.37", default-features = false }
+olc-board.workspace = true
+olc-control.workspace = true
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-lab.workspace = true
+olc-lang.workspace = true
+olc-link-tcp.workspace = true
+olc-logo.workspace = true
+olc-node.workspace = true
+olc-pow.workspace = true
+olc-store.workspace = true
+olc-wallet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+if-addrs = "0.15"
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+png = "0.18"
