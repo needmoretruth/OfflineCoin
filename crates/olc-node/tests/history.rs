@@ -5,7 +5,7 @@ mod store;
 use common::{deliver, engine, mine, silence, test_coin};
 use olc_core::Chain;
 use olc_node::{Engine, Event, Message, Outgoing};
-use olc_wallet::{Wallet, MERGE_FROM};
+use olc_wallet::{Wallet, MERGE_AT_ONCE, MERGE_FROM};
 use store::{flash, keep_on, plugins, STATE_SIZE};
 
 fn pruned_engine(seed: u8, blocks: u64) -> Engine {
@@ -109,6 +109,9 @@ fn a_miners_small_coins_become_one() {
     let mut merged = false;
     for height in 0..MERGE_FROM as u64 * 4 {
         mine(&mut node, height * 1_000);
+        for _ in 0..MERGE_AT_ONCE {
+            node.tick(height * 1_000);
+        }
         merged |= events(&mut node).iter().any(|e| matches!(e, Event::CoinsMerged { .. }));
     }
     assert!(merged);
