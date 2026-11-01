@@ -12,7 +12,8 @@ const POLL: Duration = Duration::from_millis(5);
 const ORDER_DEADLINE: Duration = Duration::from_secs(8);
 const UPDATE_START_TRIES: u32 = 4;
 const ORDER_WAIT: Duration = Duration::from_secs(2);
-const CHUNK_TRIES: u32 = 10;
+/// A board changing branch stops listening for half a minute, and starting over costs minutes.
+const CHUNK_TRIES: u32 = 60;
 const CHUNK_WAIT: Duration = Duration::from_millis(500);
 /// Reading the whole image back takes the board about this long.
 const LAST_CHUNK_WAIT: Duration = Duration::from_secs(5);
@@ -96,8 +97,11 @@ fn wait_for_progress(
 ) -> Result<Option<u32>, String> {
     let deadline = Instant::now() + wait;
     while Instant::now() < deadline {
-        if let Some(reason) = with(fleet, |fleet| fleet.take_refusal(board))? {
-            return Err(format!("refused: {reason:?}"));
+        match with(fleet, |fleet| fleet.take_refusal(board))? {
+            // A copy of an earlier try came in late. The next try has a fresh counter.
+            Some(Refusal::Replayed) => {}
+            Some(reason) => return Err(format!("refused: {reason:?}")),
+            None => {}
         }
         let next = with(fleet, |fleet| fleet.progress(session))?;
         if next.is_some() && next > past {
