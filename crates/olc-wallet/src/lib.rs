@@ -12,8 +12,9 @@ use olc_lang::{alpha, ALPHA};
 
 /// A key with this many coins ready gets them merged into one.
 pub const MERGE_FROM: usize = 16;
-/// Coins that go into one merge. A board checks about ten signatures a second.
-const MERGE_AT_ONCE: usize = 16;
+/// Coins that go into one merge. A board checks about ten signatures a second, and every node
+/// checks them more than once, so this is what keeps a merge from stalling a board for long.
+pub const MERGE_AT_ONCE: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalletError {
@@ -174,8 +175,9 @@ impl Wallet {
     }
 
     /// Merges small coins of one key into a single coin, so a miner's many rewards do not stay in
-    /// every node's unspent set. An ordinary transaction. `None` when no key has enough of them.
-    pub fn merge(&self, chain: &dyn Coins, fee: u64, reserved: &[OutPoint]) -> Option<Tx> {
+    /// every node's unspent set. An ordinary transaction, left unsigned so a caller can sign it
+    /// a little at a time. `None` when no key has enough of them.
+    pub fn merge(&self, chain: &dyn Coins, fee: u64, reserved: &[OutPoint]) -> Option<Unsigned> {
         let next = chain.height() + 1;
         for key in &self.keys {
             let mut coins: Vec<(u64, OutPoint)> = chain
@@ -200,7 +202,7 @@ impl Wallet {
                 language: ALPHA,
                 lock: key.address.to_vec(),
             };
-            return self.sign(&unsigned(&chosen, vec![output])).ok();
+            return Some(unsigned(&chosen, vec![output]));
         }
         None
     }
@@ -209,15 +211,27 @@ impl Wallet {
     /// is never connected to anything.
     pub fn sign(&self, (tx, owners): &Unsigned) -> Result<Tx, WalletError> {
         let mut tx = tx.clone();
-        for (index, owner) in owners.iter().enumerate() {
-            let key = self.keys.iter().find(|key| key.address == *owner);
-            let key = key.ok_or(WalletError::NoSuchKey)?;
-            let digest = tx.signature_hash(index, &key.address);
-            let signature = sign(&key.secret, &digest).ok_or(WalletError::BadKey)?;
-            let input = tx.inputs.get_mut(index).ok_or(WalletError::NoSuchKey)?;
-            input.unlock = alpha::unlock_data(&key.public, &signature);
+        for index in 0..owners.len() {
+            self.sign_input(&mut tx, owners, index)?;
         }
         Ok(tx)
+    }
+
+    /// Signs one input of `tx`.
+    pub fn sign_input(
+        &self,
+        tx: &mut Tx,
+        owners: &[Address],
+        index: usize,
+    ) -> Result<(), WalletError> {
+        let owner = owners.get(index).ok_or(WalletError::NoSuchKey)?;
+        let key = self.keys.iter().find(|key| key.address == *owner);
+        let key = key.ok_or(WalletError::NoSuchKey)?;
+        let digest = tx.signature_hash(index, &key.address);
+        let signature = sign(&key.secret, &digest).ok_or(WalletError::BadKey)?;
+        let input = tx.inputs.get_mut(index).ok_or(WalletError::NoSuchKey)?;
+        input.unlock = alpha::unlock_data(&key.public, &signature);
+        Ok(())
     }
 }
 

@@ -3,6 +3,7 @@ use crate::event::{Event, Outgoing, Status};
 use crate::message::{Heights, Message};
 use crate::refused::Refused;
 use crate::snapshot::{Fetching, History};
+use crate::spend::Signing;
 use crate::sync::{Sync, BLOCKS_AT_ONCE};
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
@@ -49,6 +50,7 @@ pub struct Engine {
     note: Vec<u8>,
     /// Merges a key's small coins into one when set.
     pub(crate) merging: bool,
+    pub(crate) signing: Option<Signing>,
     pub(crate) history: History,
     pub(crate) fetching: Option<Fetching>,
     /// The snapshot being handed to a peer.
@@ -87,6 +89,7 @@ impl Engine {
             miner: None,
             note: Vec::new(),
             merging: true,
+            signing: None,
             history: History::default(),
             fetching: None,
             serving: None,
@@ -225,6 +228,7 @@ impl Engine {
         self.history.tick(self.chain.height(), device_ms);
         self.keep_fetching();
         self.sync.new_turn(device_ms);
+        self.sign_a_little();
         self.ask_for_blocks();
         self.chain.keep_up(STATE_SECTORS_PER_TICK);
     }

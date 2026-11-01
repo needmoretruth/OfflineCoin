@@ -62,8 +62,8 @@ esp_bootloader_esp_idf::esp_app_desc!();
 /// Blocks loaded between two drawings of the start screen.
 /// Rows of the logo drawn for each block read back, so the chain's load still leads.
 const LOAD_COIN_ROWS: usize = 3;
-/// How often the logo moves while the chain loads.
-const LOAD_FRAME_MS: u64 = 100;
+/// How often the panel moves while old blocks load. Drawing takes time from the blocks.
+const LOAD_FRAME_MS: u64 = 500;
 /// The supply settles after the panel's first light before Wi-Fi starts, which draws the most.
 const SETTLE_MS: u64 = 300;
 /// And longer after the last start ran it dry.
@@ -198,6 +198,7 @@ async fn main(spawner: Spawner) -> ! {
         if now >= frame_ms {
             frame_ms = now + LOAD_FRAME_MS;
             views::loading(&mut screen, &coins, now, done, total);
+            println!("moving old blocks {done} of {total}");
         }
     }
     store.forget_old_blocks();

@@ -5,7 +5,7 @@ mod store;
 use common::{mine, silence, test_coin};
 use olc_core::Chain;
 use olc_node::Engine;
-use olc_wallet::Wallet;
+use olc_wallet::{Wallet, MERGE_AT_ONCE};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use store::{flash, keep_on, plugins, STATE_SIZE};
@@ -40,7 +40,9 @@ fn grow(node: &mut Engine, blocks: u64, notes: bool) {
             let _ = node.write_note(b"a real payment in a real block");
         }
         mine(node, now);
-        node.tick(now);
+        for _ in 0..MERGE_AT_ONCE {
+            node.tick(now);
+        }
         silence(node);
         while node.take_event().is_some() {}
     }
