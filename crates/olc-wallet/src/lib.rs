@@ -285,7 +285,7 @@ pub fn parse_address(text: &str) -> Option<Address> {
 mod tests {
     use super::*;
     use alloc::boxed::Box;
-    use olc_core::{Block, ChainError, CoinConfig, Consensus, Plugins};
+    use olc_core::{Block, Chain, ChainError, CoinConfig, Consensus, Plugins};
     use olc_pow::ProofOfWork;
 
     fn config() -> CoinConfig {

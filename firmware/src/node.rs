@@ -24,9 +24,6 @@ use olc_wallet::format_address;
 pub const LINK_RADIO: usize = 0;
 pub const LINK_USB: usize = 1;
 pub const LINK_WIFI: usize = 2;
-pub const LINK_WIRES: usize = 3;
-/// Only on a board that turned Bluetooth on.
-pub const LINK_BLUETOOTH: usize = 4;
 
 /// About 13 ms of work, short enough to answer the radio between batches.
 const MINING_BATCH: u32 = 200;

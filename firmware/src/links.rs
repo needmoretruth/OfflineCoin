@@ -25,11 +25,12 @@ impl Node {
                 }
                 None => self.say("error links wired,espnow,bluetooth,wifi".into()),
             },
+            (Some("wires"), Some("swap")) => crate::uart::swap(),
             (Some("wires"), Some(baud)) => match baud.parse().map(crate::uart::set_speed) {
                 Ok(true) => self.say(format!("wires {baud}")),
                 _ => self.say("error wires SPEED".into()),
             },
-            (Some("wires"), None) => self.say(format!("wires spoiled={}", crate::uart::spoiled_lines())),
+            (Some("wires"), None) => self.say(crate::uart::report()),
             (Some("near"), _) => self.print_neighbours(),
             _ => self.say("error links".into()),
         }

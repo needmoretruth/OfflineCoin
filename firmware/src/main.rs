@@ -150,7 +150,7 @@ async fn main(spawner: Spawner) -> ! {
     store.reach(Stage::Panel);
     let (espnow, wifi_link, network) =
         wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
-    let wired = uart::start(peripherals.UART1, peripherals.GPIO17, peripherals.GPIO18);
+    let wired = uart::start(peripherals.UART1, peripherals.UART2, peripherals.GPIO17, peripherals.GPIO18);
 
     store.reach(Stage::Radio);
     rtc.rwdt.disable();

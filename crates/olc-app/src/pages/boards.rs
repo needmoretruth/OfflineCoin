@@ -1,7 +1,6 @@
 //! Every board this app can reach, and what can be done to one.
 use super::{Cx, Page};
 use crate::core::{BoardAction, BoardView, Command};
-use crate::discovery::Reach;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{

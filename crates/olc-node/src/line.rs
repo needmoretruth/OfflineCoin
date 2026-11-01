@@ -2,6 +2,7 @@
 //! as `#hex` lines like the ones on the USB cable, so noise costs one line and never the framing.
 //! Each ends in a two-byte check, because a wire loses bits and a cable does not.
 use crate::medium::Medium;
+use crate::neighbours::SILENT_MS;
 use crate::runner::{Link, Target};
 use alloc::vec::Vec;
 
@@ -15,6 +16,61 @@ pub trait Pipe: Send {
     fn read(&mut self, into: &mut [u8]) -> usize;
     /// A line came in spoiled, which tells how clean the wire is.
     fn spoiled_line(&mut self) {}
+    /// A whole line came in, so the far end is there.
+    fn heard_line(&mut self) {}
+}
+
+/// Wires can run straight or crossed, and nothing tells which, so each end does what Ethernet's
+/// Auto MDI-X does: it talks on one wire, listens on the other, and swaps after a random stay
+/// until it hears a line. Then it stays, so a link that works is never tried again.
+#[derive(Clone, Copy, Debug)]
+pub struct Hunt {
+    /// Which of the two ways this end is using.
+    pub way: bool,
+    pub swaps: u32,
+    heard_ms: Option<u64>,
+    swap_at_ms: u64,
+}
+
+/// Longer than a Hello, so one way always gets a whole Hello to land.
+const SHORTEST_STAY_MS: u64 = 1_200;
+const STAY_SPREAD_MS: u64 = 1_400;
+
+impl Hunt {
+    pub fn new(random: u32) -> Self {
+        Self { way: random & 1 == 1, swaps: 0, heard_ms: None, swap_at_ms: 0 }
+    }
+
+    pub fn heard(&mut self, now: u64) {
+        self.heard_ms = Some(now);
+    }
+
+    pub fn linked(&self, now: u64) -> bool {
+        self.heard_ms.is_some_and(|heard| now.saturating_sub(heard) < SILENT_MS)
+    }
+
+    /// Says whether to swap now. Called often, with a fresh random number.
+    pub fn turn(&mut self, now: u64, random: u32) -> bool {
+        if self.linked(now) || now < self.swap_at_ms {
+            return false;
+        }
+        let first = self.swap_at_ms == 0;
+        self.swap_at_ms = now + SHORTEST_STAY_MS + u64::from(random) % STAY_SPREAD_MS;
+        if first {
+            return false;
+        }
+        self.way = !self.way;
+        self.swaps += 1;
+        true
+    }
+
+    /// Leaves the link it has, to prove that it finds it again.
+    pub fn force_swap(&mut self, now: u64) {
+        self.heard_ms = None;
+        self.swap_at_ms = now + SHORTEST_STAY_MS;
+        self.way = !self.way;
+        self.swaps += 1;
+    }
 }
 
 fn digit(byte: u8) -> Option<u8> {
@@ -132,7 +188,10 @@ impl<P: Pipe> Link for LineLink<P> {
             }
             while let Some(at) = self.waiting.next() {
                 match self.lines.push(self.bytes[at]) {
-                    Heard::Message(message) => return Some((0, message)),
+                    Heard::Message(message) => {
+                        self.pipe.heard_line();
+                        return Some((0, message));
+                    }
                     Heard::Spoiled => self.pipe.spoiled_line(),
                     Heard::Nothing => {}
                 }
@@ -183,6 +242,60 @@ mod tests {
         let left = Crossed { to_me: one.clone(), to_them: two.clone(), spoiled: 0 };
         let right = Crossed { to_me: two, to_them: one, spoiled: 0 };
         (LineLink::new(left), LineLink::new(right))
+    }
+
+    /// Two ends with their own Hello clocks and random stays, on one kind of cable.
+    fn seconds_to_link(crossed: bool, seed: u32) -> (u64, Hunt, Hunt) {
+        let mut state = seed | 1;
+        let mut random = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        let (mut left, mut right) = (Hunt::new(random()), Hunt::new(random()));
+        let offset = u64::from(random() % 1000);
+        let mut linked_at = None;
+        for now in (10..1_800_000).step_by(10) {
+            left.turn(now, random());
+            right.turn(now, random());
+            if (left.way == right.way) == crossed {
+                if now % 1000 == 0 {
+                    right.heard(now);
+                }
+                if (now + offset) / 10 % 100 == 0 {
+                    left.heard(now);
+                }
+            }
+            if linked_at.is_none() && left.linked(now) && right.linked(now) {
+                linked_at = Some(now);
+            }
+        }
+        (linked_at.expect("the two ends never linked") / 1000, left, right)
+    }
+
+    #[test]
+    fn either_cable_links_soon_and_then_nothing_swaps_again() {
+        for seed in 1..200 {
+            for crossed in [false, true] {
+                let (seconds, left, right) = seconds_to_link(crossed, seed);
+                assert!(seconds <= 40, "took {seconds} s");
+                let swaps = left.swaps + right.swaps;
+                assert!(swaps <= 2 * seconds as u32 + 2, "{swaps} swaps in {seconds} s");
+                assert_eq!((left.way == right.way), crossed);
+            }
+        }
+    }
+
+    #[test]
+    fn a_link_that_goes_quiet_starts_looking_again() {
+        let mut hunt = Hunt::new(0);
+        hunt.turn(1, 0);
+        hunt.heard(1_000);
+        assert!(!hunt.turn(2_000, 0));
+        assert!(hunt.linked(4_000));
+        assert!(!hunt.linked(5_000));
+        assert!(hunt.turn(5_000, 0));
     }
 
     fn all_of(link: &mut LineLink<Crossed>) -> Vec<Vec<u8>> {

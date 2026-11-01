@@ -109,7 +109,7 @@ pub trait Book {
         self.change_settings(|settings| settings.recent = recent)
     }
 
-    pub fn set_links(&self, rank: Rank) -> Result<(), String> {
+    fn set_links(&self, rank: Rank) -> Result<(), String> {
         self.live(|runner| runner.set_rank(rank))?;
         self.change_settings(|settings| settings.links = rank.text())
     }

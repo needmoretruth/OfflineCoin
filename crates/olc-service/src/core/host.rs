@@ -277,9 +277,6 @@ impl Host {
 
     /// Keeps a way to reach a node. The node dials it when nothing else reaches that node.
     pub fn connect(&self, address: String) {
-        if let (Ok(mut runner), Some(rank)) = (self.runner.lock(), Rank::parse(&settings.links)) {
-            runner.set_rank(rank);
-        }
         if let Ok(mut runner) = self.runner.lock() {
             runner.add_address(TCP_LINK, address);
         }

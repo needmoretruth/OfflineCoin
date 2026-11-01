@@ -7,7 +7,7 @@ use super::coins::{
 use super::board_action::BoardAction;
 use olc_store::coin_file::new_coin;
 use super::board_lines::{read_bright, run_action, Brights};
-use super::commands::{Command, StartCoin};
+use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
 use super::host::{full_rate, Host, PayError, Plan};
 use super::pool_run::{PoolSeat, PoolStart};
