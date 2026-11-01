@@ -167,7 +167,12 @@ impl Home {
                     }
                 }
                 _ => {
-                    let sign = if item.kind == ActivityKind::Sent { "-" } else { "+" };
+                    let sign = match item.kind {
+                        // A payment to oneself moves nothing, and "-0" reads like an error.
+                        _ if item.amount == 0 => "",
+                        ActivityKind::Sent => "-",
+                        _ => "+",
+                    };
                     let figure = format!("{sign}{}", format::coins(item.amount, &ticker));
                     right_cell(ui, widgets::medium_text(figure));
                 }
@@ -258,7 +263,7 @@ impl Page for Home {
         let still = cx.settings.reduce_motion || desktop_reduces_motion();
         let wide = ui.available_width() >= tokens::COMPACT;
         meta(ui, cx.say("home.balance"), t);
-        balance_line(ui, t, node.balance, &cx.ticker(), still);
+        balance_line(ui, t, node.balance, cx.ticker(), still);
         // The line keeps its room, so the buttons stay put when the first block arrives.
         widgets::slot(ui, |ui| {
             ui.set_min_height(tokens::META_LINE);

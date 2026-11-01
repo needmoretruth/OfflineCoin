@@ -107,9 +107,9 @@ fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
         Work::Restarting => (t.muted, cx.say("work.restarting").to_string()),
     };
     dot(ui, colour);
-    cell(ui, text);
-    if let Some(age) = entry.age_secs {
-        meta(ui, &age_text(cx, age), t);
+    match entry.age_secs {
+        Some(age) => cell(ui, format!("{text}, {}", age_text(cx, age))),
+        None => cell(ui, text),
     }
 }
 

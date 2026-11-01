@@ -53,7 +53,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coins.split", "Fork: same genesis, other rules"),
     ("coins.this_line", "Height {}. {} peers."),
     ("coins.none_body", "Coins found by LAN scan and broadcast appear here."),
-    ("coins.found_about", "{}, {} nodes"),
+    ("coins.found_about", "{}, nodes: {}"),
     ("coins.join_warning", "This node switches to that chain. You can switch back."),
     ("records.search", "Height, block ID, txid or address"),
     ("records.number", "Height"),
