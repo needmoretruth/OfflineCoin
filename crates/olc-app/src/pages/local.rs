@@ -298,6 +298,7 @@ impl Page for Local {
             self.add_form(ui, cx);
             ui.add_space(tokens::GAP);
         } else if button(ui, t, cx.say("local.new_node"), Kind::Main).clicked() {
+            self.form.name = format!("node-{}", next_id(cx));
             self.open_form = true;
         }
         if cx.snap.local.is_empty() {
