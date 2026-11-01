@@ -244,8 +244,7 @@ impl Service {
             }
             Command::MoveBoard(id) => {
                 let coin = current_coin(&self.paths, &self.settings);
-                let bytes = postcard::to_allocvec(&coin).unwrap_or_default();
-                let text: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                let text: String = coin.to_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
                 self.board_line(id, format!("coin {text}"));
                 self.board_line(id, "coin confirm".into());
             }

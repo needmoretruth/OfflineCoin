@@ -415,6 +415,7 @@ impl Chain {
             parent_difficulty: entry.header.difficulty,
             actual_ms: entry.header.time_ms.saturating_sub(first.header.time_ms),
             expected_ms: rules.block_time_ms * (interval - 1),
+            min_difficulty: rules.floor_at(next_height),
         };
         self.plugins.consensus.next_difficulty(&input)
     }

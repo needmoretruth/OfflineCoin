@@ -3,7 +3,7 @@ use super::settings::device_name;
 use super::Cx;
 use crate::core::{parse_coins, Command, StartCoin};
 use crate::discovery::{CoinGroup, Reach};
-use crate::settings::{Device, NEW_COIN_DIFFICULTY};
+use crate::settings::Device;
 use crate::ui::format;
 use crate::ui::paint::{surface, Surface};
 use crate::ui::tokens;
@@ -12,8 +12,8 @@ use crate::ui::widgets::{
     switch_row, Kind,
 };
 use egui::{pos2, vec2, Label, Sense, Ui};
-use olc_core::coin::COIN;
-use olc_core::CoinConfig;
+use olc_core::coin::{COIN, MIN_DIFFICULTY};
+use olc_core::{CoinConfig, Rules};
 use olc_wallet::parse_address;
 
 const WIDTH: f32 = 620.0;
@@ -34,7 +34,16 @@ pub struct Setup {
     reward: u64,
     halving: u64,
     difficulty: u64,
+    floor: u64,
     premine: String,
+}
+
+/// The floor follows the block time until someone writes their own.
+fn floor_after(floor: u64, seconds_before: u64, seconds: u64) -> u64 {
+    match floor == Rules::floor_for(seconds_before.saturating_mul(1_000)) {
+        true => Rules::floor_for(seconds.saturating_mul(1_000)),
+        false => floor,
+    }
 }
 
 impl Default for Setup {
@@ -48,7 +57,8 @@ impl Default for Setup {
             block_seconds: rules.block_time_ms / 1000,
             reward: rules.reward / COIN,
             halving: rules.halving_interval,
-            difficulty: NEW_COIN_DIFFICULTY,
+            difficulty: MIN_DIFFICULTY,
+            floor: rules.min_difficulty,
             premine: String::new(),
         }
     }
@@ -145,11 +155,13 @@ impl Setup {
     }
 
     fn new_coin_form(&mut self, ui: &mut Ui, cx: &Cx) {
-        let rows: [(&str, &mut u64); 4] = [
+        let seconds_before = self.block_seconds;
+        let rows: [(&str, &mut u64); 5] = [
             ("setup.block_seconds", &mut self.block_seconds),
             ("setup.reward", &mut self.reward),
             ("setup.halving", &mut self.halving),
             ("setup.difficulty", &mut self.difficulty),
+            ("setup.floor", &mut self.floor),
         ];
         ui.horizontal(|ui| {
             field(ui, &mut self.name, cx.say("setup.coin_name"), 220.0);
@@ -161,6 +173,8 @@ impl Setup {
                 number_field(ui, value, 130.0);
             });
         }
+        self.floor = floor_after(self.floor, seconds_before, self.block_seconds);
+        meta(ui, cx.say("setup.floor_note"), cx.t);
         ui.horizontal(|ui| {
             form_label(ui, cx.say("setup.premine"));
             field(ui, &mut self.premine, "0", 130.0);
@@ -180,6 +194,8 @@ impl Setup {
         coin.genesis_time_ms = crate::core::unix_ms();
         coin.initial_difficulty = self.difficulty;
         coin.rules.block_time_ms = self.block_seconds * 1000;
+        coin.rules.min_difficulty = self.floor.max(1);
+        coin.rules.floor_from_height = 0;
         coin.rules.reward = self.reward * COIN;
         coin.rules.halving_interval = self.halving;
         let premine = self.premine.trim();
@@ -246,5 +262,16 @@ impl Setup {
                 }
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::floor_after;
+
+    #[test]
+    fn the_floor_follows_the_block_time_until_it_is_edited() {
+        assert_eq!(floor_after(30_000, 30, 60), 60_000);
+        assert_eq!(floor_after(12_345, 30, 60), 12_345);
     }
 }

@@ -27,6 +27,7 @@ fn coin() -> CoinConfig {
     let mut coin = CoinConfig::olc();
     coin.initial_difficulty = DIFFICULTY;
     coin.rules.coinbase_maturity = 1;
+    coin.rules.min_difficulty = 1;
     coin
 }
 
@@ -103,4 +104,15 @@ fn this_build_accepts_every_block_an_old_build_made() {
         here.chain_mut().add_block(read).unwrap();
         assert_eq!(here.chain().tip(), miner.chain().tip());
     }
+}
+
+#[test]
+fn a_coin_crosses_between_builds_in_both_directions() {
+    let new = coin();
+    let read: old::CoinConfig = postcard::from_bytes(&new.to_bytes()).unwrap();
+    assert_eq!(read.genesis().id(), old_coin().genesis().id());
+    assert_eq!(read.rules, old_coin().rules);
+
+    let bytes = postcard::to_allocvec(&old::CoinConfig::olc()).unwrap();
+    assert_eq!(CoinConfig::from_bytes(&bytes), Some(CoinConfig::olc()));
 }

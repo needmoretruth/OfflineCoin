@@ -21,7 +21,7 @@ OfflineCoin
   olc install --port PORT --name NAME [--firmware FILE]
   olc devnet  [--nodes 3] [--coin FILE] [--hash-limit HASHES_PER_SECOND]
   olc new-coin FILE [--name NAME] [--ticker TICKER] [--block-time-ms MS]
-              [--reward COINS] [--halving BLOCKS] [--difficulty N]
+              [--reward COINS] [--halving BLOCKS] [--difficulty N] [--min-difficulty N]
   olc keys    [--data DIR]              list keys
   olc key new|use N|import HEX|export N [--data DIR]
   olc backup FILE [--password] [--data DIR]

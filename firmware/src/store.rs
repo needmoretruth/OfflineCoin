@@ -406,11 +406,11 @@ impl Store {
 
     /// The coin this board runs, when it was told one.
     pub fn coin(&mut self) -> Option<CoinConfig> {
-        read_slot(COIN_SLOTS).and_then(|bytes| postcard::from_bytes(&bytes).ok())
+        read_slot(COIN_SLOTS).and_then(|bytes| CoinConfig::from_bytes(&bytes))
     }
 
     pub fn save_coin(&mut self, coin: &CoinConfig) -> bool {
-        postcard::to_allocvec(coin).is_ok_and(|bytes| write_slot(COIN_SLOTS, &bytes))
+        write_slot(COIN_SLOTS, &coin.to_bytes())
     }
 
     fn old_meta(&mut self) -> Option<[u8; META_LEN]> {

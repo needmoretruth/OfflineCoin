@@ -78,7 +78,7 @@ impl Node {
             (Some("coin"), Some("confirm"), _) => self.confirm_coin(),
             (Some("coin"), Some("default"), _) => self.change_coin(CoinConfig::olc()),
             (Some("coin"), Some(text), _) => {
-                let coin = unhex(text).and_then(|bytes| postcard::from_bytes(&bytes).ok());
+                let coin = unhex(text).and_then(|bytes| CoinConfig::from_bytes(&bytes));
                 match coin {
                     Some(coin) => self.change_coin(coin),
                     None => self.say("error coin HEX".into()),

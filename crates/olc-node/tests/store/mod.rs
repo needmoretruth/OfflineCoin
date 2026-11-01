@@ -145,6 +145,7 @@ pub fn keep_on(flash: &Flash, recent: Option<u64>) -> Keep {
 pub fn coin() -> CoinConfig {
     let mut config = CoinConfig::olc();
     config.initial_difficulty = 8;
+    config.rules.min_difficulty = 1;
     config.rules.coinbase_maturity = 2;
     config.rules.retarget_interval = 10;
     config

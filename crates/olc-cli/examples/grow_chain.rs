@@ -28,6 +28,7 @@ fn coin(difficulty: u64) -> CoinConfig {
     coin.ticker = "LNG".into();
     coin.message = "A long real chain for measuring".into();
     coin.initial_difficulty = difficulty;
+    coin.rules.min_difficulty = 1;
     coin.message_in_block = true;
     coin
 }

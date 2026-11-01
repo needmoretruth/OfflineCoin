@@ -53,7 +53,7 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
             .ok_or_else(|| format!("bad address {}", entry.address))?;
         premine.push((address, entry.amount));
     }
-    Ok(CoinConfig {
+    let mut coin = CoinConfig {
         name: file.name,
         ticker: file.ticker,
         message: file.message,
@@ -62,7 +62,9 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
         premine,
         rules: file.rules,
         message_in_block: file.message_in_block,
-    })
+    };
+    coin.settle_floor();
+    Ok(coin)
 }
 
 pub fn to_json(coin: &CoinConfig) -> Result<String, String> {
@@ -78,6 +80,33 @@ mod tests {
         let mut coin = CoinConfig::olc();
         coin.premine.push(([7; 20], 5));
         coin.rules.block_time_ms = 1234;
+        assert_eq!(from_json(&to_json(&coin).unwrap()).unwrap(), coin);
+    }
+
+    fn without_floor(coin: &CoinConfig) -> String {
+        let mut file: serde_json::Value = serde_json::from_str(&to_json(coin).unwrap()).unwrap();
+        let rules = file["rules"].as_object_mut().unwrap();
+        assert!(rules.remove("min_difficulty").is_some());
+        assert!(rules.remove("floor_from_height").is_some());
+        file.to_string()
+    }
+
+    #[test]
+    fn a_file_from_before_floors_still_loads() {
+        let olc = CoinConfig::olc();
+        assert_eq!(from_json(&without_floor(&olc)).unwrap(), olc);
+
+        let mut other = CoinConfig::olc();
+        other.name = "Older".into();
+        let loaded = from_json(&without_floor(&other)).unwrap();
+        assert_eq!(loaded.rules.min_difficulty, 1, "that coin never had a floor");
+    }
+
+    #[test]
+    fn a_chosen_floor_survives_the_file() {
+        let mut coin = CoinConfig::olc();
+        coin.name = "Mine".into();
+        coin.rules.min_difficulty = 12_345;
         assert_eq!(from_json(&to_json(&coin).unwrap()).unwrap(), coin);
     }
 }

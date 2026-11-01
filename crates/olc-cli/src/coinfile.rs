@@ -1,11 +1,8 @@
 //! Coin files: the JSON form of a coin, with addresses written as text.
 use olc_board::Args;
-use olc_core::coin::COIN;
-use olc_core::CoinConfig;
+use olc_core::coin::{COIN, MIN_DIFFICULTY};
+use olc_core::{CoinConfig, Rules};
 use olc_store::coin_file;
-
-/// About what one relaxed board finds in a 30 s block. It rises by itself with more boards.
-const NEW_COIN_DIFFICULTY: u64 = 30_000;
 
 pub fn load(path: Option<&str>) -> Result<CoinConfig, String> {
     let Some(path) = path else {
@@ -34,7 +31,10 @@ pub fn create(args: &Args) -> Result<(), String> {
     coin.rules.block_time_ms = args.number("block-time-ms", coin.rules.block_time_ms)?;
     coin.rules.reward = args.number("reward", coin.rules.reward / COIN)? * COIN;
     coin.rules.halving_interval = args.number("halving", coin.rules.halving_interval)?;
-    coin.initial_difficulty = args.number("difficulty", NEW_COIN_DIFFICULTY)?;
+    coin.initial_difficulty = args.number("difficulty", MIN_DIFFICULTY)?;
+    let floor = Rules::floor_for(coin.rules.block_time_ms);
+    coin.rules.min_difficulty = args.number("min-difficulty", floor)?.max(1);
+    coin.rules.floor_from_height = 0;
     let text = coin_file::to_json(&coin)?;
     std::fs::write(path, text + "\n").map_err(|error| format!("{path}: {error}"))?;
     println!("{path}");
