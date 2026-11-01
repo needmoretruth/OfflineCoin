@@ -49,6 +49,10 @@ impl Update {
         self.received
     }
 
+    pub fn percent(&self) -> u8 {
+        (u64::from(self.received) * 100 / u64::from(self.size.max(1))) as u8
+    }
+
     pub fn done(&self) -> bool {
         self.received == self.size
     }

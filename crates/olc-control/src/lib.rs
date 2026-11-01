@@ -8,7 +8,7 @@ pub mod packet;
 pub mod router;
 pub mod update;
 
-pub use gate::{allowed_remotely, sign, Gate};
+pub use gate::{REMOTE_WORDS, allowed_remotely, sign, Gate};
 pub use packet::{Action, Beacon, BoardId, Body, Order, Packet, Read, Refusal, Signed};
 pub use router::{Forward, Router, Verdict};
 pub use update::{ImageSlot, Update, CHUNK, PAGE};

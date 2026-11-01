@@ -191,13 +191,24 @@ impl Store {
             && data.set_current_ota_state(OtaImageState::New).is_ok()
     }
 
-    /// Says this build started. A bootloader with rollback reads this; the one espflash installs
-    /// does not, so an image that crashes at start stays selected.
-    pub fn mark_running_build_good(&mut self) {
+    /// Says this build started, and returns true on the first start after an update. A bootloader
+    /// with rollback reads this; the one espflash installs does not, so an image that crashes at
+    /// start stays selected.
+    pub fn mark_running_build_good(&mut self) -> bool {
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        if let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) {
-            let _ = updater.set_current_ota_state(OtaImageState::Valid);
-        }
+        let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) else {
+            return false;
+        };
+        let is_new = updater
+            .current_ota_state()
+            .is_ok_and(|state| state == OtaImageState::New);
+        let _ = updater.set_current_ota_state(OtaImageState::Valid);
+        is_new
+    }
+
+    /// Bytes of block log still free.
+    pub fn log_left(&self) -> u32 {
+        LOG_END.saturating_sub(self.head)
     }
 
     pub fn write_page(&mut self, at: u32, page: &[u8]) -> bool {

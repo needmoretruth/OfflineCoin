@@ -2,6 +2,7 @@
 //! and obeys what the gate lets through.
 use crate::node::{hex, Node};
 use crate::store::{Identity, Store};
+use crate::views::Note;
 use alloc::format;
 use alloc::string::{String, ToString};
 use core::sync::atomic::Ordering;
@@ -14,6 +15,7 @@ use olc_node::{Message, Outgoing};
 
 const BEACON_EVERY_MS: u64 = 4_000;
 const CHUNK_PAUSE_MS: u64 = 1_000;
+const UPDATE_GONE_MS: u64 = 15_000;
 /// How long printed lines keep going to whoever gave the last order.
 const LISTEN_MS: u64 = 60_000;
 /// Lets the last packet leave before the restart.
@@ -42,6 +44,17 @@ pub struct Control {
 }
 
 impl Control {
+    /// How far an image that is still arriving has come.
+    pub fn update_percent(&self, now: u64) -> Option<u8> {
+        let (update, _) = self.update.as_ref()?;
+        (now < self.chunk_ms + UPDATE_GONE_MS).then(|| update.percent())
+    }
+
+    /// True while someone with the key listens to this board.
+    pub fn is_managed(&self, now: u64) -> bool {
+        self.listener.is_some_and(|(_, until)| now < until)
+    }
+
     /// A piece of an image is several radio frames and the radio holds only a few, so mining must
     /// not sit on them.
     pub fn taking_an_image(&self, now: u64) -> bool {
@@ -213,6 +226,7 @@ impl Node {
                 self.control.listener = Some((from, now + LISTEN_MS));
                 match action {
                     Action::Line(line) => {
+                        self.note(now, Note::Order(order_word(&line)));
                         self.run_command(&line);
                         self.say(format!("done {}", signed.order.counter));
                         // The page shows the change at once instead of at the next beacon.
@@ -290,6 +304,15 @@ impl Node {
         while crate::node::device_ms() < until {}
         esp_hal::system::software_reset();
     }
+}
+
+/// The order's first word, with a lifetime the panel can keep.
+fn order_word(line: &str) -> &'static str {
+    let word = line.split_whitespace().next().unwrap_or("");
+    let known = olc_control::REMOTE_WORDS
+        .iter()
+        .find(|known| **known == word);
+    known.copied().unwrap_or("?")
 }
 
 /// True while a line is arriving on the cable, so mining should wait for it.

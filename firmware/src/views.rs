@@ -1,6 +1,9 @@
 //! What the OLED shows. Three views, each in English and Korean:
 //! basic is the everyday view, detail is for checking the node, easy is for reading at a glance.
-use crate::screen::{Font, Screen};
+use crate::pages;
+use crate::screen::{self, Font, Screen};
+use crate::words::{note_text, state_sentence, state_word};
+use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -9,9 +12,8 @@ use core::net::Ipv4Addr;
 use olc_core::coin::COIN;
 use olc_node::Event;
 
-const TICKER: &str = "OLC";
 const LINE: i32 = 11;
-const LAST_ROW: i32 = 40 + LINE;
+const LAST_ROW: i32 = 39 + LINE;
 const ROTATE_EVERY_MS: u64 = 3_000;
 const EVENT_SHOWN_MS: u64 = 4_000;
 const TURN_MS: u64 = 2_400;
@@ -80,59 +82,69 @@ impl Language {
             .into_iter()
             .find(|language| language.name() == name)
     }
-
-    fn pick<'a>(self, english: &'a str, korean: &'a str) -> &'a str {
-        match self {
-            Language::English => english,
-            Language::Korean => korean,
-        }
-    }
 }
 
+/// What the board is doing, most urgent first.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum State {
+    Updating(u8),
+    Syncing(u64),
+    MemoryFull,
+    Offline,
     Mining,
     Idle,
-    Offline,
-    MemoryFull,
+}
+
+/// Something that happened, to show for a moment and keep in the detail view.
+#[derive(Clone, Copy)]
+pub enum Note {
+    Chain(Event),
+    Order(&'static str),
+    Updated(&'static str),
 }
 
 pub struct Info<'a> {
     pub now_ms: u64,
     pub state: State,
+    pub name: &'a str,
+    pub coin: &'a str,
+    pub ticker: &'a str,
+    pub genesis: &'a [u8],
+    pub address: &'a str,
+    pub build: &'a str,
     pub height: u64,
     pub balance: u64,
     pub hash_rate: u64,
+    pub limit: u32,
     pub difficulty: u64,
+    pub block_ms: u64,
     pub tip: &'a [u8],
     pub work: u128,
     pub mined: u32,
     pub blocks_to_retarget: u64,
+    /// Since this board saw the tip change.
+    pub block_age_ms: u64,
+    /// The mean time between the last few blocks.
+    pub block_time_ms: Option<u64>,
     pub espnow: usize,
     pub wifi: usize,
     pub usb: usize,
+    pub managed: bool,
     pub waiting: usize,
     pub free_memory: usize,
+    pub log_left: u32,
     pub own_network: &'a str,
     pub router: Option<Ipv4Addr>,
     pub joining_router: bool,
-    pub event: Option<(u64, Event)>,
-    /// Hash attempts on this block, as a share of what a block takes on average.
+    pub event: Option<(u64, Note)>,
+    pub notes: &'a VecDeque<Note>,
+    /// How far the bar under the basic view goes.
     pub progress: f32,
 }
 
 impl Info<'_> {
     fn peers(&self) -> usize {
         self.espnow + self.wifi + self.usb
-    }
-
-    fn state_word(&self, language: Language) -> &'static str {
-        match self.state {
-            State::Mining => language.pick("MINING", "채굴 중"),
-            State::Idle => language.pick("IDLE", "대기"),
-            State::Offline => language.pick("OFFLINE", "연결 끊김"),
-            State::MemoryFull => language.pick("FULL", "메모리 부족"),
-        }
     }
 
     fn spinner(&self) -> &'static str {
@@ -143,12 +155,12 @@ impl Info<'_> {
         }
     }
 
-    fn recent_event(&self) -> Option<Event> {
-        let (at, event) = self.event?;
-        (self.now_ms.saturating_sub(at) < EVENT_SHOWN_MS).then_some(event)
+    fn recent_event(&self) -> Option<Note> {
+        let (at, note) = self.event?;
+        (self.now_ms.saturating_sub(at) < EVENT_SHOWN_MS).then_some(note)
     }
 
-    fn where_to_reach(&self, language: Language) -> String {
+    pub fn where_to_reach(&self, language: Language) -> String {
         match self.router {
             Some(address) => format!("IP {address}"),
             None if self.joining_router => language.pick("joining router", "공유기 접속 중").into(),
@@ -156,24 +168,34 @@ impl Info<'_> {
         }
     }
 
-    fn tip_hex(&self, bytes: usize) -> String {
-        self.tip[..bytes]
+    pub fn hex(&self, bytes: &[u8], count: usize) -> String {
+        bytes[..count]
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect()
     }
 
-    fn uptime(&self, language: Language) -> String {
-        let minutes = self.now_ms / 60_000;
-        match language {
-            Language::English => format!("{}h{:02}m", minutes / 60, minutes % 60),
-            Language::Korean => format!("{}시간 {}분", minutes / 60, minutes % 60),
+    pub fn tip_hex(&self, bytes: usize) -> String {
+        self.hex(self.tip, bytes)
+    }
+
+    /// The hash rate, with the cap beside it when there is one.
+    pub fn rate_text(&self) -> String {
+        match self.limit {
+            0 => format!("{} H/s", short(self.hash_rate)),
+            limit => format!("{}/{}", short(self.hash_rate), short(u64::from(limit))),
         }
+    }
+
+    /// This board's rate against what the difficulty says the whole network does.
+    pub fn share_percent(&self) -> u64 {
+        let network = self.difficulty.saturating_mul(1_000) / self.block_ms.max(1);
+        (self.hash_rate * 100 / network.max(1)).min(100)
     }
 }
 
 /// Three digits at most, with a decimal only when it says something.
-fn short(value: u64) -> String {
+pub fn short(value: u64) -> String {
     let (unit, letter) = match value {
         0..1_000 => return format!("{value}"),
         1_000..1_000_000 => (1_000, "k"),
@@ -190,25 +212,6 @@ fn short(value: u64) -> String {
 
 pub fn coins(units: u64) -> String {
     format!("{}.{:02}", units / COIN, units % COIN / (COIN / 100))
-}
-
-fn event_text(event: Event, language: Language) -> String {
-    match (language, event) {
-        (Language::English, Event::Mined { height }) => format!("mined block {height}"),
-        (Language::Korean, Event::Mined { height }) => format!("{height}번 블록 채굴"),
-        (Language::English, Event::BlockAccepted { height }) => format!("got block {height}"),
-        (Language::Korean, Event::BlockAccepted { height }) => format!("{height}번 블록 받음"),
-        (Language::English, Event::Reorganized { height, .. }) => format!("new branch at {height}"),
-        (Language::Korean, Event::Reorganized { height, .. }) => {
-            format!("{height}번에서 체인 교체")
-        }
-        (Language::English, Event::TxAccepted) => "payment accepted".into(),
-        (Language::Korean, Event::TxAccepted) => "송금 확인".into(),
-        (Language::English, Event::TxReturned { .. }) => "payment waiting again".into(),
-        (Language::Korean, Event::TxReturned { .. }) => "송금 다시 대기".into(),
-        (Language::English, _) => "rejected".into(),
-        (Language::Korean, _) => "거부함".into(),
-    }
 }
 
 /// Whether a pixel of the coin is lit. Bright metal is solid and the rest is a thin dither, which
@@ -283,104 +286,44 @@ pub fn splash(screen: &mut Screen, now_ms: u64) {
 }
 
 fn basic(screen: &mut Screen, info: &Info, language: Language) {
+    let corner = format!("{} {}", state_word(info.state, language), info.spinner());
+    let room = screen.text_right(0, &corner, Font::Regular);
+    let name = if info.name.is_empty() {
+        info.ticker
+    } else {
+        info.name
+    };
+    screen.text_before(0, 0, name, Font::Regular, room - 6);
     let number = match language {
-        Language::English => format!("{TICKER} #{}", info.height),
-        Language::Korean => format!("{TICKER} {}번", info.height),
+        Language::English => format!("#{}", info.height),
+        Language::Korean => format!("{}번", info.height),
     };
-    screen.text(0, 0, &number, Font::Regular);
-    let corner = format!("{} {}", info.state_word(language), info.spinner());
-    screen.text_right(0, &corner, Font::Regular);
-    screen.text(
-        0,
-        LINE,
-        &format!("{} {TICKER}", coins(info.balance)),
-        Font::Regular,
-    );
-    let (difficulty, espnow, wifi, usb) = match language {
-        Language::English => ("d", "espnow", "wifi", "usb"),
-        Language::Korean => ("난이도", "무선", "와이파이", "유선"),
+    let money = format!("{number} {} {}", coins(info.balance), info.ticker);
+    screen.text(0, LINE, &money, Font::Regular);
+    let rate = match (language, info.limit) {
+        (Language::English, _) => format!("{} d {}", info.rate_text(), short(info.difficulty)),
+        (Language::Korean, 0) => format!("{} 난이도 {}", info.rate_text(), short(info.difficulty)),
+        (Language::Korean, _) => format!("{} 난 {}", info.rate_text(), short(info.difficulty)),
     };
-    let rate = format!(
-        "{} H/s {difficulty} {}",
-        short(info.hash_rate),
-        short(info.difficulty)
-    );
     screen.text(0, LINE * 2, &rate, Font::Regular);
+    let (espnow, wifi, usb) = match language {
+        Language::English => ("espnow", "wifi", "usb"),
+        Language::Korean => ("무선", "와이파이", "유선"),
+    };
     let peers = format!(
         "{espnow} {} {wifi} {} {usb} {}",
         info.espnow, info.wifi, info.usb
     );
     screen.text(0, LINE * 3, &peers, Font::Regular);
     let last = match info.recent_event() {
-        Some(event) => event_text(event, language),
+        Some(note) => note_text(note, language),
         None if (info.now_ms / ROTATE_EVERY_MS).is_multiple_of(2) => {
             format!("{} {}", language.pick("tip", "최신"), info.tip_hex(7))
         }
         None => info.where_to_reach(language),
     };
     screen.text(0, LINE * 4, &last, Font::Regular);
-    screen.bar(58, 6, info.progress);
-}
-
-fn detail_english(screen: &mut Screen, info: &Info) {
-    let reach = info
-        .router
-        .map_or(String::from(info.own_network), |address| {
-            format!("{address}")
-        });
-    let lines = [
-        format!(
-            "#{} {} {} H/s",
-            info.height,
-            info.state_word(Language::English),
-            short(info.hash_rate)
-        ),
-        format!("tip {}", info.tip_hex(10)),
-        format!("diff {}  next {}", info.difficulty, info.blocks_to_retarget),
-        format!("work {}  mined {}", short(info.work as u64), info.mined),
-        format!("bal {} {TICKER}", coins(info.balance)),
-        format!("espnow {} wifi {} usb {}", info.espnow, info.wifi, info.usb),
-        format!(
-            "wait {}  free {}",
-            info.waiting,
-            short(info.free_memory as u64)
-        ),
-        format!("up {}  {reach}", info.uptime(Language::English)),
-    ];
-    for (index, line) in lines.iter().enumerate() {
-        screen.text(0, index as i32 * 8, line, Font::Small);
-    }
-}
-
-fn detail_korean(screen: &mut Screen, info: &Info) {
-    let reach = info
-        .router
-        .map_or(String::from(info.own_network), |address| {
-            format!("{address}")
-        });
-    let lines = [
-        format!(
-            "{}번 {} {}",
-            info.height,
-            info.state_word(Language::Korean),
-            short(info.hash_rate)
-        ),
-        format!("최신 {}", info.tip_hex(8)),
-        format!(
-            "난이도 {} 조정 {}",
-            info.difficulty, info.blocks_to_retarget
-        ),
-        format!("누적 {} 채굴 {}", short(info.work as u64), info.mined),
-        format!(
-            "대기 {} 여유 {}",
-            info.waiting,
-            short(info.free_memory as u64)
-        ),
-        format!("{} {reach}", info.uptime(Language::Korean)),
-    ];
-    for (index, line) in lines.iter().enumerate() {
-        screen.text(0, index as i32 * 10 + 2, line, Font::Regular);
-    }
+    screen.bar(58, 5, info.progress);
 }
 
 fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Language) {
@@ -392,18 +335,12 @@ fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Lang
         short(whole)
     };
     screen.text(44, 0, &amount, Font::Big);
-    screen.text(44, 21, TICKER, Font::Regular);
-    let next = info.height + 1;
-    let doing = match (info.state, language) {
-        (State::Mining, Language::English) => format!("Mining block {next}"),
-        (State::Mining, Language::Korean) => format!("{next}번 블록 채굴 중"),
-        (State::Idle, _) => language.pick("Mining is off", "채굴 꺼짐").into(),
-        (State::Offline, _) => language.pick("Offline", "연결 끊김").into(),
-        (State::MemoryFull, _) => language.pick("Memory is full", "메모리 부족").into(),
-    };
-    screen.text(0, 39, &doing, Font::Reading);
+    let end = screen.text(44, 21, info.ticker, Font::Regular);
+    screen.text_before(end + 6, 21, info.name, Font::Regular, screen::ROOM);
+    let doing = state_sentence(info.state, info.height, language);
+    screen.text(0, 38, &doing, Font::Reading);
     let around = match (info.recent_event(), info.peers(), language) {
-        (Some(event), _, _) => event_text(event, language),
+        (Some(note), _, _) => note_text(note, language),
         (None, 0, _) => language.pick("No nodes nearby", "연결된 노드 없음").into(),
         (None, 1, Language::English) => "1 node connected".into(),
         (None, peers, Language::English) => format!("{peers} nodes connected"),
@@ -420,11 +357,11 @@ pub fn draw(
     language: Language,
 ) {
     screen.clear();
-    match (view, language) {
-        (View::Basic, _) => basic(screen, info, language),
-        (View::Detail, Language::English) => detail_english(screen, info),
-        (View::Detail, Language::Korean) => detail_korean(screen, info),
-        (View::Easy, _) => easy(screen, small_coin, info, language),
+    screen.shift_for(info.now_ms);
+    match view {
+        View::Basic => basic(screen, info, language),
+        View::Detail => pages::draw(screen, info, language),
+        View::Easy => easy(screen, small_coin, info, language),
     }
     screen.flush();
 }

@@ -4,7 +4,7 @@ use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
 use crate::store::{Settings, Store};
 use crate::usb::Commands;
-use crate::views::{self, coins, Info, Language, SmallCoin, State, View};
+use crate::views::{self, coins, Info, Language, Note, SmallCoin, State, View};
 use crate::wifi::Network;
 use alloc::collections::VecDeque;
 use alloc::format;
@@ -27,6 +27,8 @@ pub const LINK_WIFI: usize = 2;
 const MINING_BATCH: u32 = 200;
 const STATUS_EVERY_MS: u64 = 10_000;
 const MAX_DROPPED: usize = 8;
+const MAX_NOTES: usize = 5;
+const BLOCKS_AVERAGED: u64 = 10;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
 const SPLASH_REDRAW_MS: u64 = 80;
 const BUTTON_DEBOUNCE_MS: u64 = 30;
@@ -86,7 +88,12 @@ pub struct Node {
     pub tip_attempts: u64,
     pub tip_seen: Hash,
     pub mined: u32,
-    pub event: Option<(u64, Event)>,
+    /// The tip's height this board last saw change, for the age of the last block.
+    pub tip_seen_ms: u64,
+    pub block_time_ms: Option<u64>,
+    pub event: Option<(u64, Note)>,
+    /// The latest things that happened, oldest first.
+    pub notes: VecDeque<Note>,
     pub screen_ms: u64,
     pub status_ms: u64,
     pub pressed_ms: Option<u64>,
@@ -132,7 +139,9 @@ impl Node {
         let tip = self.runner.engine.chain().tip();
         if tip != self.tip_seen {
             self.tip_seen = tip;
+            self.tip_seen_ms = now;
             self.tip_attempts = 0;
+            self.block_time_ms = self.recent_block_time();
         }
         if now >= self.screen_ms {
             self.draw(now);
@@ -205,6 +214,8 @@ impl Node {
                     self.say(format!("reorg {height} replaced={replaced}"));
                 }
                 Event::BlockRejected { reason } => self.say(format!("rejected block {reason:?}")),
+                Event::PaymentReceived { amount } => self.say(format!("received {amount}")),
+                Event::PaymentSent { amount } => self.say(format!("sent {amount}")),
                 Event::TxAccepted => self.say("payment accepted".into()),
                 Event::TxRejected { reason } => self.say(format!("rejected payment {reason:?}")),
                 Event::TxReturned { id } => self.say(format!("returned {}", hex(&id))),
@@ -216,8 +227,36 @@ impl Node {
                     self.dropped.push_back((id, format!("{reason:?}")));
                 }
             }
-            self.event = Some((now, event));
+            self.note(now, Note::Chain(event));
         }
+    }
+
+    /// Puts something on the panel for a moment, and on the page of events when it matters.
+    pub fn note(&mut self, now: u64, note: Note) {
+        self.event = Some((now, note));
+        if !matches!(note, Note::Chain(Event::BlockAccepted { .. })) {
+            if self.notes.len() >= MAX_NOTES {
+                self.notes.pop_front();
+            }
+            self.notes.push_back(note);
+        }
+    }
+
+    fn recent_block_time(&self) -> Option<u64> {
+        let chain = self.runner.engine.chain();
+        let newest = chain.tip_header().time_ms;
+        let mut cursor = chain.tip_header().previous;
+        let mut oldest = newest;
+        let mut blocks = 0;
+        while blocks < BLOCKS_AVERAGED {
+            let Some(block) = chain.block(&cursor) else {
+                break;
+            };
+            oldest = block.header.time_ms;
+            cursor = block.header.previous;
+            blocks += 1;
+        }
+        (blocks > 0).then(|| newest.saturating_sub(oldest) / blocks)
     }
 
     pub fn run_command(&mut self, line: &str) {
@@ -325,7 +364,8 @@ impl Node {
         let line = format!(
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
              wifi={} pool={} hashrate={} limit={} mining={} offline={} view={} lang={} screen={} \
-             free={} router={:?} address={} reorg={}/{} build={BUILD} slot={} key={} name={}",
+             free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} key={} \
+             name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -348,6 +388,7 @@ impl Node {
             format_address(&self.runner.engine.address()),
             self.last_reorg.0,
             self.last_reorg.1,
+            status.syncing_to.unwrap_or(0),
             self.control.slot,
             self.control.gate.has_key(),
             self.control.identity.name,
@@ -358,7 +399,10 @@ impl Node {
     /// Prints what was drawn and what the panel's own memory holds, row by row.
     fn print_screen(&mut self) {
         let mut same = self.screen.is_connected();
-        println!("screen connected={same}");
+        println!(
+            "screen connected={same} spilled={}",
+            self.screen.take_spilled()
+        );
         for page in 0..PAGES {
             let mut held = [0u8; WIDTH];
             let read = self.screen.read_row(page, &mut held).is_ok();
@@ -369,8 +413,12 @@ impl Node {
         println!("screen matches={same}");
     }
 
-    fn state(&self) -> State {
-        if self.memory_full {
+    fn state(&self, now: u64) -> State {
+        if let Some(percent) = self.control.update_percent(now) {
+            State::Updating(percent)
+        } else if let Some(height) = self.runner.engine.syncing_to() {
+            State::Syncing(height)
+        } else if self.memory_full {
             State::MemoryFull
         } else if self.runner.offline {
             State::Offline
@@ -378,6 +426,14 @@ impl Node {
             State::Mining
         } else {
             State::Idle
+        }
+    }
+
+    fn progress(&self, state: State, height: u64, difficulty: u64) -> f32 {
+        match state {
+            State::Updating(percent) => f32::from(percent) / 100.0,
+            State::Syncing(target) => height as f32 / target.max(1) as f32,
+            _ => self.tip_attempts as f32 / difficulty.max(1) as f32,
         }
     }
 
@@ -390,28 +446,46 @@ impl Node {
         self.screen_ms = now + self.view.redraw_ms();
         let engine = &self.runner.engine;
         let status = engine.status();
-        let interval = engine.chain().rules().retarget_interval.max(1);
+        let state = self.state(now);
+        let rules = engine.chain().rules();
+        let coin = engine.chain().config();
+        let interval = rules.retarget_interval.max(1);
+        let genesis = engine.chain().genesis_id();
+        let address = format_address(&engine.address());
         let info = Info {
             now_ms: now,
-            state: self.state(),
+            state,
+            name: &self.control.identity.name,
+            coin: &coin.name,
+            ticker: &coin.ticker,
+            genesis: &genesis,
+            address: &address,
+            build: BUILD,
             height: status.height,
             balance: status.balance,
             hash_rate: u64::from(self.rate),
+            limit: self.limit,
             difficulty: status.difficulty,
+            block_ms: rules.block_time_ms,
             tip: &status.tip,
             work: status.work,
             mined: self.mined,
             blocks_to_retarget: interval - (status.height + 1) % interval,
+            block_age_ms: now.saturating_sub(self.tip_seen_ms),
+            block_time_ms: self.block_time_ms,
             espnow: self.runner.peers_on(LINK_RADIO),
             wifi: self.runner.peers_on(LINK_WIFI),
             usb: self.runner.peers_on(LINK_USB),
+            managed: self.control.is_managed(now),
             waiting: status.pool,
             free_memory: esp_alloc::HEAP.free(),
+            log_left: self.store.log_left(),
             own_network: &self.network.own_name,
             router: self.network.router_address(),
             joining_router: self.network.joins_router,
             event: self.event,
-            progress: self.tip_attempts as f32 / status.difficulty.max(1) as f32,
+            notes: &self.notes,
+            progress: self.progress(state, status.height, status.difficulty),
         };
         views::draw(
             &mut self.screen,

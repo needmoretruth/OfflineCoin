@@ -14,6 +14,12 @@ const ADDRESS: u8 = 0x3C;
 pub const WIDTH: usize = 128;
 pub const PAGES: usize = 8;
 const HEIGHT: usize = PAGES * 8;
+/// Everything is drawn in one pixel less than the panel has, so the image can move by a pixel and
+/// no spot of a panel that runs for days stays lit all the time.
+pub const ROOM: i32 = WIDTH as i32 - 1;
+const ROOM_DOWN: i32 = HEIGHT as i32 - 1;
+const SHIFT_EVERY_MS: u64 = 3 * 60_000;
+const SHIFTS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 /// The SH1106 has 132 columns of memory and the panel starts at the third.
 const COLUMN_OFFSET: u8 = 2;
 
@@ -58,9 +64,15 @@ pub struct Screen {
     pixels: Pixels,
     /// What the panel holds, or `None` when no panel has answered yet.
     shown: Option<Pixels>,
+    shift: (i32, i32),
+    spilled: u32,
 }
 
-struct Canvas<'a>(&'a mut Pixels);
+struct Canvas<'a> {
+    pixels: &'a mut Pixels,
+    shift: (i32, i32),
+    spilled: &'a mut u32,
+}
 
 impl OriginDimensions for Canvas<'_> {
     fn size(&self) -> Size {
@@ -77,11 +89,13 @@ impl DrawTarget for Canvas<'_> {
         I: IntoIterator<Item = Pixel<Self::Color>>,
     {
         for Pixel(point, color) in pixels {
-            if let (Ok(x @ 0..WIDTH), Ok(y @ 0..HEIGHT)) =
-                (usize::try_from(point.x), usize::try_from(point.y))
+            let outside = point.x >= ROOM || point.y >= ROOM_DOWN;
+            *self.spilled += u32::from(outside && color.is_on());
+            let (x, y) = (point.x + self.shift.0, point.y + self.shift.1);
+            if let (Ok(x @ 0..WIDTH), Ok(y @ 0..HEIGHT)) = (usize::try_from(x), usize::try_from(y))
             {
                 let bit = 1 << (y % 8);
-                let byte = &mut self.0[y / 8 * WIDTH + x];
+                let byte = &mut self.pixels[y / 8 * WIDTH + x];
                 if color.is_on() {
                     *byte |= bit;
                 } else {
@@ -90,6 +104,15 @@ impl DrawTarget for Canvas<'_> {
             }
         }
         Ok(())
+    }
+}
+
+fn width_of(character: char, font: Font) -> i32 {
+    let advance = font.latin().character_size.width as i32;
+    if character.is_ascii() {
+        advance
+    } else {
+        glyph(character, font).map_or(0, |found| i32::from(found.1))
     }
 }
 
@@ -105,7 +128,27 @@ impl Screen {
             bus,
             pixels: [0; WIDTH * PAGES],
             shown: None,
+            shift: (0, 0),
+            spilled: 0,
         }
+    }
+
+    fn canvas(&mut self) -> Canvas<'_> {
+        Canvas {
+            pixels: &mut self.pixels,
+            shift: self.shift,
+            spilled: &mut self.spilled,
+        }
+    }
+
+    /// Picks where the image sits now. Moving it costs one full redraw every few minutes.
+    pub fn shift_for(&mut self, now_ms: u64) {
+        self.shift = SHIFTS[(now_ms / SHIFT_EVERY_MS) as usize % SHIFTS.len()];
+    }
+
+    /// Lit pixels drawn past the edge since the last ask, which a shift would cut off.
+    pub fn take_spilled(&mut self) -> u32 {
+        core::mem::take(&mut self.spilled)
     }
 
     pub fn is_connected(&self) -> bool {
@@ -117,7 +160,7 @@ impl Screen {
     }
 
     pub fn pixel(&mut self, x: i32, y: i32, on: bool) {
-        let _ = Canvas(&mut self.pixels).draw_iter([Pixel(
+        let _ = self.canvas().draw_iter([Pixel(
             Point::new(x, y),
             if on {
                 BinaryColor::On
@@ -129,16 +172,25 @@ impl Screen {
 
     /// Draws text from its top left corner and returns where it ended. Korean letters come from
     /// the glyph table, everything else from the Latin font.
-    pub fn text(&mut self, mut x: i32, y: i32, text: &str, font: Font) -> i32 {
+    pub fn text(&mut self, x: i32, y: i32, text: &str, font: Font) -> i32 {
+        self.text_before(x, y, text, font, i32::MAX)
+    }
+
+    /// Like [`Screen::text`], stopping at the letter that would pass `end`, for words of any
+    /// length such as a board's name.
+    pub fn text_before(&mut self, mut x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
         let style = MonoTextStyle::new(font.latin(), BinaryColor::On);
         let advance = font.latin().character_size.width as i32;
         let mut letter = [0u8; 4];
         for character in text.chars() {
+            if x + width_of(character, font) > end {
+                break;
+            }
             if character.is_ascii() {
                 let text = character.encode_utf8(&mut letter);
                 let position = Point::new(x, y);
-                let mut canvas = Canvas(&mut self.pixels);
-                let _ = Text::with_baseline(text, position, style, Baseline::Top).draw(&mut canvas);
+                let _ = Text::with_baseline(text, position, style, Baseline::Top)
+                    .draw(&mut self.canvas());
                 x += advance;
             } else {
                 x += i32::from(self.hangul(x, y, character, font));
@@ -147,19 +199,11 @@ impl Screen {
         x
     }
 
-    pub fn text_right(&mut self, y: i32, text: &str, font: Font) {
-        let advance = font.latin().character_size.width as i32;
-        let width: i32 = text
-            .chars()
-            .map(|character| {
-                if character.is_ascii() {
-                    advance
-                } else {
-                    glyph(character, font).map_or(advance, |found| i32::from(found.1))
-                }
-            })
-            .sum();
-        self.text(WIDTH as i32 - width, y, text, font);
+    /// Returns where the text starts.
+    pub fn text_right(&mut self, y: i32, text: &str, font: Font) -> i32 {
+        let width: i32 = text.chars().map(|letter| width_of(letter, font)).sum();
+        self.text(ROOM - width, y, text, font);
+        ROOM - width
     }
 
     fn hangul(&mut self, x: i32, y: i32, character: char, font: Font) -> u8 {
@@ -178,7 +222,7 @@ impl Screen {
 
     /// A thin bar across the panel, filled from the left.
     pub fn bar(&mut self, top: i32, height: i32, filled: f32) {
-        let last = WIDTH as i32 - 1;
+        let last = ROOM - 1;
         let reach = (last - 1) as f32 * filled.clamp(0.0, 1.0);
         for y in top..top + height {
             for x in 0..=last {

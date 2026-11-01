@@ -17,6 +17,8 @@ const ANNOUNCE_EVERY_MS: u64 = 2_000;
 const REFRESH_TEMPLATE_EVERY_MS: u64 = 5_000;
 const MAX_POOL: usize = 256;
 const MAX_EVENTS: usize = 32;
+/// Own payments remembered, so their change does not read as money received.
+const MAX_SENT: usize = 16;
 const PEER_TIMEOUT_MS: u64 = 10_000;
 
 pub struct Engine {
@@ -34,6 +36,7 @@ pub struct Engine {
     peers: BTreeMap<PeerId, u64>,
     refused: Refused,
     sync: Sync,
+    sent: VecDeque<Hash>,
     /// Blocks accepted since the last `take_fresh_block`, for saving.
     fresh: VecDeque<Block>,
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
@@ -57,6 +60,7 @@ impl Engine {
             peers: BTreeMap::new(),
             refused: Refused::default(),
             sync: Sync::default(),
+            sent: VecDeque::new(),
             fresh: VecDeque::new(),
             balance: Cell::new(None),
         }
@@ -235,6 +239,11 @@ impl Engine {
             .collect();
         let tx = self.wallet.pay(&self.chain, to, amount, fee, &reserved)?;
         let id = tx.id();
+        self.sent.push_back(id);
+        if self.sent.len() > MAX_SENT {
+            self.sent.pop_front();
+        }
+        self.push_event(Event::PaymentSent { amount });
         self.receive_tx(None, tx);
         Ok(id)
     }
@@ -336,8 +345,27 @@ impl Engine {
         }
     }
 
+    /// What the blocks that joined the best chain paid this wallet, leaving out mining rewards and
+    /// the change of its own payments.
+    fn received_since(&self, old_tip: &Hash) -> u64 {
+        let address = self.wallet.address();
+        let (_, joined) = self.chain.branches_from(old_tip);
+        joined
+            .iter()
+            .flat_map(|block| &block.txs)
+            .filter(|tx| !tx.is_coinbase() && !self.sent.contains(&tx.id()))
+            .flat_map(|tx| &tx.outputs)
+            .filter(|output| output.lock.as_slice() == address.as_slice())
+            .map(|output| output.value)
+            .sum()
+    }
+
     fn after_tip_change(&mut self, old_tip: Hash) {
         self.candidate = None;
+        let amount = self.received_since(&old_tip);
+        if amount > 0 {
+            self.push_event(Event::PaymentReceived { amount });
+        }
         let (left, joined) = self.chain.branches_from(&old_tip);
         if left.is_empty() {
             self.drop_spent();

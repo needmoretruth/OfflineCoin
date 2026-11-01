@@ -7,12 +7,14 @@ extern crate alloc;
 mod control;
 mod hangul;
 mod node;
+mod pages;
 mod radio;
 mod screen;
 mod store;
 mod usb;
 mod views;
 mod wifi;
+mod words;
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -102,7 +104,7 @@ async fn main(spawner: Spawner) -> ! {
         format_address(&engine.address())
     );
 
-    store.mark_running_build_good();
+    let updated = store.mark_running_build_good();
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
     let mut me = [0u8; 6];
     me.copy_from_slice(mac.as_bytes());
@@ -142,13 +144,19 @@ async fn main(spawner: Spawner) -> ! {
         window_ms: 0,
         tip_attempts: 0,
         tip_seen,
+        tip_seen_ms: 0,
+        block_time_ms: None,
         mined: 0,
         event: None,
+        notes: Default::default(),
         screen_ms: 0,
         status_ms: 0,
         pressed_ms: None,
         splash_until_ms: node::SPLASH_LENGTH_MS,
     };
+    if updated {
+        node.note(0, views::Note::Updated(control::BUILD));
+    }
     loop {
         if node.turn() {
             yield_now().await;

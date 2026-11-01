@@ -27,6 +27,14 @@ pub enum Event {
     BlockRejected {
         reason: ChainError,
     },
+    /// A payment to this node's wallet is in a block.
+    PaymentReceived {
+        amount: u64,
+    },
+    /// This node's wallet sent a payment.
+    PaymentSent {
+        amount: u64,
+    },
     TxAccepted,
     TxRejected {
         reason: ChainError,

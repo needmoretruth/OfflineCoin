@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regenerates src/hangul.rs: the Galmuri glyphs for every Korean letter the firmware uses.
+"""Regenerates src/hangul.rs: the Galmuri glyphs for every Korean letter the firmware uses. The
+small font also has the 2,350 everyday syllables of KS X 1001, for names people type.
 
     tools/make_hangul.py path/to/Galmuri9.bdf path/to/Galmuri11.bdf
 """
@@ -26,7 +27,12 @@ def path_name(path):
 LEAD = {"Galmuri9": 0, "Galmuri11": 3}
 
 
-def glyph_table(path):
+def everyday_syllables():
+    pairs = ((first, second) for first in range(0xB0, 0xC9) for second in range(0xA1, 0xFF))
+    return {bytes(pair).decode("euc-kr") for pair in pairs}
+
+
+def glyph_table(path, wanted):
     text = pathlib.Path(path).read_text(encoding="latin-1")
     ascent = int(re.search(r"FONT_ASCENT (\d+)", text).group(1))
     glyphs = []
@@ -56,9 +62,10 @@ lines = [
     f"pub const ROWS: usize = {ROWS};",
     "pub type Glyph = (char, u8, [u16; ROWS]);",
 ]
-for name, path in (("SMALL", sys.argv[1]), ("LARGE", sys.argv[2])):
+tables = (("SMALL", sys.argv[1], wanted | everyday_syllables()), ("LARGE", sys.argv[2], wanted))
+for name, path, letters in tables:
     lines += ["", f"pub const {name}: &[Glyph] = &["]
-    for character, advance, rows in glyph_table(path):
+    for character, advance, rows in glyph_table(path, letters):
         body = ", ".join(f"0x{row:04x}" for row in rows)
         lines.append(f"    ('{character}', {advance}, [{body}]),")
     lines.append("];")
