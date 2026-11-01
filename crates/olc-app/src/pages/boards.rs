@@ -10,11 +10,11 @@ use crate::ui::widgets::{
 };
 use crate::ui::Icon;
 use egui::Ui;
+use olc_control::defaults::BOARD_SCREEN_RATE;
 use olc_control::BoardId;
 
 const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
 /// Used only until a board says its own number.
-const SMOOTH_FALLBACK: u64 = 10;
 const BRIGHT_FALLBACK: u64 = 64;
 const BRIGHT_MAX: u64 = 255;
 const HALF_CAP: u64 = 7_500;
@@ -56,13 +56,24 @@ fn connection(cx: &Cx, board: &BoardView) -> String {
     }
 }
 
+/// A job is a word from the manager, or how far an update got.
+fn job_text<'a>(cx: &Cx, job: &'a str) -> &'a str {
+    match job {
+        "preparing" => cx.say("boards.job_preparing"),
+        "restarting" => cx.say("boards.job_restarting"),
+        "installing" => cx.say("boards.job_installing"),
+        "update_failed" => cx.say("boards.job_failed"),
+        progress => progress,
+    }
+}
+
 impl Boards {
     fn select(&mut self, cx: &Cx, board: &BoardView) {
         let beacon = &board.seen.beacon;
         self.open = Some(board.seen.id);
         self.cap = u64::from(beacon.limit);
         self.smooth = match beacon.smooth {
-            0 => SMOOTH_FALLBACK,
+            0 => u64::from(BOARD_SCREEN_RATE),
             fps => u64::from(fps),
         };
         self.bright = None;
@@ -82,7 +93,10 @@ impl Boards {
             1 => cell(ui, connection(cx, board)),
             2 => cell(ui, format::number(beacon.height.into())),
             3 => cell(ui, format::rate(beacon.hashrate.into())),
-            4 => cell(ui, format::rate(beacon.limit.into())),
+            4 => match beacon.limit {
+                0 => cell(ui, cx.say("boards.no_cap")),
+                limit => cell(ui, format::rate(limit.into())),
+            },
             5 => cell(ui, beacon.peers.to_string()),
             6 => cell(ui, beacon.build.clone()),
             _ => {
@@ -98,7 +112,7 @@ impl Boards {
             }
         });
         if let Some(job) = &board.job {
-            meta(ui, job, t);
+            meta(ui, job_text(cx, job), t);
         }
     }
 
@@ -193,6 +207,14 @@ impl Boards {
                 Self::line(cx, id, format!("bright {level}"));
             }
         });
+        labelled(ui, cx.say("boards.wifi"), |ui| {
+            for (key, line) in [("boards.wifi_on", "network on"), ("boards.wifi_off", "network off")] {
+                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    Self::line(cx, id, line.into());
+                }
+            }
+            meta(ui, cx.say("boards.wifi_note"), t);
+        });
         labelled(ui, cx.say("boards.name"), |ui| {
             field(ui, &mut self.name, cx.say("boards.name"), 200.0);
             if button(ui, t, cx.say("boards.rename"), Kind::Plain).clicked() {
@@ -251,7 +273,7 @@ impl Boards {
                     ui.label(port);
                     match job {
                         Some(job) => {
-                            meta(ui, job, t);
+                            meta(ui, job_text(cx, job), t);
                         }
                         None => {
                             let ready = !self.new_name.trim().is_empty();

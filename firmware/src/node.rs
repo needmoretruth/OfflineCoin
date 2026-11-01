@@ -16,11 +16,10 @@ use esp_hal::gpio::Input;
 use esp_hal::time::Instant;
 use esp_println::println;
 use olc_control::bootlog;
-use olc_core::coin::COIN;
 use olc_core::{CoinConfig, Hash};
 use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Event, Runner};
-use olc_wallet::{format_address, parse_address};
+use olc_wallet::format_address;
 
 /// The order links are added in, which is how peers are counted per link.
 pub const LINK_RADIO: usize = 0;
