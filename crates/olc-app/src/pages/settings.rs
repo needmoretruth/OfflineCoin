@@ -167,6 +167,9 @@ impl SettingsPage {
             if let Some(fits) = node.fits {
                 meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
             }
+            if node.recent.is_some() {
+                meta(ui, cx.say("storage.headers"), t);
+            }
         }
         let holding = match (&node.light, node.recent) {
             (Some(_), _) => Holding::Headers,

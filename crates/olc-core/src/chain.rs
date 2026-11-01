@@ -12,6 +12,7 @@ use crate::orphans::Orphans;
 use crate::headers::difficulty_after;
 use crate::plugin::Plugins;
 use crate::rules;
+use crate::shelf::Shelf;
 use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
 use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
@@ -87,6 +88,8 @@ pub struct Chain {
     pub(crate) log: Log,
     /// The two places for the saved state.
     pub(crate) places: [Box<dyn Medium>; 2],
+    /// Where headers stay after their blocks go, on a machine with room for that.
+    pub(crate) shelf: Option<Box<dyn Shelf>>,
     pub(crate) recent: Option<u64>,
     /// The peer whose unspent set this chain started from, if any.
     pub(crate) assumed_from: Option<u32>,
@@ -224,7 +227,10 @@ impl Chain {
         let next = self.marks.partition_point(|mark| mark.height < height);
         match self.marks.get(next) {
             Some(mark) if mark.height == height => Some(mark.id),
-            _ => self.best_entry_at(height).map(|entry| entry.header.id()),
+            _ => self
+                .best_entry_at(height)
+                .map(|entry| entry.header.id())
+                .or_else(|| self.shelved(height).map(|header| header.id())),
         }
     }
 

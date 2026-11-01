@@ -1,5 +1,6 @@
 //! The socket for storage. A board plugs in its flash and a computer its files. Everything above
 //! this trait is the same code on both, so what a test proves on a computer holds on a board.
+use crate::shelf::Shelf;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -96,6 +97,8 @@ pub struct Keep {
     pub log: Box<dyn Medium>,
     /// Two places for the saved state, so a cut while saving leaves the other one whole.
     pub states: [Box<dyn Medium>; 2],
+    /// Where headers stay after their blocks go, if this machine has room for that.
+    pub shelf: Option<Box<dyn Shelf>>,
     /// How many recent blocks to hold. `None` holds all that fit.
     pub recent: Option<u64>,
 }
@@ -108,6 +111,7 @@ impl Keep {
                 Box::new(MemoryMedium::growing()),
                 Box::new(MemoryMedium::growing()),
             ],
+            shelf: None,
             recent: None,
         }
     }

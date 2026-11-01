@@ -65,7 +65,9 @@ fn budget(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     let spec = &view.spec;
     let status = view.status.as_ref();
     let measured = view.measured;
-    let columns = Columns::new(ui, &[1.2, 1.2, 1.2, 1.2]);
+    // A node holding headers never mines, so it has no hash column at all.
+    let first = usize::from(spec.holding == Holding::Headers);
+    let columns = Columns::new(ui, &[1.2, 1.2, 1.2, 1.2][first..]);
     let cap = match spec.hash_cap {
         0 => cx.say("mining.no_cap").to_string(),
         cap => format::rate(cap),
@@ -96,8 +98,9 @@ fn budget(ui: &mut Ui, cx: &Cx, view: &LocalView) {
         measured.map_or_else(unknown, |used| format::mebibytes(used.disk_bytes)),
     ];
     let keys = ["local.hash", "local.memory", "local.cpu", "local.disk"];
-    columns.row(ui, |ui, index| header_cell(ui, t, cx.say(keys[index])));
+    columns.row(ui, |ui, index| header_cell(ui, t, cx.say(keys[first + index])));
     columns.row(ui, |ui, index| {
+        let index = first + index;
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
             ui.label(strong_text(used[index].clone()));
@@ -246,7 +249,9 @@ impl Local {
                         field(ui, &mut form.name, "", width);
                     }
                     1 => {
-                        number_field(ui, &mut form.hash_cap, width);
+                        ui.add_enabled_ui(form.holding != Holding::Headers, |ui| {
+                            number_field(ui, &mut form.hash_cap, width);
+                        });
                     }
                     2 => {
                         number_field(ui, &mut form.memory_mib, width);
