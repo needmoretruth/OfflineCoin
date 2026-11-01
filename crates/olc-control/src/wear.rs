@@ -93,7 +93,7 @@ impl Ring {
     /// as this one is full, so the newest record can always be told.
     pub fn written(&self, flash: &mut impl Flash, at: u32) {
         let end = at + self.slot;
-        if self.sectors > 1 && end % SECTOR == 0 {
+        if self.sectors > 1 && end.is_multiple_of(SECTOR) {
             let last = self.start + self.sectors * SECTOR;
             flash.erase(if end == last { self.start } else { end });
         }
