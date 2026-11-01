@@ -6,7 +6,7 @@ use super::coins::{
 };
 use super::board_action::BoardAction;
 use olc_store::coin_file::new_coin;
-use super::board_lines::{read_bright, run_action, Brights};
+use super::board_lines::Brights;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
 use super::host::{full_rate, Host, PayError, Plan};
@@ -22,9 +22,8 @@ use crate::fleet::{BoardRow, CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
-use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
-use olc_node::{Card, Rank};
+use olc_node::Card;
 use olc_wallet::WalletError;
 use olc_store::NodeSettings;
 use std::path::PathBuf;
@@ -92,6 +91,7 @@ fn bind_host(settings: &Settings) -> String {
 pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
 mod listen;
+mod orders;
 
 struct Service {
     paths: Paths,
@@ -482,47 +482,6 @@ impl Service {
             Err(error) => ("notice.pay_failed", format!("{error:?}"), false),
         };
         self.say(result.0, result.1, result.2);
-    }
-
-    fn add_address(&mut self, address: String) {
-        let address = address.trim().to_string();
-        if address.is_empty() {
-            return;
-        }
-        let full = match address.rsplit_once(':') {
-            Some((_, port)) if port.parse::<u16>().is_ok() => address,
-            _ => format!("{address}:{}", crate::settings::NODE_PORT),
-        };
-        if !self.settings.added.contains(&full) {
-            self.settings.added.push(full.clone());
-        }
-        self.found.added(&full);
-        self.save();
-        self.plan_scan();
-        self.scanner.look_now();
-    }
-
-    fn read_bright(&mut self, id: BoardId) {
-        if let Some(fleet) = self.fleet.clone() {
-            read_bright(fleet, self.brights.clone(), id);
-        }
-    }
-
-    /// This node takes the order at once, and so does every board in touch.
-    fn set_links(&mut self, rank: Rank) {
-        let (key, detail, good) = self.host.obey(Personal::SetLinks(rank));
-        self.say(key, detail, good);
-        let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
-        for row in rows.unwrap_or_default().iter().filter(|row| row.seen.online) {
-            self.board_action(row.seen.id, BoardAction::Links(rank.text()));
-        }
-    }
-
-    fn board_action(&mut self, id: BoardId, action: BoardAction) {
-        self.returning.note_line(id, &action.line().unwrap_or_default());
-        if let Some(fleet) = self.fleet.clone() {
-            run_action(fleet, (self.late.clone(), self.brights.clone()), id, action);
-        }
     }
 
     fn publish(&mut self) {
