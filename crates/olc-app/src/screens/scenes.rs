@@ -252,7 +252,8 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
     let mut runner = host.runner.lock().unwrap();
     runner.engine.chain_mut().save_now();
     runner.engine.chain_mut().set_recent(Some(FEWEST_RECENT));
-    assert!(runner.engine.chain().held().oldest > 1);
+    let (oldest, height) = (runner.engine.chain().held().oldest, runner.engine.chain().height());
+    assert!(oldest > 1, "still holds block {oldest} at height {height}");
     drop(runner);
     host
 }
