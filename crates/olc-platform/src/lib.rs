@@ -14,6 +14,13 @@ use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
+/// Set to 1, nothing here touches a USB port. Anything cargo starts runs this way.
+pub const NO_USB: &str = "OLC_NO_USB";
+
+pub fn usb_is_off() -> bool {
+    std::env::var(NO_USB).is_ok_and(|value| value == "1")
+}
+
 /// A USB serial device, as the system names it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UsbPort {

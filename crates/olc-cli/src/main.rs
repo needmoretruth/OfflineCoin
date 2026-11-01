@@ -81,7 +81,7 @@ fn main() {
     let args = Args::parse(std::env::args().skip(1));
     let result = match args.command() {
         Some("node") => node::run(&args),
-        Some("app") | None => node::run_app(&args),
+        Some("app") => node::run_app(&args),
         Some("start") => run_node(std::env::args().skip(2).collect()),
         Some("devnet") => devnet::run(&args),
         Some("logo") => logo::run(&args),

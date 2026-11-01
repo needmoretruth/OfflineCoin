@@ -60,33 +60,26 @@ impl Chain {
         Served::Blocks(self.blocks_from(next, most))
     }
 
-    /// The same for a peer that named its blocks without heights, as older builds do. Blocks below
-    /// the window have to be looked for in the log, newest first.
+    /// The same for a peer that named its blocks without heights, as older builds do. Only a walk
+    /// down the held headers can place those, and genesis says nothing about how far it got.
     pub fn blocks_after_ids(&self, ids: &[Hash], most: usize) -> Served {
-        let on_best = |id: &Hash| {
-            let height = self.height_of_block(id)?;
-            (self.id_at(height).as_ref() == Some(id)).then_some((height, *id))
-        };
-        let shared = ids.iter().find_map(on_best).or_else(|| self.newest_in_log(ids));
-        self.blocks_after(&[shared.unwrap_or((0, self.genesis))], most)
+        let shared = self.newest_named(ids).unwrap_or((0, self.genesis));
+        self.blocks_after(&[shared], most)
     }
 
-    fn newest_in_log(&self, ids: &[Hash]) -> Option<(u64, Hash)> {
-        let oldest = self.oldest_held();
-        let mut first = self.height() - self.height() % MARK_EVERY;
-        loop {
-            // Genesis has no body in the log, and its id is the fallback anyway.
-            let start = first.max(oldest).max(1);
-            let blocks = self.blocks_from(start, MARK_EVERY as usize);
-            let found = blocks.iter().enumerate().rev();
-            let mut named = found.map(|(index, block)| (index, block.header.id()));
-            if let Some((index, id)) = named.find(|(_, id)| ids.contains(id)) {
-                return Some((start + index as u64, id));
-            }
-            if first <= oldest {
-                return None;
-            }
-            first -= MARK_EVERY;
+    fn newest_named(&self, ids: &[Hash]) -> Option<(u64, Hash)> {
+        if ids.iter().all(|id| *id == self.genesis) {
+            return None;
         }
+        let oldest = self.oldest_held().max(1);
+        let mut cursor = self.tip_entry();
+        while cursor.height >= oldest {
+            let id = cursor.header.id();
+            if ids.contains(&id) {
+                return Some((cursor.height, id));
+            }
+            cursor = self.parent_of(&cursor)?;
+        }
+        None
     }
 }

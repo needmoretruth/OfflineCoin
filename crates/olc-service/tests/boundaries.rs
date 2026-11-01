@@ -1,5 +1,8 @@
 //! The shape of the workspace, checked: the core knows no window, and only the platform crate's
 //! per-system files know which system this is.
+use olc_board::board_ports;
+use olc_link_serial::open_port;
+use olc_platform::{usb_is_off, NO_USB};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -149,4 +152,14 @@ fn the_terminal_program_pulls_in_nothing_that_draws() {
     for drawing in DRAWING_PACKAGES {
         assert!(!seen.contains(drawing), "{TERMINAL_CRATE} pulls in {drawing}");
     }
+}
+
+/// A test that found the boards on this desk would take them from whoever is using them.
+#[test]
+fn no_test_can_reach_a_real_port() {
+    assert_eq!(std::env::var(NO_USB).as_deref(), Ok("1"), "cargo must set {NO_USB}");
+    assert!(usb_is_off());
+    assert!(board_ports().is_empty());
+    let refused = open_port("/dev/null").map(|_| ()).unwrap_err();
+    assert_eq!(refused.to_string(), "USB is switched off here");
 }
