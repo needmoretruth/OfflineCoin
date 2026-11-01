@@ -15,6 +15,11 @@ const REST_FRAME: usize = FRAMES / 16;
 
 /// Draws one view of the coin. White with coverage as alpha, tinted when painted.
 pub fn render(angle: f32, pixels: usize) -> ColorImage {
+    render_from(angle, pixels, 0.0)
+}
+
+/// `floor` lifts the darkest part of the coin, so it holds up on a light background.
+pub fn render_from(angle: f32, pixels: usize, floor: f32) -> ColorImage {
     let spin = Spin::new(angle);
     let mut data = Vec::with_capacity(pixels * pixels);
     let total = (SAMPLES * SAMPLES) as f32;
@@ -35,7 +40,8 @@ pub fn render(angle: f32, pixels: usize) -> ColorImage {
             }
             let alpha = covered / total;
             let shade = if covered > 0.0 { light / covered } else { 0.0 };
-            let level = (shade.clamp(0.0, 1.0) * 255.0) as u8;
+            let lifted = floor + (1.0 - floor) * shade.clamp(0.0, 1.0);
+            let level = (lifted * 255.0) as u8;
             data.push(Color32::from_rgba_unmultiplied(
                 level,
                 level,
@@ -54,6 +60,7 @@ pub struct Logo {
     seen_tip: u64,
     /// Turns still owed for a new block.
     owed: f64,
+    floor: f32,
 }
 
 impl Default for Logo {
@@ -64,6 +71,7 @@ impl Default for Logo {
             last_time: 0.0,
             seen_tip: 0,
             owed: 0.0,
+            floor: 0.0,
         }
     }
 }
@@ -76,10 +84,11 @@ pub struct LogoState {
 
 impl Logo {
     fn frame(&mut self, ctx: &Context, index: usize) -> &TextureHandle {
+        let floor = self.floor;
         self.frames[index].get_or_insert_with(|| {
             ctx.load_texture(
                 format!("coin-{index}"),
-                render(frame_angle(index), PIXELS),
+                render_from(frame_angle(index), PIXELS, floor),
                 TextureOptions::LINEAR,
             )
         })
@@ -115,7 +124,12 @@ impl Logo {
         ctx.request_repaint_after(FRAME_TIME);
     }
 
-    pub fn show(&mut self, ui: &mut Ui, size: f32, tint: Color32, state: &LogoState) {
+    pub fn show(&mut self, ui: &mut Ui, size: f32, look: (Color32, f32), state: &LogoState) {
+        let (tint, floor) = look;
+        if floor != self.floor {
+            self.floor = floor;
+            self.frames.fill(None);
+        }
         let ctx = ui.ctx().clone();
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
         self.advance(&ctx, state, focused);
@@ -124,5 +138,29 @@ impl Logo {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
         let image = Image::new(&texture).tint(tint);
         image.paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::tokens::{Tokens, DARK, LIGHT};
+
+    /// The brightest and darkest the coin's face can reach on screen, out of 255.
+    fn levels(tokens: &Tokens) -> (u32, u32) {
+        let image = render_from(frame_angle(REST_FRAME), PIXELS, tokens.logo_floor);
+        let tint = u32::from(tokens.logo.r());
+        let shown = image.pixels.iter().filter(|pixel| pixel.a() == 255);
+        let seen: Vec<u32> = shown.map(|pixel| u32::from(pixel.r()) * tint / 255).collect();
+        let lowest = seen.iter().min().copied().unwrap_or(0);
+        (lowest, seen.iter().max().copied().unwrap_or(0))
+    }
+
+    #[test]
+    fn the_coin_stays_a_mid_tone_on_a_light_background() {
+        let (lowest, highest) = levels(&LIGHT);
+        assert!(lowest >= 70, "{lowest}");
+        assert!(highest <= 190, "{highest}");
+        assert!(levels(&DARK).0 < lowest);
     }
 }
