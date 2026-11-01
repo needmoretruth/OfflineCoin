@@ -426,6 +426,9 @@ impl Node {
                 self.rename(line["name".len()..].trim());
                 self.say("named".into());
             }
+            (Some("network"), Some(state @ ("on" | "off")), _) => {
+                self.restart_with(|settings| settings.own_network = state.into());
+            }
             (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
                 settings.ssid.clear();
                 settings.password.clear();
@@ -440,7 +443,7 @@ impl Node {
             }
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
-                 smooth FPS, bright 0-255, power DBM, ignore MAC-END|none, \
+                 smooth FPS, bright 0-255, network on|off, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY"

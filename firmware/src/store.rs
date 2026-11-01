@@ -65,6 +65,8 @@ pub struct Settings {
     pub power: String,
     /// The panel's contrast. Empty means the owner never chose.
     pub bright: String,
+    /// `off` keeps the board's own network down. Empty means up.
+    pub own_network: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -192,12 +194,13 @@ impl Store {
             smooth: lines.next().unwrap_or_default(),
             power: lines.next().unwrap_or_default(),
             bright: lines.next().unwrap_or_default(),
+            own_network: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -208,6 +211,7 @@ impl Store {
             settings.smooth,
             settings.power,
             settings.bright,
+            settings.own_network,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {
