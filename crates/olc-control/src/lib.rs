@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod beacon;
 pub mod bootlog;
+pub mod defaults;
 pub mod gate;
 pub mod packet;
 pub mod router;
@@ -13,6 +14,6 @@ pub mod wear;
 
 pub use beacon::{sign_beacon, SignedBeacon};
 pub use gate::{allowed_remotely, sign, Gate, REMOTE_WORDS};
-pub use packet::{Action, Beacon, BoardId, Body, Order, Packet, Read, Refusal, Signed};
+pub use packet::{Action, Beacon, BoardId, Body, OldBeacon, Order, Packet, Read, Refusal, Signed};
 pub use router::{Forward, Router, Verdict};
 pub use update::{ImageSlot, Update, CHUNK, PAGE};

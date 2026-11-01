@@ -114,6 +114,8 @@ fn board_json(row: &BoardRow) -> Value {
         "balance": beacon.balance as f64 / COIN as f64,
         "hashrate": beacon.hashrate,
         "limit": beacon.limit,
+        "default_cap": olc_control::defaults::BOARD_CAP,
+        "old_format": seen.old_format,
         "peers": beacon.peers,
         "pool": beacon.pool,
         "mining": beacon.mining,
