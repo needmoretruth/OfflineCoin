@@ -107,6 +107,10 @@ impl DrawTarget for Canvas<'_> {
     }
 }
 
+pub fn width(text: &str, font: Font) -> i32 {
+    text.chars().map(|letter| width_of(letter, font)).sum()
+}
+
 fn width_of(character: char, font: Font) -> i32 {
     let advance = font.latin().character_size.width as i32;
     if character.is_ascii() {
@@ -199,9 +203,17 @@ impl Screen {
         x
     }
 
+    /// The text in the first font it fits in, keeping the last when none does.
+    pub fn text_fitting(&mut self, y: i32, text: &str, fonts: &[Font]) {
+        let room = |font: &&Font| width(text, **font) <= ROOM;
+        if let Some(font) = fonts.iter().find(room).or(fonts.last()) {
+            self.text(0, y, text, *font);
+        }
+    }
+
     /// Returns where the text starts.
     pub fn text_right(&mut self, y: i32, text: &str, font: Font) -> i32 {
-        let width: i32 = text.chars().map(|letter| width_of(letter, font)).sum();
+        let width = width(text, font);
         self.text(ROOM - width, y, text, font);
         ROOM - width
     }

@@ -1,6 +1,6 @@
 //! The detail view: pages that turn by themselves. English fits seven lines in the small font,
 //! Korean six in the regular one, because its letters are taller.
-use crate::screen::{Font, Screen};
+use crate::screen::{width, Font, Screen, ROOM};
 use crate::views::{coins, short, Info, Language, State};
 use crate::words::{note_text, seconds, state_word, uptime};
 use alloc::format;
@@ -11,16 +11,21 @@ use alloc::vec::Vec;
 const PAGE_EVERY_MS: u64 = 5_000;
 const PAGES: u64 = 4;
 
-fn head(info: &Info, language: Language) -> String {
+fn head(info: &Info, language: Language, font: Font) -> String {
     let word = state_word(info.state, language);
     let height = match language {
         Language::English => format!("#{}", info.height),
         Language::Korean => format!("{}번", info.height),
     };
-    match info.state {
-        State::Updating(_) | State::Syncing(_) => format!("{height} {word}"),
-        _ => format!("{height} {word} {}", info.rate_text()),
+    if matches!(info.state, State::Updating(_) | State::Syncing(_)) {
+        return format!("{height} {word}");
     }
+    let rate = info.rate_text();
+    [rate.as_str(), rate.trim_end_matches(" H/s")]
+        .iter()
+        .map(|rate| format!("{height} {word} {rate}"))
+        .find(|line| width(line, font) <= ROOM)
+        .unwrap_or_else(|| format!("{height} {word}"))
 }
 
 fn chain_page(info: &Info, language: Language) -> Vec<String> {
@@ -56,7 +61,11 @@ fn network_page(info: &Info, language: Language) -> Vec<String> {
             format!("name {}", info.name),
             format!("espnow {espnow} wifi {wifi} usb {usb}"),
             reach,
-            format!("radio control {}", if info.managed { "on" } else { "off" }),
+            String::from(if info.managed {
+                "managed by radio"
+            } else {
+                "not managed by radio"
+            }),
             format!("share {share}%"),
         ],
         Language::Korean => vec![
@@ -65,8 +74,12 @@ fn network_page(info: &Info, language: Language) -> Vec<String> {
             format!("무선 {espnow} 와이파이 {wifi} 유선 {usb}"),
             reach,
             format!(
-                "원격 {} 점유 {share}%",
-                if info.managed { "켜짐" } else { "꺼짐" }
+                "{} 점유 {share}%",
+                if info.managed {
+                    "원격 관리"
+                } else {
+                    "관리 없음"
+                }
             ),
         ],
     }
@@ -121,7 +134,7 @@ pub fn draw(screen: &mut Screen, info: &Info, language: Language) {
         Language::English => (Font::Small, 9, 0),
         Language::Korean => (Font::Regular, 10, 2),
     };
-    screen.text(0, top, &head(info, language), font);
+    screen.text(0, top, &head(info, language, font), font);
     for (index, line) in body.iter().enumerate() {
         screen.text(0, top + (index as i32 + 1) * step, line, font);
     }

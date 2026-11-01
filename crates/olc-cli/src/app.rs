@@ -92,7 +92,6 @@ impl App {
         }))
     }
 
-    /// Moves control packets between the links and the fleet.
     pub fn page_was_here(&self) {
         if let Ok(mut seen) = self.page_seen.lock() {
             *seen = Some(Instant::now());
@@ -105,6 +104,7 @@ impl App {
         seen.is_some_and(|seen| seen.elapsed() >= wait)
     }
 
+    /// Moves control packets between the links and the fleet.
     pub fn pump(&self, runner: &mut Runner) {
         let Ok(mut fleet) = self.fleet.lock() else {
             return;

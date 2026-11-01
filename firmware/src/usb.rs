@@ -88,15 +88,19 @@ unsafe impl Send for UsbLink {}
 
 impl UsbLink {
     pub fn new(mut rx: UsbSerialJtagRx<'static, Blocking>) -> (Self, Commands) {
-        rx.listen_rx_packet_recv_interrupt();
-        let receiver = Receiver {
-            rx,
-            bytes: [0; WAITING_BYTES],
-            start: 0,
-            size: 0,
-            held_back: false,
-        };
-        critical_section::with(|cs| RECEIVER.replace(cs, Some(receiver)));
+        // A computer may have been writing all through the start. The interrupt must not fire
+        // before the receiver is in place: nothing would clear it and the chip would stay in it.
+        critical_section::with(|cs| {
+            rx.listen_rx_packet_recv_interrupt();
+            let receiver = Receiver {
+                rx,
+                bytes: [0; WAITING_BYTES],
+                start: 0,
+                size: 0,
+                held_back: false,
+            };
+            RECEIVER.replace(cs, Some(receiver));
+        });
         let commands = Commands::default();
         let link = Self {
             line: Vec::new(),

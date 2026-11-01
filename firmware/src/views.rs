@@ -17,6 +17,7 @@ const LAST_ROW: i32 = 39 + LINE;
 const ROTATE_EVERY_MS: u64 = 3_000;
 const EVENT_SHOWN_MS: u64 = 4_000;
 const TURN_MS: u64 = 2_400;
+const SMALL_COIN_TURN_MS: u64 = 6_000;
 const SPINNER: [&str; 4] = ["-", "\\", "|", "/"];
 const SMALL_COIN_RADIUS: i32 = 19;
 const SMALL_COIN_FRAMES: usize = 32;
@@ -55,10 +56,11 @@ impl View {
 
     /// The coin needs more frames than numbers do.
     pub fn redraw_ms(self) -> u64 {
+        // Each redraw takes about 10 ms from mining, so these keep the screen under 3% of it.
         if self == View::Easy {
-            160
+            500
         } else {
-            300
+            1_000
         }
     }
 }
@@ -258,7 +260,8 @@ impl SmallCoin {
     }
 
     fn draw(&self, screen: &mut Screen, now_ms: u64) {
-        let frame = (now_ms % TURN_MS) as usize * SMALL_COIN_FRAMES / TURN_MS as usize;
+        let turn = now_ms % SMALL_COIN_TURN_MS;
+        let frame = turn as usize * SMALL_COIN_FRAMES / SMALL_COIN_TURN_MS as usize;
         for (y, bits) in self.0[frame].iter().enumerate() {
             for x in 0..SMALL_COIN_RADIUS * 2 {
                 if bits >> x & 1 == 1 {
@@ -346,7 +349,11 @@ fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Lang
         (None, peers, Language::English) => format!("{peers} nodes connected"),
         (None, peers, Language::Korean) => format!("노드 {peers}대 연결됨"),
     };
-    screen.text(0, LAST_ROW, &around, Font::Reading);
+    screen.text_fitting(
+        LAST_ROW,
+        &around,
+        &[Font::Reading, Font::Regular, Font::Small],
+    );
 }
 
 pub fn draw(

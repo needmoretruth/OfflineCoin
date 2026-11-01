@@ -226,7 +226,10 @@ impl Node {
                 self.control.listener = Some((from, now + LISTEN_MS));
                 match action {
                     Action::Line(line) => {
-                        self.note(now, Note::Order(order_word(&line)));
+                        let word = order_word(&line);
+                        if !matches!(word, "status" | "tx" | "pool") {
+                            self.note(now, Note::Order(word));
+                        }
                         self.run_command(&line);
                         self.say(format!("done {}", signed.order.counter));
                         // The page shows the change at once instead of at the next beacon.

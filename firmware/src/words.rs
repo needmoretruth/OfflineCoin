@@ -44,7 +44,7 @@ pub fn state_sentence(state: State, height: u64, language: Language) -> String {
 
 fn reason_text(reason: ChainError, language: Language) -> &'static str {
     match reason {
-        ChainError::BadLock => language.pick("bad signature", "서명 오류"),
+        ChainError::BadLock => language.pick("wrong key", "서명 오류"),
         ChainError::MissingInput => language.pick("coins spent", "이미 쓴 코인"),
         ChainError::Overspend => language.pick("too much", "금액 초과"),
         ChainError::BadSeal | ChainError::BadDifficulty => language.pick("bad work", "작업 오류"),
@@ -73,22 +73,38 @@ fn event_text(event: Event, language: Language) -> String {
             format!("블록 거부 {}", reason_text(reason, language))
         }
         Event::BlockRejected { reason } => {
-            format!("block refused: {}", reason_text(reason, language))
+            format!("block: {}", reason_text(reason, language))
         }
         Event::TxRejected { reason } if korean => {
             format!("송금 거부 {}", reason_text(reason, language))
         }
         Event::TxRejected { reason } => {
-            format!("payment refused: {}", reason_text(reason, language))
+            format!("payment: {}", reason_text(reason, language))
         }
         Event::TxDropped { .. } => language.pick("payment dropped", "송금 취소됨").into(),
+    }
+}
+
+fn order_text(word: &'static str, language: Language) -> &'static str {
+    match word {
+        "limit" => language.pick(word, "상한"),
+        "mine" => language.pick(word, "채굴"),
+        "offline" => language.pick(word, "연결"),
+        "pay" => language.pick(word, "송금"),
+        "view" | "logo" => language.pick(word, "화면"),
+        "lang" => language.pick(word, "언어"),
+        "name" => language.pick(word, "이름"),
+        _ => word,
     }
 }
 
 pub fn note_text(note: Note, language: Language) -> String {
     match note {
         Note::Chain(event) => event_text(event, language),
-        Note::Order(word) => format!("{} {word}", language.pick("radio order", "원격 명령")),
+        Note::Order(word) => {
+            let word = order_text(word, language);
+            format!("{} {word}", language.pick("radio order", "원격 명령"))
+        }
         Note::Updated(build) => format!("{} {build}", language.pick("updated to", "업데이트 완료")),
     }
 }
