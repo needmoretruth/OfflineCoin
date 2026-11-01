@@ -54,8 +54,8 @@ impl NodeSettings {
 /// The headers a light node saved. Each one is checked again as it is taken back.
 pub fn load_headers(directory: &Path) -> Vec<BlockHeader> {
     let bytes = fs::read(directory.join(HEADERS)).unwrap_or_default();
-    let headers = bytes.chunks_exact(BlockHeader::ENCODED_LEN);
-    headers.map_while(BlockHeader::decode).collect()
+    let (headers, _) = bytes.as_chunks::<{ BlockHeader::ENCODED_LEN }>();
+    headers.iter().map_while(|header| BlockHeader::decode(header)).collect()
 }
 
 /// Replaces the saved headers whole, so a cut while saving leaves the last ones.
