@@ -30,6 +30,7 @@ use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
+use esp_hal::peripherals::LPWR;
 use esp_hal::rng::Rng;
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use esp_hal::time::{Duration, Instant, Rate};
@@ -79,6 +80,8 @@ fn chosen_limit(settings: &store::Settings) -> Option<u32> {
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    // What the steps before this program left behind. `init` turns the watchdog off.
+    let boot_watchdog = LPWR::regs().wdtconfig0().read().wdt_en().bit_is_set();
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
     // A board with no cable has nobody to press its reset button. It restarts itself if it stops
@@ -213,6 +216,7 @@ async fn main(spawner: Spawner) -> ! {
         },
         coins,
         bright,
+        boot_watchdog,
         busy_us: 0,
         busy_percent: 0,
         smooth: settings.smooth.parse().unwrap_or(node::DEFAULT_SMOOTH),

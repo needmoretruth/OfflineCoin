@@ -5,6 +5,7 @@ use crate::radio;
 use crate::views::coins;
 use alloc::format;
 use core::sync::atomic::Ordering;
+use esp_hal::peripherals::GPIO;
 use olc_control::bootlog;
 use olc_core::Hash;
 use olc_wallet::format_address;
@@ -38,7 +39,7 @@ impl Node {
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
-             power={} rssi={} bright={} busy={} key={} name={}",
+             power={} rssi={} bright={} busy={} boot_wdt={} strap={:#x} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -77,6 +78,8 @@ impl Node {
             radio::LAST_RSSI.load(Ordering::Relaxed),
             self.bright,
             self.busy_percent,
+            self.boot_watchdog,
+            GPIO::regs().strap().read().bits(),
             self.control.gate.has_key(),
             self.control.identity.name,
         );

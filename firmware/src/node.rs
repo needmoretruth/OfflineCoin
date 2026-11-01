@@ -117,6 +117,8 @@ pub struct Node {
     pub power_dbm: i8,
     /// The panel's contrast.
     pub bright: u8,
+    /// Whether the watchdog was running when this program got the chip.
+    pub boot_watchdog: bool,
     /// Time spent working in this second, and how much of the last second that was.
     pub busy_us: u64,
     pub busy_percent: u64,
