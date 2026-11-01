@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod beacon;
 pub mod bootlog;
+pub mod defaults;
 pub mod gate;
 pub mod packet;
 pub mod router;

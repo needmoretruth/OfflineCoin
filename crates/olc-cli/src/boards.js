@@ -64,7 +64,6 @@ function capControl(half, apply) {
   return cap;
 }
 
-const BOARD_RELAXED = 1000;
 const BOARD_HALF = 7500;
 const COMPUTER_RELAXED = 20000;
 const computerCap = capControl(0, async (limit) => {
@@ -152,7 +151,7 @@ function fill(row, board) {
   row.node.classList.toggle("silent", !board.online);
   row.title.textContent = board.name || board.id.slice(-4).toUpperCase();
   row.where.textContent = board.job ? say(board.job) : where(board);
-  row.cap.show(board.limit, BOARD_RELAXED);
+  row.cap.show(board.limit, board.default_cap);
   const facts = [
     [say("block"), board.height.toLocaleString()],
     [say("balance"), board.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })],

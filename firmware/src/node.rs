@@ -33,8 +33,7 @@ const MAX_DROPPED: usize = 8;
 const MAX_NOTES: usize = 5;
 const BLOCKS_AVERAGED: u64 = 10;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
-/// The cap of a board whose owner never chose one: enough to mine, little heat.
-pub const RELAXED_LIMIT: u32 = 3_000;
+pub use olc_control::defaults::BOARD_CAP as RELAXED_LIMIT;
 /// How often words and numbers change. The coin has its own pace.
 const TEXT_EVERY_MS: u64 = 250;
 /// A short mining batch while the coin shows, so a frame never waits long.
@@ -42,7 +41,7 @@ const COIN_MINING_BATCH: u32 = 60;
 /// Coin rows drawn on each pass of the loop, about 0.3 ms each.
 const COIN_ROWS_PER_TURN: usize = 2;
 /// The coin's frames a second on a board whose owner never chose.
-pub const DEFAULT_SMOOTH: u32 = 10;
+pub use olc_control::defaults::BOARD_SCREEN_RATE as DEFAULT_SMOOTH;
 const RESTART_DELAY_MS: u64 = 300;
 /// Radio power on a board whose owner never chose, enough for one desk or one room.
 pub const DEFAULT_POWER_DBM: i8 = 5;
