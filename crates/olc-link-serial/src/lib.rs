@@ -1,39 +1,87 @@
 //! One message per line: `#` followed by hex. Every other line is the board's log.
 use olc_node::{Link, Target};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
 use std::thread;
+
+const READ_SIZE: usize = 4096;
 
 pub struct SerialLink {
     writer: File,
     incoming: Receiver<Vec<u8>>,
+    closed: Arc<AtomicBool>,
+}
+
+impl Drop for SerialLink {
+    fn drop(&mut self) {
+        self.closed.store(true, Ordering::Relaxed);
+    }
+}
+
+fn read_lines(mut reader: File, closed: &AtomicBool, mut on_line: impl FnMut(&[u8]) -> bool) {
+    let mut buffer = [0u8; READ_SIZE];
+    let mut line = Vec::new();
+    while !closed.load(Ordering::Relaxed) {
+        let Ok(size) = reader.read(&mut buffer) else {
+            return;
+        };
+        for byte in &buffer[..size] {
+            if *byte != b'\n' {
+                line.push(*byte);
+            } else if on_line(&line) {
+                line.clear();
+            } else {
+                return;
+            }
+        }
+    }
 }
 
 impl SerialLink {
     /// Opens a serial device such as `/dev/ttyACM0`. `on_log` receives the other lines.
     pub fn open(path: &str, on_log: impl Fn(&str) + Send + 'static) -> std::io::Result<Self> {
+        // A read waits at most 0.2 s, so closing does not hang on a quiet board.
         Command::new("stty")
-            .args(["-F", path, "115200", "raw", "-echo", "-hupcl"])
+            .args([
+                "-F", path, "115200", "raw", "-echo", "-hupcl", "min", "0", "time", "2",
+            ])
             .status()?;
         let writer = OpenOptions::new().read(true).write(true).open(path)?;
         let reader = writer.try_clone()?;
         let (sender, incoming) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let reader_closed = closed.clone();
         thread::spawn(move || {
-            for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            read_lines(reader, &reader_closed, |line| {
+                // Bytes, not text: a board that restarts prints garbage, and that must not end this.
+                let line = String::from_utf8_lossy(line);
                 match line.trim_end().strip_prefix('#').map(decode_hex) {
-                    Some(Some(message)) => {
-                        if sender.send(message).is_err() {
-                            return;
-                        }
-                    }
+                    Some(Some(message)) => return sender.send(message).is_ok(),
                     Some(None) => {}
                     None => on_log(line.trim_end()),
                 }
-            }
+                true
+            });
         });
-        Ok(Self { writer, incoming })
+        Ok(Self {
+            writer,
+            incoming,
+            closed,
+        })
+    }
+
+    /// Setting this stops the reader, which frees the port for a flashing tool.
+    pub fn closer(&self) -> Arc<AtomicBool> {
+        self.closed.clone()
+    }
+
+    /// Sends a typed command, as a person at a serial terminal would.
+    pub fn send_line(&mut self, line: &str) -> std::io::Result<()> {
+        self.writer.write_all(format!("{line}\n").as_bytes())
     }
 }
 
@@ -57,7 +105,9 @@ impl Link for SerialLink {
             line.push_str(&format!("{byte:02x}"));
         }
         line.push('\n');
-        let _ = self.writer.write_all(line.as_bytes());
+        if !self.closed.load(Ordering::Relaxed) {
+            let _ = self.writer.write_all(line.as_bytes());
+        }
     }
 
     fn receive(&mut self) -> Option<(u32, Vec<u8>)> {

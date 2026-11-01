@@ -1,0 +1,96 @@
+//! Puts this program's firmware on a board through its cable: flashing, trusting the control key
+//! and naming it. A board's wallet and chain live in partitions flashing does not touch.
+use crate::board::{Board, UsbBoard};
+use crate::control_key::config_folder;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
+
+const PARTITIONS: &str = include_str!("../../../firmware/partitions.csv");
+const FLASH_SIZE: &str = "16mb";
+/// A board with a long chain takes this long to read it back from flash.
+const START_WAIT: Duration = Duration::from_secs(90);
+const PORT_WAIT: Duration = Duration::from_secs(30);
+const STEP: Duration = Duration::from_millis(500);
+
+fn espflash() -> PathBuf {
+    let local = std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/bin/espflash"));
+    local
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("espflash"))
+}
+
+fn run(command: &mut Command) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("espflash: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let text = String::from_utf8_lossy(&output.stderr);
+    Err(format!("espflash failed: {}", text.trim()))
+}
+
+fn wait_for_port(port: &str) -> Result<(), String> {
+    let deadline = Instant::now() + PORT_WAIT;
+    while !Path::new(port).exists() {
+        if Instant::now() > deadline {
+            return Err(format!("{port} did not come back."));
+        }
+        thread::sleep(STEP);
+    }
+    Ok(())
+}
+
+fn flash(port: &str, firmware: &Path) -> Result<(), String> {
+    let table = config_folder()?.join("partitions.csv");
+    fs::write(&table, PARTITIONS).map_err(|error| error.to_string())?;
+    run(Command::new(espflash())
+        .args(["flash", "--chip", "esp32s3", "--non-interactive"])
+        .args(["--port", port, "--flash-size", FLASH_SIZE])
+        .arg("--partition-table")
+        .arg(&table)
+        .args(["--target-app-partition", "ota_0"])
+        .args(["--erase-parts", "otadata"])
+        .args(["--after", "watchdog-reset"])
+        .arg(firmware))
+}
+
+/// The bytes of the update slot for `firmware`, an ELF file.
+pub fn app_image(firmware: &Path) -> Result<Vec<u8>, String> {
+    let out = config_folder()?.join("update.bin");
+    run(Command::new(espflash())
+        .args(["save-image", "--chip", "esp32s3"])
+        .args(["--flash-size", FLASH_SIZE])
+        .arg(firmware)
+        .arg(&out))?;
+    let image = fs::read(&out).map_err(|error| error.to_string())?;
+    let _ = fs::remove_file(&out);
+    Ok(image)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Flashes the board on `port`, gives it the control key and a name.
+pub fn install(
+    port: &str,
+    name: &str,
+    firmware: &Path,
+    key: olc_crypto::PublicKey,
+) -> Result<(), String> {
+    flash(port, firmware)?;
+    wait_for_port(port)?;
+    let mut board = Board::new("new", Box::new(UsbBoard::open(port)?));
+    let deadline = Instant::now() + START_WAIT;
+    let mut started = board.status();
+    while started.is_err() && Instant::now() < deadline {
+        started = board.status();
+    }
+    started?;
+    board.command(&format!("trust {}", hex(&key)), "trusted")?;
+    board.command(&format!("name {name}"), "named")
+}

@@ -1,0 +1,11 @@
+[package]
+name = "olc-lab"
+description = "Experiments run from a computer with ordinary node operations. Not part of the coin."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-board.workspace = true
+ctrlc = "3"

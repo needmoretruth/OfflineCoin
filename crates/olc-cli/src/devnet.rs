@@ -1,5 +1,5 @@
 //! Starts several nodes on one computer, connected to each other, each with its own screen.
-use crate::args::Args;
+use olc_board::Args;
 use std::process::{Child, Command};
 
 const BASE_PORT: u16 = 7100;

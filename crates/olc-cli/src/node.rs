@@ -1,7 +1,8 @@
 //! Runs a node: the links, the mining loop and the browser screen.
-use crate::args::Args;
+use crate::app::App;
 use crate::store::{load_or_create_secret, Store};
 use crate::{coinfile, web};
+use olc_board::Args;
 use olc_core::Plugins;
 use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
@@ -26,6 +27,8 @@ pub struct Shared {
     pub hashrate: AtomicU64,
     pub log: Mutex<VecDeque<(u64, Event)>>,
     pub siblings: Vec<u16>,
+    /// What the app adds to a plain node: the boards it runs.
+    pub app: Option<Arc<App>>,
 }
 
 pub fn unix_ms() -> u64 {
@@ -35,8 +38,25 @@ pub fn unix_ms() -> u64 {
 }
 
 pub fn run(args: &Args) -> Result<(), String> {
-    let coin = coinfile::load(args.value("coin"))?;
     let directory = PathBuf::from(args.value("data").unwrap_or(".olc/node"));
+    start(args, directory, None)
+}
+
+/// A node with the boards around it on its page. It holds the control key, so it never opens to
+/// the network.
+pub fn run_app(args: &Args) -> Result<(), String> {
+    if args.has("web-public") {
+        return Err("The app holds the control key, so it stays on this computer.".into());
+    }
+    let directory = match args.value("data") {
+        Some(data) => PathBuf::from(data),
+        None => olc_board::control_key::config_folder()?.join("node"),
+    };
+    start(args, directory, Some(App::new(args)?))
+}
+
+fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), String> {
+    let coin = coinfile::load(args.value("coin"))?;
     let port: u16 = args.number("port", 7000)?;
     let web_port: u16 = args.number("web", 8000)?;
     let hash_limit: u64 = args.number("hash-limit", 0)?;
@@ -61,9 +81,12 @@ pub fn run(args: &Args) -> Result<(), String> {
         tcp.connect(address);
     }
     runner.add_link(Box::new(tcp));
-    for path in args.values("serial") {
-        let link = SerialLink::open(&path, |_| {}).map_err(|error| format!("{path}: {error}"))?;
-        runner.add_link(Box::new(link));
+    if app.is_none() {
+        for path in args.values("serial") {
+            let link =
+                SerialLink::open(&path, |_| {}).map_err(|error| format!("{path}: {error}"))?;
+            runner.add_link(Box::new(link));
+        }
     }
 
     let siblings = args
@@ -80,7 +103,9 @@ pub fn run(args: &Args) -> Result<(), String> {
         hashrate: AtomicU64::new(0),
         log: Mutex::new(VecDeque::new()),
         siblings,
+        app,
     });
+    crate::app::watch_ports(&shared);
     let host = if args.has("web-public") {
         "0.0.0.0"
     } else {
@@ -105,6 +130,9 @@ fn main_loop(shared: &Shared, store: &mut Store, hash_limit: u64) {
             if mining {
                 runner.engine.mine(MINING_BATCH, now);
                 hashes += u64::from(MINING_BATCH);
+            }
+            if let Some(app) = &shared.app {
+                app.pump(&mut runner);
             }
             record_events(shared, &mut runner.engine);
             while let Some(block) = runner.engine.take_fresh_block() {

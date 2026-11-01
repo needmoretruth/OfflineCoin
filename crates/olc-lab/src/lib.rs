@@ -1,0 +1,40 @@
+//! Experiments that use a board only through the commands any owner has. They live here, outside
+//! the coin: a miner with most of the hash power can do this with ordinary software, and nothing
+//! in the coin or the node exists for it.
+mod attack;
+
+use olc_board::{Args, BoardLink, Extra, Say};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+pub struct Lab;
+
+impl Extra for Lab {
+    fn command(&self) -> &'static str {
+        "attack"
+    }
+
+    fn usage(&self) -> &'static str {
+        "  olc attack  --attacker PORT --victim PORT [--amount 10] [--confirmations 2]
+              [--victim-limit 5000] [--timeout 1800]
+"
+    }
+
+    fn run(&self, args: &Args) -> Result<(), String> {
+        attack::run(args)
+    }
+
+    fn script(&self) -> &'static str {
+        include_str!("panel.js")
+    }
+
+    fn run_on(
+        &self,
+        boards: Vec<Box<dyn BoardLink>>,
+        args: &Args,
+        say: Say,
+        stop: Arc<AtomicBool>,
+    ) -> Result<(), String> {
+        attack::run_on(boards, args, say, stop)
+    }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "olc-board"
+description = "Reads and commands running boards from a computer, for the command line and the app."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-control.workspace = true
+olc-crypto.workspace = true
+olc-link-serial.workspace = true
+getrandom = "0.3"

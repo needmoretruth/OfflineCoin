@@ -1,5 +1,5 @@
 //! The spinning coin, for the terminal and the browser.
-use crate::args::Args;
+use olc_board::Args;
 use std::f32::consts::TAU;
 use std::io::Write;
 use std::thread;

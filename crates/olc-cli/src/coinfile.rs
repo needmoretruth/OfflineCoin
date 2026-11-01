@@ -1,5 +1,5 @@
 //! Coin files: the JSON form of a coin, with addresses written as text.
-use crate::args::Args;
+use olc_board::Args;
 use olc_core::coin::COIN;
 use olc_core::{CoinConfig, Rules};
 use olc_wallet::{format_address, parse_address};

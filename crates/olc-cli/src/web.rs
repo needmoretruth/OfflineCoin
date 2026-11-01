@@ -1,6 +1,6 @@
 //! The browser screen and the small JSON interface behind it.
-use crate::logo;
 use crate::node::Shared;
+use crate::{fleet_api, logo};
 use olc_core::coin::COIN;
 use olc_node::Event;
 use olc_wallet::{format_address, parse_address};
@@ -11,19 +11,22 @@ use std::thread;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const PAGE: &str = include_str!("page.html");
+const BOARDS_SCRIPT: &str = include_str!("boards.js");
 const RECENT_BLOCKS: u64 = 12;
 
 pub fn serve(shared: Arc<Shared>, address: String) -> Result<(), String> {
     let server = Server::http(&address).map_err(|error| format!("{address}: {error}"))?;
     thread::spawn(move || {
         for request in server.incoming_requests() {
-            handle(&shared, request);
+            // A command waits for its board, which must not hold up the page.
+            let shared = shared.clone();
+            thread::spawn(move || handle(&shared, request));
         }
     });
     Ok(())
 }
 
-fn header(name: &str, value: &str) -> Option<Header> {
+pub fn header(name: &str, value: &str) -> Option<Header> {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).ok()
 }
 
@@ -32,6 +35,12 @@ fn handle(shared: &Shared, mut request: Request) {
     let method = request.method().clone();
     let mut body = String::new();
     let _ = request.as_reader().read_to_string(&mut body);
+    if let Some(app) = &shared.app {
+        if let Some(response) = fleet_api::answer(app, &request, &method, &path, &body) {
+            let _ = request.respond(response);
+            return;
+        }
+    }
     let response = match (method, path.as_str()) {
         (Method::Get, "/") => {
             let mut page = Response::from_string(PAGE);
@@ -40,6 +49,7 @@ fn handle(shared: &Shared, mut request: Request) {
             }
             page
         }
+        (Method::Get, "/boards.js") => Response::from_string(BOARDS_SCRIPT),
         (Method::Get, "/api/status") => json_response(&status(shared)),
         (Method::Get, "/api/logo") => json_response(&json!(logo::frames_for_page())),
         (Method::Post, "/api/send") => json_response(&send(shared, &body)),
@@ -49,7 +59,7 @@ fn handle(shared: &Shared, mut request: Request) {
     let _ = request.respond(response);
 }
 
-fn json_response(value: &Value) -> Response<std::io::Cursor<Vec<u8>>> {
+pub fn json_response(value: &Value) -> Response<std::io::Cursor<Vec<u8>>> {
     let mut response = Response::from_string(value.to_string());
     if let Some(kind) = header("Content-Type", "application/json") {
         response.add_header(kind);
@@ -69,6 +79,8 @@ fn event_json(time_ms: u64, event: &Event) -> Value {
         Event::BlockRejected { reason } => ("block_rejected", 0, format!("{reason:?}")),
         Event::TxAccepted => ("tx", 0, String::new()),
         Event::TxRejected { reason } => ("tx_rejected", 0, format!("{reason:?}")),
+        Event::TxReturned { id } => ("tx_returned", 0, hex(id)),
+        Event::TxDropped { id, .. } => ("tx_dropped", 0, hex(id)),
     };
     json!({ "time": time_ms, "kind": kind, "height": height, "detail": detail })
 }
