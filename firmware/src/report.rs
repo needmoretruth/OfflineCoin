@@ -1,4 +1,5 @@
 //! The lines a board answers with when asked how it is doing.
+use crate::commands::opened_name;
 use crate::control::BUILD;
 use crate::node::{decode_hash, hex, Node, LINK_RADIO, LINK_USB, LINK_WIFI};
 use crate::radio;
@@ -33,12 +34,15 @@ impl Node {
 
     pub fn print_status(&mut self) {
         let status = self.runner.engine.status();
+        let chain = self.runner.engine.chain();
+        let held = chain.held();
         let line = format!(
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
-             power={} rssi={} key={} name={}",
+             power={} rssi={} key={} name={} opened={} oldest={} held={} fits={} keep={} \
+             unspent={} miner={} merge={} needs={} assumed={} work_on={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -77,6 +81,17 @@ impl Node {
             radio::LAST_RSSI.load(Ordering::Relaxed),
             self.control.gate.has_key(),
             self.control.identity.name,
+            opened_name(chain.opened()),
+            held.oldest,
+            held.bytes,
+            held.fits.unwrap_or(0),
+            held.recent.unwrap_or(0),
+            chain.unspent_count(),
+            format_address(&self.runner.engine.miner()),
+            self.runner.engine.merging(),
+            status.needs_history.map_or(0, |(_, height)| height),
+            status.assumed_from.map_or(-1, i64::from),
+            self.work.is_some(),
         );
         self.say(line);
     }

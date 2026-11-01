@@ -49,7 +49,7 @@ pub struct Control {
     beacon_ms: u64,
     ask_around_ms: u64,
     /// Signs beacons. It is the wallet's key: the address is what the app knows a board by.
-    secret: [u8; 32],
+    pub secret: [u8; 32],
     /// When the last piece of an image came.
     chunk_ms: u64,
 }

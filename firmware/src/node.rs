@@ -1,4 +1,5 @@
 //! One pass of the board's work: move messages, mine a little, save, redraw.
+use crate::commands::Work;
 use crate::control::{cable_is_busy, parse_key, Control, BUILD};
 use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
@@ -15,7 +16,7 @@ use esp_hal::time::Instant;
 use esp_println::println;
 use olc_control::bootlog;
 use olc_core::coin::COIN;
-use olc_core::Hash;
+use olc_core::{CoinConfig, Hash};
 use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Event, Runner};
 use olc_wallet::{format_address, parse_address};
@@ -120,6 +121,10 @@ pub struct Node {
     pub view: View,
     pub language: Language,
     pub mining: bool,
+    /// Set while grinding work from outside, which takes the place of own mining.
+    pub work: Option<Work>,
+    /// A coin that needs a yes, because it would drop this one's blocks.
+    pub waiting_coin: Option<CoinConfig>,
     /// Hashes per second, 0 for full. Saved once chosen, so a cap outlives a restart.
     pub limit: u32,
     pub limit_chosen: bool,
@@ -182,14 +187,15 @@ impl Node {
         let worked =
             self.mining && batch > 0 && !cable_is_busy(now) && !self.control.taking_an_image(now);
         if worked {
-            self.runner.engine.mine(batch, now);
+            if self.work.is_some() {
+                self.grind(batch);
+            } else {
+                self.runner.engine.mine(batch, now);
+            }
             self.attempts += batch;
             self.tip_attempts += u64::from(batch);
         }
         self.handle_events(now);
-        while let Some(block) = self.runner.engine.take_fresh_block() {
-            self.store.append(&block);
-        }
         let tip = self.runner.engine.chain().tip();
         if tip != self.tip_seen {
             self.tip_seen = tip;
@@ -282,6 +288,16 @@ impl Node {
         }
     }
 
+    pub fn save_setting(&mut self, change: impl FnOnce(&mut Settings)) {
+        self.save(change);
+    }
+
+    fn log_left(&self) -> u32 {
+        let held = self.runner.engine.chain().held();
+        let left = held.capacity.unwrap_or(0).saturating_sub(held.bytes);
+        u32::try_from(left).unwrap_or(u32::MAX)
+    }
+
     fn save(&mut self, change: impl FnOnce(&mut Settings)) {
         let mut settings = self.store.settings();
         change(&mut settings);
@@ -313,6 +329,14 @@ impl Node {
                     }
                     self.dropped.push_back((id, format!("{reason:?}")));
                 }
+                Event::NeedsHistory { peer } => self.say(format!("needs history peer={peer}")),
+                Event::ReorgRefused => self.say("reorg too deep".into()),
+                Event::SnapshotAdopted { peer, height } => {
+                    self.say(format!("snapshot from peer={peer} height={height}"));
+                }
+                Event::SnapshotRefused { peer } => self.say(format!("snapshot refused {peer}")),
+                Event::DataRefused => self.say("data too long".into()),
+                Event::CoinsMerged { inputs } => self.say(format!("merged {inputs} coins")),
             }
             self.note(now, Note::Chain(event));
         }
@@ -421,12 +445,16 @@ impl Node {
             (Some("dial"), Some(target), _) => {
                 self.restart_with(|settings| settings.dial = target.into());
             }
+            _ if self.run_chain_command(line) => {}
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
                  smooth FPS, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
-                 dial off, name NAME, trust KEY"
+                 dial off, name NAME, trust KEY, keys, key new|use N|import HEX|export N, \
+                 mineto ADDRESS|own, keep BLOCKS|all, merge on|off, note TEXT, \
+                 minenote TEXT|off, snapshot accept, coin [HEX|default|confirm], \
+                 work HEADER DIFFICULTY, work stop"
             ),
         }
     }
@@ -537,7 +565,7 @@ impl Node {
             managed: self.control.is_managed(now),
             waiting: status.pool,
             free_memory: esp_alloc::HEAP.free(),
-            log_left: self.store.log_left(),
+            log_left: self.log_left(),
             own_network: &self.network.own_name,
             router: self.network.router_address(),
             joining_router: self.network.joins_router,

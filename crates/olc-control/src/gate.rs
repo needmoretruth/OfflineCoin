@@ -7,10 +7,11 @@ use olc_crypto::{hash, verify, Hash, PublicKey};
 const DOMAIN: &[u8] = b"OfflineCoin control order 1\n";
 
 /// What a signed line may do from afar. The cable can do everything, but from afar a mistake
-/// could cut the only way to the board.
-pub const REMOTE_WORDS: [&str; 15] = [
+/// could cut the only way to the board. `key` is never here, so no radio line reaches a secret.
+pub const REMOTE_WORDS: [&str; 24] = [
     "status", "tx", "limit", "mine", "offline", "pay", "pool", "view", "lang", "name", "logo",
-    "boots", "smooth", "power", "ignore",
+    "boots", "smooth", "power", "ignore", "keys", "mineto", "keep", "merge", "note", "minenote",
+    "snapshot", "coin", "work",
 ];
 
 pub fn allowed_remotely(line: &str) -> bool {
@@ -69,6 +70,20 @@ impl Gate {
         }
         self.counter = order.counter;
         Ok(order.action.clone())
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn no_radio_line_reaches_a_secret_key() {
+        assert!(!REMOTE_WORDS.contains(&"key"));
+        for line in ["key export 0", "key  new", "key", " key import 00", "KEY export 0"] {
+            assert!(!allowed_remotely(line), "{line}");
+        }
+        assert!(allowed_remotely("keys"));
     }
 }
 

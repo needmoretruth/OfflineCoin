@@ -1,5 +1,6 @@
-//! Flash storage: the wallet key, the network settings and a log of every block, so a board
-//! survives losing power.
+//! Flash storage: the keys, the coin and the settings. The chain's own stores sit beside them, so
+//! a board survives losing power.
+use crate::flash::{self, Region};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -8,16 +9,24 @@ use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
 use esp_bootloader_esp_idf::partitions::{
     read_partition_table, AppPartitionSubType, PartitionType, PARTITION_TABLE_MAX_LEN,
 };
-use esp_storage::FlashStorage;
 use olc_control::bootlog::{self, Stage};
-use olc_core::{Block, Hash};
+use olc_core::medium::Keep;
+use olc_core::{Block, CoinConfig, Hash};
 use olc_crypto::PublicKey;
 
 /// The `chain` partition, past the end of the first app slot. See `partitions.csv`.
 const META: u32 = 0x40_0000;
 const SETTINGS: u32 = META + 0x1000;
-const LOG_START: u32 = META + 0x2000;
-const LOG_END: u32 = 0xC0_0000;
+/// Where builds before the ring kept every block. Read once, then it goes.
+const OLD_LOG: u32 = META + 0x2000;
+const OLD_LOG_END: u32 = KEYS;
+const STATES: u32 = META + 0x1_0000;
+const STATE_SIZE: u32 = 0x10_0000;
+const LOG: u32 = STATES + 2 * STATE_SIZE;
+const LOG_SIZE: u32 = KEYS - LOG;
+/// Two sectors each, written in turn, so a power cut always leaves one whole.
+const KEYS: u32 = 0xBF_0000;
+const COIN_SLOTS: u32 = KEYS + 2 * SECTOR;
 /// The `control` partition: the trusted key and name in one sector, the counter in the next, so
 /// the frequent write cannot damage the rare one.
 const IDENTITY: u32 = 0x9000;
@@ -26,11 +35,13 @@ const BOOT_LOG: u32 = 0xB000;
 const SECTOR: u32 = 0x1000;
 const IDENTITY_LEN: usize = 8 + 33 + 32;
 const MAGIC: u32 = 0x4F4C_4331;
+const MAGIC_SLOT: u32 = 0x4F4C_4332;
+const SLOT_HEADER: usize = 4 + 4 + 4 + 8;
 const META_LEN: usize = 4 + 32 + 32;
 const RECORD_HEADER: usize = 8;
 const MAX_RECORD: usize = 64 * 1024;
 
-const SETTINGS_LEN: usize = 256;
+const SETTINGS_LEN: usize = 1024;
 
 /// Set with the `wifi`, `dial`, `view`, `lang` and `limit` commands. Empty means off or the
 /// default. Each is one line, so settings saved before a line existed still load.
@@ -49,6 +60,14 @@ pub struct Settings {
     pub smooth: String,
     /// Radio power in dBm. Empty means the owner never chose.
     pub power: String,
+    /// Where mined coins go. Empty means this board's own key.
+    pub miner: String,
+    /// Words to put in each mined block, as hex.
+    pub note: String,
+    /// Recent blocks to keep. Empty means all that fit.
+    pub recent: String,
+    /// "off" stops the wallet merging small coins.
+    pub merge: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -58,10 +77,8 @@ pub struct Identity {
     pub name: String,
 }
 
+#[derive(Default)]
 pub struct Store {
-    flash: FlashStorage<'static>,
-    head: u32,
-    genesis_matches: bool,
     /// This start's place in the boot log.
     boot_word: Option<(u32, u8)>,
 }
@@ -75,15 +92,6 @@ fn word(bytes: &[u8]) -> u32 {
 }
 
 impl Store {
-    pub fn new(flash: FlashStorage<'static>) -> Self {
-        Self {
-            flash,
-            head: LOG_START,
-            genesis_matches: false,
-            boot_word: None,
-        }
-    }
-
     /// Notes this start. Writes without erasing, so a board that restarts in a loop wears
     /// nothing until the sector is full.
     pub fn begin_boot(&mut self, reason: u8) {
@@ -92,7 +100,7 @@ impl Store {
             .iter()
             .position(|word| *word == bootlog::FREE);
         let index = free.unwrap_or_else(|| {
-            let _ = self.flash.erase(BOOT_LOG, BOOT_LOG + SECTOR);
+            flash::erase(BOOT_LOG);
             0
         });
         let at = BOOT_LOG + (index * 4) as u32;
@@ -103,19 +111,19 @@ impl Store {
     pub fn reach(&mut self, stage: Stage) {
         if let Some((at, reason)) = self.boot_word {
             let bytes = bootlog::word(reason, stage).to_le_bytes();
-            let _ = self.flash.write_nor(at, &bytes);
+            flash::program(at, &bytes);
         }
     }
 
     pub fn boot_words(&mut self) -> Vec<u32> {
         let mut bytes = vec![0u8; bootlog::WORDS * 4];
-        let _ = self.flash.read(BOOT_LOG, &mut bytes);
+        flash::read(BOOT_LOG, &mut bytes);
         bytes.chunks_exact(4).map(word).collect()
     }
 
     pub fn settings(&mut self) -> Settings {
         let mut bytes = [0u8; SETTINGS_LEN];
-        let _ = self.flash.read(SETTINGS, &mut bytes);
+        flash::read(SETTINGS, &mut bytes);
         if word(&bytes) != MAGIC {
             return Settings::default();
         }
@@ -132,12 +140,16 @@ impl Store {
             cap: lines.next().unwrap_or_default(),
             smooth: lines.next().unwrap_or_default(),
             power: lines.next().unwrap_or_default(),
+            miner: lines.next().unwrap_or_default(),
+            note: lines.next().unwrap_or_default(),
+            recent: lines.next().unwrap_or_default(),
+            merge: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -147,19 +159,23 @@ impl Store {
             settings.cap,
             settings.smooth,
             settings.power,
+            settings.miner,
+            settings.note,
+            settings.recent,
+            settings.merge,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {
             bytes[..4].copy_from_slice(&MAGIC.to_le_bytes());
             bytes[4..8].copy_from_slice(&(text.len() as u32).to_le_bytes());
             bytes[RECORD_HEADER..][..text.len()].copy_from_slice(text.as_bytes());
-            let _ = self.flash.write(SETTINGS, &bytes);
+            flash::replace(SETTINGS, &bytes);
         }
     }
 
     pub fn identity(&mut self) -> Identity {
         let mut bytes = [0u8; IDENTITY_LEN];
-        let _ = self.flash.read(IDENTITY, &mut bytes);
+        flash::read(IDENTITY, &mut bytes);
         if word(&bytes) != MAGIC {
             return Identity::default();
         }
@@ -181,13 +197,13 @@ impl Store {
         bytes[4..8].copy_from_slice(&(size as u32).to_le_bytes());
         bytes[8..41].copy_from_slice(&identity.key.unwrap_or([0; 33]));
         bytes[41..][..size].copy_from_slice(&identity.name.as_bytes()[..size]);
-        let _ = self.flash.write(IDENTITY, &bytes);
+        flash::replace(IDENTITY, &bytes);
     }
 
     /// The last order counter accepted. Erased flash reads as none used.
     pub fn counter(&mut self) -> u64 {
         let mut bytes = [0u8; 8];
-        let _ = self.flash.read(COUNTER, &mut bytes);
+        flash::read(COUNTER, &mut bytes);
         match u64::from_le_bytes(bytes) {
             u64::MAX => 0,
             counter => counter,
@@ -195,28 +211,34 @@ impl Store {
     }
 
     pub fn save_counter(&mut self, counter: u64) -> bool {
-        self.flash.write(COUNTER, &counter.to_le_bytes()).is_ok()
+        flash::replace(COUNTER, &counter.to_le_bytes())
     }
 
     /// The app slot that is not running, as (start, size).
     pub fn spare_slot(&mut self) -> Option<(u32, u32)> {
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let table = read_partition_table(&mut self.flash, &mut buffer).ok()?;
-        let running = table.booted_partition().ok()??.offset();
-        let spare = table.iter().find(|entry| {
-            let app = matches!(entry.partition_type(), PartitionType::App(kind) if is_ota(kind));
-            app && entry.offset() != running
-        });
-        spare.map(|entry| (entry.offset(), entry.len()))
+        flash::with(|flash| {
+            let table = read_partition_table(flash, &mut buffer).ok()?;
+            let running = table.booted_partition().ok()??.offset();
+            let spare = table.iter().find(|entry| {
+                let app =
+                    matches!(entry.partition_type(), PartitionType::App(kind) if is_ota(kind));
+                app && entry.offset() != running
+            });
+            spare.map(|entry| (entry.offset(), entry.len()))
+        })?
     }
 
     /// 0 or 1, the app slot this build runs from.
     pub fn running_slot(&mut self) -> u8 {
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let booted = read_partition_table(&mut self.flash, &mut buffer)
-            .ok()
-            .and_then(|table| table.booted_partition().ok().flatten());
-        match booted.map(|entry| entry.partition_type()) {
+        let booted = flash::with(|flash| {
+            read_partition_table(flash, &mut buffer)
+                .ok()
+                .and_then(|table| table.booted_partition().ok().flatten())
+                .map(|entry| entry.partition_type())
+        });
+        match booted.flatten() {
             Some(PartitionType::App(AppPartitionSubType::Ota1)) => 1,
             _ => 0,
         }
@@ -229,14 +251,17 @@ impl Store {
             _ => AppPartitionSubType::Ota0,
         };
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) else {
-            return false;
-        };
-        let Ok(mut data) = updater.ota_data() else {
-            return false;
-        };
-        data.set_current_app_partition(target).is_ok()
-            && data.set_current_ota_state(OtaImageState::New).is_ok()
+        flash::with(|flash| {
+            let Ok(mut updater) = OtaUpdater::new(flash, &mut buffer) else {
+                return false;
+            };
+            let Ok(mut data) = updater.ota_data() else {
+                return false;
+            };
+            data.set_current_app_partition(target).is_ok()
+                && data.set_current_ota_state(OtaImageState::New).is_ok()
+        })
+        .unwrap_or(false)
     }
 
     /// Says this build started, and returns true on the first start after an update. A bootloader
@@ -244,101 +269,157 @@ impl Store {
     /// start stays selected.
     pub fn mark_running_build_good(&mut self) -> bool {
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) else {
-            return false;
-        };
-        let is_new = updater
-            .current_ota_state()
-            .is_ok_and(|state| state == OtaImageState::New);
-        let _ = updater.set_current_ota_state(OtaImageState::Valid);
-        is_new
-    }
-
-    /// Bytes of block log still free.
-    pub fn log_left(&self) -> u32 {
-        LOG_END.saturating_sub(self.head)
+        flash::with(|flash| {
+            let Ok(mut updater) = OtaUpdater::new(flash, &mut buffer) else {
+                return false;
+            };
+            let is_new = updater
+                .current_ota_state()
+                .is_ok_and(|state| state == OtaImageState::New);
+            let _ = updater.set_current_ota_state(OtaImageState::Valid);
+            is_new
+        })
+        .unwrap_or(false)
     }
 
     pub fn write_page(&mut self, at: u32, page: &[u8]) -> bool {
-        self.flash.write(at, page).is_ok()
+        flash::replace(at, page)
     }
 
     pub fn read_flash(&mut self, at: u32, bytes: &mut [u8]) -> bool {
-        self.flash.read(at, bytes).is_ok()
+        flash::read(at, bytes)
     }
 
-    /// Returns the saved key, or saves `create()`. A key outlives a change of coin, a log does not.
-    pub fn secret(&mut self, genesis: &Hash, create: impl FnOnce() -> [u8; 32]) -> [u8; 32] {
+    /// The chain's stores on this board.
+    pub fn keep(&self, recent: Option<u64>) -> Keep {
+        let log = Region {
+            start: LOG,
+            size: LOG_SIZE,
+        };
+        let state = |index| Region {
+            start: STATES + index * STATE_SIZE,
+            size: STATE_SIZE,
+        };
+        flash::keep(log, [state(0), state(1)], recent)
+    }
+
+    /// The saved keys and the one that receives. A key outlives a change of coin, so it has its
+    /// own place, and the first start on this layout takes the key builds before it saved.
+    pub fn keys(&mut self, create: impl FnOnce() -> [u8; 32]) -> (Vec<[u8; 32]>, usize) {
+        if let Some(saved) = read_slot(KEYS).and_then(|bytes| postcard::from_bytes(&bytes).ok()) {
+            return saved;
+        }
+        let saved = (vec![self.old_secret().unwrap_or_else(create)], 0);
+        self.save_keys(&saved.0, saved.1);
+        saved
+    }
+
+    pub fn save_keys(&mut self, secrets: &[[u8; 32]], receiving: usize) -> bool {
+        postcard::to_allocvec(&(secrets, receiving)).is_ok_and(|bytes| write_slot(KEYS, &bytes))
+    }
+
+    /// The coin this board runs, when it was told one.
+    pub fn coin(&mut self) -> Option<CoinConfig> {
+        read_slot(COIN_SLOTS).and_then(|bytes| postcard::from_bytes(&bytes).ok())
+    }
+
+    pub fn save_coin(&mut self, coin: &CoinConfig) -> bool {
+        postcard::to_allocvec(coin).is_ok_and(|bytes| write_slot(COIN_SLOTS, &bytes))
+    }
+
+    fn old_meta(&mut self) -> Option<[u8; META_LEN]> {
         let mut meta = [0u8; META_LEN];
-        let _ = self.flash.read(META, &mut meta);
-        let known = word(&meta) == MAGIC;
-        self.genesis_matches = known && meta[4..36] == genesis[..];
-        let mut secret = [0u8; 32];
-        if known {
-            secret.copy_from_slice(&meta[36..]);
-        } else {
-            secret = create();
-        }
-        if !self.genesis_matches {
-            meta[..4].copy_from_slice(&MAGIC.to_le_bytes());
-            meta[4..36].copy_from_slice(genesis);
-            meta[36..].copy_from_slice(&secret);
-            let _ = self.flash.write(META, &meta);
-            let _ = self.flash.write(LOG_START, &[0xFF; 4]);
-        }
-        secret
+        flash::read(META, &mut meta);
+        (word(&meta) == MAGIC).then_some(meta)
     }
 
-    /// Reads the log back and leaves the head after its last whole record.
-    pub fn load_blocks(&mut self) -> Vec<Block> {
+    fn old_secret(&mut self) -> Option<[u8; 32]> {
+        let meta = self.old_meta()?;
+        let mut secret = [0u8; 32];
+        secret.copy_from_slice(&meta[36..]);
+        Some(secret)
+    }
+
+    /// Every block a build before the ring saved for this coin, in the order they came.
+    pub fn old_blocks(&mut self, genesis: &Hash) -> Vec<Block> {
         let mut blocks = Vec::new();
-        if !self.genesis_matches {
+        if self.old_meta().is_none_or(|meta| meta[4..36] != genesis[..]) {
             return blocks;
         }
-        let mut at = LOG_START;
-        loop {
+        let mut at = OLD_LOG;
+        while at + (RECORD_HEADER as u32) < OLD_LOG_END {
             let mut header = [0u8; RECORD_HEADER];
-            if at + RECORD_HEADER as u32 >= LOG_END || self.flash.read(at, &mut header).is_err() {
-                break;
-            }
+            flash::read(at, &mut header);
             let size = word(&header[4..]) as usize;
             if word(&header) != MAGIC || size > MAX_RECORD {
                 break;
             }
             let mut bytes = vec![0u8; size];
-            if self
-                .flash
-                .read(at + RECORD_HEADER as u32, &mut bytes)
-                .is_err()
-            {
-                break;
-            }
+            flash::read(at + RECORD_HEADER as u32, &mut bytes);
             match postcard::from_bytes(&bytes) {
                 Ok(block) => blocks.push(block),
                 Err(_) => break,
             }
             at += (RECORD_HEADER + size.next_multiple_of(4)) as u32;
         }
-        self.head = at;
         blocks
     }
 
-    /// Each record ends with an erased word, which is where the next read stops.
-    pub fn append(&mut self, block: &Block) {
-        let Ok(bytes) = postcard::to_allocvec(block) else {
-            return;
-        };
-        let body = bytes.len().next_multiple_of(4);
-        let mut record = Vec::with_capacity(RECORD_HEADER + body + 4);
-        record.extend_from_slice(&MAGIC.to_le_bytes());
-        record.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        record.extend_from_slice(&bytes);
-        record.resize(RECORD_HEADER + body, 0);
-        record.extend_from_slice(&[0xFF; 4]);
-        if self.head + record.len() as u32 <= LOG_END
-            && self.flash.write(self.head, &record).is_ok()
-        {
-            self.head += (RECORD_HEADER + body) as u32;
+    /// Ends the old layout. Until this runs, a power cut just reads it again.
+    pub fn forget_old_blocks(&mut self) {
+        if self.old_meta().is_some() {
+            flash::erase(META);
         }
     }
+}
+
+fn slot_at(place: u32, index: u32) -> u32 {
+    place + index * SECTOR
+}
+
+/// A slot's sequence number and payload, when it is whole.
+fn read_one(at: u32) -> Option<(u32, Vec<u8>)> {
+    let mut header = [0u8; SLOT_HEADER];
+    flash::read(at, &mut header);
+    let size = word(&header[8..]) as usize;
+    if word(&header) != MAGIC_SLOT || size > SECTOR as usize - SLOT_HEADER {
+        return None;
+    }
+    let mut payload = vec![0u8; size];
+    flash::read(at + SLOT_HEADER as u32, &mut payload);
+    (olc_crypto::hash(&payload)[..8] == header[12..]).then(|| (word(&header[4..]), payload))
+}
+
+fn read_slot(place: u32) -> Option<Vec<u8>> {
+    let first = read_one(slot_at(place, 0));
+    let second = read_one(slot_at(place, 1));
+    match (first, second) {
+        (Some(a), Some(b)) => Some(if b.0 > a.0 { b.1 } else { a.1 }),
+        (one, other) => one.or(other).map(|slot| slot.1),
+    }
+}
+
+/// Writes over the older of the two, so the newer stays whole until this one is.
+fn write_slot(place: u32, payload: &[u8]) -> bool {
+    if payload.len() > SECTOR as usize - SLOT_HEADER {
+        return false;
+    }
+    let first = read_one(slot_at(place, 0)).map(|slot| slot.0);
+    let second = read_one(slot_at(place, 1)).map(|slot| slot.0);
+    let (index, sequence) = match (first, second) {
+        (Some(a), Some(b)) if a >= b => (1, a + 1),
+        (Some(_), Some(b)) => (0, b + 1),
+        (Some(a), None) => (1, a + 1),
+        (None, Some(b)) => (0, b + 1),
+        (None, None) => (0, 1),
+    };
+    let at = slot_at(place, index);
+    let mut record = Vec::with_capacity(SLOT_HEADER + payload.len() + 3);
+    record.extend_from_slice(&MAGIC_SLOT.to_le_bytes());
+    record.extend_from_slice(&sequence.to_le_bytes());
+    record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    record.extend_from_slice(&olc_crypto::hash(payload)[..8]);
+    record.extend_from_slice(payload);
+    record.resize(record.len().next_multiple_of(4), 0xFF);
+    flash::erase(at) && flash::program(at, &record)
 }
