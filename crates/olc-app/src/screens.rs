@@ -260,6 +260,27 @@ fn each_node_is_the_kind_its_person_chose() {
         harness.state_mut().open("page.local");
         shot(&mut harness, &folder, "scene-kinds");
     }
+
+    // The same choice on this app's own node, which comes back as the other kind.
+    harness.set_size(egui::vec2(1280.0, 1900.0));
+    harness.state_mut().open("page.settings");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("Keep headers only (light)").click();
+    wait_until(&mut harness, |app| {
+        let node = &app.snapshot().node;
+        node.height >= 5 && node.light.is_some_and(|light| light.held_headers >= 5)
+    });
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-own-light");
+        harness.state_mut().open("page.keys");
+        shot(&mut harness, &folder, "scene-keys-watch");
+    }
+    harness.state_mut().open("page.mining");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("A node that keeps only headers cannot mine.");
+    harness.state_mut().open("page.explorer");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("This node keeps only headers, so it has no blocks to show.");
 }
 
 /// The owner's scene: a note goes into a block and shows in the explorer, and a second key is made,

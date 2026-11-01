@@ -142,9 +142,11 @@ impl SettingsPage {
         let node = &cx.snap.node;
         section(ui, cx.say("storage.title"));
         let held = format::number(node.oldest.into());
-        meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
-        if let Some(fits) = node.fits {
-            meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+        if node.light.is_none() {
+            meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
+            if let Some(fits) = node.fits {
+                meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+            }
         }
         let holding = match (&node.light, node.recent) {
             (Some(_), _) => Holding::Headers,
