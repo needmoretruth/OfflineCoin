@@ -19,6 +19,10 @@ struct Air {
 }
 
 impl Link for Air {
+    fn medium(&self) -> olc_node::Medium {
+        olc_node::Medium::EspNow
+    }
+
     fn send(&mut self, _target: Target, message: &[u8]) {
         let mut queues = self.queues.lock().unwrap();
         for (node, queue) in queues.iter_mut().enumerate() {

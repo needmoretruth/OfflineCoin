@@ -1,5 +1,5 @@
 //! One message per line: `#` followed by hex. Every other line is the board's log.
-use olc_node::{Link, Target};
+use olc_node::{Link, Medium, Target};
 use olc_platform::{platform, usb_is_off};
 use serial2::{SerialPort, Settings};
 use std::io::ErrorKind;
@@ -189,6 +189,10 @@ fn decode_hex(text: &str) -> Option<Vec<u8>> {
 }
 
 impl Link for SerialLink {
+    fn medium(&self) -> Medium {
+        Medium::Wire
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         if target == Target::AllExcept(0) {
             return;

@@ -3,7 +3,7 @@ use super::commands::Personal;
 use super::explorer::{explore, Explored};
 use super::host::Host;
 use olc_core::BlockHeader;
-use olc_node::{Runner, Status};
+use olc_node::{Rank, Runner, Status};
 use olc_store::{
     back_up, format_secret, new_secret, parse_secret, restore, save_wallet, NodeSettings,
 };
@@ -109,6 +109,11 @@ pub trait Book {
         self.change_settings(|settings| settings.recent = recent)
     }
 
+    fn set_links(&self, rank: Rank) -> Result<(), String> {
+        self.live(|runner| runner.set_rank(rank))?;
+        self.change_settings(|settings| settings.links = rank.text())
+    }
+
     fn set_merging(&self, on: bool) -> Result<(), String> {
         self.live(|runner| runner.engine.set_merging(on))?;
         self.change_settings(|settings| settings.no_merge = !on)
@@ -153,6 +158,9 @@ pub trait Book {
             }
             Personal::SetRecent(recent) => {
                 self.set_recent(recent).map(|()| ("notice.saved", String::new()))
+            }
+            Personal::SetLinks(rank) => {
+                self.set_links(rank).map(|()| ("notice.saved", String::new()))
             }
             Personal::SetMerging(on) => {
                 self.set_merging(on).map(|()| ("notice.saved", String::new()))

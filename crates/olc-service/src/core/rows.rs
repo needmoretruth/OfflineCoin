@@ -6,8 +6,9 @@ use crate::local::LocalView;
 use olc_core::Hash;
 use super::returning::is_returning;
 use olc_platform::platform;
+use olc_node::Medium;
 
-const BOARD_KIND: &str = "esp32-s3";
+pub const BOARD_KIND: &str = "esp32-s3";
 
 pub fn hostname() -> String {
     platform().host_name()
@@ -94,10 +95,11 @@ fn hash_of(text: &str) -> Option<Hash> {
     Some(hash)
 }
 
-pub fn reach_of_board(row: &BoardRow) -> Reach {
-    match (row.on_cable, &row.through) {
-        (true, _) => Reach::Usb,
-        (false, through) => Reach::Radio(through.clone()),
+pub fn reach_of_board(row: &BoardRow, link: Option<Medium>) -> Reach {
+    match (row.on_cable, &row.through, link) {
+        (true, ..) => Reach::Usb,
+        (false, through, Some(medium)) => Reach::Link(medium, through.clone()),
+        (false, through, None) => Reach::Radio(through.clone()),
     }
 }
 
@@ -108,10 +110,10 @@ pub fn coin_of_board(genesis: Hash, said: Option<Identity>, known: &[Identity]) 
     answered.or_else(|| known.iter().find(|coin| coin.genesis == genesis).cloned())
 }
 
-pub fn board_entry(row: &BoardRow, coin: Option<Identity>) -> Entry {
+pub fn board_entry(row: &BoardRow, coin: Option<Identity>, link: Option<Medium>) -> Entry {
     let beacon = &row.seen.beacon;
     Entry {
-        reach: reach_of_board(row),
+        reach: reach_of_board(row, link),
         address: None,
         via: None,
         device: BOARD_KIND.into(),

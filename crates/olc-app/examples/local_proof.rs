@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 const SAMPLE: Duration = Duration::from_secs(5);
 const SETTLE: Duration = Duration::from_secs(30);
-const NEW_COIN_DIFFICULTY: u64 = 30_000;
+const NEW_COIN_DIFFICULTY: u64 = olc_core::coin::MIN_DIFFICULTY;
 const SHARE_RUN: Duration = Duration::from_secs(120);
 
 #[derive(Default)]

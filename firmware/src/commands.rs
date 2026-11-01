@@ -8,6 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use esp_hal::rng::Rng;
 use esp_println::println;
+use olc_core::coin::COIN;
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
 
@@ -46,6 +47,21 @@ pub struct Work {
 }
 
 impl Node {
+    pub fn pay(&mut self, address: &str, amount: &str) {
+        let units = amount
+            .parse::<f64>()
+            .map(|value| (value * COIN as f64) as u64);
+        let (Some(to), Ok(units)) = (parse_address(address), units) else {
+            self.say("error pay ADDRESS AMOUNT".into());
+            return;
+        };
+        let started = crate::node::device_ms();
+        match self.runner.engine.pay(to, units, 0) {
+            Ok(id) => self.say(format!("paid {} in {}ms", hex(&id), crate::node::device_ms() - started)),
+            Err(error) => self.say(format!("error {error:?}")),
+        }
+    }
+
     /// Runs `line` when it is one of these commands.
     pub fn run_chain_command(&mut self, line: &str) -> bool {
         let mut words = line.split_whitespace();
@@ -78,7 +94,7 @@ impl Node {
             (Some("coin"), Some("confirm"), _) => self.confirm_coin(),
             (Some("coin"), Some("default"), _) => self.change_coin(CoinConfig::olc()),
             (Some("coin"), Some(text), _) => {
-                let coin = unhex(text).and_then(|bytes| postcard::from_bytes(&bytes).ok());
+                let coin = unhex(text).and_then(|bytes| CoinConfig::from_bytes(&bytes));
                 match coin {
                     Some(coin) => self.change_coin(coin),
                     None => self.say("error coin HEX".into()),

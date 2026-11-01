@@ -18,6 +18,7 @@ fn coin() -> CoinConfig {
     coin.name = "PoolNodes".into();
     coin.ticker = "PNO".into();
     coin.initial_difficulty = BLOCK_DIFFICULTY;
+    coin.rules.min_difficulty = 1;
     coin
 }
 

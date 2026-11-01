@@ -7,8 +7,8 @@ use super::coins::{
 use super::board_action::BoardAction;
 use olc_store::coin_file::new_coin;
 use super::board_lines::{read_bright, run_action, Brights};
-use super::commands::{Command, StartCoin};
-use super::found::Found;
+use super::commands::{Command, Personal, StartCoin};
+use super::found::{link_of, Found};
 use super::host::{full_rate, Host, PayError, Plan};
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
@@ -24,7 +24,7 @@ use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
-use olc_node::Card;
+use olc_node::{Card, Rank};
 use olc_wallet::WalletError;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -243,6 +243,7 @@ impl Service {
             Command::Pay { to, amount } => self.pay(&to, &amount),
             Command::AddAddress(address) => self.add_address(address),
             Command::Rescan => self.scanner.look_now(),
+            Command::SetLinks(rank) => self.set_links(rank),
             Command::OpenDataFolder => {
                 let _ = platform().open_folder(&self.paths.root);
             }
@@ -271,8 +272,7 @@ impl Service {
             }
             Command::MoveBoard(id) => {
                 let coin = current_coin(&self.paths, &self.settings);
-                let bytes = postcard::to_allocvec(&coin).unwrap_or_default();
-                let text: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                let text: String = coin.to_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
                 self.board_action(id, BoardAction::MoveToCoin(text));
                 self.board_action(id, BoardAction::ConfirmCoin);
             }
@@ -489,6 +489,16 @@ impl Service {
         }
     }
 
+    /// This node takes the order at once, and so does every board in touch.
+    fn set_links(&mut self, rank: Rank) {
+        let (key, detail, good) = self.host.obey(Personal::SetLinks(rank));
+        self.say(key, detail, good);
+        let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
+        for row in rows.unwrap_or_default().iter().filter(|row| row.seen.online) {
+            self.board_action(row.seen.id, BoardAction::Links(rank.text()));
+        }
+    }
+
     fn board_action(&mut self, id: BoardId, action: BoardAction) {
         self.returning.note_line(id, &action.line().unwrap_or_default());
         if let Some(fleet) = self.fleet.clone() {
@@ -508,14 +518,16 @@ impl Service {
         entries.push(own_entry(&node, identity.clone()));
         let said = |row: &BoardRow| {
             let by_link = self.fleet.as_ref().and_then(|fleet| fleet.hello_of(row.seen.id));
-            let hello = by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned());
-            hello.map(|hello| Identity::of(hello.coin))
+            by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned())
         };
-        let answers: Vec<_> = rows.iter().map(said).collect();
+        let hellos: Vec<_> = rows.iter().map(said).collect();
+        let links: Vec<_> = hellos.iter().map(|hello| hello.as_ref().and_then(link_of)).collect();
+        let answers = hellos.into_iter().map(|hello| hello.map(|hello| Identity::of(hello.coin)));
+        let answers: Vec<_> = answers.collect();
         let mut known: Vec<_> = entries.iter().filter_map(|entry| entry.identity.clone()).collect();
         known.extend(answers.iter().flatten().cloned());
-        entries.extend(rows.iter().zip(answers).map(|(row, said)| {
-            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known))
+        entries.extend(rows.iter().zip(answers).zip(&links).map(|((row, said), link)| {
+            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), *link)
         }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;
@@ -528,9 +540,10 @@ impl Service {
         let brights = self.brights.lock().map(|known| known.clone()).unwrap_or_default();
         let boards = rows
             .into_iter()
-            .map(|row| BoardView {
+            .zip(links)
+            .map(|(row, link)| BoardView {
                 returning: is_returning(&row),
-                reach: reach_of_board(&row),
+                reach: reach_of_board(&row, link),
                 bright: brights.get(&row.seen.id).and_then(|told| told.bright),
                 answer: brights.get(&row.seen.id).and_then(|told| told.answer.clone()),
                 seen: row.seen,

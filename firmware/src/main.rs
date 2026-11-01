@@ -4,11 +4,13 @@
 #![no_main]
 extern crate alloc;
 
+mod ble;
 mod clock;
 mod commands;
 mod control;
 mod flash;
 mod hangul;
+mod links;
 mod node;
 mod pages;
 mod radio;
@@ -16,6 +18,7 @@ mod report;
 mod screen;
 mod store;
 mod thermo;
+mod uart;
 mod usb;
 mod views;
 mod wifi;
@@ -44,7 +47,7 @@ use node::Node;
 use olc_control::bootlog::Stage;
 use olc_core::{Chain, CoinConfig, Plugins};
 use olc_crypto::Signer;
-use olc_node::{Engine, Runner};
+use olc_node::{Engine, Rank, Runner};
 use olc_pow::ProofOfWork;
 use olc_wallet::{format_address, parse_address, Wallet};
 use radio::RadioLink;
@@ -147,6 +150,7 @@ async fn main(spawner: Spawner) -> ! {
     store.reach(Stage::Panel);
     let (espnow, wifi_link, network) =
         wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
+    let wired = uart::start(peripherals.UART1, peripherals.UART2, peripherals.GPIO17, peripherals.GPIO18);
 
     store.reach(Stage::Radio);
     rtc.rwdt.disable();
@@ -210,6 +214,21 @@ async fn main(spawner: Spawner) -> ! {
     let (usb, commands) = UsbLink::new(rx);
     runner.add_link(Box::new(usb));
     runner.add_link(Box::new(wifi_link));
+    runner.add_link(Box::new(wired));
+    // A board goes by its radio address, which nothing else has.
+    let mut id = [0u8; 8];
+    id[..6].copy_from_slice(&me);
+    runner.set_id(u64::from_le_bytes(id));
+    if settings.bluetooth == "on" {
+        let link = ble::start(spawner, peripherals.BT, runner.id(), me);
+        runner.add_link(Box::new(link));
+    }
+    if let Some(rank) = Rank::parse(&settings.links) {
+        runner.set_rank(rank);
+    }
+    if !settings.dial.is_empty() {
+        runner.add_address(node::LINK_WIFI, settings.dial.clone());
+    }
 
     let tip_seen = runner.engine.chain().tip();
     let limit = chosen_limit(&settings);

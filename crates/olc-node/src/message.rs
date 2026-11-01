@@ -2,7 +2,7 @@
 //! peer behind it asks for the blocks after its own position.
 use crate::hello::Hello;
 use alloc::vec::Vec;
-use olc_core::{Block, Hash, Tx};
+use olc_core::{Address, Block, BlockHeader, CoinProof, Hash, OutPoint, Tx};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +39,26 @@ pub enum Message {
         parts: u32,
         bytes: Vec<u8>,
     },
+    /// Asks for the headers after the newest of these the peer also has. Newest first.
+    GetHeaders(Vec<(u64, Hash)>),
+    /// The answer to [`Message::GetHeaders`], oldest first. Empty when the asker is up to date.
+    Headers(Vec<BlockHeader>),
+    /// Asks for the unspent coins of `address` after `after`, each with its Merkle branch.
+    GetCoins {
+        address: Address,
+        after: Option<OutPoint>,
+    },
+    /// One answer to [`Message::GetCoins`].
+    Coin(alloc::boxed::Box<CoinProof>),
+    /// Closes a page of coins. With `more`, ask again after `last`.
+    CoinsEnd {
+        address: Address,
+        last: Option<OutPoint>,
+        more: bool,
+    },
+    /// Said on every link every second and never passed on, so hearing it means that link
+    /// reaches this node. Holds the id it goes by, whichever link it is heard on.
+    Here(u64),
 }
 
 /// The height of each id in a request. Empty when an older build asked.

@@ -3,8 +3,9 @@
 //! genesis id is computed from it, so a node cannot pass one coin off as another.
 use alloc::string::String;
 use alloc::vec::Vec;
+use olc_core::coin::CoinAdded;
 use olc_core::{Address, CoinConfig, Hash};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Addresses to pass on in one answer, as in Bitcoin's addr message.
 pub const MAX_KNOWN: usize = 16;
@@ -22,9 +23,28 @@ pub struct Card {
     pub hashrate: u64,
     /// Other nodes it knows, as `host:port`.
     pub known: Vec<String>,
+    /// How the node that passed this on reaches this one, such as `bluetooth`.
+    pub via: Via,
+}
+
+/// Comes last, so older builds stop reading before it and answer without it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Via(pub String);
+
+impl<'de> Deserialize<'de> for Via {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        Ok(Self(String::deserialize(reader).unwrap_or_default()))
+    }
+}
+
+impl From<&str> for Via {
+    fn from(text: &str) -> Self {
+        Self(text.into())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "Spoken", into = "Spoken")]
 pub struct Hello {
     pub coin: CoinConfig,
     pub tip: Hash,
@@ -32,6 +52,33 @@ pub struct Hello {
     pub work: u128,
     pub address: Address,
     pub card: Card,
+}
+
+/// A hello as it goes over the wire: the fields older builds read, then what they skip.
+#[derive(Clone, Serialize, Deserialize)]
+struct Spoken {
+    coin: CoinConfig,
+    tip: Hash,
+    height: u64,
+    work: u128,
+    address: Address,
+    card: Card,
+    added: CoinAdded,
+}
+
+impl From<Spoken> for Hello {
+    fn from(spoken: Spoken) -> Self {
+        let Spoken { coin, tip, height, work, address, card, added } = spoken;
+        Self { coin: coin.with_added(added), tip, height, work, address, card }
+    }
+}
+
+impl From<Hello> for Spoken {
+    fn from(hello: Hello) -> Self {
+        let Hello { coin, tip, height, work, address, card } = hello;
+        let added = coin.added();
+        Self { coin, tip, height, work, address, card, added }
+    }
 }
 
 impl Hello {

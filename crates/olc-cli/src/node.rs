@@ -5,7 +5,7 @@ use olc_board::{autoupdate, carried, Args};
 use olc_core::{CoinConfig, Plugins};
 use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
-use olc_node::{Card, Engine, Event, Runner};
+use olc_node::{Card, Engine, Event, Medium, Rank, Runner};
 use olc_pow::ProofOfWork;
 use olc_store::{load_wallet, open_chain, NodeSettings};
 use olc_wallet::parse_address;
@@ -83,21 +83,28 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
 
     let engine = open_engine(&directory, coin)?;
     let mut runner = Runner::new(engine);
+    runner.set_id(fresh_id()?);
+    if let Some(rank) = chosen_rank(args, &directory)? {
+        runner.set_rank(rank);
+    }
     let tcp = TcpLink::new();
     let listen_on = if app.is_some() { host } else { "0.0.0.0" };
     tcp.listen(&format!("{listen_on}:{port}"))
         .map_err(|error| format!("port {port}: {error}"))?;
     runner.card = Card {
         device: "computer".into(),
+        name: args.value("name").unwrap_or_default().to_string(),
         build: env!("CARGO_PKG_VERSION").into(),
         port,
         known: args.values("connect"),
         ..Card::default()
     };
+    let tcp = runner.add_link(Box::new(tcp));
     for address in args.values("connect") {
-        tcp.connect(address);
+        runner.add_address(tcp, address);
     }
-    runner.add_link(Box::new(tcp));
+    add_bluetooth(args, &mut runner)?;
+    add_esp_now(args, &mut runner)?;
     if app.is_none() {
         for path in args.values("serial") {
             let link =
@@ -158,6 +165,58 @@ fn open_engine(directory: &Path, coin: CoinConfig) -> Result<Engine, String> {
     engine.set_note(settings.note.as_bytes());
     engine.set_merging(!settings.no_merge);
     Ok(engine)
+}
+
+/// Bluetooth, for a build that has it and a run that asked.
+#[cfg(feature = "ble")]
+fn add_bluetooth(args: &Args, runner: &mut Runner) -> Result<(), String> {
+    if args.has("ble") {
+        runner.add_link(Box::new(olc_link_ble::BleLink::start(runner.id())?));
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "ble"))]
+fn add_bluetooth(args: &Args, _runner: &mut Runner) -> Result<(), String> {
+    match args.has("ble") {
+        true => Err("this build has no Bluetooth".into()),
+        false => Ok(()),
+    }
+}
+
+/// ESP-NOW through a card in monitor mode, for a build that has it and a run that named one.
+#[cfg(feature = "espnow")]
+fn add_esp_now(args: &Args, runner: &mut Runner) -> Result<(), String> {
+    if let Some(card) = args.value("espnow") {
+        runner.add_link(Box::new(olc_link_espnow::EspNowCard::open(card, runner.mark())?));
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "espnow"))]
+fn add_esp_now(args: &Args, _runner: &mut Runner) -> Result<(), String> {
+    match args.value("espnow") {
+        Some(_) => Err("this build has no ESP-NOW".into()),
+        None => Ok(()),
+    }
+}
+
+/// What this run goes by on the links. Nothing about it needs to last.
+fn fresh_id() -> Result<u64, String> {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+/// The order of links: this run's flag, saved if given, then the saved choice.
+fn chosen_rank(args: &Args, directory: &Path) -> Result<Option<Rank>, String> {
+    let mut settings = NodeSettings::load(directory);
+    if let Some(text) = args.value("links") {
+        let rank = Rank::parse(text).ok_or("--links needs wired, espnow, bluetooth and wifi, each once")?;
+        settings.links = rank.text();
+        settings.save(directory)?;
+    }
+    Ok(Rank::parse(&settings.links))
 }
 
 /// The cap to start with: this run's flag, then the saved choice, then the relaxed default.
@@ -225,6 +284,7 @@ fn main_loop(shared: &Shared) {
                 app.pump(&mut runner);
             }
             record_events(shared, &mut runner.engine);
+            print_moves(&mut runner);
         }
         if elapsed_ms >= 1_000 {
             shared
@@ -243,6 +303,17 @@ fn main_loop(shared: &Shared) {
         } else {
             thread::sleep(IDLE_SLEEP);
         }
+    }
+}
+
+/// Traffic moving to another link is rare and worth a line in any log.
+fn print_moves(runner: &mut Runner) {
+    while let Some(moved) = runner.take_move() {
+        let name = |link: Option<usize>| {
+            let medium = link.and_then(|link| runner.medium_of(link));
+            medium.map_or("nothing", Medium::name)
+        };
+        println!("link {:x} {} -> {}", moved.peer, name(moved.from), name(moved.to));
     }
 }
 

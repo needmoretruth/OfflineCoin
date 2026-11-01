@@ -37,7 +37,6 @@ pub const PORT_TRIES: u16 = 10;
 /// A computer's node, relaxed.
 pub const RELAXED_CAP: u64 = 20_000;
 pub const BOARD_CAP: u64 = olc_control::defaults::BOARD_CAP as u64;
-pub const NEW_COIN_DIFFICULTY: u64 = 30_000;
 const FILE: &str = "core.json";
 const MAX_BOOK: usize = 64;
 

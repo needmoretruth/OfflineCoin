@@ -1,4 +1,5 @@
 //! Every number and choice the app starts from.
+use super::network::medium_text;
 use super::{Cx, Page};
 use crate::core::{Command, Personal};
 use crate::i18n::Lang;
@@ -131,6 +132,25 @@ impl SettingsPage {
                 cx.save();
             }
         });
+        Self::link_order(cx, ui);
+    }
+
+    fn link_order(cx: &Cx, ui: &mut Ui) {
+        let t = cx.t;
+        let rank = cx.snap.node.links;
+        ui.add_space(tokens::GAP);
+        section(ui, cx.say("settings.links"));
+        meta(ui, cx.say("settings.links_note"), t);
+        for (place, medium) in rank.0.into_iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(format!("{}. {}", place + 1, medium_text(cx, medium)));
+                if place > 0 && button(ui, t, cx.say("settings.link_up"), Kind::Plain).clicked() {
+                    let mut order = rank;
+                    order.0.swap(place, place - 1);
+                    cx.send(Command::SetLinks(order));
+                }
+            });
+        }
     }
 }
 

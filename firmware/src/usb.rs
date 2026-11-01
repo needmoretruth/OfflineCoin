@@ -11,7 +11,7 @@ use esp_hal::handler;
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtagRx;
 use esp_hal::Blocking;
 use esp_println::println;
-use olc_node::{Link, Target};
+use olc_node::{Link, Medium, Target};
 
 const MAX_LINE: usize = 20_000;
 
@@ -173,6 +173,10 @@ fn decode_hex(hex: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl Link for UsbLink {
+    fn medium(&self) -> Medium {
+        Medium::Wire
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         if !self.bridged || target == Target::AllExcept(0) {
             return;

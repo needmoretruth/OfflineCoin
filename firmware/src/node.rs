@@ -11,16 +11,14 @@ use crate::wifi::Network;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
-use core::sync::atomic::Ordering;
 use esp_hal::gpio::Input;
 use esp_hal::time::Instant;
 use esp_println::println;
 use olc_control::bootlog;
-use olc_core::coin::COIN;
 use olc_core::{CoinConfig, Hash};
 use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Event, Runner};
-use olc_wallet::{format_address, parse_address};
+use olc_wallet::format_address;
 
 /// The order links are added in, which is how peers are counted per link.
 pub const LINK_RADIO: usize = 0;
@@ -173,6 +171,7 @@ impl Node {
         }
         let now = device_ms();
         self.runner.step(now);
+        self.report_moves();
         self.serve_control(now);
         while let Some(line) = self.next_command() {
             self.run_command(&line);
@@ -442,9 +441,7 @@ impl Node {
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
-            (Some("espnow"), Some(state), _) => {
-                radio::ENABLED.store(state == "on", Ordering::Relaxed);
-            }
+            (Some("espnow" | "bluetooth" | "links" | "near" | "wires"), _, _) => self.run_links_command(line),
             (Some("pay"), Some(address), Some(amount)) => self.pay(address, amount),
             (Some("pool"), Some("clear"), _) => self.runner.engine.clear_pool(),
             (Some("tx"), Some(id), _) => self.print_tx(id),
@@ -502,24 +499,8 @@ impl Node {
         }
     }
 
-    fn pay(&mut self, address: &str, amount: &str) {
-        let units = amount
-            .parse::<f64>()
-            .map(|value| (value * COIN as f64) as u64);
-        let (Some(to), Ok(units)) = (parse_address(address), units) else {
-            self.say("error pay ADDRESS AMOUNT".into());
-            return;
-        };
-        let started = device_ms();
-        match self.runner.engine.pay(to, units, 0) {
-            Ok(id) => self.say(format!("paid {} in {}ms", hex(&id), device_ms() - started)),
-            Err(error) => self.say(format!("error {error:?}")),
-        }
-    }
-
-    /// Says where a transaction is: at a height on the best chain, waiting, or nowhere.
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
-    fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
+    pub fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
         self.save(change);
         self.restart_ms = Some(device_ms() + RESTART_DELAY_MS);
     }

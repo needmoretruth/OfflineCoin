@@ -56,6 +56,10 @@ pub struct Engine {
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
     /// and boards ask for the status many times a second, so it runs once per tip.
     balance: Cell<Option<(Hash, u64)>>,
+    /// Set when the owner chose to hold headers only.
+    pub(crate) light: Option<alloc::boxed::Box<crate::light::Light>>,
+    /// Addresses followed without a key.
+    pub(crate) watched: Vec<Address>,
 }
 
 impl Engine {
@@ -87,6 +91,8 @@ impl Engine {
             fetching: None,
             serving: None,
             balance: Cell::new(None),
+            light: None,
+            watched: Vec::new(),
         }
     }
 
@@ -146,12 +152,17 @@ impl Engine {
         self.peers.keys().copied()
     }
 
+    /// A peer turned out to be one already known by another id.
+    pub fn forget_peer(&mut self, peer: PeerId) {
+        self.peers.remove(&peer);
+    }
+
     pub fn address(&self) -> Address {
         self.wallet.address()
     }
 
     pub fn status(&self) -> Status {
-        Status {
+        self.light_status(Status {
             height: self.chain.height(),
             tip: self.chain.tip(),
             work: self.chain.total_work(),
@@ -163,7 +174,7 @@ impl Engine {
             needs_history: self.history.stuck(),
             assumed_from: self.chain.assumed_from(),
             fetching: self.fetching.as_ref().map(Fetching::progress),
-        }
+        })
     }
 
     fn balance(&self) -> u64 {
@@ -200,6 +211,9 @@ impl Engine {
     /// Announces the tip now and then, which is also how peers find each other.
     pub fn tick(&mut self, device_ms: u64) {
         self.now_ms = device_ms;
+        if self.light_tick(device_ms) {
+            return;
+        }
         self.peers
             .retain(|_, seen| device_ms.saturating_sub(*seen) < PEER_TIMEOUT_MS);
         let chain_ms = self.chain.tip_header().time_ms;
@@ -215,6 +229,9 @@ impl Engine {
     }
 
     pub fn on_message(&mut self, from: PeerId, message: Message) {
+        if self.light_heard(from, &message) {
+            return;
+        }
         self.peers.insert(from, self.now_ms);
         match message {
             Message::Tip {
@@ -274,7 +291,15 @@ impl Engine {
                 ..
             } => self.snapshot_part(from, sum, part, parts, bytes),
             Message::Block(block) => self.receive_block(from, block),
-            Message::Control(_) | Message::Who | Message::Hello(_) => {}
+            Message::GetHeaders(named) => self.serve_headers(from, &named),
+            Message::GetCoins { address, after } => self.serve_coins(from, address, after),
+            Message::Control(_)
+            | Message::Who
+            | Message::Hello(_)
+            | Message::Here(_)
+            | Message::Headers(_)
+            | Message::Coin(_)
+            | Message::CoinsEnd { .. } => {}
             Message::Tx(tx) => {
                 self.receive_tx(Some(from), tx);
             }
@@ -303,7 +328,7 @@ impl Engine {
 
     /// Runs up to `attempts` sealing attempts and adds the block if one succeeds.
     pub fn mine(&mut self, attempts: u32, device_ms: u64) -> bool {
-        if self.syncing_to().is_some() {
+        if self.light.is_some() || self.syncing_to().is_some() {
             return false;
         }
         self.refresh_candidate(device_ms);

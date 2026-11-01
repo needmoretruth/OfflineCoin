@@ -85,6 +85,12 @@ pub struct Settings {
     pub bright: String,
     /// `on` brings up the board's own network. Empty means down.
     pub own_network: String,
+    /// Processor speed in MHz. Empty means the default.
+    pub clock: String,
+    /// `on` starts Bluetooth. Empty means off.
+    pub bluetooth: String,
+    /// The order links are preferred in. Empty means the usual one.
+    pub links: String,
     /// Where mined coins go. Empty means this board's own key.
     pub miner: String,
     /// Words to put in each mined block, as hex.
@@ -93,8 +99,6 @@ pub struct Settings {
     pub recent: String,
     /// "off" stops the wallet merging small coins.
     pub merge: String,
-    /// Processor speed in MHz. Empty means the default.
-    pub clock: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -172,6 +176,7 @@ impl Store {
     pub fn begin_boot(&mut self, reason: u8) {
         COUNTER.adopt(&mut Nor);
         SETTINGS.adopt(&mut Nor);
+        CHOICES.adopt(&mut Nor);
         let same = BOOT_LOG.newest(&mut Nor).filter(|at| {
             let mut bytes = [0u8; 4];
             flash::read(*at, &mut bytes) && word(&bytes) == bootlog::word(reason, Stage::Started)
@@ -225,17 +230,19 @@ impl Store {
             power: lines.next().unwrap_or_default(),
             bright: lines.next().unwrap_or_default(),
             own_network: lines.next().unwrap_or_default(),
+            clock: lines.next().unwrap_or_default(),
+            bluetooth: lines.next().unwrap_or_default(),
+            links: lines.next().unwrap_or_default(),
             miner: choice.next().unwrap_or_default(),
             note: choice.next().unwrap_or_default(),
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
-            clock: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -248,6 +255,8 @@ impl Store {
             settings.bright,
             settings.own_network,
             settings.clock,
+            settings.bluetooth,
+            settings.links,
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(
@@ -407,11 +416,11 @@ impl Store {
 
     /// The coin this board runs, when it was told one.
     pub fn coin(&mut self) -> Option<CoinConfig> {
-        read_slot(COIN_SLOTS).and_then(|bytes| postcard::from_bytes(&bytes).ok())
+        read_slot(COIN_SLOTS).and_then(|bytes| CoinConfig::from_bytes(&bytes))
     }
 
     pub fn save_coin(&mut self, coin: &CoinConfig) -> bool {
-        postcard::to_allocvec(coin).is_ok_and(|bytes| write_slot(COIN_SLOTS, &bytes))
+        write_slot(COIN_SLOTS, &coin.to_bytes())
     }
 
     fn old_meta(&mut self) -> Option<[u8; META_LEN]> {
