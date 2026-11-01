@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const OUTSIDE: [&str; 4] = ["olc-lab", "olc-cli", "olc-pool", "olc-app"];
+const OUTSIDE: [&str; 5] = ["olc-lab", "olc-cli", "olc-pool", "olc-app", "olc-service"];
 const OWN_NAMES: [&str; 2] = ["olc-lab", "olc-pool"];
 /// Pool as a kind of mining. A waiting pool of payments is another thing and stays allowed.
 const POOL_WORDS: [&str; 5] = [

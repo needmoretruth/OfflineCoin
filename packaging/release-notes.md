@@ -1,4 +1,4 @@
-Download the file for your computer and open it. Plug in a board and the app finds it.
+Download the file for your computer and open it. Plug in a board and the app finds it. The files named `OLC-Core` are the app. The files named `olc` are the same core for a terminal, with no window.
 
 **Windows.** These builds are not signed. Windows shows "Windows protected your PC". Choose More info, then Run anyway.
 

@@ -1,11 +1,13 @@
 //! The shape of the workspace, checked: the core knows no window, and only the platform crate's
 //! per-system files know which system this is.
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// These crates do the work, and a window is no part of it.
-const NO_WINDOW_HERE: [&str; 9] = [
+const NO_WINDOW_HERE: [&str; 10] = [
     "olc-board",
+    "olc-cli",
     "olc-link-serial",
     "olc-link-tcp",
     "olc-node",
@@ -16,6 +18,11 @@ const NO_WINDOW_HERE: [&str; 9] = [
     "olc-wallet",
 ];
 const WINDOW_CRATES: [&str; 4] = ["eframe", "egui", "wgpu", "olc-app"];
+
+/// The terminal product. Nothing it pulls in, however far down, may draw.
+const TERMINAL_CRATE: &str = "olc-cli";
+const DRAWING_PACKAGES: [&str; 7] =
+    ["eframe", "egui", "wgpu", "winit", "glow", "olc-app", "image"];
 
 /// The only files that may name a system.
 const PLATFORM_FILES: [&str; 6] =
@@ -107,4 +114,39 @@ fn the_check_sees_what_it_is_for() {
     assert_eq!(system_words_in("let a = \"/proc/1/stat\";"), ["\"/proc"]);
     assert_eq!(system_words_in("#[cfg(windows)]"), ["cfg(windows"]);
     assert!(system_words_in("let a = 1;").is_empty());
+}
+
+/// `[[package]]` entries of the lockfile: each name with what it depends on.
+fn locked_packages() -> BTreeMap<String, Vec<String>> {
+    let lock = fs::read_to_string(crates_folder().parent().unwrap().join("Cargo.lock")).unwrap();
+    let mut packages = BTreeMap::new();
+    for block in lock.split("[[package]]").skip(1) {
+        let name = block.lines().find_map(|line| line.strip_prefix("name = "));
+        let name = name.unwrap().trim_matches('"').to_string();
+        let list = block.split("dependencies = [").nth(1).and_then(|rest| rest.split(']').next());
+        let words = list.unwrap_or("").lines().map(|line| line.trim().trim_matches([',', '"']));
+        let depends = words
+            .filter_map(|line| line.split(' ').next())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect();
+        packages.insert(name, depends);
+    }
+    packages
+}
+
+#[test]
+fn the_terminal_program_pulls_in_nothing_that_draws() {
+    let packages = locked_packages();
+    let mut seen = BTreeSet::new();
+    let mut waiting = vec![TERMINAL_CRATE.to_string()];
+    while let Some(name) = waiting.pop() {
+        if seen.insert(name.clone()) {
+            waiting.extend(packages.get(&name).into_iter().flatten().cloned());
+        }
+    }
+    assert!(seen.contains("olc-service"), "the terminal program lost the core");
+    for drawing in DRAWING_PACKAGES {
+        assert!(!seen.contains(drawing), "{TERMINAL_CRATE} pulls in {drawing}");
+    }
 }

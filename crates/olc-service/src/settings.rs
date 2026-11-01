@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// How much the screens say. Basic is the app. Expert shows more where the words differ.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mode {
+    #[default]
+    Basic,
+    Expert,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Lang {
     #[default]
@@ -48,16 +56,16 @@ pub enum Device {
     Esp32,
     RaspberryPi,
     ThisComputer,
-    ComputerAndPhone,
+    /// A first screen once offered a phone as well, and old settings still say so.
+    #[serde(alias = "ComputerAndPhone")]
     TwoComputers,
 }
 
 impl Device {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 4] = [
         Self::Esp32,
         Self::RaspberryPi,
         Self::ThisComputer,
-        Self::ComputerAndPhone,
         Self::TwoComputers,
     ];
 }
@@ -87,7 +95,7 @@ impl Device {
                 listen_lan: false,
                 ..standard
             },
-            Self::Esp32 | Self::RaspberryPi | Self::ComputerAndPhone | Self::TwoComputers => {
+            Self::Esp32 | Self::RaspberryPi | Self::TwoComputers => {
                 standard
             }
         }
@@ -98,6 +106,8 @@ impl Device {
 #[serde(default)]
 pub struct Settings {
     pub language: Lang,
+    #[serde(default)]
+    pub mode: Mode,
     pub theme: Theme,
     pub reduce_motion: bool,
     pub setup_done: bool,
@@ -137,6 +147,7 @@ impl Default for Settings {
         let defaults = Device::default().defaults();
         Self {
             language: Lang::En,
+            mode: Mode::Basic,
             theme: Theme::System,
             reduce_motion: false,
             setup_done: false,

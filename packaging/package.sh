@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Puts one release file into dist/. Usage: package.sh <rust target> <version>
-# The program and the flashing tool must already be built for that target.
+# Puts the release files of one system into dist/: the app, and the terminal program apart from it.
+# Usage: package.sh <rust target> <version>
+# Both programs and the flashing tool must already be built for that target.
 set -euo pipefail
 
 target=$1
@@ -58,10 +59,26 @@ mac() {
   ditto -c -k --keepParent "$app" "$dist/$name.zip"
 }
 
+# The terminal program: one file beside the flashing tool, and no window in it.
+terminal() {
+  local name=olc-$version-$1
+  local top=$stage/$name
+  mkdir -p "$top"
+  if [ "$1" = windows-x86_64 ]; then
+    cp "$built/olc.exe" "$tool" "$top/"
+    (cd "$stage" && powershell -NoProfile -Command \
+      "Compress-Archive -Path '$name' -DestinationPath '$name.zip'")
+    mv "$stage/$name.zip" "$dist/"
+  else
+    cp "$built/olc" "$tool" "$top/"
+    tar -C "$stage" -czf "$dist/$name.tar.gz" "$name"
+  fi
+}
+
 case $target in
-  x86_64-unknown-linux-gnu) linux ;;
-  x86_64-pc-windows-msvc) windows ;;
-  aarch64-apple-darwin) mac apple-silicon ;;
-  x86_64-apple-darwin) mac intel ;;
+  x86_64-unknown-linux-gnu) linux; terminal linux-x86_64 ;;
+  x86_64-pc-windows-msvc) windows; terminal windows-x86_64 ;;
+  aarch64-apple-darwin) mac apple-silicon; terminal macos-apple-silicon ;;
+  x86_64-apple-darwin) mac intel; terminal macos-intel ;;
   *) echo "No package for $target" >&2; exit 1 ;;
 esac

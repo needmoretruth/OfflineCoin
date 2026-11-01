@@ -1,7 +1,7 @@
 //! The window: it holds the pages, reads a snapshot of the core, and sends commands back.
 use crate::core::{Command, Core, CoreLaunch, Snapshot};
 use crate::fleet::{FleetPort, RealFleet};
-use crate::i18n::Lang;
+use crate::i18n::Voice;
 use crate::instance::{claim, Instance};
 use crate::pages::setup::Setup;
 use crate::pages::{all, Cx, Page};
@@ -93,7 +93,7 @@ impl App {
         self.core.send(Command::Save(Box::new(self.settings.clone())));
     }
 
-    fn show_notice(&mut self, ui: &mut Ui, t: &Tokens, lang: Lang, snap: &Snapshot) {
+    fn show_notice(&mut self, ui: &mut Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
         let Some(notice) = &snap.notice else {
             return;
         };
@@ -104,7 +104,7 @@ impl App {
         };
         self.notice_until = Some((notice.number, until));
         if now < until {
-            shell::notice_bar(ui, t, lang, notice);
+            shell::notice_bar(ui, t, voice, notice);
             ui.ctx().request_repaint_after_secs((until - now) as f32);
         }
     }
@@ -145,23 +145,23 @@ impl App {
         self.theme(&ctx);
         self.raised(&ctx);
         let t = self.tokens;
-        let lang = self.settings.language;
+        let voice = Voice { lang: self.settings.language, mode: self.settings.mode };
         let snap: Arc<Snapshot> = self.core.snapshot();
         shell::paint_back(ui, &t);
         let look = shell::HeaderLook {
             still: self.settings.reduce_motion || desktop_reduces_motion(),
             strip: self.settings.setup_done,
         };
-        let head = shell::header(ui, &t, lang, &snap, &mut self.logo, &look);
+        let head = shell::header(ui, &t, voice, &snap, &mut self.logo, &look);
         if head.language_clicked {
             self.language();
         }
         if self.settings.setup_done {
-            if let Some(page) = shell::side_bar(ui, &t, lang, &self.pages, self.current) {
+            if let Some(page) = shell::side_bar(ui, &t, voice, &self.pages, self.current) {
                 self.current = page;
             }
         }
-        self.show_notice(ui, &t, lang, &snap);
+        self.show_notice(ui, &t, voice, &snap);
         self.pages_view(ui, &snap);
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
         ctx.request_repaint_after(if focused { REPAINT_FOCUSED } else { REPAINT_AWAY });

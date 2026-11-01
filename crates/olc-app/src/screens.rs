@@ -4,6 +4,7 @@
 use crate::app::App;
 use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Host, Plan, Snapshot};
 use crate::discovery::Entry;
+use crate::core::Book;
 use crate::i18n::Lang;
 use crate::local::{is_running, NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
@@ -94,9 +95,7 @@ fn the_first_run_offers_every_device() {
     for name in ["ESP32 boards", "Raspberry Pi", "Several nodes on this computer"] {
         assert!(harness.query_by_label(name).is_some(), "{name}");
     }
-    for name in ["Computer and phone", "Computer and computer"] {
-        assert!(harness.query_by_label(name).is_some(), "{name}");
-    }
+    assert!(harness.query_by_label("Computer and computer").is_some());
 }
 
 /// The program node processes run, built beside the tests.

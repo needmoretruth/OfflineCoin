@@ -1,7 +1,10 @@
 //! The work behind the window. The screen reads one [`Snapshot`] and sends [`Command`]s, so a slow
 //! board or a busy miner can never freeze it.
 mod board_action;
+mod folder;
 mod board_lines;
+mod terminal;
+mod words;
 mod coins;
 mod commands;
 mod explorer;
@@ -18,6 +21,10 @@ mod service;
 mod snapshot;
 
 pub use board_action::BoardAction;
+pub use folder::Folder;
+pub use terminal::Terminal;
+pub use words::{run_line, run_words, usage, Desk, Word, WORDS};
+pub use ops::Book;
 pub use olc_store::coin_file::{new_coin, NewCoin};
 pub use commands::{Command, Personal, StartCoin};
 pub use explorer::{Explored, TxRow};

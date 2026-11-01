@@ -2553,6 +2553,7 @@ dependencies = [
  "olc-node",
  "olc-platform",
  "olc-pow",
+ "olc-service",
  "olc-store",
  "olc-wallet",
  "serde_json",

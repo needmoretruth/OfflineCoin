@@ -5,6 +5,7 @@ use super::coins::{
     save_coin, write_coin_file,
 };
 use super::board_action::BoardAction;
+use olc_store::coin_file::new_coin;
 use super::board_lines::{read_bright, run_action, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
@@ -246,6 +247,12 @@ impl Service {
                 let _ = platform().open_folder(&self.paths.root);
             }
             Command::Board { id, action } => self.board_action(id, action),
+            Command::NewCoinFile { choices, path } => {
+                match write_coin_file(&new_coin(choices), &path) {
+                    Ok(()) => self.say("notice.coin_saved", path, true),
+                    Err(detail) => self.say("notice.coin_file", detail, false),
+                }
+            }
             Command::JoinCoinFile(path) => match read_coin_file(&path) {
                 Ok(coin) => self.join(coin, None),
                 Err(detail) => self.say("notice.coin_file", detail, false),

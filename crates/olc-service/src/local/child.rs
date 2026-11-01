@@ -1,6 +1,7 @@
 //! The node process: the same host the app runs, with no window. It takes one command per line on
 //! its input, prints its status as one JSON line a second, and ends when its input closes, so no
 //! node outlives the app that started it.
+use crate::core::Book;
 use super::supervisor::ChildStatus;
 use crate::core::{parse_coins, Host, Plan};
 use crate::settings::PORT_TRIES;

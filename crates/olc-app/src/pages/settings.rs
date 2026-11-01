@@ -17,7 +17,6 @@ pub fn device_name(device: Device) -> &'static str {
         Device::Esp32 => "setup.esp32",
         Device::RaspberryPi => "setup.pi",
         Device::ThisComputer => "setup.this_computer",
-        Device::ComputerAndPhone => "setup.computer_phone",
         Device::TwoComputers => "setup.two_computers",
     }
 }

@@ -91,7 +91,7 @@ fn row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, identity: Option<
             }
         }
         1 => {
-            let device = format::device(cx.lang, &entry.device);
+            let device = format::device(cx.voice(), &entry.device);
             let text = if entry.name.is_empty() {
                 device
             } else {

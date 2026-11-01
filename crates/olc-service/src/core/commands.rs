@@ -5,6 +5,7 @@ use crate::settings::Settings;
 use olc_board::Args;
 use olc_control::BoardId;
 use olc_core::CoinConfig;
+use olc_store::coin_file::NewCoin;
 
 /// Which coin the first screen settled on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub enum StartCoin {
 /// What a person changes on this app's own node.
 pub enum Personal {
     NewKey,
+    ListKeys,
     ImportKey(String),
     UseKey(usize),
     ExportKey {
@@ -65,6 +67,11 @@ pub enum Command {
     Board {
         id: BoardId,
         action: BoardAction,
+    },
+    /// Writes a new coin to a file, for this node or someone else's to start from.
+    NewCoinFile {
+        choices: NewCoin,
+        path: String,
     },
     /// Joins the coin a file describes.
     JoinCoinFile(String),

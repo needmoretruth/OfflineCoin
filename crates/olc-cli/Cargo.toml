@@ -23,6 +23,7 @@ olc-link-serial.workspace = true
 olc-logo.workspace = true
 olc-board.workspace = true
 olc-control.workspace = true
+olc-service.workspace = true
 olc-lab.workspace = true
 olc-store.workspace = true
 serde_json.workspace = true

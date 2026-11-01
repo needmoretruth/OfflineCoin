@@ -69,6 +69,8 @@ jobs:
           path: ${{ env.FIRMWARE }}
       - name: Build the app, carrying the firmware
         run: cargo build --release --locked -p olc-app --bin olc-core --target "${{ matrix.target }}"
+      - name: Build the terminal program, carrying the firmware
+        run: cargo build --release --locked -p olc-cli --bin olc --target "${{ matrix.target }}"
       - name: Build the flashing tool
         run: cargo install espflash --locked --version "$ESPFLASH_VERSION" --target "${{ matrix.target }}"
       - name: Package

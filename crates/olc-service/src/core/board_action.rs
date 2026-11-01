@@ -133,6 +133,73 @@ impl BoardAction {
         })
     }
 
+    /// Reads what `line` writes, so a typed line and a button are one action.
+    pub fn parse(words: &[&str]) -> Option<Self> {
+        let number = |word: &str| word.parse().ok();
+        let on = |word: &str| match word {
+            "on" => Some(true),
+            "off" => Some(false),
+            _ => None,
+        };
+        let name = |word: &&str| word.to_string();
+        let rest = |from: usize| words[from..].join(" ");
+        Some(match words {
+            ["status"] => Self::Status,
+            ["boots"] => Self::RecentStarts,
+            ["screen"] => Self::ReadScreen,
+            ["keys"] => Self::ReadKeys,
+            ["coin"] => Self::ReadCoin,
+            ["tx", id] => Self::ReadPayment(name(id)),
+            ["work", "shares"] => Self::ReadShares,
+            ["work", "stop"] => Self::StopWork,
+            ["mine", word] => Self::Mine(on(word)?),
+            ["limit", "default"] => Self::DefaultCap,
+            ["limit", cap] => Self::Cap(number(cap)?),
+            ["offline", word] => Self::Offline(on(word)?),
+            ["full", word] => Self::FullSpeed(on(word)?),
+            ["clock", mhz] => Self::Clock(mhz.parse().ok()?),
+            ["network", word] => Self::OwnNetwork(on(word)?),
+            ["wifi", "off"] => Self::WifiOff,
+            ["wifi", wifi] => Self::Wifi { name: name(wifi), password: String::new() },
+            ["wifi", wifi, password] => Self::Wifi { name: name(wifi), password: name(password) },
+            ["dial", "off"] => Self::DialOff,
+            ["dial", target] => Self::Dial(name(target)),
+            ["espnow", word] => Self::EspNow(on(word)?),
+            ["power", dbm] => Self::RadioPower(dbm.parse().ok()?),
+            ["ignore", "none"] => Self::HearEveryone,
+            ["ignore", peer] => Self::Ignore(name(peer)),
+            ["view", view] => Self::View(name(view)),
+            ["lang", language] => Self::Language(name(language)),
+            ["smooth", frames] => Self::Smooth(number(frames)?),
+            ["bright", level] => Self::Bright(number(level)?),
+            ["logo"] => Self::ShowLogo,
+            ["name", board] => Self::Name(name(board)),
+            ["trust", key] => Self::Trust(name(key)),
+            ["pay", to, amount] => Self::Pay { to: name(to), amount: name(amount) },
+            ["pool", "clear"] => Self::ClearWaitingPayments,
+            ["mineto", "own"] => Self::MineToOwnKey,
+            ["mineto", address] => Self::MineTo(name(address)),
+            ["key", "new"] => Self::NewKey,
+            ["key", "use", index] => Self::UseKey(index.parse().ok()?),
+            ["key", "import", secret] => Self::ImportKey(name(secret)),
+            ["key", "export", index] => Self::ExportKey(index.parse().ok()?),
+            ["keep", "all"] => Self::Keep(None),
+            ["keep", blocks] => Self::Keep(Some(number(blocks)?)),
+            ["merge", word] => Self::Merge(on(word)?),
+            ["minenote", "off"] => Self::MineNoteOff,
+            ["note", _, ..] => Self::Note(rest(1)),
+            ["minenote", _, ..] => Self::MineNote(rest(1)),
+            ["snapshot", "accept"] => Self::AcceptSnapshot,
+            ["coin", "default"] => Self::DefaultCoin,
+            ["coin", "confirm"] => Self::ConfirmCoin,
+            ["coin", text] => Self::MoveToCoin(name(text)),
+            ["work", header, difficulty] => {
+                Self::TakeWork { header: name(header), difficulty: name(difficulty) }
+            }
+            _ => return None,
+        })
+    }
+
     /// A board takes these only over its cable, so no radio line can touch a key or a network.
     pub fn needs_cable(&self) -> bool {
         matches!(
@@ -240,6 +307,8 @@ mod tests {
         for action in actions {
             let line = action.line().unwrap();
             assert_eq!(action.needs_cable(), !allowed_remotely(&line), "{line}");
+            let words: Vec<&str> = line.split(' ').collect();
+            assert_eq!(BoardAction::parse(&words).as_ref(), Some(&action), "{line}");
         }
     }
 }
