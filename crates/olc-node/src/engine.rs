@@ -146,6 +146,11 @@ impl Engine {
         self.peers.keys().copied()
     }
 
+    /// A peer turned out to be one already known by another id.
+    pub fn forget_peer(&mut self, peer: PeerId) {
+        self.peers.remove(&peer);
+    }
+
     pub fn address(&self) -> Address {
         self.wallet.address()
     }
@@ -274,7 +279,7 @@ impl Engine {
                 ..
             } => self.snapshot_part(from, sum, part, parts, bytes),
             Message::Block(block) => self.receive_block(from, block),
-            Message::Control(_) | Message::Who | Message::Hello(_) => {}
+            Message::Control(_) | Message::Who | Message::Hello(_) | Message::Here(_) => {}
             Message::Tx(tx) => {
                 self.receive_tx(Some(from), tx);
             }
