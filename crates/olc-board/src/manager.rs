@@ -430,7 +430,10 @@ impl Manager {
                     .any(|seen| seen.id == board && seen.silent_for < Duration::from_secs(3))
             });
             if back.unwrap_or(false) {
-                command(&self.fleet, board, "status")?;
+                let answer = command(&self.fleet, board, "status")?;
+                if !answer.is_some_and(|line| line.starts_with("status")) {
+                    return Err("The board does not take orders any more.".to_string());
+                }
                 return ledger.landed(&delivery);
             }
             thread::sleep(Duration::from_millis(500));

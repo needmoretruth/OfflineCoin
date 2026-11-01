@@ -17,6 +17,7 @@ const RESTORE_TRIES: u32 = 4;
 struct Plan {
     amount: String,
     confirmations: u64,
+    /// The victim's cap, or 0 for half of what the attacker's board really does.
     victim_limit: u64,
     journal: Journal,
     timeout: Duration,
@@ -33,7 +34,7 @@ impl Plan {
         Ok(Self {
             amount,
             confirmations: args.number("confirmations", 2)?,
-            victim_limit: args.number("victim-limit", 5_000)?,
+            victim_limit: args.number("victim-limit", 0)?,
             journal: Journal::standard()?,
             timeout: Duration::from_secs(args.number("timeout", 1800)?),
             poll: Duration::from_secs(2),
@@ -213,8 +214,14 @@ impl Race<'_> {
             board.set_mining(true)?;
             board.set_offline(false)?;
         }
-        self.victim.set_limit(self.plan.victim_limit)?;
         // The first second after a cap changes still counts the old rate.
+        self.pause()?;
+        self.pause()?;
+        let cap = match self.plan.victim_limit {
+            0 => (self.attacker.status()?.hashrate / 2).max(1),
+            chosen => chosen,
+        };
+        self.victim.set_limit(cap)?;
         self.pause()?;
         self.pause()?;
         let (mut attacker, mut victim) = (0, 0);

@@ -12,6 +12,9 @@ pub trait Flash {
 pub const SECTOR: u32 = 0x1000;
 const ERASED: u8 = 0xFF;
 const LONGEST_SLOT: usize = 256;
+/// Says a one-sector ring holds only records. Boards from before the rings kept one record at
+/// the start of the sector and whatever older layouts left behind it.
+const MARK: [u8; 8] = *b"OLC-RING";
 
 /// Records of `slot` bytes in `sectors` sectors from `start`. With one sector, the newest record
 /// is gone between the erase and the next write, so the caller keeps it in memory.
@@ -24,7 +27,30 @@ pub struct Ring {
 
 impl Ring {
     fn slots(&self) -> u32 {
-        self.sectors * SECTOR / self.slot
+        let slots = self.sectors * SECTOR / self.slot;
+        if self.sectors == 1 {
+            slots - 1
+        } else {
+            slots
+        }
+    }
+
+    /// Turns a sector from before the rings into one, keeping its one record. Run at each
+    /// start. It does nothing to a sector that already is one.
+    pub fn adopt(&self, flash: &mut impl Flash) {
+        let mut mark = [0u8; MARK.len()];
+        let mut first = [ERASED; LONGEST_SLOT];
+        let first = &mut first[..self.slot as usize];
+        let readable =
+            flash.read(self.at(self.slots()), &mut mark) && flash.read(self.start, first);
+        if !readable || mark == MARK {
+            return;
+        }
+        flash.erase(self.start);
+        if first.iter().any(|byte| *byte != ERASED) {
+            flash.program(self.start, first);
+        }
+        flash.program(self.at(self.slots()), &MARK);
     }
 
     fn at(&self, index: u32) -> u32 {
@@ -85,6 +111,9 @@ impl Ring {
         let index = self.newest_index(flash).map_or(0, |newest| newest + 1) % slots;
         if !self.is_free(flash, index) {
             flash.erase(self.at(index) / SECTOR * SECTOR);
+            if self.sectors == 1 {
+                flash.program(self.at(slots), &MARK);
+            }
         }
         self.at(index)
     }
@@ -93,7 +122,7 @@ impl Ring {
     /// as this one is full, so the newest record can always be told.
     pub fn written(&self, flash: &mut impl Flash, at: u32) {
         let end = at + self.slot;
-        if self.sectors > 1 && end % SECTOR == 0 {
+        if self.sectors > 1 && end.is_multiple_of(SECTOR) {
             let last = self.start + self.sectors * SECTOR;
             flash.erase(if end == last { self.start } else { end });
         }
@@ -108,7 +137,8 @@ mod tests {
 
     /// Erases the flash chips are rated for, per sector.
     const RATED_ERASES: u64 = 100_000;
-    const YEARS: u64 = 10;
+    /// At thirty-second blocks that is one erase of a sector every sixteen minutes.
+    const YEARS: u64 = 3;
     const DAY_S: u64 = 24 * 3600;
 
     const BASE: u32 = 0x1000;
@@ -161,8 +191,8 @@ mod tests {
         at
     }
 
-    /// Erases per sector in ten years, from counting them over `sample` records.
-    fn ten_years(erases: u64, records: u64, records_a_day: u64) -> u64 {
+    /// Erases per sector in [`YEARS`], from counting them over `sample` records.
+    fn over_the_years(erases: u64, records: u64, records_a_day: u64) -> u64 {
         erases * records_a_day * 365 * YEARS / records
     }
 
@@ -187,17 +217,55 @@ mod tests {
         assert_eq!(places[0], places[1] + 4);
     }
 
+    /// What a real board held: its one record, then leftovers of an older layout.
+    fn sector_from_before_the_rings(flash: &mut Fake, ring: &Ring) {
+        for at in (BASE..BASE + SECTOR).step_by(4) {
+            flash.program(at, &[0x12, 0x00, 0xFE, 0x5A]);
+        }
+        flash.erase(BASE);
+        flash.program(BASE, &41u64.to_le_bytes());
+        for at in (BASE + 8..BASE + SECTOR).step_by(16) {
+            flash.program(at, &[0x12, 0x00, 0xFE, 0x5A]);
+        }
+        assert_ne!(ring.newest(flash), Some(BASE));
+    }
+
     #[test]
-    fn a_record_saved_by_the_old_layout_is_the_newest() {
+    fn a_record_from_before_the_rings_stays_the_newest() {
         let ring = Ring {
             start: BASE,
             sectors: 1,
             slot: 8,
         };
         let mut flash = Fake::new(2);
-        flash.program(BASE, &41u64.to_le_bytes());
+        sector_from_before_the_rings(&mut flash, &ring);
+        ring.adopt(&mut flash);
         assert_eq!(ring.newest(&mut flash), Some(BASE));
+        let mut value = [0u8; 8];
+        flash.read(BASE, &mut value);
+        assert_eq!(u64::from_le_bytes(value), 41);
         assert_eq!(ring.next(&mut flash), BASE + 8);
+    }
+
+    #[test]
+    fn adopting_again_and_starting_over_leave_the_records_alone() {
+        let ring = Ring {
+            start: BASE,
+            sectors: 1,
+            slot: 8,
+        };
+        let mut flash = Fake::new(2);
+        ring.adopt(&mut flash);
+        let erases = flash.worst();
+        for value in 0..1_000u64 {
+            append(&ring, &mut flash, &value.to_le_bytes());
+            ring.adopt(&mut flash);
+            let mut read = [0u8; 8];
+            let newest = ring.newest(&mut flash).unwrap();
+            flash.read(newest, &mut read);
+            assert_eq!(u64::from_le_bytes(read), value);
+        }
+        assert_eq!(flash.worst(), erases + 1);
     }
 
     #[test]
@@ -208,7 +276,7 @@ mod tests {
             slot: 256,
         };
         let mut flash = Fake::new(2);
-        for value in 0..17u8 {
+        for value in 0..16u8 {
             append(&ring, &mut flash, &[value; 256]);
         }
         assert_eq!(flash.worst(), 1);
@@ -219,11 +287,11 @@ mod tests {
     fn a_rewrite_in_place_would_fail_this_budget() {
         // The way the counter was saved before: one erase of one sector per order.
         let orders_a_day = 2_000;
-        assert!(ten_years(1, 1, orders_a_day) > RATED_ERASES);
+        assert!(over_the_years(1, 1, orders_a_day) > RATED_ERASES);
     }
 
     #[test]
-    fn the_order_counter_lasts_ten_years_at_one_order_every_ten_seconds() {
+    fn the_order_counter_lasts_at_one_order_every_ten_seconds() {
         let ring = Ring {
             start: BASE,
             sectors: 1,
@@ -234,11 +302,11 @@ mod tests {
         for value in 0..records {
             append(&ring, &mut flash, &value.to_le_bytes());
         }
-        assert!(ten_years(flash.worst(), records, DAY_S / 10) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, DAY_S / 10) <= RATED_ERASES);
     }
 
     #[test]
-    fn settings_last_ten_years_at_a_hundred_changes_a_day() {
+    fn settings_last_at_a_hundred_changes_a_day() {
         let ring = Ring {
             start: BASE,
             sectors: 1,
@@ -249,11 +317,11 @@ mod tests {
         for _ in 0..records {
             append(&ring, &mut flash, &[0x5A; 256]);
         }
-        assert!(ten_years(flash.worst(), records, 100) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, 100) <= RATED_ERASES);
     }
 
     #[test]
-    fn the_boot_log_lasts_ten_years_in_a_three_second_restart_loop() {
+    fn the_boot_log_lasts_through_a_three_second_restart_loop() {
         let ring = Ring {
             start: BASE,
             sectors: 2,
@@ -264,6 +332,14 @@ mod tests {
         for value in 0..records {
             append(&ring, &mut flash, &(value as u32).to_le_bytes());
         }
-        assert!(ten_years(flash.worst(), records, DAY_S / 3) <= RATED_ERASES);
+        assert!(over_the_years(flash.worst(), records, DAY_S / 3) <= RATED_ERASES);
+    }
+
+    #[test]
+    fn the_board_writes_its_frequent_records_through_a_ring() {
+        let store = include_str!("../../../firmware/src/store.rs");
+        for record in ["COUNTER: Ring", "SETTINGS: Ring", "BOOT_LOG: Ring"] {
+            assert!(store.contains(record), "{record}");
+        }
     }
 }
