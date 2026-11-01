@@ -23,19 +23,18 @@ pub struct Network {
 fn history_card(ui: &mut Ui, cx: &Cx) {
     let t = cx.t;
     let node = &cx.snap.node;
-    if let Some(peer) = node.assumed_from {
-        meta(ui, &cx.fill("history.assumed", &[&peer.to_string()]), t);
+    if node.assumed_from.is_some() {
+        meta(ui, cx.say("history.assumed"), t);
     }
     if let Some((got, parts)) = node.fetching {
         meta(ui, &cx.fill("history.fetching", &[&got.to_string(), &parts.to_string()]), t);
     }
-    let Some((peer, height)) = node.needs_history.filter(|_| node.fetching.is_none()) else {
+    let Some((_, oldest)) = node.needs_history.filter(|_| node.fetching.is_none()) else {
         return;
     };
     card(ui, t, |ui| {
         section(ui, cx.say("history.title"));
-        let words = [peer.to_string(), format::number(height.into())];
-        ui.label(cx.fill("history.body", &[&words[0], &words[1]]));
+        ui.label(cx.fill("history.body", &[&format::number(oldest.into())]));
         ui.label(cx.say("history.trust"));
         if button(ui, t, cx.say("history.accept"), Kind::Main).clicked() {
             cx.send(Command::Own(Personal::AcceptSnapshot));

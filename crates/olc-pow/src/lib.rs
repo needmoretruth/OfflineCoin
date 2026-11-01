@@ -28,14 +28,15 @@ impl Consensus for ProofOfWork {
         u128::from(header.difficulty)
     }
 
-    /// Bitcoin's retarget: scale by how far off the window was, limited to a factor of four.
+    /// Bitcoin's retarget: scale by how far off the window was, limited to a factor of four and
+    /// never below the coin's floor.
     fn next_difficulty(&self, input: &RetargetInput) -> u64 {
         let expected = u128::from(input.expected_ms.max(1));
         let actual = u128::from(input.actual_ms)
             .clamp(expected / 4, expected * 4)
             .max(1);
         let scaled = u128::from(input.parent_difficulty) * expected / actual;
-        scaled.clamp(1, u128::from(u64::MAX)) as u64
+        scaled.clamp(u128::from(input.min_difficulty.max(1)), u128::from(u64::MAX)) as u64
     }
 
     fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool {
@@ -81,10 +82,26 @@ mod tests {
             parent_difficulty: 1_000,
             actual_ms,
             expected_ms: 1_000,
+            min_difficulty: 1,
         };
         assert_eq!(ProofOfWork.next_difficulty(&input(500)), 2_000);
         assert_eq!(ProofOfWork.next_difficulty(&input(2_000)), 500);
         assert_eq!(ProofOfWork.next_difficulty(&input(1)), 4_000);
         assert_eq!(ProofOfWork.next_difficulty(&input(1_000_000)), 250);
+    }
+
+    #[test]
+    fn retarget_stops_at_the_floor() {
+        let slow = |parent_difficulty| RetargetInput {
+            parent_difficulty,
+            actual_ms: 400_000,
+            expected_ms: 270_000,
+            min_difficulty: 30_000,
+        };
+        assert_eq!(ProofOfWork.next_difficulty(&slow(30_000)), 30_000);
+        assert_eq!(ProofOfWork.next_difficulty(&slow(31_000)), 30_000);
+        assert_eq!(ProofOfWork.next_difficulty(&slow(90_000)), 60_750);
+        // A first difficulty below the floor comes up to it.
+        assert_eq!(ProofOfWork.next_difficulty(&slow(8)), 30_000);
     }
 }

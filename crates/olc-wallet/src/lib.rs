@@ -6,7 +6,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use olc_core::{Address, Chain, OutPoint, Tx, TxIn, TxOut};
+use olc_core::{Address, Coins, OutPoint, Tx, TxIn, TxOut};
 use olc_crypto::{address_of, public_key, sign, PublicKey};
 use olc_lang::{alpha, ALPHA};
 
@@ -115,7 +115,7 @@ impl Wallet {
         self.keys.iter().any(|key| key.address.as_slice() == lock)
     }
 
-    pub fn balance(&self, chain: &Chain) -> u64 {
+    pub fn balance(&self, chain: &dyn Coins) -> u64 {
         self.keys.iter().map(|key| chain.balance(&key.address)).sum()
     }
 
@@ -123,7 +123,7 @@ impl Wallet {
     /// `reserved` lists outputs already used by transactions waiting in the mempool.
     pub fn pay(
         &self,
-        chain: &Chain,
+        chain: &dyn Coins,
         to: Address,
         amount: u64,
         fee: u64,
@@ -138,7 +138,7 @@ impl Wallet {
     /// One transaction paying many addresses.
     pub fn pay_many(
         &self,
-        chain: &Chain,
+        chain: &dyn Coins,
         payments: &[(Address, u64)],
         fee: u64,
         reserved: &[OutPoint],
@@ -152,7 +152,7 @@ impl Wallet {
     /// A transaction that carries `data` and pays nobody.
     pub fn note(
         &self,
-        chain: &Chain,
+        chain: &dyn Coins,
         data: &[u8],
         fee: u64,
         reserved: &[OutPoint],
@@ -162,7 +162,7 @@ impl Wallet {
 
     fn spend(
         &self,
-        chain: &Chain,
+        chain: &dyn Coins,
         payments: &[(Address, u64)],
         data: &[u8],
         fee: u64,
@@ -205,7 +205,7 @@ impl Wallet {
 
     /// Merges small coins of one key into a single coin, so a miner's many rewards do not stay in
     /// every node's unspent set. An ordinary transaction. `None` when no key has enough of them.
-    pub fn merge(&self, chain: &Chain, fee: u64, reserved: &[OutPoint]) -> Option<Tx> {
+    pub fn merge(&self, chain: &dyn Coins, fee: u64, reserved: &[OutPoint]) -> Option<Tx> {
         let next = chain.height() + 1;
         for (number, key) in self.keys.iter().enumerate() {
             let mut coins: Vec<(u64, OutPoint)> = chain
@@ -304,7 +304,7 @@ mod tests {
         Chain::new(config, plugins)
     }
 
-    fn seal(chain: &Chain, mut block: Block) -> Block {
+    fn seal(chain: &dyn Coins, mut block: Block) -> Block {
         assert!(ProofOfWork.try_seal(&mut block.header, 1_000_000));
         let _ = chain;
         block

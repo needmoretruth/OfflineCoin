@@ -13,6 +13,7 @@ fn coin() -> CoinConfig {
     coin.name = "PoolProof".into();
     coin.ticker = "POP".into();
     coin.initial_difficulty = BLOCK_DIFFICULTY;
+    coin.rules.min_difficulty = 1;
     coin
 }
 

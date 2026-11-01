@@ -143,6 +143,18 @@ fn type_into(harness: &mut Harness<'static, App>, field: usize, text: &str) {
     harness.run_steps(2);
 }
 
+/// The same for a field that hides what is typed.
+fn type_secret(harness: &mut Harness<'static, App>, field: usize, text: &str) {
+    if let Some(node) = harness.query_all_by_role(Role::PasswordInput).nth(field) {
+        node.focus();
+    }
+    harness.run_steps(2);
+    if let Some(node) = harness.query_all_by_role(Role::PasswordInput).nth(field) {
+        node.type_text(text);
+    }
+    harness.run_steps(2);
+}
+
 fn row_of(snap: &Snapshot, name: &str) -> Option<Entry> {
     snap.groups
         .iter()
@@ -209,6 +221,7 @@ fn a_note_and_a_key_go_through_the_window() {
     coin.name = "Scene".into();
     coin.ticker = "SCN".into();
     coin.initial_difficulty = 200;
+    coin.rules.min_difficulty = 1;
     save_coin(&Paths { root: root.clone() }, &coin).unwrap();
     let mut settings = quiet_settings();
     settings.coin = Some(coin_folder(&coin));
@@ -229,11 +242,17 @@ fn a_note_and_a_key_go_through_the_window() {
     wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
 
     let backup = root.join("wallet.backup");
-    type_into(&mut harness, 2, backup.to_str().unwrap());
-    type_into(&mut harness, 3, "a long password");
+    // Export path, then backup path. The password and the import sit in hidden fields.
+    type_into(&mut harness, 1, backup.to_str().unwrap());
+    type_secret(&mut harness, 1, "a long password");
     harness.get_by_label("Back up").click();
-    wait_until(&mut harness, |_| backup.exists());
-    type_into(&mut harness, 3, "a long password");
+    wait_until(&mut harness, |app| {
+        let failed = app.snapshot().notice.as_ref().is_some_and(|notice| !notice.good);
+        failed || backup.exists()
+    });
+    let said = harness.state().snapshot().notice.clone().map(|notice| notice.detail);
+    assert!(backup.exists(), "no backup: {said:?}");
+    type_secret(&mut harness, 1, "a long password");
     harness.get_by_label("Restore").click();
     wait_until(&mut harness, |app| {
         app.snapshot().notice.as_ref().is_some_and(|notice| notice.key == "notice.restored")
@@ -299,6 +318,7 @@ fn a_snapshot_waits_for_the_person_in_the_window() {
     coin.name = "Cut".into();
     coin.ticker = "CUT".into();
     coin.initial_difficulty = 16;
+    coin.rules.min_difficulty = 1;
     let peer = pruned_peer(&root.join("peer"), &coin, 7340, 700);
     let tip = peer.view().height;
 
@@ -363,6 +383,11 @@ fn a_found_coin_can_be_joined() {
         let node = &app.snapshot().node;
         let name = node.coin.as_ref().map(|coin| coin.name.as_str());
         name == Some("Found") && node.peers > 0
+    });
+
+    // Until the new link answers once, the row still shows the last look around.
+    wait_until(&mut harness, |app| {
+        row_of(&app.snapshot(), &spec.name).is_some_and(|row| row.age_secs.is_none())
     });
 
     // A block about every second: a row that waits for a look around falls far behind.

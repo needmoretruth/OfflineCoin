@@ -12,26 +12,26 @@ impl Engine {
     /// Signs a payment from this node's wallet and sends it to the network.
     pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let tx = self.wallet.pay(&self.chain, to, amount, fee, &reserved)?;
+        let tx = self.wallet.pay(self.coins(), to, amount, fee, &reserved)?;
         self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_own(tx))
+        Ok(self.send_signed(tx))
     }
 
     /// Pays many addresses in one transaction.
     pub fn pay_many(&mut self, payments: &[(Address, u64)], fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let tx = self.wallet.pay_many(&self.chain, payments, fee, &reserved)?;
+        let tx = self.wallet.pay_many(self.coins(), payments, fee, &reserved)?;
         let amount = payments.iter().map(|(_, amount)| *amount).sum();
         self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_own(tx))
+        Ok(self.send_signed(tx))
     }
 
     /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
     pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
         let fee = self.chain.rules().min_fee;
-        let tx = self.wallet.note(&self.chain, data, fee, &reserved)?;
-        Ok(self.send_own(tx))
+        let tx = self.wallet.note(self.coins(), data, fee, &reserved)?;
+        Ok(self.send_signed(tx))
     }
 
     fn reserved(&self) -> Vec<OutPoint> {
@@ -39,7 +39,7 @@ impl Engine {
         inputs.map(|input| input.previous).collect()
     }
 
-    fn send_own(&mut self, tx: Tx) -> Hash {
+    pub(crate) fn send_own(&mut self, tx: Tx) -> Hash {
         let id = tx.id();
         self.sent.push_back(id);
         if self.sent.len() > MAX_SENT {

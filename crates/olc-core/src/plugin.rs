@@ -12,6 +12,8 @@ pub struct RetargetInput {
     pub actual_ms: u64,
     /// Time that window should have taken.
     pub expected_ms: u64,
+    /// The answer may not go below this.
+    pub min_difficulty: u64,
 }
 
 /// Decides who may add a block and how much a block counts. PoW is one implementation.

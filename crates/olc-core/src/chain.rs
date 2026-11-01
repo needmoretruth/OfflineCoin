@@ -9,7 +9,8 @@ use crate::ledger::{Found, Overlay, UnspentSet};
 use crate::log::{read_block_record, Kind, Log, NOWHERE};
 use crate::medium::{Keep, Medium, SECTOR};
 use crate::orphans::Orphans;
-use crate::plugin::{Plugins, RetargetInput};
+use crate::headers::difficulty_after;
+use crate::plugin::Plugins;
 use crate::rules;
 use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
@@ -399,24 +400,17 @@ impl Chain {
 
     pub(crate) fn difficulty_after(&self, entry: &Entry) -> u64 {
         let rules = &self.config.rules;
-        let interval = rules.retarget_interval;
-        let next_height = entry.height + 1;
-        if interval == 0 || !next_height.is_multiple_of(interval) || next_height < interval {
-            return entry.header.difficulty;
-        }
-        let mut first = *entry;
-        for _ in 1..interval {
-            match self.parent_of(&first) {
-                Some(previous) => first = previous,
-                None => break,
+        let consensus = self.plugins.consensus.as_ref();
+        difficulty_after(rules, consensus, &entry.header, entry.height + 1, || {
+            let mut first = *entry;
+            for _ in 1..rules.retarget_interval {
+                match self.parent_of(&first) {
+                    Some(previous) => first = previous,
+                    None => break,
+                }
             }
-        }
-        let input = RetargetInput {
-            parent_difficulty: entry.header.difficulty,
-            actual_ms: entry.header.time_ms.saturating_sub(first.header.time_ms),
-            expected_ms: rules.block_time_ms * (interval - 1),
-        };
-        self.plugins.consensus.next_difficulty(&input)
+            first.header.time_ms
+        })
     }
 
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
