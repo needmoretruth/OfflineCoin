@@ -220,10 +220,11 @@ pub fn start(
     let access_point = AccessPointConfig::default()
         .with_ssid(name)
         .with_channel(CHANNEL);
-    let config = if settings.own_network == "off" {
-        Config::Station(station)
-    } else {
+    // Boards reach each other over ESP-NOW, so this comes up only when asked for.
+    let config = if settings.own_network == "on" {
         Config::AccessPointStation(station, access_point)
+    } else {
+        Config::Station(station)
     };
     controller
         .set_config(&config)
@@ -274,10 +275,10 @@ pub fn start(
         }
     }
     let network = Network {
-        own_name: if settings.own_network == "off" {
-            Default::default()
-        } else {
+        own_name: if settings.own_network == "on" {
             own_name.into()
+        } else {
+            Default::default()
         },
         router,
         joins_router,
