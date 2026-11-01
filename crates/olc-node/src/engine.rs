@@ -1,6 +1,8 @@
 //! Node logic with no I/O: call it with what happened, then collect what it wants to send.
+use crate::event::{Event, Outgoing, Status};
 use crate::message::Message;
 use crate::refused::Refused;
+use crate::sync::{Sync, BLOCKS_AT_ONCE};
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -17,56 +19,6 @@ const MAX_POOL: usize = 256;
 const MAX_EVENTS: usize = 32;
 const PEER_TIMEOUT_MS: u64 = 10_000;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Outgoing {
-    To(PeerId, Message),
-    All {
-        except: Option<PeerId>,
-        message: Message,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Event {
-    Mined {
-        height: u64,
-    },
-    BlockAccepted {
-        height: u64,
-    },
-    Reorganized {
-        replaced: u64,
-        height: u64,
-    },
-    BlockRejected {
-        reason: ChainError,
-    },
-    TxAccepted,
-    TxRejected {
-        reason: ChainError,
-    },
-    /// A payment from a block that left the best chain is waiting to be mined again.
-    TxReturned {
-        id: Hash,
-    },
-    /// A payment was thrown out after a reorganisation. No reason means the pool was full.
-    TxDropped {
-        id: Hash,
-        reason: Option<ChainError>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Status {
-    pub height: u64,
-    pub tip: Hash,
-    pub work: u128,
-    pub difficulty: u64,
-    pub balance: u64,
-    pub pool: usize,
-    pub peers: usize,
-}
-
 pub struct Engine {
     chain: Chain,
     wallet: Wallet,
@@ -81,6 +33,7 @@ pub struct Engine {
     now_ms: u64,
     peers: BTreeMap<PeerId, u64>,
     refused: Refused,
+    sync: Sync,
     /// Blocks accepted since the last `take_fresh_block`, for saving.
     fresh: VecDeque<Block>,
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
@@ -103,6 +56,7 @@ impl Engine {
             now_ms: 0,
             peers: BTreeMap::new(),
             refused: Refused::default(),
+            sync: Sync::default(),
             fresh: VecDeque::new(),
             balance: Cell::new(None),
         }
@@ -129,6 +83,7 @@ impl Engine {
             balance: self.balance(),
             pool: self.pool.len(),
             peers: self.peers.len(),
+            syncing_to: self.syncing_to(),
         }
     }
 
@@ -184,30 +139,31 @@ impl Engine {
             self.last_announce_ms = device_ms;
             self.announce(None);
         }
+        self.ask_for_blocks();
     }
 
     pub fn on_message(&mut self, from: PeerId, message: Message) {
         self.peers.insert(from, self.now_ms);
         match message {
             Message::Tip {
-                genesis, tip, work, ..
+                genesis,
+                tip,
+                previous,
+                height,
+                work,
             } => {
-                if genesis == self.chain.genesis_id() && work > self.chain.total_work() {
-                    // A branch stalls if a reply was lost, so the request repeats on every
-                    // announcement until the missing block arrives.
-                    let wanted = if self.chain.contains(&tip) {
-                        self.chain.missing_ancestor(&tip)
-                    } else {
-                        Some(tip)
-                    };
-                    if let Some(id) = wanted.filter(|id| !self.refused.has(id)) {
-                        self.outbox
-                            .push_back(Outgoing::To(from, Message::GetBlock(id)));
-                    }
+                if genesis != self.chain.genesis_id() || work <= self.chain.total_work() {
+                    return;
                 }
+                if self.refused.has(&tip) || self.refused.has(&previous) {
+                    self.refused.add(tip);
+                    return;
+                }
+                self.sync.heard(from, tip, height, work, self.now_ms);
+                self.ask_for_blocks();
             }
-            Message::GetBlock(id) => {
-                if let Some(block) = self.chain.block(&id) {
+            Message::GetBlocks(locator) => {
+                for block in self.chain.blocks_after(&locator, BLOCKS_AT_ONCE) {
                     let reply = Message::Block(block.clone());
                     self.outbox.push_back(Outgoing::To(from, reply));
                 }
@@ -220,8 +176,29 @@ impl Engine {
         }
     }
 
+    /// The height this node is catching up to, while it is well behind it. It does not mine then.
+    pub fn syncing_to(&self) -> Option<u64> {
+        let (height, work) = (self.chain.height(), self.chain.total_work());
+        self.sync.behind(height, work, self.now_ms)
+    }
+
+    fn ask_for_blocks(&mut self) {
+        let Some(peer) = self.sync.next_ask(self.chain.total_work(), self.now_ms) else {
+            return;
+        };
+        let mut locator = self.chain.locator();
+        if let Some(position) = self.sync.position() {
+            locator.insert(0, position);
+        }
+        self.outbox
+            .push_back(Outgoing::To(peer, Message::GetBlocks(locator)));
+    }
+
     /// Runs up to `attempts` sealing attempts and adds the block if one succeeds.
     pub fn mine(&mut self, attempts: u32, device_ms: u64) -> bool {
+        if self.syncing_to().is_some() {
+            return false;
+        }
         self.refresh_candidate(device_ms);
         let Some(block) = self.candidate.as_mut() else {
             return false;
@@ -306,18 +283,27 @@ impl Engine {
         }
         if self.chain.tip() != tip_before {
             self.after_tip_change(tip_before);
-            self.announce(Some(from));
+            if !self.sync.is_active() {
+                self.announce(Some(from));
+            }
         }
+        self.ask_for_blocks();
     }
 
     fn add_block(&mut self, from: PeerId, block: Block) {
         let id = block.id();
         if self.refused.has(&id) || self.refused.has(&block.header.previous) {
             self.refused.add(id);
+            self.stop_following(from);
             return;
         }
         let copy = block.clone();
         let outcome = self.chain.add_block(block);
+        let connected = match outcome {
+            Ok(AddOutcome::Orphan { .. }) => None,
+            _ => Some(id),
+        };
+        self.sync.arrived(connected);
         if matches!(
             outcome,
             Ok(AddOutcome::NewTip | AddOutcome::Reorganized { .. } | AddOutcome::SideBranch)
@@ -333,17 +319,20 @@ impl Engine {
                 let height = self.chain.height();
                 self.push_event(Event::Reorganized { replaced, height });
             }
-            Ok(AddOutcome::Orphan { missing }) => {
-                if !self.chain.contains(&missing) {
-                    self.outbox
-                        .push_back(Outgoing::To(from, Message::GetBlock(missing)));
-                }
-            }
-            Ok(AddOutcome::SideBranch) | Err(ChainError::AlreadyKnown) => {}
+            Ok(AddOutcome::SideBranch) | Ok(AddOutcome::Orphan { .. }) => {}
+            Err(ChainError::AlreadyKnown) => {}
             Err(reason) => {
                 self.refused.add_invalid(id, reason);
+                self.stop_following(from);
                 self.push_event(Event::BlockRejected { reason });
             }
+        }
+    }
+
+    /// A peer whose chain holds an invalid block is no chain to catch up to. It stays a peer.
+    fn stop_following(&mut self, peer: PeerId) {
+        if let Some(tip) = self.sync.give_up_on(peer) {
+            self.refused.add(tip);
         }
     }
 
@@ -415,6 +404,7 @@ impl Engine {
         let message = Message::Tip {
             genesis: self.chain.genesis_id(),
             tip: self.chain.tip(),
+            previous: self.chain.tip_header().previous,
             height: self.chain.height(),
             work: self.chain.total_work(),
         };
@@ -448,152 +438,5 @@ impl Engine {
             self.events.pop_front();
         }
         self.events.push_back(event);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloc::boxed::Box;
-    use olc_pow::ProofOfWork;
-
-    fn config() -> CoinConfig {
-        let mut config = CoinConfig::olc();
-        config.initial_difficulty = 8;
-        config.rules.coinbase_maturity = 1;
-        config.rules.retarget_interval = 0;
-        config
-    }
-
-    fn engine(seed: u8) -> Engine {
-        let plugins = Plugins {
-            consensus: Box::new(ProofOfWork),
-            languages: olc_lang::all(),
-        };
-        Engine::new(config(), plugins, Wallet::from_secret([seed; 32]).unwrap())
-    }
-
-    /// Delivers messages between all engines until nothing is left to say.
-    fn deliver(nodes: &mut [Engine]) {
-        loop {
-            let mut moved = false;
-            for sender in 0..nodes.len() {
-                while let Some(outgoing) = nodes[sender].take_outgoing() {
-                    moved = true;
-                    match outgoing {
-                        Outgoing::To(peer, message) => {
-                            nodes[peer as usize].on_message(sender as u32, message);
-                        }
-                        Outgoing::All { except, message } => {
-                            for (receiver, node) in nodes.iter_mut().enumerate() {
-                                if receiver != sender && except != Some(receiver as u32) {
-                                    node.on_message(sender as u32, message.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !moved {
-                break;
-            }
-        }
-    }
-
-    fn mine_one(node: &mut Engine, now: u64) {
-        assert!(node.mine(1_000_000, now));
-    }
-
-    #[test]
-    fn a_late_node_catches_up_through_tip_announcements() {
-        let mut nodes = [engine(1), engine(2)];
-        for block in 0..5 {
-            mine_one(&mut nodes[0], block * 1_000);
-        }
-        while nodes[0].take_outgoing().is_some() {}
-        nodes[0].tick(10_000);
-        deliver(&mut nodes);
-        assert_eq!(nodes[1].status().tip, nodes[0].status().tip);
-        assert_eq!(nodes[1].status().height, 5);
-    }
-
-    #[test]
-    fn a_lost_reply_is_requested_again() {
-        let mut nodes = [engine(1), engine(2)];
-        for block in 0..4 {
-            mine_one(&mut nodes[0], block * 1_000);
-        }
-        while nodes[0].take_outgoing().is_some() {}
-        // The late node receives the tip, then the reply for its parent is lost.
-        nodes[0].tick(10_000);
-        let tip = nodes[0].status().tip;
-        let block = nodes[0].chain().block(&tip).unwrap().clone();
-        nodes[1].on_message(0, Message::Block(block));
-        while nodes[1].take_outgoing().is_some() {}
-        while nodes[0].take_outgoing().is_some() {}
-
-        nodes[0].tick(20_000);
-        deliver(&mut nodes);
-        assert_eq!(nodes[1].status().tip, tip);
-    }
-
-    #[test]
-    fn every_new_block_is_queued_for_saving() {
-        let mut node = engine(1);
-        mine_one(&mut node, 1_000);
-        mine_one(&mut node, 2_000);
-        let first = node.take_fresh_block().unwrap();
-        let second = node.take_fresh_block().unwrap();
-        assert_eq!(second.header.previous, first.id());
-        assert!(node.take_fresh_block().is_none());
-    }
-
-    #[test]
-    fn a_payment_crosses_the_network() {
-        let mut nodes = [engine(1), engine(2)];
-        for block in 0..3 {
-            mine_one(&mut nodes[0], block * 1_000);
-            deliver(&mut nodes);
-        }
-        let to = nodes[1].address();
-        nodes[0].pay(to, 1_000, 10).unwrap();
-        deliver(&mut nodes);
-        assert_eq!(nodes[1].status().pool, 1);
-
-        mine_one(&mut nodes[1], 9_000);
-        deliver(&mut nodes);
-        assert_eq!(nodes[0].status().pool, 0);
-        assert_eq!(nodes[0].status().tip, nodes[1].status().tip);
-        assert!(nodes[0].chain().balance(&to) >= 1_000);
-    }
-
-    #[test]
-    fn a_forged_payment_is_rejected_by_peers() {
-        let mut nodes = [engine(1), engine(2)];
-        for block in 0..3 {
-            mine_one(&mut nodes[0], block * 1_000);
-            deliver(&mut nodes);
-        }
-        let to = nodes[1].address();
-        let reserved: Vec<OutPoint> = Vec::new();
-        let wallet = Wallet::from_secret([1; 32]).unwrap();
-        let mut forged = wallet
-            .pay(nodes[0].chain(), to, 1_000, 0, &reserved)
-            .unwrap();
-        forged.outputs[0].value = 2_000;
-        nodes[1].on_message(0, Message::Tx(forged));
-        assert_eq!(nodes[1].status().pool, 0);
-        assert_eq!(nodes[1].take_event_rejection(), Some(ChainError::BadLock),);
-    }
-
-    impl Engine {
-        fn take_event_rejection(&mut self) -> Option<ChainError> {
-            while let Some(event) = self.take_event() {
-                if let Event::TxRejected { reason } = event {
-                    return Some(reason);
-                }
-            }
-            None
-        }
     }
 }

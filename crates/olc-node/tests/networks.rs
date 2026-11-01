@@ -112,7 +112,7 @@ fn exchange(nodes: &mut [Engine; 2]) -> usize {
             while let Some(outgoing) = nodes[sender].take_outgoing() {
                 moved = true;
                 let (Outgoing::To(_, message) | Outgoing::All { message, .. }) = outgoing;
-                requests += usize::from(matches!(message, Message::GetBlock(_)));
+                requests += usize::from(matches!(message, Message::GetBlocks(_)));
                 nodes[1 - sender].on_message(sender as u32, message);
             }
         }
@@ -140,7 +140,7 @@ fn rivals_on_one_genesis_stop_asking_for_blocks_they_refused() {
         mine(&mut nodes[1], block * 1_000);
         settling += exchange(&mut nodes);
     }
-    assert!(settling <= 20, "{settling} requests to learn 10 blocks");
+    assert!(settling <= 12, "{settling} requests to learn 10 blocks");
     let tips = [nodes[0].chain().tip(), nodes[1].chain().tip()];
     let mut repeated = 0;
     for round in 1..=30 {
@@ -158,6 +158,8 @@ fn rivals_on_one_genesis_stop_asking_for_blocks_they_refused() {
     let saw_a_refusal = std::iter::from_fn(|| nodes[0].take_event())
         .any(|event| matches!(event, Event::BlockRejected { .. }));
     assert!(saw_a_refusal);
+    assert_eq!(nodes[0].status().syncing_to, None);
+    assert!(nodes[0].mine(1_000_000, 100_000), "a taller rival must not stop a miner");
 }
 
 #[test]

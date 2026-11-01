@@ -1,5 +1,6 @@
 //! Connects an [`Engine`] to any number of transports.
-use crate::engine::{Engine, Outgoing, PeerId};
+use crate::engine::{Engine, PeerId};
+use crate::event::Outgoing;
 use crate::message::Message;
 use crate::network::{self, Mark};
 use alloc::boxed::Box;

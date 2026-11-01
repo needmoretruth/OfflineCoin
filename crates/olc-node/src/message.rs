@@ -1,5 +1,5 @@
 //! What nodes say to each other. There is one sync mechanism: a node announces its tip, and a
-//! peer that wants it asks for blocks backward until it reaches one it knows.
+//! peer behind it asks for the blocks after its own position.
 use alloc::vec::Vec;
 use olc_core::{Block, Hash, Tx};
 use serde::{Deserialize, Serialize};
@@ -9,10 +9,13 @@ pub enum Message {
     Tip {
         genesis: Hash,
         tip: Hash,
+        /// So a tip built on a refused block is known for what it is without fetching it.
+        previous: Hash,
         height: u64,
         work: u128,
     },
-    GetBlock(Hash),
+    /// Asks for the blocks after the newest of these the peer also has.
+    GetBlocks(Vec<Hash>),
     Block(Block),
     Tx(Tx),
     /// Running boards from afar. Carried for whoever reads it; the chain ignores it.

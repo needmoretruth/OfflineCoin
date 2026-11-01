@@ -42,9 +42,9 @@ pub enum AddOutcome {
     Orphan { missing: Hash },
 }
 
-struct Entry {
-    block: Block,
-    height: u64,
+pub(crate) struct Entry {
+    pub(crate) block: Block,
+    pub(crate) height: u64,
     total_work: u128,
     /// Set once the transactions have been checked against this block's history.
     validated: bool,
@@ -63,9 +63,9 @@ pub struct Chain {
     config: CoinConfig,
     plugins: Plugins,
     genesis: Hash,
-    entries: BTreeMap<Hash, Entry>,
+    pub(crate) entries: BTreeMap<Hash, Entry>,
     orphans: Orphans,
-    tip: Hash,
+    pub(crate) tip: Hash,
     unspent: UnspentSet,
 }
 
@@ -341,15 +341,6 @@ impl Chain {
     /// Takes the orphans waiting for `parent`, so the caller can add them again.
     pub fn take_orphans_of(&mut self, parent: &Hash) -> Vec<Block> {
         self.orphans.take_children(parent)
-    }
-
-    /// When `id` is an orphan, returns the block its branch is still waiting for.
-    pub fn missing_ancestor(&self, id: &Hash) -> Option<Hash> {
-        let mut cursor = *id;
-        while let Some(block) = self.orphans.get(&cursor) {
-            cursor = block.header.previous;
-        }
-        (!self.entries.contains_key(&cursor)).then_some(cursor)
     }
 
     /// The height of a transaction on the best chain. Hashes every transaction, so it is for

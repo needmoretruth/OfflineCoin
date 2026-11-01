@@ -4,13 +4,16 @@
 extern crate alloc;
 
 pub mod engine;
+mod event;
 pub mod fragment;
 pub mod frame;
 pub mod message;
 pub mod network;
 mod refused;
 pub mod runner;
+mod sync;
 
-pub use engine::{Engine, Event, Outgoing, PeerId, Status};
+pub use engine::{Engine, PeerId};
+pub use event::{Event, Outgoing, Status};
 pub use message::Message;
 pub use runner::{Link, Runner, Target};
