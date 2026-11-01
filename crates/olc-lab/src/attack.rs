@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// A board rebuilds its coins from the first block when it changes branch.
+const BRANCH_MOVE_WAIT: Duration = Duration::from_secs(120);
 const POWER_SAMPLES: u32 = 5;
 const PAY_TRIES: u32 = 3;
 const RESTORE_TRIES: u32 = 4;
@@ -373,7 +375,8 @@ impl Race<'_> {
         let earlier = self.victim.status()?.reorg;
         self.attacker.set_offline(false)?;
         loop {
-            let (attacker, victim) = (self.attacker.status()?, self.victim.status()?);
+            let attacker = self.attacker.status()?;
+            let victim = self.victim.status_within(BRANCH_MOVE_WAIT)?;
             if attacker.tip == victim.tip {
                 if victim.reorg == earlier {
                     return Err("the victim's own chain won the race.".into());

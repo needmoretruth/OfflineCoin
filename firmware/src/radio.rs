@@ -125,7 +125,7 @@ impl Link for RadioLink {
             LAST_RSSI.store(received.info.rx_control.rssi, Ordering::Relaxed);
             match network::read(received.data()) {
                 Some((mark, _)) if mark == self.mark => self.remember(mac, MAX_PEERS),
-                Some((network::CONTROL, _)) => self.remember(mac, MAX_OTHER_PEERS),
+                Some((network::CONTROL | network::OPEN, _)) => self.remember(mac, MAX_OTHER_PEERS),
                 _ => continue,
             }
             let id = peer_id(&mac);

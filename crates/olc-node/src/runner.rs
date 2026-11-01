@@ -102,6 +102,15 @@ impl Runner {
         self.hellos.pop_front()
     }
 
+    /// Passes an answer heard on one link to the peers of another. A board behind a USB board has
+    /// no other way to reach the computer.
+    pub fn pass_hello(&mut self, link: usize, hello: Hello) {
+        let bytes = self.stamped(&Message::Hello(hello.into()));
+        if let Some(link) = self.links.get_mut(link) {
+            link.send(Target::All, &bytes);
+        }
+    }
+
     /// Asks every peer of every link what it is.
     pub fn ask_who(&mut self) {
         self.send_now(Outgoing::All {

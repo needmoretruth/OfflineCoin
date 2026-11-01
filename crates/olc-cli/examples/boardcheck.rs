@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+const WHO_WAIT: Duration = Duration::from_secs(70);
+const WHO_EVERY: Duration = Duration::from_secs(10);
 const LOOK: Duration = Duration::from_millis(2);
 const REFUSAL_WAIT: Duration = Duration::from_secs(4);
 const BOARD_WAIT: Duration = Duration::from_secs(30);
@@ -183,11 +185,49 @@ fn update(fleet: &SharedFleet, board: BoardId, firmware: &str) -> Result<(), Str
     Err("the board did not come back".into())
 }
 
+/// Prints what the boards around say they are, heard through the one on the cable.
+fn who(mut link: SerialLink) {
+    let start = Instant::now();
+    let mut asked = start - WHO_EVERY;
+    while start.elapsed() < WHO_WAIT {
+        if asked.elapsed() >= WHO_EVERY {
+            asked = Instant::now();
+            let message = Message::Who.encode();
+            link.send(Target::All, &network::stamp(network::OPEN, &message));
+        }
+        while let Some((_, bytes)) = link.receive() {
+            let message = network::read(&bytes).and_then(|(_, body)| Message::decode(body));
+            if let Some(Message::Hello(hello)) = message {
+                let genesis = hello.genesis();
+                println!(
+                    "{:.1} s: {} {} {} coin {:02x}{:02x} height {} work {} address {:02x}{:02x}",
+                    start.elapsed().as_secs_f64(),
+                    hello.card.name,
+                    hello.card.device,
+                    hello.card.build,
+                    genesis[0],
+                    genesis[1],
+                    hello.height,
+                    hello.work,
+                    hello.address[0],
+                    hello.address[1],
+                );
+            }
+        }
+        thread::sleep(LOOK);
+    }
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [port, board, what, rest @ ..] = args.as_slice() else {
         return Err("boardcheck PORT BOARD_ID refuse|update [FIRMWARE]".into());
     };
+    if what == "loader" {
+        println!("{:x?}", olc_board::rom::pins_if_in_loader(port));
+        println!("woken: {}", olc_board::rom::wake(port));
+        return Ok(());
+    }
     let board = parse_id(board).ok_or("bad board id")?;
     let key = ControlKey::load_or_create(&config_folder()?)?;
     let fleet: SharedFleet = Arc::new(Mutex::new(Fleet::new(key, Runner::link_of)?));
@@ -197,6 +237,10 @@ fn main() -> Result<(), String> {
         }
     })
     .map_err(|error| error.to_string())?;
+    if what == "who" {
+        who(link);
+        return Ok(());
+    }
     pump(fleet.clone(), link);
     send(&fleet, board, Body::Read(olc_control::Read::Status));
     let deadline = Instant::now() + BOARD_WAIT;

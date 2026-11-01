@@ -5,7 +5,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use critical_section::Mutex;
 use esp_hal::handler;
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtagRx;
@@ -61,6 +61,12 @@ impl Receiver {
 }
 
 static RECEIVER: Mutex<RefCell<Option<Receiver>>> = Mutex::new(RefCell::new(None));
+static HOST_SPOKE: AtomicBool = AtomicBool::new(false);
+
+/// Whether a program on a computer has spoken to this board on the cable since it started.
+pub fn host_spoke() -> bool {
+    HOST_SPOKE.load(Ordering::Relaxed)
+}
 
 #[handler]
 pub fn on_usb_packet() {
@@ -141,6 +147,7 @@ impl UsbLink {
         match line.split_first() {
             Some((b'#', hex)) => {
                 self.bridged = true;
+                HOST_SPOKE.store(true, Ordering::Relaxed);
                 if let Some(message) = decode_hex(hex) {
                     self.messages.push_back(message);
                 }
