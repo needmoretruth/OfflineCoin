@@ -13,6 +13,7 @@ mod forged;
 mod found;
 mod history;
 mod host;
+mod host_parts;
 mod ops;
 mod pool_run;
 mod returning;

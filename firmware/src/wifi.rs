@@ -21,7 +21,9 @@ use esp_hal::peripherals::WIFI;
 use esp_radio::esp_now::EspNow;
 use esp_radio::wifi::ap::AccessPointConfig;
 use esp_radio::wifi::sta::StationConfig;
-use esp_radio::wifi::{AuthenticationMethodConfig, Config, Interface, WifiController};
+use esp_radio::wifi::{
+    AuthenticationMethodConfig, Config, Interface, PowerSaveMode, WifiController,
+};
 use olc_node::frame::{encode, Decoder};
 use olc_node::{Link, Medium, News, Target};
 use static_cell::StaticCell;
@@ -273,6 +275,10 @@ pub fn start(
     seed: u64,
 ) -> (EspNow, WifiLink, Network) {
     let mut controller = WifiController::new(device, Default::default()).expect("Wi-Fi starts");
+    if settings.bluetooth == "on" {
+        // The two radios share one antenna, and Wi-Fi has to let go of it between frames.
+        let _ = controller.set_power_saving(PowerSaveMode::Minimum);
+    }
     let joins_router = !settings.ssid.is_empty();
     let station = station_config(settings).unwrap_or_default();
     let name = own_name.try_into().expect("the name fits an SSID");

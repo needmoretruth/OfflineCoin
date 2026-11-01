@@ -1,12 +1,12 @@
 //! One node on this computer: its links, its chain on disk and its mining loop.
 use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
+use super::host_parts::{fresh_id, listen_somewhere, plugins, stored_bytes, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
-use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened, Plugins};
+use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
-use olc_pow::ProofOfWork;
 use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
 use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
@@ -104,20 +104,6 @@ pub struct Host {
     pub port: Option<u16>,
 }
 
-/// What this run goes by on the links. Nothing about it needs to last.
-fn fresh_id() -> Result<u64, String> {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
-    Ok(u64::from_le_bytes(bytes))
-}
-
-fn plugins() -> Plugins {
-    Plugins {
-        consensus: Box::new(ProofOfWork),
-        languages: olc_lang::all(),
-    }
-}
-
 /// Who said a thing, as far as this node can tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeardFrom {
@@ -129,23 +115,6 @@ pub enum HeardFrom {
 struct Asked {
     all: Instant,
     peers: Instant,
-}
-
-fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
-    (0..plan.port_tries.max(1))
-        .filter_map(|step| plan.port.checked_add(step))
-        .find_map(|port| tcp.listen(&format!("{}:{port}", plan.bind_host)).ok())
-        .map(|address| address.port())
-}
-
-fn watched_view(engine: &Engine) -> Vec<(String, u64)> {
-    let shown = engine.watched().into_iter();
-    shown.map(|(address, coins)| (format_address(&address), coins)).collect()
-}
-
-fn stored_bytes(engine: &Engine, blocks: u64) -> u64 {
-    let header = BlockHeader::ENCODED_LEN as u64;
-    engine.light().map_or(blocks, |light| light.headers().held() as u64 * header)
 }
 
 impl Host {
