@@ -44,6 +44,25 @@ fn silence_moves_traffic_to_what_is_already_alive_within_a_few_hellos() {
 }
 
 #[test]
+fn a_neighbour_silent_everywhere_stays_on_its_link_until_it_is_truly_gone() {
+    let mut table = table();
+    run(&mut table, 0, 60_000, &[WIRE, RADIO]);
+    let peer = table.list()[0].peer;
+    // A board signing a large payment stops every link at once for some seconds.
+    let busy = run(&mut table, 60_000 + 8_000, 60_000 + 40_000, &[WIRE, RADIO]);
+    assert_eq!((busy.len(), table.list()[0].moves), (0, 0), "{busy:?}");
+    assert_eq!(table.route(peer), Some((WIRE, 7)));
+
+    assert_eq!(table.settle(100_000 + SILENT_MS), []);
+    assert_eq!(table.route(peer), Some((WIRE, 7)), "still on it, as it may come back");
+    assert_eq!(table.fan(RADIO, None), Fan::Everyone, "the next word still reaches it");
+    assert_eq!(table.fan(WIRE, None), Fan::Everyone);
+    let gone = table.settle(99_000 + CLOSE_MS);
+    assert_eq!(gone.len(), 1);
+    assert_eq!((gone[0].to, table.count()), (None, 0));
+}
+
+#[test]
 fn a_better_link_must_stay_heard_before_traffic_returns() {
     let mut table = table();
     run(&mut table, 0, 5_000, &[BLUETOOTH]);
@@ -131,4 +150,34 @@ fn the_sender_of_a_message_does_not_get_it_back() {
     table.settle(0);
     assert_eq!(table.fan(RADIO, Some(from)), Fan::EveryoneBut(1));
     assert_eq!(table.fan(BLUETOOTH, None), Fan::Everyone);
+}
+
+#[test]
+fn a_stall_does_not_send_traffic_to_the_link_that_spoke_last() {
+    let mut table = table();
+    run(&mut table, 0, 60_000, &[RADIO]);
+    run(&mut table, 50_000, 60_000, &[RADIO, WIRE]);
+    let peer = table.list()[0].peer;
+    assert_eq!(table.route(peer).map(|(link, _)| link), Some(RADIO));
+    // The neighbour's last words came a moment apart, and then it went quiet on both.
+    table.hear(WIRE, 7, 60_400);
+    for now in (60_400..66_000).step_by(100) {
+        assert_eq!(table.settle(now), [], "at {now}");
+    }
+    table.hear(RADIO, 7, 66_000);
+    assert_eq!(table.settle(66_000), []);
+    assert_eq!(table.list()[0].moves, 0);
+    assert_eq!(table.route(peer).map(|(link, _)| link), Some(RADIO));
+}
+
+#[test]
+fn a_link_that_only_lost_a_hello_is_taken_at_its_next_word() {
+    let mut table = table();
+    run(&mut table, 0, 60_000, &[WIRE, RADIO]);
+    let peer = table.list()[0].peer;
+    table.hear(RADIO, 7, 62_000);
+    assert_eq!(table.settle(63_600), [], "the radio's word is too old to move on");
+    table.hear(RADIO, 7, 64_000);
+    assert_eq!(table.settle(64_100).len(), 1);
+    assert_eq!(table.route(peer), Some((RADIO, 7)));
 }

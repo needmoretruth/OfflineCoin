@@ -7,6 +7,7 @@ use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
 use olc_node::{Card, Engine, Event, Medium, Rank, Runner};
 use olc_pow::ProofOfWork;
+use olc_service::core::radios;
 use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
 use olc_wallet::parse_address;
 use std::collections::VecDeque;
@@ -104,8 +105,7 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
     for address in args.values("connect") {
         runner.add_address(tcp, address);
     }
-    add_bluetooth(args, &mut runner)?;
-    add_esp_now(args, &mut runner)?;
+    add_radios(args, &mut runner, &directory)?;
     if app.is_none() {
         for path in args.values("serial") {
             let link =
@@ -172,38 +172,15 @@ fn open_engine(directory: &Path, coin: CoinConfig) -> Result<Engine, String> {
     Ok(engine)
 }
 
-/// Bluetooth, for a build that has it and a run that asked.
-#[cfg(feature = "ble")]
-fn add_bluetooth(args: &Args, runner: &mut Runner) -> Result<(), String> {
-    if args.has("ble") {
-        runner.add_link(Box::new(olc_link_ble::BleLink::start(runner.id())?));
-    }
-    Ok(())
-}
-
-#[cfg(not(feature = "ble"))]
-fn add_bluetooth(args: &Args, _runner: &mut Runner) -> Result<(), String> {
-    match args.has("ble") {
-        true => Err("this build has no Bluetooth".into()),
-        false => Ok(()),
-    }
-}
-
-/// ESP-NOW through a card in monitor mode, for a build that has it and a run that named one.
-#[cfg(feature = "espnow")]
-fn add_esp_now(args: &Args, runner: &mut Runner) -> Result<(), String> {
+/// Radios the settings or this run ask for.
+fn add_radios(args: &Args, runner: &mut Runner, directory: &Path) -> Result<(), String> {
+    let mut settings = NodeSettings::load(directory);
+    settings.bluetooth |= args.has("ble");
     if let Some(card) = args.value("espnow") {
-        runner.add_link(Box::new(olc_link_espnow::EspNowCard::open(card, runner.mark())?));
+        settings.esp_now_card = card.to_string();
     }
-    Ok(())
-}
-
-#[cfg(not(feature = "espnow"))]
-fn add_esp_now(args: &Args, _runner: &mut Runner) -> Result<(), String> {
-    match args.value("espnow") {
-        Some(_) => Err("this build has no ESP-NOW".into()),
-        None => Ok(()),
-    }
+    let problems = radios::Running::default().bring_up(runner, &settings);
+    problems.first().map_or(Ok(()), |problem| Err(problem.clone()))
 }
 
 /// What this run goes by on the links. Nothing about it needs to last.

@@ -1,6 +1,7 @@
 //! ESP-NOW transport. Messages are split into frames of at most 250 bytes.
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use crate::node::device_ms;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use esp_radio::esp_now::{EspNow, EspNowWifiInterface, PeerInfo, BROADCAST_ADDRESS};
 use olc_node::fragment::{split, Reassembler};
@@ -15,6 +16,10 @@ const MAX_PEERS: usize = 16;
 /// Boards of another coin reach this board by control traffic alone, and may hold only this many
 /// entries, so the table always has room for this network.
 const MAX_OTHER_PEERS: usize = 8;
+/// A neighbour that did not acknowledge gets broadcasts this long. The radio repeats a frame
+/// nobody acknowledges many times while the node waits, and a Wi-Fi card that only listens to
+/// the air, as a computer's does, never acknowledges anything.
+const DEAF_MS: u64 = 30_000;
 
 /// Turns ESP-NOW off without touching Wi-Fi, to prove the other links carry the chain alone.
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
@@ -52,6 +57,8 @@ pub struct RadioLink {
     radio: EspNow,
     mark: Mark,
     peers: BTreeMap<u32, [u8; 6]>,
+    /// Who did not acknowledge, and until when to leave them out of unicast.
+    deaf: BTreeMap<u32, u64>,
     joiner: Reassembler,
     next_message: u16,
 }
@@ -71,6 +78,7 @@ impl RadioLink {
             radio,
             mark,
             peers: BTreeMap::new(),
+            deaf: BTreeMap::new(),
             joiner: Reassembler::default(),
             next_message: 0,
         }
@@ -94,7 +102,8 @@ impl RadioLink {
         }
     }
 
-    fn send_frames(&mut self, to: [u8; 6], message: &[u8]) {
+    /// Says whether every frame went. The first that did not ends the message.
+    fn send_frames(&mut self, to: [u8; 6], message: &[u8]) -> bool {
         self.next_message = self.next_message.wrapping_add(1);
         let size = if to == BROADCAST_ADDRESS {
             FRAME_SIZE
@@ -102,10 +111,12 @@ impl RadioLink {
             LARGE_FRAME_SIZE
         };
         for frame in split(self.next_message, message, size) {
-            if let Ok(waiter) = self.radio.send(&to, &frame) {
-                let _ = waiter.wait();
+            let sent = self.radio.send(&to, &frame).map(|waiter| waiter.wait());
+            if !matches!(sent, Ok(Ok(()))) {
+                return false;
             }
         }
+        true
     }
 }
 
@@ -118,11 +129,19 @@ impl Link for RadioLink {
         if !ENABLED.load(Ordering::Relaxed) {
             return;
         }
-        let to = match target {
-            Target::Peer(peer) => self.peers.get(&peer).copied().unwrap_or(BROADCAST_ADDRESS),
-            Target::All | Target::AllExcept(_) => BROADCAST_ADDRESS,
+        let now = device_ms();
+        let hearing = |peer: &u32| self.deaf.get(peer).is_none_or(|until| now >= *until);
+        let chosen = match target {
+            Target::Peer(peer) if hearing(&peer) => self.peers.get(&peer).map(|mac| (peer, *mac)),
+            _ => None,
         };
-        self.send_frames(to, message);
+        if let Some((peer, mac)) = chosen {
+            if self.send_frames(mac, message) {
+                return;
+            }
+            self.deaf.insert(peer, now + DEAF_MS);
+        }
+        self.send_frames(BROADCAST_ADDRESS, message);
     }
 
     fn receive(&mut self) -> Option<(u32, Vec<u8>)> {

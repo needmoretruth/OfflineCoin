@@ -11,6 +11,13 @@ pub const HELLO_MS: u64 = 1_000;
 pub const SILENT_MS: u64 = 3_500;
 /// A better link must be heard this long without a gap before traffic moves back to it.
 pub const STEADY_MS: u64 = 30_000;
+/// A neighbour silent everywhere keeps its link this long, and a connection stays open: signing
+/// a large payment stops a board's every link for seconds, and it comes back on the same one.
+/// Traffic moves at [`SILENT_MS`] when another link is alive, so waiting costs nothing.
+pub const CLOSE_MS: u64 = 15_000;
+/// A link to move to must have been heard this lately. A board that stalls goes quiet on every
+/// link, and the one it spoke on last would otherwise look alive for a moment longer.
+const FRESH_MS: u64 = 1_500;
 const MOST: usize = 32;
 /// The top byte of a neighbour's peer id. Link positions never reach it.
 const NEIGHBOUR: u32 = 0xFF << 24;
@@ -25,11 +32,17 @@ pub struct Path {
     steady_from_ms: u64,
     /// Whether it was heard lately, as of the last [`Neighbours::settle`].
     pub live: bool,
+    /// The connection under it ended, which needs no waiting for silence.
+    closed: bool,
 }
 
 impl Path {
     fn is_live(&self, now: u64) -> bool {
         self.live && now.saturating_sub(self.heard_ms) < SILENT_MS
+    }
+
+    fn is_worth_keeping(&self, now: u64) -> bool {
+        !self.closed && now.saturating_sub(self.heard_ms) < CLOSE_MS
     }
 }
 
@@ -47,7 +60,8 @@ pub struct Neighbour {
 
 impl Neighbour {
     fn path(&self, link: usize) -> Option<&Path> {
-        self.paths.iter().find(|path| path.link == link && path.live)
+        let usable = |path: &&Path| path.live || (self.active == Some(link) && !path.closed);
+        self.paths.iter().filter(|path| path.link == link).find(usable)
     }
 
     fn active_path(&self) -> Option<&Path> {
@@ -132,8 +146,9 @@ impl Neighbours {
                 }
                 path.heard_ms = now;
                 path.live = true;
+                path.closed = false;
             }
-            None => one.paths.push(Path { link, number, heard_ms: now, steady_from_ms: now, live: true }),
+            None => one.paths.push(Path { link, number, heard_ms: now, steady_from_ms: now, live: true, closed: false }),
         }
         one.peer
     }
@@ -168,6 +183,7 @@ impl Neighbours {
             for path in &mut self.list[at].paths {
                 if (path.link, path.number) == (link, number) {
                     path.live = false;
+                    path.closed = true;
                 }
             }
         }
@@ -197,8 +213,14 @@ impl Neighbours {
         let live = || one.paths.iter().filter(|path| path.is_live(now));
         let by_rank = |path: &&Path| self.place(path.link);
         match one.active_path().filter(|path| path.is_live(now)) {
-            // Moving away is at once, to whatever is alive.
-            None => live().min_by_key(by_rank).map(|path| path.link),
+            // Moving away is at once, to whatever is alive. With nothing alive it stays put.
+            None => {
+                let fresh = |path: &&Path| now.saturating_sub(path.heard_ms) < FRESH_MS;
+                let kept = one.paths.iter().filter(|path| Some(path.link) == one.active);
+                let kept = kept.filter(|path| path.is_worth_keeping(now)).map(|path| path.link).next();
+                let best = |only_fresh: bool| live().filter(|path| !only_fresh || fresh(path)).min_by_key(by_rank);
+                best(true).map(|path| path.link).or(kept).or(best(false).map(|path| path.link))
+            }
             Some(active) => {
                 let steady = |path: &&Path| now.saturating_sub(path.steady_from_ms) >= STEADY_MS;
                 let better = live()
@@ -261,9 +283,16 @@ impl Neighbours {
         self.list.iter().filter(|one| one.active.is_some()).count()
     }
 
-    /// The link a named neighbour's traffic uses, if it has one that works.
+    /// The link a named neighbour's traffic uses, if it is heard there now.
     pub fn active_of(&self, node: u64) -> Option<usize> {
-        self.list.iter().find(|one| one.node == Some(node))?.active
+        let one = self.list.iter().find(|one| one.node == Some(node))?;
+        one.active.filter(|link| one.paths.iter().any(|path| path.link == *link && path.live))
+    }
+
+    /// True when a connection to a named neighbour has been silent long enough to close.
+    pub fn is_gone_from(&self, node: u64, link: usize, now: u64) -> bool {
+        let paths = self.list.iter().filter(|one| one.node == Some(node)).flat_map(|one| &one.paths);
+        paths.filter(|path| path.link == link).all(|path| now.saturating_sub(path.heard_ms) >= CLOSE_MS)
     }
 
     /// True when a named neighbour is heard on `link`.

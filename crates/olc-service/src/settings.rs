@@ -109,6 +109,8 @@ pub struct Settings {
     pub mode: Mode,
     pub theme: Theme,
     pub reduce_motion: bool,
+    /// How large the whole window is drawn, in percent.
+    pub text_percent: u16,
     pub setup_done: bool,
     pub device: Device,
     /// Hashes per second on this computer. 0 is no cap.
@@ -149,6 +151,7 @@ impl Default for Settings {
             mode: Mode::Basic,
             theme: Theme::System,
             reduce_motion: false,
+            text_percent: 100,
             setup_done: false,
             device: Device::default(),
             hash_cap: defaults.hash_cap,
@@ -177,8 +180,10 @@ impl Settings {
         self.auto_update = from.auto_update;
         self.auto_boards.clone_from(&from.auto_boards);
         self.language = from.language;
+        self.mode = from.mode;
         self.theme = from.theme;
         self.reduce_motion = from.reduce_motion;
+        self.text_percent = from.text_percent;
         self.device = from.device;
         self.hash_cap = from.hash_cap;
         self.board_cap = from.board_cap;

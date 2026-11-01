@@ -1,16 +1,19 @@
 //! The window: it holds the pages, reads a snapshot of the core, and sends commands back.
-use crate::core::{Command, Core, CoreLaunch, Snapshot};
+use crate::core::{Core, CoreLaunch, Snapshot};
+#[cfg(test)]
+use crate::core::Command;
 use crate::fleet::{FleetPort, RealFleet};
-use crate::i18n::Voice;
+use crate::i18n::{self, Mode, Voice};
 use crate::instance::{claim, Instance};
 use crate::pages::setup::Setup;
-use crate::pages::{all, Cx, Page};
+use crate::pages::{all, Cx};
 use crate::settings::{standard_folder, Paths, Settings};
+use crate::ui::floating::{self, show_slip, Slip, SlipAnswer};
 use crate::ui::logo::{render, Logo};
 use crate::ui::theme::{apply, desktop_reduces_motion, tokens_for};
 use crate::ui::tokens::{self, Tokens, DARK};
 use crate::ui::{fonts, shell};
-use eframe::egui::{self, CentralPanel, Frame, IconData, Margin, ScrollArea, Ui, ViewportBuilder};
+use eframe::egui::{self, CentralPanel, Frame, IconData, Margin, Panel, ScrollArea, Ui, ViewportBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,7 +46,7 @@ impl Default for Launch {
 pub struct App {
     core: Core,
     settings: Settings,
-    pages: Vec<Box<dyn Page>>,
+    pages: Vec<Box<dyn crate::pages::Page>>,
     current: usize,
     setup: Setup,
     logo: Logo,
@@ -52,6 +55,14 @@ pub struct App {
     notice_until: Option<(u64, f64)>,
     instance: Option<Instance>,
     fonts_set: bool,
+    /// What is waiting to be read and signed.
+    slip: Option<Slip>,
+    /// What the pictures and tests show in place of the core's own view of boards.
+    #[cfg(test)]
+    stage: Option<Arc<Snapshot>>,
+    /// Where the last file was chosen.
+    folder: Option<PathBuf>,
+    text_percent: u16,
 }
 
 impl App {
@@ -68,6 +79,11 @@ impl App {
             notice_until: None,
             instance,
             fonts_set: false,
+            slip: None,
+            #[cfg(test)]
+            stage: None,
+            folder: None,
+            text_percent: 100,
         }
     }
 
@@ -88,23 +104,29 @@ impl App {
         }
     }
 
-    fn language(&mut self) {
-        self.settings.language = self.settings.language.other();
-        self.core.send(Command::Save(Box::new(self.settings.clone())));
+    fn text_size(&mut self, ctx: &egui::Context) {
+        let percent = self.settings.text_percent;
+        if percent != self.text_percent {
+            self.text_percent = percent;
+            ctx.set_zoom_factor(f32::from(percent) / 100.0);
+        }
     }
 
-    fn show_notice(&mut self, ui: &mut Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
+    fn show_notice(&mut self, ui: &Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
         let Some(notice) = &snap.notice else {
             return;
         };
         let now = ui.input(|input| input.time);
+        let seconds = if notice.good { tokens::NOTICE_SECONDS } else { tokens::FAILURE_SECONDS };
         let until = match self.notice_until {
             Some((number, until)) if number == notice.number => until,
-            _ => now + tokens::NOTICE_SECONDS,
+            _ => now + seconds,
         };
         self.notice_until = Some((notice.number, until));
         if now < until {
-            shell::notice_bar(ui, t, voice, notice);
+            let colour = if notice.good { t.good } else { t.bad };
+            let line = i18n::fill(i18n::text(voice, notice.key), &[notice.detail.as_str()]);
+            floating::notice(ui, t, colour, &line);
             ui.ctx().request_repaint_after_secs((until - now) as f32);
         }
     }
@@ -112,24 +134,82 @@ impl App {
     fn pages_view(&mut self, ui: &mut Ui, snap: &Snapshot) {
         let t = self.tokens;
         let lang = self.settings.language;
-        let frame = Frame::new().inner_margin(Margin::symmetric(tokens::PAGE_MARGIN, 18));
-        CentralPanel::default().frame(frame).show(ui, |ui| {
+        let done = self.settings.setup_done;
+        let wide = ui.available_width() >= tokens::NARROW_WINDOW;
+        let margin = if wide { tokens::PAGE_MARGIN } else { tokens::PAGE_MARGIN_NARROW };
+        // The margin sits inside the scroll area, so the scroll bar stays at the window's edge, clear
+        // of the cards.
+        let page = Frame::new().inner_margin(Margin { left: margin, right: margin, top: 22, bottom: 0 });
+        let mut go = None;
+        CentralPanel::default().frame(Frame::new()).show(ui, |ui| {
             ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                ui.set_max_width(tokens::PAGE_WIDTH.min(ui.available_width()));
-                let mut cx = Cx {
-                    lang,
-                    snap,
-                    settings: &mut self.settings,
-                    t: &t,
-                    core: &self.core,
-                };
-                if cx.settings.setup_done {
-                    self.pages[self.current].show(ui, &mut cx);
-                } else {
-                    self.setup.show(ui, &mut cx);
-                }
+                page.show(ui, |ui| {
+                    ui.set_max_width(tokens::PAGE_WIDTH.min(ui.available_width()));
+                    let mut cx = Cx {
+                        lang,
+                        snap,
+                        settings: &mut self.settings,
+                        t: &t,
+                        core: &self.core,
+                        slip: &mut self.slip,
+                        go: &mut go,
+                        folder: &mut self.folder,
+                    };
+                    if done {
+                        self.pages[self.current].show(ui, &mut cx);
+                    } else {
+                        self.setup.show(ui, &mut cx);
+                    }
+                    ui.add_space(tokens::GAP_PAGE);
+                });
             });
         });
+        if let Some(title) = go {
+            self.open(title);
+        }
+    }
+
+    fn show_slip(&mut self, ui: &Ui, t: &Tokens) {
+        let Some(slip) = &self.slip else {
+            return;
+        };
+        match show_slip(ui, t, slip) {
+            SlipAnswer::Waiting => {}
+            SlipAnswer::Cancelled => self.slip = None,
+            SlipAnswer::Signed => {
+                for order in self.slip.take().into_iter().flat_map(|slip| slip.order) {
+                    self.core.send(order);
+                }
+            }
+        }
+    }
+
+    /// The first run has no places yet, only the name of what is opening.
+    fn first_run_brand(&mut self, ui: &mut Ui, t: &Tokens, snap: &Snapshot) {
+        let still = self.settings.reduce_motion || desktop_reduces_motion();
+        let frame = Frame::new().inner_margin(Margin::symmetric(tokens::PAGE_MARGIN, 20));
+        Panel::top("brand").frame(frame).show_separator_line(false).show(ui, |ui| {
+            shell::brand(ui, t, snap, &mut self.logo, still);
+        });
+    }
+
+    fn rail(&mut self, ui: &mut Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
+        let expert = voice.mode == Mode::Expert;
+        if self.pages[self.current].expert_only() && !expert {
+            self.current = 0;
+        }
+        let still = self.settings.reduce_motion || desktop_reduces_motion();
+        let shown: Vec<(usize, &dyn crate::pages::Page)> = self
+            .pages
+            .iter()
+            .enumerate()
+            .filter(|(_, page)| expert || !page.expert_only())
+            .map(|(index, page)| (index, page.as_ref()))
+            .collect();
+        let chosen = shell::rail(ui, t, voice, snap, &shown, self.current, (&mut self.logo, still));
+        if let Some(page) = chosen {
+            self.current = page;
+        }
     }
 
     /// Everything inside the window, also what the screen tests draw.
@@ -144,25 +224,19 @@ impl App {
         }
         self.theme(&ctx);
         self.raised(&ctx);
+        self.text_size(&ctx);
         let t = self.tokens;
         let voice = Voice { lang: self.settings.language, mode: self.settings.mode };
-        let snap: Arc<Snapshot> = self.core.snapshot();
+        let snap: Arc<Snapshot> = self.view();
         shell::paint_back(ui, &t);
-        let look = shell::HeaderLook {
-            still: self.settings.reduce_motion || desktop_reduces_motion(),
-            strip: self.settings.setup_done,
-        };
-        let head = shell::header(ui, &t, voice, &snap, &mut self.logo, &look);
-        if head.language_clicked {
-            self.language();
-        }
         if self.settings.setup_done {
-            if let Some(page) = shell::side_bar(ui, &t, voice, &self.pages, self.current) {
-                self.current = page;
-            }
+            self.rail(ui, &t, voice, &snap);
+        } else {
+            self.first_run_brand(ui, &t, &snap);
         }
-        self.show_notice(ui, &t, voice, &snap);
         self.pages_view(ui, &snap);
+        self.show_slip(ui, &t);
+        self.show_notice(ui, &t, voice, &snap);
         let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
         ctx.request_repaint_after(if focused { REPAINT_FOCUSED } else { REPAINT_AWAY });
     }
@@ -183,6 +257,34 @@ impl App {
         self.core.snapshot()
     }
 
+    #[cfg(not(test))]
+    fn view(&self) -> Arc<Snapshot> {
+        self.core.snapshot()
+    }
+
+    #[cfg(test)]
+    fn view(&self) -> Arc<Snapshot> {
+        self.stage.clone().unwrap_or_else(|| self.core.snapshot())
+    }
+
+    /// Shows this in place of the core's view, for boards no test can have.
+    #[cfg(test)]
+    pub fn set_stage(&mut self, stage: Option<Snapshot>) {
+        self.stage = stage.map(Arc::new);
+    }
+
+    /// Where the file sheets start, for tests that may not touch a real home folder.
+    #[cfg(test)]
+    pub fn set_folder(&mut self, folder: PathBuf) {
+        self.folder = Some(folder);
+    }
+
+    #[cfg(test)]
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// The settings, for tests of the screens.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
     }

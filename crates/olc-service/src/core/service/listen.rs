@@ -31,6 +31,9 @@ impl Service {
             self.take_answer(&address, hello);
         }
         self.scanner.take_silent();
+        for note in self.host.take_radio_notes() {
+            self.say("notice.radio_failed", note, false);
+        }
         for (from, hello) in self.host.take_heard() {
             match from {
                 HeardFrom::Network(ip) if hello.card.port != 0 => {

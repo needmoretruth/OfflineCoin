@@ -1,10 +1,15 @@
 //! All words of the app: one table per language, English first. A key missing from either fails
-//! a test, and so does a key used in the code that no table has. Expert tables hold only the words
-//! that differ from basic ones.
+//! a test, and so does a key used in the code that no table has. Expert tables hold the words that
+//! differ from basic ones, and `pro.` rows that only expert mode shows. Basic tables may not carry
+//! an expert term: `plain_words_have_no_expert_terms` lists the banned ones.
 mod en;
 mod en_expert;
+mod en_expert_more;
+mod en_more;
 mod ko;
 mod ko_expert;
+mod ko_expert_more;
+mod ko_more;
 mod lab;
 
 pub use crate::settings::{Lang, Mode};
@@ -19,8 +24,8 @@ fn table(lang: Lang) -> &'static Table {
     static EN: OnceLock<Table> = OnceLock::new();
     static KO: OnceLock<Table> = OnceLock::new();
     match lang {
-        Lang::En => EN.get_or_init(|| en::WORDS.iter().copied().collect()),
-        Lang::Ko => KO.get_or_init(|| ko::WORDS.iter().copied().collect()),
+        Lang::En => EN.get_or_init(|| en::WORDS.iter().chain(en_more::WORDS).copied().collect()),
+        Lang::Ko => KO.get_or_init(|| ko::WORDS.iter().chain(ko_more::WORDS).copied().collect()),
     }
 }
 
@@ -28,8 +33,8 @@ fn expert_table(lang: Lang) -> &'static Table {
     static EN: OnceLock<Table> = OnceLock::new();
     static KO: OnceLock<Table> = OnceLock::new();
     match lang {
-        Lang::En => EN.get_or_init(|| en_expert::WORDS.iter().copied().collect()),
-        Lang::Ko => KO.get_or_init(|| ko_expert::WORDS.iter().copied().collect()),
+        Lang::En => EN.get_or_init(|| en_expert::WORDS.iter().chain(en_expert_more::WORDS).copied().collect()),
+        Lang::Ko => KO.get_or_init(|| ko_expert::WORDS.iter().chain(ko_expert_more::WORDS).copied().collect()),
     }
 }
 
@@ -70,34 +75,98 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    type Rows = Vec<(&'static str, &'static str)>;
+
+    fn rows(first: &'static [(&str, &str)], second: &'static [(&str, &str)]) -> Rows {
+        first.iter().chain(second).copied().collect()
+    }
+
     fn keys(words: &[(&str, &str)]) -> BTreeSet<String> {
         words.iter().map(|(key, _)| (*key).to_string()).collect()
     }
 
     #[test]
     fn both_languages_have_every_key_once() {
-        assert_eq!(keys(en::WORDS), keys(ko::WORDS));
-        assert_eq!(keys(en::WORDS).len(), en::WORDS.len());
-        assert_eq!(keys(ko::WORDS).len(), ko::WORDS.len());
+        let (english, korean) = (rows(en::WORDS, en_more::WORDS), rows(ko::WORDS, ko_more::WORDS));
+        assert_eq!(keys(&english), keys(&korean));
+        assert_eq!(keys(&english).len(), english.len());
+        assert_eq!(keys(&korean).len(), korean.len());
+        let (english, korean) = (
+            rows(en_expert::WORDS, en_expert_more::WORDS),
+            rows(ko_expert::WORDS, ko_expert_more::WORDS),
+        );
+        assert_eq!(keys(&english), keys(&korean));
+        assert_eq!(keys(&english).len(), english.len());
     }
 
     fn voice(lang: Lang) -> Voice {
         Voice { lang, mode: Mode::Basic }
     }
 
+    /// An expert row either replaces a basic word or is one only expert mode shows.
     #[test]
-    fn expert_words_only_replace_basic_ones() {
-        for (key, _) in en_expert::WORDS.iter().chain(ko_expert::WORDS) {
-            assert_ne!(text(voice(Lang::En), key), "?", "{key}");
+    fn expert_words_replace_basic_ones_or_are_expert_rows() {
+        for (key, _) in rows(en_expert::WORDS, en_expert_more::WORDS) {
+            let only_expert = matches!(key.split('.').next(), Some("pro" | "lab" | "captest" | "console"))
+                || matches!(key, "page.console" | "notice.experiment_busy");
+            assert!(only_expert || text(voice(Lang::En), key) != "?", "{key}");
         }
         let expert = Voice { lang: Lang::Ko, mode: Mode::Expert };
         assert_eq!(text(expert, "notice.saved"), text(voice(Lang::Ko), "notice.saved"));
     }
 
+    /// A plain sentence may not lean on a word from the trade. Korean is checked as written, and
+    /// English as whole lowercase words so that `work` does not trip on `network`.
+    const BANNED_ENGLISH: &[&str] = &[
+        "hash", "hashrate", "h/s", "difficulty", "utxo", "utxos", "mempool", "node", "nodes", "peer",
+        "peers", "pruning", "pruned", "prune", "esp-now", "espnow", "genesis", "ticker", "premine",
+        "header", "headers", "light node", "full node", "coinbase", "txid", "merkle", "nonce",
+        "broadcast", "op_return", "firmware", "ota", "uart", "snapshot", "fork", "chain", "cli",
+        "command", "soft ap", "halving",
+    ];
+    const BANNED_KOREAN: &[&str] = &[
+        "해시", "난이도", "멤풀", "노드", "피어", "프루닝", "제네시스", "티커", "프리마인", "헤더",
+        "라이트", "코인베이스", "머클", "넌스", "브로드캐스트", "펌웨어", "UTXO", "ESP-NOW", "체인",
+        "스냅샷", "포크", "명령어", "반감기", "전파",
+    ];
+
+    #[test]
+    fn plain_words_have_no_expert_terms() {
+        for (key, words) in rows(en::WORDS, en_more::WORDS) {
+            let lower = format!(" {} ", words.to_lowercase());
+            let spaced: String =
+                lower.chars().map(|c| if c.is_alphanumeric() || "/_-".contains(c) { c } else { ' ' }).collect();
+            for term in BANNED_ENGLISH {
+                assert!(!spaced.contains(&format!(" {term} ")), "{key}: {words} says {term}");
+            }
+        }
+        for (key, words) in rows(ko::WORDS, ko_more::WORDS) {
+            for term in BANNED_KOREAN {
+                assert!(!words.contains(term), "{key}: {words} says {term}");
+            }
+        }
+    }
+
+    /// Expert mode swaps the plain terms for the standard ones where it matters most.
+    #[test]
+    fn expert_mode_uses_the_terms_of_the_trade() {
+        let expert = Voice { lang: Lang::En, mode: Mode::Expert };
+        assert_eq!(text(expert, "local.keep_all"), "Full node");
+        assert_eq!(text(expert, "unit.rate"), "{} H/s");
+        assert_eq!(text(expert, "reach.radio"), "ESP-NOW");
+        assert_eq!(text(expert, "pro.difficulty"), "Difficulty");
+        assert_eq!(text(expert, "pro.mempool"), "Mempool");
+        assert_eq!(text(voice(Lang::En), "pro.mempool"), "?");
+    }
+
     #[test]
     fn a_blank_takes_the_same_values_in_both_languages() {
-        for (key, english) in en::WORDS {
+        for (key, english) in rows(en::WORDS, en_more::WORDS) {
             let korean = text(voice(Lang::Ko), key);
+            assert_eq!(english.matches("{}").count(), korean.matches("{}").count(), "{key}");
+        }
+        for (key, english) in rows(en_expert::WORDS, en_expert_more::WORDS) {
+            let korean = text(Voice { lang: Lang::Ko, mode: Mode::Expert }, key);
             assert_eq!(english.matches("{}").count(), korean.matches("{}").count(), "{key}");
         }
     }
@@ -121,15 +190,18 @@ mod tests {
         sources(&folder.join("pages"), &mut texts);
         sources(&folder.join("ui"), &mut texts);
         sources(&folder.join("../../olc-service/src/core"), &mut texts);
-        let known = keys(en::WORDS);
-        let prefixes: BTreeSet<&str> = en::WORDS
-            .iter()
-            .filter_map(|(key, _)| key.split('.').next())
-            .collect();
+        sources(&folder.join("../../olc-service/src/local"), &mut texts);
+        let base = rows(en::WORDS, en_more::WORDS);
+        let expert = rows(en_expert::WORDS, en_expert_more::WORDS);
+        let mut known = keys(&base);
+        known.extend(keys(&expert));
+        let prefixes: BTreeSet<&str> =
+            known.iter().filter_map(|key| key.split('.').next()).collect();
         let mut used = 0;
+        let mut seen = BTreeSet::new();
         for text in texts {
             for piece in text.split('"').skip(1).step_by(2) {
-                let shaped = piece.split_once('.').is_some_and(|(head, tail)| {
+                let shaped = piece != "coin.json" && piece.split_once('.').is_some_and(|(head, tail)| {
                     prefixes.contains(head)
                         && !tail.is_empty()
                         && tail.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit())
@@ -137,10 +209,13 @@ mod tests {
                 if shaped {
                     used += 1;
                     assert!(known.contains(piece), "no words for {piece}");
+                    seen.insert(piece.to_string());
                 }
             }
         }
         assert!(used > 100);
+        let unused: Vec<&String> = known.difference(&seen).collect();
+        assert!(unused.is_empty(), "words no screen uses: {unused:?}");
     }
 
     #[test]

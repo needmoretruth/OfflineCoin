@@ -5,7 +5,7 @@ use super::history::Activity;
 use super::pool_run::PoolView;
 use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
-use olc_board::Seen;
+use olc_board::{BoardState, Seen};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Rank;
 
@@ -31,6 +31,8 @@ pub struct NodeView {
     pub loading: Option<(usize, usize)>,
     pub balance: u64,
     pub spendable: u64,
+    /// Mined coins still too young to spend, which the balance leaves out.
+    pub maturing: u64,
     pub address: String,
     pub activity: Vec<Activity>,
     pub blocks_mined: u64,
@@ -45,6 +47,8 @@ pub struct NodeView {
     pub mine_note: String,
     pub merging: bool,
     pub links: Rank,
+    /// Whether this node uses Bluetooth. `None` where it cannot.
+    pub bluetooth: Option<bool>,
     /// The oldest block whose body is here.
     pub oldest: u64,
     pub recent: Option<u64>,
@@ -70,6 +74,11 @@ pub struct KeyView {
 }
 
 impl NodeView {
+    /// About how long this computer takes to find a block alone. `None` when it is not trying.
+    pub fn seconds_per_block(&self) -> Option<u64> {
+        (self.hashrate > 0).then(|| (self.difficulty / self.hashrate.max(1)).max(1))
+    }
+
     pub fn tip_hex(&self) -> String {
         self.tip.iter().map(|byte| format!("{byte:02x}")).collect()
     }
@@ -84,8 +93,8 @@ pub struct BoardView {
     pub answer: Option<String>,
     /// Quiet because it is restarting, not because something is wrong.
     pub returning: bool,
-    /// The panel's stored brightness, once the board has said it.
-    pub bright: Option<u8>,
+    /// Its settings, once the board has said them.
+    pub state: BoardState,
 }
 
 #[derive(Clone, Debug, Default)]

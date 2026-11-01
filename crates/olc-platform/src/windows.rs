@@ -1,7 +1,7 @@
 //! Windows: the registry tells which COM port belongs to which USB device, and a job object
 //! holds a node's working memory and priority. A job's CPU share is out of reach of safe code
 //! here, so the screen says it is not held.
-use crate::{foreign, Enforcement, Hold, Limits, Platform, Usage, UsbPort};
+use crate::{foreign, Enforcement, Hold, Limits, Place, PlaceKind, Platform, Usage, UsbPort};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::windows::io::AsRawHandle;
@@ -126,6 +126,28 @@ impl Platform for Os {
 
     fn usage(&self, pid: u32) -> Option<Usage> {
         foreign::usage(pid)
+    }
+
+    fn places(&self) -> Vec<Place> {
+        let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
+            return Vec::new();
+        };
+        let mut places = crate::usual_places(
+            &home,
+            [
+                (PlaceKind::Desktop, home.join("Desktop")),
+                (PlaceKind::Documents, home.join("Documents")),
+                (PlaceKind::Downloads, home.join("Downloads")),
+            ],
+        );
+        for letter in 'D'..='Z' {
+            let path = PathBuf::from(format!("{letter}:\\"));
+            if path.is_dir() {
+                let label = format!("{letter}:");
+                places.push(Place { kind: PlaceKind::Drive, label, path });
+            }
+        }
+        places
     }
 
     fn open_folder(&self, path: &Path) -> std::io::Result<()> {

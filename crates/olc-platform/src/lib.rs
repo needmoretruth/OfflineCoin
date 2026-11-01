@@ -10,6 +10,8 @@ mod os;
 #[cfg(unix)]
 mod unix;
 
+use olc_node::network::Mark;
+use olc_node::Link;
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -27,6 +29,52 @@ pub struct UsbPort {
     pub path: String,
     /// The serial number the device gives. Empty when the system does not tell.
     pub serial: String,
+}
+
+/// What kind of place a folder is, so the window can name it in the reader's language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaceKind {
+    Home,
+    Desktop,
+    Documents,
+    Downloads,
+    /// A USB stick or another drive.
+    Drive,
+}
+
+/// A folder worth offering first when a file is chosen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub kind: PlaceKind,
+    /// The drive's own label, empty for the usual folders.
+    pub label: String,
+    pub path: PathBuf,
+}
+
+/// The usual folders under `home`, keeping those that exist.
+fn usual_places(home: &Path, names: [(PlaceKind, PathBuf); 3]) -> Vec<Place> {
+    let first = Place { kind: PlaceKind::Home, label: String::new(), path: home.to_path_buf() };
+    let rest = names.into_iter().filter(|(_, path)| path.is_dir());
+    let rest = rest.map(|(kind, path)| Place { kind, label: String::new(), path });
+    std::iter::once(first).chain(rest).collect()
+}
+
+/// Every folder inside `root`, as drives.
+#[cfg(unix)]
+fn drives_in(root: &Path) -> Vec<Place> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let folders = entries.flatten().filter(|entry| entry.path().is_dir());
+    let mut drives: Vec<Place> = folders
+        .map(|entry| Place {
+            kind: PlaceKind::Drive,
+            label: entry.file_name().to_string_lossy().to_string(),
+            path: entry.path(),
+        })
+        .collect();
+    drives.sort_by(|one, other| one.label.cmp(&other.label));
+    drives
 }
 
 /// What a node process may use.
@@ -66,6 +114,9 @@ pub struct Usage {
 /// Keeps a limit alive for as long as its process runs.
 pub type Hold = Box<dyn Any + Send>;
 
+pub const NO_BLUETOOTH: &str = "This computer cannot use Bluetooth.";
+pub const NO_ESP_NOW: &str = "This computer cannot use ESP-NOW.";
+
 pub trait Platform: Sync {
     /// Where nodes, coins and settings live.
     fn data_folder(&self) -> Option<PathBuf>;
@@ -94,6 +145,18 @@ pub trait Platform: Sync {
         Vec::new()
     }
 
+    /// Whether nodes here can use Bluetooth. Only Linux can so far.
+    fn has_bluetooth(&self) -> bool {
+        false
+    }
+    /// A link over Bluetooth, for the node with this id.
+    fn bluetooth_link(&self, _me: u64) -> Result<Box<dyn Link>, String> {
+        Err(NO_BLUETOOTH.into())
+    }
+    /// A link over ESP-NOW through a Wi-Fi card in monitor mode.
+    fn esp_now_link(&self, _card: &str, _mark: Mark) -> Result<Box<dyn Link>, String> {
+        Err(NO_ESP_NOW.into())
+    }
     fn process_exists(&self, pid: u32) -> bool;
     fn write_private(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
     fn is_private(&self, path: &Path) -> bool;
@@ -110,6 +173,8 @@ pub trait Platform: Sync {
     /// Shows a folder in the system's file manager.
     /// Shows a folder in the file manager. Web addresses go the same way.
     fn open_folder(&self, path: &Path) -> std::io::Result<()>;
+    /// Where a person keeps files: their usual folders, then any drive plugged in.
+    fn places(&self) -> Vec<Place>;
 }
 
 /// This computer's system.

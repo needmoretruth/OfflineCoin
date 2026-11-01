@@ -1,6 +1,6 @@
 //! macOS: `ioreg` tells which serial device belongs to which USB device. The system offers no
 //! way to hold a process's memory, so a node only runs at a low priority, and the screen says so.
-use crate::{foreign, unix, Enforcement, Limits, Platform, Usage, UsbPort};
+use crate::{foreign, unix, Enforcement, Limits, Platform, Usage, UsbPort, Place, PlaceKind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -91,6 +91,24 @@ impl Platform for Os {
 
     fn usage(&self, pid: u32) -> Option<Usage> {
         foreign::usage(pid)
+    }
+
+    fn places(&self) -> Vec<Place> {
+        let Some(home) = unix::home() else {
+            return Vec::new();
+        };
+        let mut places = crate::usual_places(
+            &home,
+            [
+                (PlaceKind::Desktop, home.join("Desktop")),
+                (PlaceKind::Documents, home.join("Documents")),
+                (PlaceKind::Downloads, home.join("Downloads")),
+            ],
+        );
+        // The system disk is listed there too, as a link back to the root.
+        let drives = crate::drives_in(Path::new("/Volumes"));
+        places.extend(drives.into_iter().filter(|drive| !drive.path.is_symlink()));
+        places
     }
 
     fn open_folder(&self, path: &Path) -> std::io::Result<()> {

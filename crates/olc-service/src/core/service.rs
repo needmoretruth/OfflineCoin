@@ -6,7 +6,7 @@ use super::coins::{
 };
 use super::board_action::BoardAction;
 use olc_store::coin_file::new_coin;
-use super::board_lines::Brights;
+use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
 use super::host::{full_rate, Host, PayError, Plan};
@@ -15,6 +15,7 @@ use olc_platform::platform;
 use super::rows::{
     board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
+use super::radios::bluetooth_here;
 use super::returning::{is_returning, Returning};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, Scanner, Shout};
@@ -46,6 +47,7 @@ pub struct CoreLaunch {
 }
 
 /// The window's handle on all of it.
+#[derive(Clone)]
 pub struct Core {
     snapshot: Arc<Mutex<Arc<Snapshot>>>,
     commands: Sender<Command>,
@@ -99,7 +101,7 @@ struct Service {
     host: Host,
     fleet: Option<Arc<dyn FleetPort>>,
     usb: bool,
-    brights: Brights,
+    told: BoardsTold,
     returning: Returning,
     scanner: Scanner,
     shout: Shout,
@@ -158,7 +160,7 @@ impl Service {
             host,
             fleet: launch.fleet,
             usb: launch.usb,
-            brights: Brights::default(),
+            told: BoardsTold::default(),
             returning: Returning::default(),
             scanner: Scanner::start(),
             shout: Shout::start(),
@@ -217,7 +219,11 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
-            Command::Own(Personal::SetLight(on)) => self.set_light(on),
+            Command::Own(Personal::SetLight(on)) => self.change_node(|node| node.light = on),
+            Command::Own(Personal::SetBluetooth(on)) if on && !bluetooth_here() => {
+                self.say("notice.no_bluetooth", String::new(), false);
+            }
+            Command::Own(Personal::SetBluetooth(on)) => self.change_node(|node| node.bluetooth = on),
             Command::Own(order) => {
                 let (key, detail, good) = self.host.obey(order);
                 if !key.is_empty() {
@@ -296,7 +302,7 @@ impl Service {
                     self.say("notice.experiment_busy", String::new(), false);
                 }
             }
-            Command::ReadBright(board) => self.read_bright(board),
+            Command::ReadBoardState(board) => self.read_state(board),
             Command::StartCapTest(board) => {
                 let words = [CapTest.command().to_string()];
                 let args = Args::parse(words.into_iter());
@@ -422,13 +428,14 @@ impl Service {
     }
 
     /// The node comes back as the other kind on the same coin and the same folder.
-    fn set_light(&mut self, on: bool) {
+    /// Changes how this node runs. It takes the change by starting over on the same coin.
+    fn change_node(&mut self, change: impl FnOnce(&mut NodeSettings)) {
         let Some(name) = self.settings.coin.clone() else {
             return;
         };
         let folder = self.paths.coin(&name);
         let mut settings = NodeSettings::load(&folder);
-        settings.light = on;
+        change(&mut settings);
         match settings.save(&folder) {
             Ok(()) => {
                 let coin = current_coin(&self.paths, &self.settings);
@@ -515,15 +522,15 @@ impl Service {
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());
-        let brights = self.brights.lock().map(|known| known.clone()).unwrap_or_default();
+        let told = self.told.lock().map(|known| known.clone()).unwrap_or_default();
         let boards = rows
             .into_iter()
             .zip(links)
             .map(|(row, link)| BoardView {
                 returning: is_returning(&row),
                 reach: reach_of_board(&row, link),
-                bright: brights.get(&row.seen.id).and_then(|told| told.bright),
-                answer: brights.get(&row.seen.id).and_then(|told| told.answer.clone()),
+                state: told.get(&row.seen.id).map(|told| told.state.clone()).unwrap_or_default(),
+                answer: told.get(&row.seen.id).and_then(|told| told.answer.clone()),
                 seen: row.seen,
                 job: row.job,
             })

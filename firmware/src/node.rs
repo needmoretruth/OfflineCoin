@@ -115,6 +115,8 @@ pub struct Node {
     /// Coin frames sent and the slowest send, over the last second and the one before.
     pub frames: FrameCount,
     pub power_dbm: i8,
+    /// Whether it started with Bluetooth, which only a restart changes.
+    pub bluetooth: bool,
     /// The panel's contrast.
     pub bright: u8,
     /// Whether the watchdog was running when this program got the chip.

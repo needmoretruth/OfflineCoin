@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Bluetooth on Linux, through BlueZ and the D-Bus library, which a build needs to have.
+ble = ["olc-platform/ble"]
+
 [dependencies]
 getrandom = "0.3"
 olc-board.workspace = true
@@ -25,6 +29,7 @@ postcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 if-addrs = "0.15"
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 olc-link-serial.workspace = true

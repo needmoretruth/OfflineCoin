@@ -1,5 +1,6 @@
 //! Commands and answers for a running board. [`BoardLink`] is the socket: a cable or a packet
 //! across the fleet, as long as it carries the same lines.
+use crate::state::BoardState;
 use olc_link_serial::SerialLink;
 use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver};
@@ -59,8 +60,8 @@ pub struct Status {
     pub view: Option<String>,
     /// The coin's frames a second on the panel.
     pub smooth: Option<u32>,
-    /// The panel's stored brightness.
-    pub bright: Option<u8>,
+    /// Its own settings, as far as its firmware says them.
+    pub state: BoardState,
     pub address: String,
     /// The last branch change as (height, blocks replaced).
     pub reorg: (u64, u64),
@@ -100,7 +101,7 @@ impl Status {
             offline: fields.get("offline")?.parse().ok()?,
             view: fields.get("view").map(|view| view.to_string()),
             smooth: fields.get("smooth").and_then(|fps| fps.parse().ok()),
-            bright: fields.get("bright").and_then(|level| level.parse().ok()),
+            state: BoardState::parse(&fields),
             address: fields.get("address")?.to_string(),
             reorg: fields
                 .get("reorg")
