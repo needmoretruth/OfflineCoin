@@ -46,10 +46,10 @@ pub fn deliver(nodes: &mut [Engine]) {
                         (None, except.map(|peer| peer as usize), message)
                     }
                 };
-                for receiver in 0..nodes.len() {
+                for (receiver, node) in nodes.iter_mut().enumerate() {
                     let chosen = to.is_none_or(|peer| peer == receiver);
                     if receiver != sender && chosen && except != Some(receiver) {
-                        nodes[receiver].on_message(sender as u32, message.clone());
+                        node.on_message(sender as u32, message.clone());
                     }
                 }
             }
