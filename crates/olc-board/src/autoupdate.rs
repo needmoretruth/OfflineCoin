@@ -1,6 +1,5 @@
 //! Keeps every trusted board on the build this program carries.
-use crate::app::App;
-use crate::fleet_api::run_update;
+use crate::manager::Manager;
 use olc_control::BoardId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -43,15 +42,16 @@ pub fn is_older(build: &str, carried: &str) -> bool {
     }
 }
 
-pub fn start(app: Arc<App>, carried: &'static str) {
+/// Runs for as long as the program does. `carried` is the build to keep boards on.
+pub fn start(manager: Arc<Manager>, carried: &'static str) {
     thread::spawn(move || {
         let mut attempts: BTreeMap<BoardId, Attempts> = BTreeMap::new();
         loop {
             thread::sleep(LOOK_EVERY);
-            if app.is_busy() {
+            if manager.is_busy() {
                 continue;
             }
-            let Some(board) = next_board(&app, carried, &attempts) else {
+            let Some(board) = next_board(&manager, carried, &attempts) else {
                 continue;
             };
             let tried = attempts.get(&board).map_or(0, |seen| seen.count % TRIES);
@@ -62,7 +62,7 @@ pub fn start(app: Arc<App>, carried: &'static str) {
                     last: Instant::now(),
                 },
             );
-            if run_update(&app, board) {
+            if manager.update(board) {
                 attempts.remove(&board);
             }
         }
@@ -70,11 +70,11 @@ pub fn start(app: Arc<App>, carried: &'static str) {
 }
 
 fn next_board(
-    app: &App,
+    manager: &Manager,
     carried: &str,
     attempts: &BTreeMap<BoardId, Attempts>,
 ) -> Option<BoardId> {
-    let boards = app.fleet.lock().ok()?.boards();
+    let boards = manager.fleet.lock().ok()?.boards();
     boards
         .iter()
         .filter(|board| board.online && board.beacon.trusts_a_key)

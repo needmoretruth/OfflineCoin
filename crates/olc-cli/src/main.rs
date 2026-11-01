@@ -1,6 +1,5 @@
 //! `olc`: run a node, start a test network or write a new coin file.
 mod app;
-mod autoupdate;
 mod coinfile;
 mod devnet;
 mod fleet_api;

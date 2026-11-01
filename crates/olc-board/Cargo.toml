@@ -10,4 +10,5 @@ repository.workspace = true
 olc-control.workspace = true
 olc-crypto.workspace = true
 olc-link-serial.workspace = true
+olc-node.workspace = true
 getrandom = "0.3"

@@ -334,6 +334,7 @@ dependencies = [
  "olc-control",
  "olc-crypto",
  "olc-link-serial",
+ "olc-node",
 ]
 
 [[package]]

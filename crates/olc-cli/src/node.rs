@@ -2,7 +2,7 @@
 use crate::app::App;
 use crate::store::{load_or_create_secret, Store};
 use crate::{coinfile, web, window};
-use olc_board::Args;
+use olc_board::{autoupdate, carried, Args};
 use olc_core::Plugins;
 use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
@@ -26,7 +26,7 @@ const MAX_LOG: usize = 40;
 
 /// Shared between the mining loop and the browser screen.
 pub struct Shared {
-    pub runner: Mutex<Runner>,
+    pub runner: Arc<Mutex<Runner>>,
     pub mining: AtomicBool,
     pub hashrate: AtomicU64,
     /// Hashes per second, 0 for full.
@@ -119,7 +119,7 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         })
         .unwrap_or_default();
     let shared = Arc::new(Shared {
-        runner: Mutex::new(runner),
+        runner: Arc::new(Mutex::new(runner)),
         mining: AtomicBool::new(args.has("mine")),
         hashrate: AtomicU64::new(0),
         hash_limit: AtomicU64::new(hash_limit),
@@ -129,9 +129,11 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         siblings,
         app,
     });
-    crate::app::watch_ports(&shared);
-    if let (Some(app), Some(build)) = (&shared.app, crate::app::carried_build(args)) {
-        crate::autoupdate::start(app.clone(), build);
+    if let Some(app) = &shared.app {
+        app.watch_ports(shared.runner.clone());
+        if let (Some(build), false) = (carried::build(), args.has("firmware")) {
+            autoupdate::start((**app).clone(), build);
+        }
     }
     let web_port = web::serve(shared.clone(), format!("{host}:{web_port}"))?;
     match &shared.app {

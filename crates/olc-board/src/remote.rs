@@ -51,7 +51,9 @@ pub fn command(fleet: &SharedFleet, board: BoardId, line: &str) -> Result<Option
                 answer = Some(line);
             }
         }
-        if with(fleet, |fleet| fleet.has_finished(board, signed.order.counter))? {
+        if with(fleet, |fleet| {
+            fleet.has_finished(board, signed.order.counter)
+        })? {
             return Ok(answer);
         }
         match with(fleet, |fleet| fleet.take_refusal(board))? {
