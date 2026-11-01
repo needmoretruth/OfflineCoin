@@ -9,7 +9,7 @@ mod spawn;
 mod supervisor;
 
 pub use child::run_node;
-pub use measure::Measured;
+pub use measure::{is_running, Measured};
 pub use preset::{Preset, PROCESS_OVERHEAD_MIB};
 pub use spawn::Enforcement;
 pub use supervisor::{address_of, ChildStatus, LocalView, Supervisor};

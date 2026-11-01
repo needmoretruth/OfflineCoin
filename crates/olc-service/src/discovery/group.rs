@@ -25,6 +25,7 @@ pub enum Work {
     Idle,
     Offline,
     Silent,
+    Restarting,
 }
 
 /// One thing found.

@@ -1,8 +1,8 @@
 //! A board that powers up with its boot pin read low sits in the chip's built-in loader and runs
 //! nothing of ours. On a cable it can still be told to restart, in the loader's own language.
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::process::Command;
+use olc_link_serial::open_port;
+use serial2::SerialPort;
+use std::io::ErrorKind;
 
 const FRAME_END: u8 = 0xC0;
 const ESCAPE: u8 = 0xDB;
@@ -16,7 +16,6 @@ const READ_REGISTER: u8 = 0x0A;
 const SYNC_TRIES: usize = 3;
 const REPLY_BYTES: usize = 512;
 /// The port gives up on a read after this many tenths of a second.
-const READ_TENTHS: &str = "2";
 /// A loader answers a sync several times. A running board prints other things.
 const QUIET_READS: usize = 2;
 
@@ -90,23 +89,12 @@ fn answer(bytes: &[u8], command: u8) -> Option<u32> {
 }
 
 struct Loader {
-    port: File,
+    port: SerialPort,
 }
 
 impl Loader {
     fn open(path: &str) -> Option<Self> {
-        let settings = [
-            "-F", path, "115200", "raw", "-echo", "-hupcl", "min", "0", "time",
-        ];
-        let set = Command::new("stty")
-            .args(settings)
-            .arg(READ_TENTHS)
-            .status();
-        if !set.is_ok_and(|status| status.success()) {
-            return None;
-        }
-        let port = OpenOptions::new().read(true).write(true).open(path).ok()?;
-        Some(Self { port })
+        open_port(path).ok().map(|port| Self { port })
     }
 
     fn ask(&mut self, message: &[u8], command: u8) -> Option<u32> {
@@ -114,7 +102,11 @@ impl Loader {
         let mut heard = Vec::new();
         let mut buffer = [0u8; REPLY_BYTES];
         for _ in 0..QUIET_READS {
-            let size = self.port.read(&mut buffer).ok()?;
+            let size = match self.port.read(&mut buffer) {
+                Ok(size) => size,
+                Err(error) if error.kind() == ErrorKind::TimedOut => 0,
+                Err(_) => return None,
+            };
             heard.extend(&buffer[..size]);
             if let Some(value) = answer(&heard, command) {
                 return Some(value);

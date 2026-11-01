@@ -32,6 +32,7 @@ pub enum Command {
     },
     AddAddress(String),
     Rescan,
+    OpenDataFolder,
     BoardLine {
         id: BoardId,
         line: String,

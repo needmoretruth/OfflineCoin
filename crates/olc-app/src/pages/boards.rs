@@ -17,7 +17,6 @@ const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
 /// Used only until a board says its own number.
 const BRIGHT_FALLBACK: u64 = 64;
 const BRIGHT_MAX: u64 = 255;
-const HALF_CAP: u64 = 7_500;
 const LABEL_WIDTH: f32 = 150.0;
 
 #[derive(Default)]
@@ -83,10 +82,16 @@ impl Boards {
         let beacon = &board.seen.beacon;
         columns.row(ui, |ui, index| match index {
             0 => {
-                let colour = if board.seen.online { t.good } else { t.bad };
+                let colour = match (board.seen.online, board.returning) {
+                    (true, _) => t.good,
+                    (false, true) => t.muted,
+                    (false, false) => t.bad,
+                };
                 dot(ui, colour);
                 cell(ui, beacon.name.clone());
             }
+            // Nothing is known of how a restarting board will come back.
+            1 if board.returning => cell(ui, String::new()),
             1 => cell(ui, connection(cx, board)),
             2 => cell(ui, format::number(beacon.height.into())),
             3 => cell(ui, format::rate(beacon.hashrate.into())),
@@ -133,13 +138,19 @@ impl Boards {
         let id = board.seen.id;
         let beacon = &board.seen.beacon;
         labelled(ui, cx.say("boards.cap"), |ui| {
-            let items = [
-                (cx.settings.board_cap, format::number(cx.settings.board_cap.into())),
-                (HALF_CAP, format::number(HALF_CAP.into())),
-            ];
+            let items = [(cx.settings.board_cap, format::number(cx.settings.board_cap.into()))];
             if let Some(cap) = segments(ui, t, &items, Some(self.cap)) {
                 self.cap = cap;
                 Self::line(cx, id, format!("limit {cap}"));
+            }
+            let full = beacon.limit == 0;
+            let key = if full { "boards.full_off" } else { "boards.full_on" };
+            let word = if full { "off" } else { "on" };
+            if button(ui, t, cx.say(key), Kind::Plain)
+                .on_hover_text(cx.say("boards.full_note"))
+                .clicked()
+            {
+                Self::line(cx, id, format!("full {word}"));
             }
             number_field(ui, &mut self.cap, 90.0);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {

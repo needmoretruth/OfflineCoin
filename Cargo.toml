@@ -40,6 +40,8 @@ olc-link-serial = { path = "crates/olc-link-serial" }
 olc-board = { path = "crates/olc-board" }
 olc-lab = { path = "crates/olc-lab" }
 olc-store = { path = "crates/olc-store" }
+olc-platform = { path = "crates/olc-platform" }
+olc-service = { path = "crates/olc-service" }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "alloc"] }
 sha2 = { version = "0.10", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

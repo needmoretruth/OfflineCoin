@@ -1,12 +1,28 @@
 //! What a person chose, saved as one small file. A device choice only fills these numbers: each
 //! stays editable and nothing is blocked by it.
-use crate::i18n::Lang;
 use crate::local::NodeSpec;
 use olc_control::BoardId;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Lang {
+    #[default]
+    En,
+    Ko,
+}
+
+impl Lang {
+    pub fn other(self) -> Self {
+        match self {
+            Self::En => Self::Ko,
+            Self::Ko => Self::En,
+        }
+    }
+}
+
+const OLD_BOARD_CAP: u64 = 3_000;
 pub const NODE_PORT: u16 = 7000;
 /// Ports tried after the chosen one when it is taken.
 pub const PORT_TRIES: u16 = 10;
@@ -90,6 +106,9 @@ pub struct Settings {
     pub hash_cap: u64,
     /// The cap offered first for a board.
     pub board_cap: u64,
+    /// The person typed `board_cap`, so no later default replaces it.
+    #[serde(default)]
+    pub board_cap_chosen: bool,
     pub mine_on_start: bool,
     /// Node processes on this computer.
     pub nodes: Vec<NodeSpec>,
@@ -124,6 +143,7 @@ impl Default for Settings {
             device: Device::default(),
             hash_cap: defaults.hash_cap,
             board_cap: defaults.board_cap,
+            board_cap_chosen: false,
             mine_on_start: false,
             auto_update: false,
             auto_boards: Vec::new(),
@@ -152,6 +172,7 @@ impl Settings {
         self.device = from.device;
         self.hash_cap = from.hash_cap;
         self.board_cap = from.board_cap;
+        self.board_cap_chosen = from.board_cap_chosen;
         self.mine_on_start = from.mine_on_start;
         self.port = from.port;
         self.listen_lan = from.listen_lan;
@@ -165,6 +186,7 @@ impl Settings {
         self.device = device;
         self.hash_cap = defaults.hash_cap;
         self.board_cap = defaults.board_cap;
+        self.board_cap_chosen = false;
         self.listen_lan = defaults.listen_lan;
     }
 
@@ -178,10 +200,17 @@ impl Settings {
     }
 
     pub fn load(root: &Path) -> Self {
-        fs::read_to_string(root.join(FILE))
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        let text = fs::read_to_string(root.join(FILE)).ok();
+        let saved = text.and_then(|text| serde_json::from_str::<Self>(&text).ok());
+        saved.unwrap_or_default().moved_to_shared_cap()
+    }
+
+    /// `OLD_BOARD_CAP` was once the default, so a saved one was no choice.
+    fn moved_to_shared_cap(mut self) -> Self {
+        if self.board_cap == OLD_BOARD_CAP && !self.board_cap_chosen {
+            self.board_cap = BOARD_CAP;
+        }
+        self
     }
 
     pub fn save(&self, root: &Path) -> Result<(), String> {
@@ -190,6 +219,12 @@ impl Settings {
         fs::write(&spare, text).map_err(|error| error.to_string())?;
         fs::rename(spare, root.join(FILE)).map_err(|error| error.to_string())
     }
+}
+
+/// Where this person's data lives, by the custom of the system.
+pub fn standard_folder() -> Result<PathBuf, String> {
+    let folder = olc_platform::platform().data_folder();
+    folder.ok_or_else(|| "This system gave no folder for data.".to_string())
 }
 
 /// Where this app keeps its files.
@@ -217,6 +252,18 @@ impl Paths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_old_default_board_cap_moves_and_a_chosen_one_stays() {
+        let old = Settings { board_cap: OLD_BOARD_CAP, ..Settings::default() };
+        assert_eq!(old.moved_to_shared_cap().board_cap, BOARD_CAP);
+        let chosen = Settings {
+            board_cap: OLD_BOARD_CAP,
+            board_cap_chosen: true,
+            ..Settings::default()
+        };
+        assert_eq!(chosen.moved_to_shared_cap().board_cap, OLD_BOARD_CAP);
+    }
 
     #[test]
     fn the_update_switch_starts_off_and_is_stored() {

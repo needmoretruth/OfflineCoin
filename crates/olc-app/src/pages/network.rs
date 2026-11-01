@@ -44,6 +44,7 @@ fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
         Work::Silent => (t.bad, cx.say("work.silent").to_string()),
+        Work::Restarting => (t.muted, cx.say("work.restarting").to_string()),
     };
     dot(ui, colour);
     cell(ui, text);

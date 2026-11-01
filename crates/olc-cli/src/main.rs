@@ -14,7 +14,7 @@ const USAGE: &str = "\
 OfflineCoin
 
   olc node    [--coin FILE] [--data DIR] [--port 7000] [--connect HOST:PORT]...
-              [--serial /dev/ttyACM0]... [--web 8000] [--web-public]
+              [--serial <port>]... [--web 8000] [--web-public]
               [--mine] [--hash-limit HASHES_PER_SECOND]
   olc app     [--firmware FILE] [--serial PORT]... [--web 8000] [--data DIR]
   olc install --port PORT --name NAME [--firmware FILE]

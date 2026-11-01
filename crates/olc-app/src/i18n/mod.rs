@@ -4,27 +4,11 @@ mod en;
 mod ko;
 mod lab;
 
+pub use crate::settings::Lang;
 pub use lab::lab_line;
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Lang {
-    #[default]
-    En,
-    Ko,
-}
-
-impl Lang {
-    pub fn other(self) -> Self {
-        match self {
-            Self::En => Self::Ko,
-            Self::Ko => Self::En,
-        }
-    }
-}
 
 type Table = HashMap<&'static str, &'static str>;
 

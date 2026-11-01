@@ -1,0 +1,21 @@
+[package]
+name = "olc-platform"
+description = "What differs between operating systems, behind one trait"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serial2 = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+serial2 = { version = "0.2", features = ["unix"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+
+[target.'cfg(windows)'.dependencies]
+win32job = "2"
+winreg = "0.56"

@@ -6,10 +6,12 @@ use super::coins::{
 use super::board_lines::{read_bright, run_line, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
+use olc_platform::platform;
 use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
 use super::rows::{
     board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
+use super::returning::{is_returning, Returning};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
 use crate::fleet::{BoardRow, CapTest, FleetPort};
@@ -91,6 +93,7 @@ struct Service {
     fleet: Option<Arc<dyn FleetPort>>,
     usb: bool,
     brights: Brights,
+    returning: Returning,
     scanner: Scanner,
     shout: Shout,
     found: Found,
@@ -148,6 +151,7 @@ impl Service {
             fleet: launch.fleet,
             usb: launch.usb,
             brights: Brights::default(),
+            returning: Returning::default(),
             scanner: Scanner::start(),
             shout: Shout::start(),
             found: Found::default(),
@@ -225,6 +229,9 @@ impl Service {
             Command::Pay { to, amount } => self.pay(&to, &amount),
             Command::AddAddress(address) => self.add_address(address),
             Command::Rescan => self.scanner.look_now(),
+            Command::OpenDataFolder => {
+                let _ = platform().open_folder(&self.paths.root);
+            }
             Command::BoardLine { id, line } => self.board_line(id, line),
             Command::UpdateBoard(id) => {
                 if let Some(fleet) = &self.fleet {
@@ -426,6 +433,7 @@ impl Service {
     }
 
     fn board_line(&mut self, id: BoardId, line: String) {
+        self.returning.note_line(id, &line);
         if let Some(fleet) = self.fleet.clone() {
             run_line(fleet, (self.late.clone(), self.brights.clone()), id, line);
         }
@@ -509,7 +517,8 @@ impl Service {
         let node = self.host.view();
         let identity = node.coin.clone().map(Identity::of);
         let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
-        let rows = rows.unwrap_or_default();
+        let mut rows = rows.unwrap_or_default();
+        self.returning.mark(&mut rows);
         let mut entries = self
             .found
             .entries((self.host.address(), node.port.unwrap_or(0)));
@@ -537,6 +546,7 @@ impl Service {
         let boards = rows
             .into_iter()
             .map(|row| BoardView {
+                returning: is_returning(&row),
                 reach: reach_of_board(&row),
                 bright: brights.get(&row.seen.id).copied(),
                 seen: row.seen,

@@ -1,8 +1,8 @@
 //! A node's files: its secret key and the blocks it has seen.
 use olc_core::Block;
+use olc_platform::platform;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub struct Store {
@@ -95,13 +95,7 @@ pub fn load_or_create_secret(directory: &Path) -> Result<[u8; 32], String> {
     getrandom::fill(&mut secret).map_err(|error| error.to_string())?;
     let text: String = secret.iter().map(|byte| format!("{byte:02x}")).collect();
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&path)
-        .and_then(|mut file| file.write_all(text.as_bytes()))
-        .map_err(|error| error.to_string())?;
+    platform().write_private(&path, text.as_bytes()).map_err(|error| error.to_string())?;
     Ok(secret)
 }
 

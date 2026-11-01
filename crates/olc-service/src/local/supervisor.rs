@@ -1,10 +1,11 @@
 //! The app's side of its node processes: starting and stopping them, reading their status lines
 //! and measuring them from the operating system.
 use super::measure::{Measured, Meter};
-use super::spawn::{enforcement, memory_limit_bytes, wrapped, Enforcement};
+use super::spawn::{limits_of, memory_limit_bytes, Enforcement};
 use super::{NodeSpec, WalletChoice};
 use crate::core::NodeView;
 use crate::settings::Paths;
+use olc_platform::{platform, Hold};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -86,6 +87,7 @@ struct Running {
     input: ChildStdin,
     status: Arc<Mutex<Option<ChildStatus>>>,
     meter: Meter,
+    _hold: Option<Hold>,
 }
 
 pub struct Supervisor {
@@ -189,18 +191,18 @@ impl Supervisor {
         let chain = folder.join(coin_name);
         fs::create_dir_all(&chain).map_err(|error| error.to_string())?;
         let words = self.words(spec, coin, &chain, peers);
-        let mut command = wrapped(
-            enforcement(),
-            spec,
-            &self.program.display().to_string(),
-            &words,
-        );
+        let how = platform().enforcement();
+        let limits = limits_of(spec);
+        let program = self.program.display().to_string();
+        let mut command = platform().limited(how, &limits, &program, &words);
+        platform().hide_window(&mut command);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| error.to_string())?;
+        let hold = platform().hold(how, &limits, &child);
         let input = child.stdin.take().ok_or("The node took no input.")?;
         let status = Arc::new(Mutex::new(None));
         read_status(spec.id, &mut child, status.clone(), self.answers.clone());
@@ -213,6 +215,7 @@ impl Supervisor {
                 input,
                 status,
                 meter,
+                _hold: hold,
             },
         );
         Ok(())
@@ -285,7 +288,7 @@ impl Supervisor {
             status,
             measured,
             memory_limit: memory_limit_bytes(spec),
-            enforcement: enforcement(),
+            enforcement: platform().enforcement(),
             ended: self.ended.get(&spec.id).cloned(),
         }
     }

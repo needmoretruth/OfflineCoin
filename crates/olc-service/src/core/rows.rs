@@ -4,19 +4,18 @@ use crate::discovery::{Entry, Identity, Reach, Work};
 use crate::fleet::BoardRow;
 use crate::local::LocalView;
 use olc_core::Hash;
+use super::returning::is_returning;
+use olc_platform::platform;
 
 const BOARD_KIND: &str = "esp32-s3";
 
 pub fn hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .map(|name| name.trim().to_string())
-        .unwrap_or_default()
+    platform().host_name()
 }
 
 /// What this program runs on, in the words a node gives for itself.
 pub fn device_kind() -> String {
-    let model = std::fs::read_to_string("/sys/firmware/devicetree/base/model").unwrap_or_default();
-    match model.contains("Raspberry") {
+    match platform().device_model().contains("Raspberry") {
         true => "raspberry-pi".into(),
         false => "computer".into(),
     }
@@ -123,6 +122,7 @@ pub fn board_entry(row: &BoardRow, coin: Option<Identity>) -> Entry {
         work_done: Some(beacon.work),
         build: beacon.build.clone(),
         work: match (row.seen.online, beacon.offline, beacon.mining) {
+            (false, _, _) if is_returning(row) => Work::Restarting,
             (false, _, _) => Work::Silent,
             (true, true, _) => Work::Offline,
             (true, false, true) => Work::Mining(u64::from(beacon.hashrate)),

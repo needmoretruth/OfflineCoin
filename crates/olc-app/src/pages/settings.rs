@@ -1,9 +1,11 @@
 //! Every number and choice the app starts from.
 use super::{Cx, Page};
+use crate::core::Command;
 use crate::i18n::Lang;
 use crate::settings::{Device, Theme};
 use crate::ui::tokens;
-use crate::ui::widgets::{self, card, field, meta, mono, number_field, section, segments, switch_row};
+use crate::ui::widgets::{self, button, card, field, meta, mono, number_field, section, segments, switch_row};
+use crate::ui::widgets::Kind;
 use crate::ui::Icon;
 use egui::Ui;
 
@@ -73,6 +75,7 @@ impl SettingsPage {
         });
         labelled(ui, cx.say("settings.board_cap"), |ui| {
             if number_field(ui, &mut cx.settings.board_cap, 120.0) {
+                cx.settings.board_cap_chosen = true;
                 cx.save();
             }
             ui.label("H/s");
@@ -86,6 +89,13 @@ impl SettingsPage {
             cx.save();
         }
         meta(ui, cx.say("settings.auto_update_note"), t);
+    }
+
+    fn data(cx: &mut Cx, ui: &mut Ui) {
+        section(ui, cx.say("settings.data"));
+        if button(ui, cx.t, cx.say("settings.open_data"), Kind::Plain).clicked() {
+            cx.send(Command::OpenDataFolder);
+        }
     }
 
     fn network(&mut self, cx: &mut Cx, ui: &mut Ui) {
@@ -140,6 +150,7 @@ impl Page for SettingsPage {
         card(ui, t, |ui| Self::look(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| Self::mining(cx, ui));
+        card(ui, t, |ui| Self::data(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.network(cx, ui));
         ui.add_space(tokens::GAP);

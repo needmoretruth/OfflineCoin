@@ -1,8 +1,9 @@
 //! What an experiment changed on a board, written down before it changes anything. A run can die
 //! by any path, so the way back cannot live in the run.
 use crate::control_key::config_folder;
+use olc_platform::platform;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const FILE: &str = "changed-boards";
 
@@ -33,7 +34,7 @@ impl Entry {
 
     /// Another program that is still running owns this change.
     pub fn is_held_elsewhere(&self) -> bool {
-        self.owner != std::process::id() && Path::new(&format!("/proc/{}", self.owner)).exists()
+        self.owner != std::process::id() && platform().process_exists(self.owner)
     }
 }
 

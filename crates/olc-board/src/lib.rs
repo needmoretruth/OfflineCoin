@@ -12,6 +12,7 @@ pub mod install;
 pub mod journal;
 pub mod manager;
 pub mod pins;
+mod ports;
 pub mod remote;
 pub mod rom;
 

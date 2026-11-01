@@ -5,7 +5,7 @@ use crate::i18n::Lang;
 use crate::instance::{claim, Instance};
 use crate::pages::setup::Setup;
 use crate::pages::{all, Cx, Page};
-use crate::settings::{Paths, Settings};
+use crate::settings::{standard_folder, Paths, Settings};
 use crate::ui::logo::{render, Logo};
 use crate::ui::theme::{apply, desktop_reduces_motion, tokens_for};
 use crate::ui::tokens::{self, Tokens, DARK};
@@ -197,8 +197,7 @@ fn data_folder(launch: &Launch) -> Result<PathBuf, String> {
     if let Some(data) = &launch.data {
         return Ok(data.clone());
     }
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".olc"))
+    standard_folder()
 }
 
 fn window_icon() -> IconData {

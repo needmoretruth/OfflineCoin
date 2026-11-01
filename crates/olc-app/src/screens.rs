@@ -5,7 +5,7 @@ use crate::app::App;
 use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Snapshot};
 use crate::discovery::Entry;
 use crate::i18n::Lang;
-use crate::local::{NodeSpec, Preset, Supervisor};
+use crate::local::{is_running, NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
@@ -101,7 +101,8 @@ fn the_first_run_offers_every_device() {
 /// The program node processes run, built beside the tests.
 fn node_program() -> PathBuf {
     let test = std::env::current_exe().unwrap();
-    let program = test.parent().unwrap().parent().unwrap().join("olc-core");
+    let name = format!("olc-core{}", std::env::consts::EXE_SUFFIX);
+    let program = test.parent().unwrap().parent().unwrap().join(name);
     assert!(program.exists(), "build olc-core first");
     program
 }
@@ -177,7 +178,7 @@ fn the_first_run_starts_real_node_processes() {
     });
     let pids: Vec<u32> = harness.state().snapshot().local.iter().filter_map(|view| view.pid).collect();
     assert_eq!(pids.len(), 3);
-    assert!(pids.iter().all(|pid| Path::new(&format!("/proc/{pid}")).exists()));
+    assert!(pids.iter().copied().all(is_running));
     assert_ne!(pids[0], std::process::id());
 
     // The table and the nodes must agree at every moment, not only after a look around.

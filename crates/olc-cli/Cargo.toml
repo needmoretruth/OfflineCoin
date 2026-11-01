@@ -17,6 +17,7 @@ olc-pow.workspace = true
 olc-lang.workspace = true
 olc-wallet.workspace = true
 olc-node.workspace = true
+olc-platform.workspace = true
 olc-link-tcp.workspace = true
 olc-link-serial.workspace = true
 olc-logo.workspace = true
