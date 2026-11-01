@@ -19,9 +19,10 @@ pub const LOWEST_HASHES_A_SECOND: u64 = 1_000;
 /// The floor and first difficulty of a new coin: that device finds a block every 30 seconds.
 pub const MIN_DIFFICULTY: u64 = 30 * LOWEST_HASHES_A_SECOND;
 
-/// OLC blocks 1,180 to 1,209 sit below the floor and stay valid. Every block since 1,210 is above
-/// it, so the floor can start at any height from there. This one is past already.
-const OLC_FLOOR_FROM_HEIGHT: u64 = 2_000;
+/// OLC blocks 1,180 to 1,209 sit below the floor and stay valid, and difficulty still comes close
+/// to it, so the floor starts at a height ahead of the chain. Every node has to run a build with
+/// the floor before then, as with a soft fork. This must stay above the tip until it is released.
+const OLC_FLOOR_FROM_HEIGHT: u64 = 20_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rules {

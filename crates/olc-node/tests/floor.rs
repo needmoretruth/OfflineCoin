@@ -23,26 +23,21 @@ fn real_blocks() -> Vec<Block> {
 }
 
 /// These blocks were mined on boards and computers before there was a floor, and some of them
-/// went below it. The floor's starting height is what keeps them valid.
+/// went below it. The floor starts ahead of them, so they all stay valid.
 #[test]
 fn the_running_chain_stays_valid_under_the_floor() {
     let blocks = real_blocks();
-    let start = CoinConfig::olc().rules.floor_from_height;
-    let height_of = |index: usize| index as u64 + 1;
-    let lowest = |from: u64| {
-        let held = blocks.iter().enumerate().filter(|(index, _)| height_of(*index) >= from);
-        held.map(|(_, block)| block.header.difficulty).min().unwrap()
-    };
-    assert!(lowest(0) < MIN_DIFFICULTY, "a chain that needs the starting height");
-    assert!(lowest(start) >= MIN_DIFFICULTY, "nothing since the start is below the floor");
-
     let count = blocks.len() as u64;
+    let lowest = blocks.iter().map(|block| block.header.difficulty).min().unwrap();
+    assert!(lowest < MIN_DIFFICULTY, "a chain that needs a starting height");
+    assert!(CoinConfig::olc().rules.floor_from_height > count, "the floor starts ahead");
+
     let mut node = engine_of(1, CoinConfig::olc());
     for block in blocks.clone() {
         node.chain_mut().add_block(block).unwrap();
     }
     assert_eq!(node.chain().height(), count);
-    println!("replayed {count} real blocks, lowest {} then {}", lowest(0), lowest(start));
+    println!("replayed {count} real blocks, lowest difficulty {lowest}");
 
     // A floor from the first block would have thrown part of the real chain away.
     let mut coin = CoinConfig::olc();
@@ -68,6 +63,34 @@ fn a_slow_chain_stops_at_the_floor() {
         silence(&mut node);
     }
     assert_eq!(node.chain().tip_header().difficulty, FLOOR);
+}
+
+/// A chain may sit below a floor that has not started, and climbs to it when it does.
+#[test]
+fn a_floor_waits_for_its_starting_height() {
+    let mut coin = test_coin();
+    coin.initial_difficulty = 256;
+    coin.rules.retarget_interval = WINDOW;
+    coin.rules.min_difficulty = 128;
+    let start = WINDOW * 3;
+    coin.rules.floor_from_height = start;
+    let slow = coin.rules.block_time_ms * 10;
+    let mut node = engine_of(1, coin);
+    let mut time = node.chain().tip_header().time_ms;
+    let mut below = false;
+    for _ in 1..start {
+        time += slow;
+        mine(&mut node, time);
+        silence(&mut node);
+        below |= node.chain().tip_header().difficulty < 128;
+    }
+    assert!(below, "nothing stops the fall before the start");
+    for _ in 0..WINDOW * 2 {
+        time += slow;
+        mine(&mut node, time);
+        silence(&mut node);
+        assert!(node.chain().tip_header().difficulty >= 128);
+    }
 }
 
 #[test]
