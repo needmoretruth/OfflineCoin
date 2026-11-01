@@ -30,9 +30,16 @@ fn reach_text(cx: &Cx, reach: &Reach) -> String {
     }
 }
 
-fn work_cell(ui: &mut Ui, cx: &Cx, work: Work) {
+fn age_text(cx: &Cx, seconds: u64) -> String {
+    match seconds < 60 {
+        true => cx.fill("network.age_seconds", &[&seconds.to_string()]),
+        false => cx.fill("network.age_minutes", &[&(seconds / 60).to_string()]),
+    }
+}
+
+fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
     let t = cx.t;
-    let (colour, text) = match work {
+    let (colour, text) = match entry.work {
         Work::Mining(rate) => (t.good, cx.fill("work.mining", &[&format::rate(rate)])),
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
@@ -40,6 +47,9 @@ fn work_cell(ui: &mut Ui, cx: &Cx, work: Work) {
     };
     dot(ui, colour);
     cell(ui, text);
+    if let Some(age) = entry.age_secs {
+        meta(ui, &age_text(cx, age), t);
+    }
 }
 
 fn dash(value: Option<String>) -> String {
@@ -66,7 +76,7 @@ fn row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, identity: Option<
         2 => cell(ui, dash(entry.height.map(|height| format::number(height.into())))),
         3 => cell(ui, dash(entry.work_done.map(format::number))),
         4 => cell(ui, dash(Some(entry.build.clone()).filter(|build| !build.is_empty()))),
-        5 => work_cell(ui, cx, entry.work),
+        5 => work_cell(ui, cx, entry),
         _ => action(ui, cx, entry, identity, relation),
     });
 }

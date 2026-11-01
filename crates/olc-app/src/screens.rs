@@ -2,21 +2,28 @@
 //! real core. Node processes in the pictures are real. Only the boards are the test stand-in,
 //! which the shipped program does not contain.
 use crate::app::App;
-use crate::core::{save_coin, coin_folder, Core, CoreLaunch};
+use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Snapshot};
+use crate::discovery::Entry;
 use crate::fleet::sim::SimFleet;
 use crate::fleet::FleetPort;
 use crate::i18n::Lang;
-use crate::local::{Preset, Supervisor};
+use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
+use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 use olc_core::CoinConfig;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const SIZES: [(u32, u32); 2] = [(1280, 800), (1920, 1080)];
 const SETTLE_STEPS: usize = 4;
+/// Longer than a few rounds of asking, shorter than a look around.
+const LIVE_WATCH: Duration = Duration::from_secs(16);
+/// Two seconds between answers at a block a second, and some luck.
+const MOST_BLOCKS_BEHIND: u64 = 9;
 
 fn scratch(name: &str) -> PathBuf {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -113,6 +120,38 @@ fn wait_until(harness: &mut Harness<'static, App>, mut done: impl FnMut(&App) ->
     panic!("waited 20 s");
 }
 
+/// A new node first reports after its first second.
+fn height_of(nodes: &mut Supervisor, spec: &NodeSpec) -> u64 {
+    for _ in 0..100 {
+        if let Some(status) = nodes.view(spec).status {
+            return status.height;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("the node never reported");
+}
+
+fn type_into(harness: &mut Harness<'static, App>, field: usize, text: &str) {
+    let find = |harness: &Harness<'static, App>| {
+        harness.query_all_by_role(Role::TextInput).nth(field).map(|node| node.focus())
+    };
+    find(harness);
+    harness.run_steps(2);
+    if let Some(node) = harness.query_all_by_role(Role::TextInput).nth(field) {
+        node.type_text(text);
+    }
+    harness.run_steps(2);
+}
+
+fn row_of(snap: &Snapshot, name: &str) -> Option<Entry> {
+    snap.groups
+        .iter()
+        .flat_map(|group| &group.chains)
+        .flat_map(|chain| &chain.entries)
+        .find(|entry| entry.name == name)
+        .cloned()
+}
+
 /// Choosing several nodes on this computer starts them as real processes.
 #[test]
 fn the_first_run_starts_real_node_processes() {
@@ -127,7 +166,12 @@ fn the_first_run_starts_real_node_processes() {
     harness.run_steps(2);
     harness.get_by_label("Next").click();
     harness.run_steps(2);
-    harness.get_by_label("OfflineCoin").click();
+    // A new coin starts easy, so its height moves while the table is watched.
+    harness.get_by_label("New coin").click();
+    harness.run_steps(2);
+    type_into(&mut harness, 0, "Quick");
+    type_into(&mut harness, 1, "QCK");
+    harness.get_by_label("Start this coin").click();
     harness.run_steps(2);
     assert!(harness.state_mut().settings_mut().setup_done);
     wait_until(&mut harness, |app| {
@@ -138,6 +182,22 @@ fn the_first_run_starts_real_node_processes() {
     assert_eq!(pids.len(), 3);
     assert!(pids.iter().all(|pid| Path::new(&format!("/proc/{pid}")).exists()));
     assert_ne!(pids[0], std::process::id());
+
+    // The table and the nodes must agree at every moment, not only after a look around.
+    let start = Instant::now();
+    let mut heights = BTreeSet::new();
+    while start.elapsed() < LIVE_WATCH {
+        let snap = harness.state().snapshot();
+        for view in &snap.local {
+            let status = view.status.as_ref().expect("a running node");
+            let row = row_of(&snap, &view.spec.name).expect("a row for every node");
+            assert_eq!(row.height, Some(status.height));
+            assert_eq!(row.age_secs, None);
+            heights.insert(status.height);
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert!(heights.len() > 1, "the chain never moved");
 }
 
 /// A coin running on this computer is found, and picking it needs no file.
@@ -149,7 +209,8 @@ fn a_found_coin_can_be_joined() {
     coin.name = "Found".into();
     coin.ticker = "FND".into();
     coin.message = "Found genesis".into();
-    coin.initial_difficulty = 3_000;
+    coin.initial_difficulty = 15_000;
+    coin.rules.retarget_interval = 0;
     let file = save_coin(&paths, &coin).unwrap();
     let mut other = Supervisor::with_program(paths, node_program());
     let spec = Preset::Esp32S3.spec(9);
@@ -175,6 +236,21 @@ fn a_found_coin_can_be_joined() {
         let name = node.coin.as_ref().map(|coin| coin.name.as_str());
         name == Some("Found") && node.peers > 0
     });
+
+    // A block about every second: a row that waits for a look around falls far behind.
+    let start = Instant::now();
+    let first = height_of(&mut other, &spec);
+    let mut last = first;
+    while start.elapsed() < LIVE_WATCH {
+        let snap = harness.state().snapshot();
+        last = height_of(&mut other, &spec);
+        let row = row_of(&snap, &spec.name).expect("a row for the peer");
+        let shown = row.height.expect("a height");
+        assert_eq!(row.age_secs, None);
+        assert!(last.saturating_sub(shown) <= MOST_BLOCKS_BEHIND, "{shown} against {last}");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert!(last > first + 3, "the chain never moved");
     other.stop_all();
 }
 

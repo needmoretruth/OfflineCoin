@@ -45,6 +45,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("network.address_hint", "주소 예: 192.168.0.5:7000"),
     ("network.look_again", "다시 찾기"),
     ("network.looking", "찾는 중입니다."),
+    ("network.age_seconds", "{}초 전"),
+    ("network.age_minutes", "{}분 전"),
     ("network.looked", "{}초 전에 주소 {}개를 확인했습니다. 네트워크는 {}개입니다."),
     ("network.looked_local", "{}초 전에 이 컴퓨터를 찾았습니다."),
     ("network.not_looked", "아직 찾지 않았습니다."),

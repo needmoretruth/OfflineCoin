@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 const FORGET_AFTER: Duration = Duration::from_secs(600);
 /// Boards speak over their links with no address to file them under.
 const SILENT_AFTER: Duration = Duration::from_secs(120);
+/// A connected node answers every two seconds. Older than this, a row says how old it is.
+const LIVE_WITHIN: Duration = Duration::from_secs(5);
 
 struct Known {
     hello: Option<Hello>,
@@ -126,6 +128,7 @@ impl Found {
 fn entry_of(address: &str, known: &Known) -> Entry {
     let reach = device_ip(address).map_or(Reach::Internet, reach_of);
     let silent = known.heard.elapsed() > SILENT_AFTER || known.hello.is_none();
+    let age_secs = (known.heard.elapsed() >= LIVE_WITHIN).then(|| known.heard.elapsed().as_secs());
     let work = |hello: &Hello| match (silent, hello.card.mining) {
         (true, _) => Work::Silent,
         (false, true) => Work::Mining(hello.card.hashrate),
@@ -144,6 +147,7 @@ fn entry_of(address: &str, known: &Known) -> Entry {
             work_done: Some(hello.work),
             build: hello.card.build.clone(),
             work: work(hello),
+            age_secs,
         },
         None => Entry {
             reach,
@@ -157,6 +161,38 @@ fn entry_of(address: &str, known: &Known) -> Entry {
             work_done: None,
             build: String::new(),
             work: Work::Silent,
+            age_secs,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::CoinConfig;
+    use olc_node::Card;
+
+    fn known(heard: Instant) -> Known {
+        Known {
+            hello: Some(Hello {
+                coin: CoinConfig::olc(),
+                tip: [0; 32],
+                height: 1,
+                work: 1,
+                address: [0; 20],
+                card: Card::default(),
+            }),
+            via: None,
+            heard,
+            added: false,
+        }
+    }
+
+    #[test]
+    fn a_row_from_an_old_answer_says_how_old_it_is() {
+        let fresh = entry_of("127.0.0.1:7000", &known(Instant::now()));
+        assert_eq!(fresh.age_secs, None);
+        let old = Instant::now() - Duration::from_secs(44);
+        assert_eq!(entry_of("127.0.0.1:7000", &known(old)).age_secs, Some(44));
     }
 }

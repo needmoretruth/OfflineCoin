@@ -5,10 +5,10 @@ use super::coins::{
 };
 use super::commands::{Command, StartCoin};
 use super::found::Found;
+use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
 use super::rows::{
-    board_entry, device_kind, hostname, own_entry, reach_of_board, refresh_local,
+    board_entry, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
-use super::host::{full_rate, Host, PayError, Plan};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
 use crate::fleet::{BoardRow, FleetPort, LineError};
@@ -445,13 +445,13 @@ impl Service {
             self.take_answer(&address, hello);
         }
         self.scanner.take_silent();
-        for (ip, hello) in self.host.take_heard() {
-            match ip {
-                Some(ip) if hello.card.port != 0 => {
+        for (from, hello) in self.host.take_heard() {
+            match from {
+                HeardFrom::Network(ip) if hello.card.port != 0 => {
                     self.take_answer(&format!("{ip}:{}", hello.card.port), hello);
                 }
-                Some(_) => {}
-                None => self.found.board_said(hello),
+                HeardFrom::Network(_) => {}
+                HeardFrom::Board => self.found.board_said(hello),
             }
         }
         for (from, hello) in self.shout.take_heard() {
@@ -509,9 +509,7 @@ impl Service {
         entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
-        for entry in &mut entries {
-            refresh_local(entry, &local, identity.as_ref());
-        }
+        merge_local(&mut entries, &local, identity.as_ref());
         let boards = rows
             .into_iter()
             .map(|row| BoardView {

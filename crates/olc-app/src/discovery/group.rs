@@ -43,6 +43,8 @@ pub struct Entry {
     pub work_done: Option<u128>,
     pub build: String,
     pub work: Work,
+    /// How old the row is, when it comes only from a past answer.
+    pub age_secs: Option<u64>,
 }
 
 /// How a chain stands to the one this app runs.
@@ -231,6 +233,7 @@ mod tests {
             work_done: Some(1),
             build: "x".into(),
             work: Work::Idle,
+            age_secs: None,
         }
     }
 

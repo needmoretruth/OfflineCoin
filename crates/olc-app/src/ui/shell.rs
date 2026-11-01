@@ -132,7 +132,7 @@ pub fn header(
                     tip_changes: snap.node.tip_changes,
                     still: look.still,
                 };
-                logo.show(ui, tokens::LOGO, t.logo, &state);
+                logo.show(ui, tokens::LOGO, (t.logo, t.logo_floor), &state);
                 let name = strong_text("OLC Core").size(tokens::SECTION + 1.0);
                 ui.add(Label::new(name).selectable(false));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

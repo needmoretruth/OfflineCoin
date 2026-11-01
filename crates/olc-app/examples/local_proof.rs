@@ -10,7 +10,7 @@ use olc_core::coin::COIN;
 use olc_core::{Address, Block, Chain, CoinConfig, Plugins};
 use olc_pow::ProofOfWork;
 use olc_store::{load_wallet, open_chain};
-use olc_wallet::{format_address};
+use olc_wallet::format_address;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
