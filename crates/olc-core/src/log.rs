@@ -293,7 +293,7 @@ impl Log {
     /// an erase could clean, so the log then moves on to the next sector.
     pub(crate) fn resume(&mut self) {
         let head = self.head;
-        if head % SECTOR != 0 {
+        if !head.is_multiple_of(SECTOR) {
             let mut rest = vec![0u8; (SECTOR - head % SECTOR) as usize];
             let clean = self.medium.read(head, &mut rest) && rest.iter().all(|byte| *byte == 0xFF);
             if !clean {

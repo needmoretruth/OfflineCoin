@@ -38,7 +38,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.is_ascii() || text.len() % 2 != 0 {
+    if !text.is_ascii() || !text.len().is_multiple_of(2) {
         return None;
     }
     let pair = |index| u8::from_str_radix(text.get(index..index + 2)?, 16).ok();

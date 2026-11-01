@@ -11,7 +11,7 @@ use esp_println::println;
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
 
-/// Shares held between two questions. They fit one radio line.
+/// Shares held between two questions, so an answer stays small.
 const MOST_SHARES: usize = 8;
 
 fn unhex(text: &str) -> Option<Vec<u8>> {

@@ -99,7 +99,7 @@ impl Chain {
         let keep = [self.tip, self.genesis];
         let window = self.window();
         trim(&mut self.entries, window, &keep);
-        if self.height() % 16 == 0 {
+        if self.height().is_multiple_of(16) {
             self.prune();
         }
     }
@@ -109,7 +109,7 @@ impl Chain {
         let id = block.id();
         apply_block(block, entry.height, &mut self.unspent);
         self.found.add(block, entry.height);
-        if entry.height % MARK_EVERY == 0 {
+        if entry.height.is_multiple_of(MARK_EVERY) {
             let at = entry.at;
             let height = entry.height;
             self.marks.push(Mark { height, at, id });

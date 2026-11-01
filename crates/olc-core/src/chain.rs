@@ -401,7 +401,7 @@ impl Chain {
         let rules = &self.config.rules;
         let interval = rules.retarget_interval;
         let next_height = entry.height + 1;
-        if interval == 0 || next_height % interval != 0 || next_height < interval {
+        if interval == 0 || !next_height.is_multiple_of(interval) || next_height < interval {
             return entry.header.difficulty;
         }
         let mut first = *entry;

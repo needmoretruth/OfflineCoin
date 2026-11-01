@@ -249,7 +249,7 @@ fn data_outputs_never_enter_the_unspent_set() {
     let before = chain.unspent_count();
     let note = wallet.note(&chain, b"hello chain", 0, &[]).unwrap();
     assert!(note.outputs.iter().any(|output| output.is_data()));
-    let block = mined(&chain, &wallet.address(), &[note.clone()], 0);
+    let block = mined(&chain, &wallet.address(), std::slice::from_ref(&note), 0);
     chain.add_block(block).unwrap();
     // One coin spent, its change and the coinbase made. The data output is not counted.
     assert_eq!(chain.unspent_count(), before + 1);

@@ -202,7 +202,7 @@ impl Chain {
     /// Follows the log from `start` and returns how many records that took.
     fn read_log(&mut self, start: u64) -> u64 {
         let mut at = start;
-        let mut read_count = 0;
+        let mut read_count = 0u64;
         while let Some((place, kind, payload)) = self.log.next(at) {
             let done = match kind {
                 Kind::Rewind => self.read_rewind(&payload),
@@ -213,7 +213,7 @@ impl Chain {
             }
             read_count += 1;
             at = Log::after(place, payload.len());
-            if read_count % 64 == 0 {
+            if read_count.is_multiple_of(64) {
                 self.settle();
             }
         }

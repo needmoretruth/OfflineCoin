@@ -63,14 +63,14 @@ fn main() {
     while node.chain().height() < blocks {
         let height = node.chain().height();
         let now = node.chain().tip_header().time_ms + rules.block_time_ms;
-        if height % PAY_EVERY == 0 && height > rules.coinbase_maturity + 1 {
+        if height.is_multiple_of(PAY_EVERY) && height > rules.coinbase_maturity + 1 {
             paid += u64::from(node.pay(other, 1_000, rules.min_fee).is_ok());
         }
         while !node.mine(100_000, now) {}
         node.tick(now);
         while node.take_outgoing().is_some() {}
         while node.take_event().is_some() {}
-        if height % SHOW_EVERY == 0 {
+        if height.is_multiple_of(SHOW_EVERY) {
             let held = node.chain().held();
             println!(
                 "height={height} seconds={} rss_kib={} unspent={} bytes={} paid={paid}",

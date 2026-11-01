@@ -90,7 +90,8 @@ fn beacon() -> Vec<u8> {
         refused: 0,
         ..Beacon::default()
     };
-    let signed = olc_control::sign_beacon(&SECRET, &BOARD, beacon).expect("a valid key");
+    let signer = olc_crypto::Signer::new(&SECRET).expect("a valid key");
+    let signed = olc_control::sign_beacon(&signer, &BOARD, beacon).expect("a valid key");
     Packet {
         from: BOARD,
         to: None,
