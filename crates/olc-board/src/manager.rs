@@ -5,6 +5,7 @@ use crate::install::{app_image, install as install_board};
 use crate::journal::{Entry, Journal};
 use crate::pins::Pins;
 use crate::remote::{command, hash_of, send_image};
+use crate::rom;
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
 use olc_link_serial::SerialLink;
@@ -25,6 +26,7 @@ const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
+const MAX_LOADER_WAKES: u32 = 3;
 const RETURN_WAIT: Duration = Duration::from_secs(120);
 
 struct Port {
@@ -74,6 +76,7 @@ pub struct Manager {
     fixed_ports: Vec<String>,
     ports: Mutex<BTreeMap<String, Port>>,
     busy_ports: Mutex<BTreeSet<String>>,
+    loader_wakes: Mutex<BTreeMap<String, u32>>,
     /// What is happening to a board or a port.
     jobs: Mutex<BTreeMap<String, String>>,
     pub run: Arc<Mutex<ExtraRun>>,
@@ -92,6 +95,7 @@ impl Manager {
             fixed_ports,
             ports: Mutex::new(BTreeMap::new()),
             busy_ports: Mutex::new(BTreeSet::new()),
+            loader_wakes: Mutex::new(BTreeMap::new()),
             jobs: Mutex::new(BTreeMap::new()),
             run: Arc::new(Mutex::new(ExtraRun::default())),
         }))
@@ -213,6 +217,20 @@ impl Manager {
             .collect()
     }
 
+    /// A board that came up in the chip's loader stays dark until something restarts it. It
+    /// comes back on the next look. A board that keeps landing there is left alone.
+    fn wake_from_loader(&self, path: &str) -> bool {
+        let Ok(mut wakes) = self.loader_wakes.lock() else {
+            return false;
+        };
+        let tried = wakes.entry(path.to_string()).or_insert(0);
+        if *tried >= MAX_LOADER_WAKES || !rom::wake(path) {
+            return false;
+        }
+        *tried += 1;
+        true
+    }
+
     /// Opens what appeared and lets go of what left.
     fn watch(&self, runner: &Mutex<Runner>) {
         let present = self.present_ports();
@@ -241,6 +259,9 @@ impl Manager {
             let Some(device) = device_of(&path) else {
                 continue;
             };
+            if self.wake_from_loader(&path) {
+                continue;
+            }
             let Ok(link) = SerialLink::open(&path, |_| {}) else {
                 continue;
             };

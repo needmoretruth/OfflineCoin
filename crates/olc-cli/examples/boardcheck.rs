@@ -223,6 +223,11 @@ fn main() -> Result<(), String> {
     let [port, board, what, rest @ ..] = args.as_slice() else {
         return Err("boardcheck PORT BOARD_ID refuse|update [FIRMWARE]".into());
     };
+    if what == "loader" {
+        println!("{:x?}", olc_board::rom::pins_if_in_loader(port));
+        println!("woken: {}", olc_board::rom::wake(port));
+        return Ok(());
+    }
     let board = parse_id(board).ok_or("bad board id")?;
     let key = ControlKey::load_or_create(&config_folder()?)?;
     let fleet: SharedFleet = Arc::new(Mutex::new(Fleet::new(key, Runner::link_of)?));

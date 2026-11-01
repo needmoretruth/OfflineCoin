@@ -31,7 +31,8 @@ use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::rng::Rng;
-use esp_hal::time::Rate;
+use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
+use esp_hal::time::{Duration, Rate};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_println::println;
@@ -61,6 +62,8 @@ const SETTLE_MS: u64 = 300;
 /// And longer after the last start ran it dry.
 const SETTLE_AFTER_BROWN_OUT_MS: u64 = 2_000;
 const BROWN_OUT: u8 = 0x0F;
+/// Far longer than a healthy start takes to reach the radio.
+const START_WATCHDOG: Duration = Duration::from_secs(20);
 
 fn own_network_name() -> String {
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
@@ -78,10 +81,22 @@ fn chosen_limit(settings: &store::Settings) -> Option<u32> {
 async fn main(spawner: Spawner) -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
+    // A board with no cable has nobody to press its reset button. It restarts itself if it stops
+    // before the radio is up, and the word below shows how far the stopped start got.
+    let mut rtc = Rtc::new(peripherals.RTC_TIMER);
+    rtc.rwdt.set_timeout(RwdtStage::Stage0, START_WATCHDOG);
+    rtc.rwdt
+        .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
+    rtc.rwdt.enable();
+    let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
+    let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
+    store.begin_boot(reset);
+
     // PSRAM comes first, so the chain lands there and internal memory stays free for the radio.
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     esp_alloc::heap_allocator!(size: 64 * 1024);
+    store.reach(Stage::Psram);
 
     let timers = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timers.timer0, peripherals.FROM_CPU_INTR0);
@@ -89,9 +104,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut usb_device = UsbSerialJtag::new(peripherals.USB_DEVICE);
     usb_device.set_interrupt_handler(usb::on_usb_packet);
     let (rx, _tx) = usb_device.split();
-    let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
-    let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
-    store.begin_boot(reset);
     let bus = I2c::new(
         peripherals.I2C0,
         I2cConfig::default().with_frequency(Rate::from_khz(400)),
@@ -123,6 +135,7 @@ async fn main(spawner: Spawner) -> ! {
         wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
 
     store.reach(Stage::Radio);
+    rtc.rwdt.disable();
 
     let secret = store.secret(&coin.genesis().id(), || {
         // The radio is on, so this is true hardware randomness.

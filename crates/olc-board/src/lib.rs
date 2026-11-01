@@ -12,6 +12,7 @@ pub mod journal;
 pub mod manager;
 pub mod pins;
 pub mod remote;
+pub mod rom;
 
 pub use args::Args;
 pub use board::{on_off, Board, BoardLink, Place, Status, UsbBoard};

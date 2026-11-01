@@ -86,11 +86,14 @@ impl Store {
 
     /// Notes this start. Writes without erasing, so a board that restarts in a loop wears
     /// nothing until the sector is full.
+    ///
+    /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
-        let free = self
-            .boot_words()
-            .iter()
-            .position(|word| *word == bootlog::FREE);
+        let free = (0..bootlog::WORDS).find(|index| {
+            let mut bytes = [0u8; 4];
+            let at = BOOT_LOG + (*index * 4) as u32;
+            self.flash.read(at, &mut bytes).is_ok() && word(&bytes) == bootlog::FREE
+        });
         let index = free.unwrap_or_else(|| {
             let _ = self.flash.erase(BOOT_LOG, BOOT_LOG + SECTOR);
             0
