@@ -110,6 +110,14 @@ impl Runner {
         });
     }
 
+    /// Asks only the peers on one link. Radio time is too dear to spend on a fresh table.
+    pub fn ask_who_on(&mut self, link: usize) {
+        let bytes = self.stamped(&Message::Who);
+        if let Some(link) = self.links.get_mut(link) {
+            link.send(Target::All, &bytes);
+        }
+    }
+
     fn hello(&self) -> Hello {
         let chain = self.engine.chain();
         Hello {

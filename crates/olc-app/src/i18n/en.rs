@@ -45,6 +45,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("network.address_hint", "Address, such as 192.168.0.5:7000"),
     ("network.look_again", "Look again"),
     ("network.looking", "Looking around."),
+    ("network.age_seconds", "{} s ago"),
+    ("network.age_minutes", "{} min ago"),
     ("network.looked", "Looked {} s ago at {} addresses on {} networks."),
     ("network.looked_local", "Looked {} s ago on this computer."),
     ("network.not_looked", "Not looked yet."),

@@ -39,30 +39,49 @@ pub fn own_entry(view: &NodeView, identity: Option<Identity>) -> Entry {
             true => Work::Mining(view.hashrate),
             false => Work::Idle,
         },
+        age_secs: None,
     }
 }
 
-/// A node this app runs reads live, rather than as it stood at the last look around.
-pub fn refresh_local(entry: &mut Entry, nodes: &[LocalView], coin: Option<&Identity>) {
-    // Another program's node on this computer, on a coin of its own, stays as it answered.
-    let same = |found: &Identity| coin.is_some_and(|coin| coin.genesis == found.genesis);
-    if !entry.identity.as_ref().is_some_and(same) {
+/// Nodes this app runs read live, rather than as they stood at the last look around, and appear
+/// without waiting for one. Another program's node on this computer stays as it answered.
+pub fn merge_local(entries: &mut Vec<Entry>, nodes: &[LocalView], coin: Option<&Identity>) {
+    let Some(coin) = coin else {
         return;
-    }
-    let port = entry.address.as_deref().and_then(|address| address.rsplit(':').next());
-    let port = port.and_then(|port| port.parse::<u16>().ok());
-    let live = nodes
-        .iter()
-        .filter_map(|node| node.status.as_ref())
-        .find(|status| entry.reach == Reach::ThisComputer && status.port == port && port.is_some());
-    if let Some(status) = live {
-        entry.height = Some(status.height);
-        entry.work_done = status.work.parse().ok().or(entry.work_done);
-        entry.tip = hash_of(&status.tip).or(entry.tip);
-        entry.work = match status.mining {
-            true => Work::Mining(status.hashrate),
-            false => Work::Idle,
+    };
+    for node in nodes {
+        let Some(status) = &node.status else {
+            continue;
         };
+        let Some(address) = status.port.map(|port| format!("127.0.0.1:{port}")) else {
+            continue;
+        };
+        let same_node = |entry: &&mut Entry| {
+            let genesis = entry.identity.as_ref().map(|found| found.genesis);
+            let same_port = entry.address.as_deref() == Some(address.as_str());
+            entry.reach == Reach::ThisComputer && same_port && genesis == Some(coin.genesis)
+        };
+        let live = Entry {
+            reach: Reach::ThisComputer,
+            address: Some(address.clone()),
+            via: None,
+            device: device_kind(),
+            name: node.spec.name.clone(),
+            identity: Some(coin.clone()),
+            tip: hash_of(&status.tip),
+            height: Some(status.height),
+            work_done: status.work.parse().ok(),
+            build: env!("CARGO_PKG_VERSION").into(),
+            work: match status.mining {
+                true => Work::Mining(status.hashrate),
+                false => Work::Idle,
+            },
+            age_secs: None,
+        };
+        match entries.iter_mut().find(same_node) {
+            Some(entry) => *entry = live,
+            None => entries.push(live),
+        }
     }
 }
 
@@ -104,6 +123,7 @@ pub fn board_entry(row: &BoardRow, said: Option<Hello>) -> Entry {
             (true, false, true) => Work::Mining(u64::from(beacon.hashrate)),
             (true, false, false) => Work::Idle,
         },
+        age_secs: None,
     }
 }
 
@@ -126,6 +146,7 @@ mod tests {
             work_done: Some(90),
             build: String::new(),
             work: Work::Idle,
+            age_secs: Some(20),
         }
     }
 
@@ -153,12 +174,24 @@ mod tests {
         other.message = "Another genesis".into();
         let identity = Identity::of(ours.clone());
 
-        let mut entry = found(&ours);
-        refresh_local(&mut entry, &running(), Some(&identity));
-        assert_eq!(entry.height, Some(40));
+        let mut entries = vec![found(&ours)];
+        merge_local(&mut entries, &running(), Some(&identity));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].height, Some(40));
+        assert_eq!(entries[0].age_secs, None);
 
-        let mut entry = found(&other);
-        refresh_local(&mut entry, &running(), Some(&identity));
-        assert_eq!(entry.height, Some(3));
+        let mut entries = vec![found(&other)];
+        merge_local(&mut entries, &running(), Some(&identity));
+        assert_eq!(entries[0].height, Some(3));
+        assert_eq!(entries[1].height, Some(40));
+    }
+
+    #[test]
+    fn a_running_node_needs_no_look_around_to_appear() {
+        let identity = Identity::of(CoinConfig::olc());
+        let mut entries = Vec::new();
+        merge_local(&mut entries, &running(), Some(&identity));
+        assert_eq!(entries[0].name, "node-0");
+        assert_eq!(entries[0].height, Some(40));
     }
 }

@@ -18,8 +18,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MINING_BATCH: u32 = 5_000;
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
+const TCP_LINK: usize = 0;
 const VIEW_EVERY: Duration = Duration::from_millis(250);
 const ASK_EVERY: Duration = Duration::from_secs(20);
+/// How often connected nodes are asked how they stand, so their rows stay true.
+const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
 const RESTORE_STEP: usize = 64;
 const MAX_HEARD: usize = 64;
 
@@ -77,7 +80,7 @@ struct State {
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
     view: Mutex<NodeView>,
-    heard: Mutex<VecDeque<(Option<IpAddr>, Hello)>>,
+    heard: Mutex<VecDeque<(HeardFrom, Hello)>>,
     known: Mutex<Vec<String>>,
     waiting: Mutex<Vec<Waiting>>,
     storage: Option<u64>,
@@ -101,6 +104,19 @@ fn new_engine(coin: CoinConfig, secret: [u8; 32]) -> Result<Engine, String> {
     Ok(Engine::new(coin, plugins, wallet))
 }
 
+/// Who said a thing, as far as this node can tell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeardFrom {
+    Network(IpAddr),
+    /// A link this app opened itself.
+    Board,
+}
+
+struct Asked {
+    all: Instant,
+    peers: Instant,
+}
+
 fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
     (0..plan.port_tries.max(1))
         .filter_map(|step| plan.port.checked_add(step))
@@ -115,6 +131,8 @@ impl Host {
         let engine = new_engine(plan.coin.clone(), secret)?;
         let address = engine.address();
         let tcp = TcpLink::new();
+        // Boards are reached by USB here. Nothing on the network may speak for one.
+        tcp.refuse_control();
         let port = listen_somewhere(&tcp, &plan);
         let control = tcp.control();
         let mut runner = Runner::new(engine);
@@ -122,7 +140,8 @@ impl Host {
             port: port.unwrap_or(0),
             ..plan.card.clone()
         };
-        runner.add_link(Box::new(tcp));
+        let link = runner.add_link(Box::new(tcp));
+        debug_assert_eq!(link, TCP_LINK);
         let runner = Arc::new(Mutex::new(runner));
         let state = Arc::new(State {
             mining: AtomicBool::new(plan.mining),
@@ -176,7 +195,7 @@ impl Host {
             .unwrap_or_default()
     }
 
-    pub fn take_heard(&self) -> Vec<(Option<IpAddr>, Hello)> {
+    pub fn take_heard(&self) -> Vec<(HeardFrom, Hello)> {
         self.state
             .heard
             .lock()
@@ -268,7 +287,10 @@ impl Worker {
         let mut window = Instant::now();
         let mut hashes = 0u64;
         let mut viewed = Instant::now();
-        let mut asked = Instant::now();
+        let mut asked = Asked {
+            all: Instant::now(),
+            peers: Instant::now(),
+        };
         while !self.state.stop.load(Ordering::Relaxed) {
             self.take_switch();
             let cap = self.state.cap.load(Ordering::Relaxed);
@@ -312,7 +334,7 @@ impl Worker {
         }
     }
 
-    fn keep(&mut self, runner: &mut Runner, asked: &mut Instant) {
+    fn keep(&mut self, runner: &mut Runner, asked: &mut Asked) {
         while let Some(block) = runner.engine.take_fresh_block() {
             if let Some(store) = &mut self.store {
                 store.append(&block);
@@ -324,16 +346,25 @@ impl Worker {
                 if heard.len() >= MAX_HEARD {
                     heard.pop_front();
                 }
-                // Link 0 is TCP. Anything else has no address.
-                let from = (Runner::link_of(peer) == 0)
-                    .then(|| self.tcp.ip_of(Runner::number_on_link(peer)))
-                    .flatten();
-                heard.push_back((from, hello));
+                // Link 0 is TCP. A socket gone before its address is read says nothing: only a
+                // link this app opened may speak for a board.
+                let number = Runner::number_on_link(peer);
+                let from = match Runner::link_of(peer) {
+                    TCP_LINK => self.tcp.ip_of(number).map(HeardFrom::Network),
+                    _ => Some(HeardFrom::Board),
+                };
+                if let Some(from) = from {
+                    heard.push_back((from, hello));
+                }
             }
         }
-        if asked.elapsed() >= ASK_EVERY {
-            *asked = Instant::now();
+        if asked.all.elapsed() >= ASK_EVERY {
+            asked.all = Instant::now();
+            asked.peers = asked.all;
             runner.ask_who();
+        } else if asked.peers.elapsed() >= ASK_PEERS_EVERY {
+            asked.peers = Instant::now();
+            runner.ask_who_on(TCP_LINK);
         }
     }
 
