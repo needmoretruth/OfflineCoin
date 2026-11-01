@@ -9,6 +9,9 @@ pub type Mark = [u8; 4];
 /// a board on any coin stays reachable by the holder of its key.
 pub const CONTROL: Mark = *b"CTRL";
 
+/// Asking a node what it is crosses networks too: the asker may not know its coin yet.
+pub const OPEN: Mark = *b"OPEN";
+
 pub fn mark_of(genesis: &Hash) -> Mark {
     [genesis[0], genesis[1], genesis[2], genesis[3]]
 }

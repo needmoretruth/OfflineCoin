@@ -173,7 +173,7 @@ impl Engine {
                 }
             }
             Message::Block(block) => self.receive_block(from, block),
-            Message::Control(_) => {}
+            Message::Control(_) | Message::Who | Message::Hello(_) => {}
             Message::Tx(tx) => {
                 self.receive_tx(Some(from), tx);
             }

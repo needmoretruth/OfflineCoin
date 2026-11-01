@@ -3,8 +3,8 @@ use olc_node::frame::{encode, Decoder};
 use olc_node::{Link, Target};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -12,6 +12,7 @@ use std::time::Duration;
 
 const READ_SIZE: usize = 16 * 1024;
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
+const ACCEPT_POLL: Duration = Duration::from_millis(100);
 
 type Peers = Arc<Mutex<BTreeMap<u32, TcpStream>>>;
 type Inbox = Sender<(u32, Vec<u8>)>;
@@ -21,6 +22,72 @@ pub struct TcpLink {
     incoming: Receiver<(u32, Vec<u8>)>,
     sender: Inbox,
     next_peer: Arc<AtomicU32>,
+    /// Goes up to end every `connect` started before.
+    round: Arc<AtomicU64>,
+    closed: Arc<AtomicBool>,
+}
+
+/// A handle that keeps working after the link has moved into a runner.
+#[derive(Clone)]
+pub struct TcpControl {
+    peers: Peers,
+    sender: Inbox,
+    next_peer: Arc<AtomicU32>,
+    round: Arc<AtomicU64>,
+    closed: Arc<AtomicBool>,
+}
+
+impl TcpControl {
+    /// The address of a peer, which a person may want to reach again.
+    pub fn ip_of(&self, peer: u32) -> Option<IpAddr> {
+        let peers = self.peers.lock().ok()?;
+        peers.get(&peer)?.peer_addr().ok().map(|found| found.ip())
+    }
+
+    /// Keeps a connection to `address` open, reconnecting when it drops.
+    pub fn connect(&self, address: String) {
+        let (peers, sender, next_peer) = (
+            self.peers.clone(),
+            self.sender.clone(),
+            self.next_peer.clone(),
+        );
+        let round = self.round.clone();
+        let started_in = round.load(Ordering::Relaxed);
+        thread::spawn(move || {
+            while round.load(Ordering::Relaxed) == started_in {
+                let target = address
+                    .to_socket_addrs()
+                    .ok()
+                    .and_then(|mut found| found.next());
+                if let Some(stream) = target.and_then(|target| TcpStream::connect(target).ok()) {
+                    attach(stream, &peers, &sender, &next_peer).join().ok();
+                }
+                thread::sleep(RECONNECT_DELAY);
+            }
+        });
+    }
+
+    /// Peers connected right now.
+    pub fn count(&self) -> usize {
+        self.peers.lock().map_or(0, |peers| peers.len())
+    }
+
+    /// Drops every peer and stops reconnecting, while still listening.
+    pub fn drop_peers(&self) {
+        self.round.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut peers) = self.peers.lock() {
+            for stream in peers.values() {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            peers.clear();
+        }
+    }
+
+    /// Stops listening as well.
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        self.drop_peers();
+    }
 }
 
 impl Default for TcpLink {
@@ -37,34 +104,44 @@ impl TcpLink {
             incoming,
             sender,
             next_peer: Arc::default(),
+            round: Arc::default(),
+            closed: Arc::default(),
         }
     }
 
-    /// Accepts peers on `address`, for example `0.0.0.0:7000`.
-    pub fn listen(&self, address: &str) -> std::io::Result<()> {
+    pub fn control(&self) -> TcpControl {
+        TcpControl {
+            peers: self.peers.clone(),
+            sender: self.sender.clone(),
+            next_peer: self.next_peer.clone(),
+            round: self.round.clone(),
+            closed: self.closed.clone(),
+        }
+    }
+
+    /// Accepts peers on `address`, for example `0.0.0.0:7000`. Returns the address it got.
+    pub fn listen(&self, address: &str) -> std::io::Result<SocketAddr> {
         let listener = TcpListener::bind(address)?;
+        let local = listener.local_addr()?;
+        listener.set_nonblocking(true)?;
         let (peers, sender, next_peer) = self.shared();
+        let closed = self.closed.clone();
         thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                attach(stream, &peers, &sender, &next_peer);
+            while !closed.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, _)) if stream.set_nonblocking(false).is_ok() => {
+                        attach(stream, &peers, &sender, &next_peer);
+                    }
+                    _ => thread::sleep(ACCEPT_POLL),
+                }
             }
         });
-        Ok(())
+        Ok(local)
     }
 
     /// Keeps a connection to `address` open, reconnecting when it drops.
     pub fn connect(&self, address: String) {
-        let (peers, sender, next_peer) = self.shared();
-        thread::spawn(move || loop {
-            let target = address
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut found| found.next());
-            if let Some(stream) = target.and_then(|target| TcpStream::connect(target).ok()) {
-                attach(stream, &peers, &sender, &next_peer).join().ok();
-            }
-            thread::sleep(RECONNECT_DELAY);
-        });
+        self.control().connect(address);
     }
 
     fn shared(&self) -> (Peers, Inbox, Arc<AtomicU32>) {

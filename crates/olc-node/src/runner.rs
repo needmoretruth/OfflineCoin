@@ -1,6 +1,7 @@
 //! Connects an [`Engine`] to any number of transports.
 use crate::engine::{Engine, PeerId};
 use crate::event::Outgoing;
+use crate::hello::{Card, Hello};
 use crate::message::Message;
 use crate::network::{self, Mark};
 use alloc::boxed::Box;
@@ -26,6 +27,7 @@ pub trait Link: Send {
 const LINK_SHIFT: u32 = 24;
 const PEER_MASK: u32 = (1 << LINK_SHIFT) - 1;
 const MAX_CONTROL: usize = 32;
+const MAX_HELLOS: usize = 32;
 
 pub struct Runner {
     pub engine: Engine,
@@ -35,6 +37,9 @@ pub struct Runner {
     mark: Mark,
     links: Vec<Box<dyn Link>>,
     control: VecDeque<(PeerId, Vec<u8>)>,
+    /// What this node says about itself. Its host keeps it current.
+    pub card: Card,
+    hellos: VecDeque<(PeerId, Hello)>,
 }
 
 impl Runner {
@@ -45,7 +50,16 @@ impl Runner {
             offline: false,
             links: Vec::new(),
             control: VecDeque::new(),
+            card: Card::default(),
+            hellos: VecDeque::new(),
         }
+    }
+
+    /// Moves this node to another coin. Links stay open and traffic of the old coin is dropped
+    /// unread from now on.
+    pub fn set_engine(&mut self, engine: Engine) {
+        self.mark = network::mark_of(&engine.chain().genesis_id());
+        self.engine = engine;
     }
 
     /// What this node's messages start with. A link that cuts messages up needs it to drop other
@@ -65,6 +79,11 @@ impl Runner {
         (peer >> LINK_SHIFT) as usize
     }
 
+    /// A peer's number inside its link.
+    pub fn number_on_link(peer: PeerId) -> u32 {
+        peer & PEER_MASK
+    }
+
     /// Peers heard recently through the link added at position `link`.
     pub fn peers_on(&self, link: usize) -> usize {
         self.engine
@@ -76,6 +95,31 @@ impl Runner {
     /// The next control packet heard, and who sent it.
     pub fn take_control(&mut self) -> Option<(PeerId, Vec<u8>)> {
         self.control.pop_front()
+    }
+
+    /// The next node that said what it is, and who it was.
+    pub fn take_hello(&mut self) -> Option<(PeerId, Hello)> {
+        self.hellos.pop_front()
+    }
+
+    /// Asks every peer of every link what it is.
+    pub fn ask_who(&mut self) {
+        self.send_now(Outgoing::All {
+            except: None,
+            message: Message::Who,
+        });
+    }
+
+    fn hello(&self) -> Hello {
+        let chain = self.engine.chain();
+        Hello {
+            coin: chain.config().clone(),
+            tip: chain.tip(),
+            height: chain.height(),
+            work: chain.total_work(),
+            address: self.engine.address(),
+            card: self.card.clone(),
+        }
     }
 
     /// Sends now, whether or not the node is offline.
@@ -105,6 +149,7 @@ impl Runner {
     fn stamped(&self, message: &Message) -> Vec<u8> {
         let mark = match message {
             Message::Control(_) => network::CONTROL,
+            Message::Who | Message::Hello(_) => network::OPEN,
             _ => self.mark,
         };
         network::stamp(mark, &message.encode())
@@ -113,6 +158,7 @@ impl Runner {
     /// Handles everything waiting on the links and sends everything the engine queued.
     pub fn step(&mut self, device_ms: u64) {
         self.engine.tick(device_ms);
+        let mut asked = Vec::new();
         for (index, link) in self.links.iter_mut().enumerate() {
             while let Some((peer, bytes)) = link.receive() {
                 let from: PeerId = (index as u32) << LINK_SHIFT | (peer & PEER_MASK);
@@ -125,11 +171,25 @@ impl Runner {
                     {
                         self.control.push_back((from, packet));
                     }
+                } else if mark == network::OPEN {
+                    match Message::decode(body) {
+                        Some(Message::Who) => asked.push(from),
+                        Some(Message::Hello(hello)) if self.hellos.len() < MAX_HELLOS => {
+                            self.hellos.push_back((from, *hello));
+                        }
+                        _ => {}
+                    }
                 } else if mark == self.mark && !self.offline {
                     if let Some(message) = Message::decode(body) {
                         self.engine.on_message(from, message);
                     }
                 }
+            }
+        }
+        // A node keeping to itself stays out of sight.
+        if !self.offline {
+            for peer in asked {
+                self.send_now(Outgoing::To(peer, Message::Hello(self.hello().into())));
             }
         }
         while let Some(outgoing) = self.engine.take_outgoing() {
