@@ -28,6 +28,9 @@ pub struct Boards {
     pay_to: String,
     pay_amount: String,
     new_name: String,
+    mine_to: String,
+    /// The board asked to change coin, waiting for a yes.
+    moving: Option<BoardId>,
 }
 
 /// One action row, its name in a column of its own so the controls line up.
@@ -164,6 +167,33 @@ impl Boards {
                 Self::line(cx, id, format!("name {}", self.name.trim()));
             }
         });
+        labelled(ui, cx.say("boards.mine_to"), |ui| {
+            field(ui, &mut self.mine_to, cx.say("mining.pay_to_hint"), 300.0);
+            if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
+                let target = self.mine_to.trim();
+                let target = if target.is_empty() { "own" } else { target };
+                Self::line(cx, id, format!("mineto {target}"));
+            }
+            let mine = cx.snap.node.address.clone();
+            if button(ui, t, cx.say("boards.mine_to_me"), Kind::Quiet).clicked() {
+                self.mine_to.clone_from(&mine);
+                Self::line(cx, id, format!("mineto {mine}"));
+            }
+        });
+        if beacon.genesis != cx.snap.node.genesis {
+            labelled(ui, cx.say("boards.other_coin"), |ui| {
+                if self.moving == Some(id) {
+                    let blocks = format::number(beacon.height.into());
+                    meta(ui, &cx.fill("boards.move_warning", &[&blocks]), t);
+                    if button(ui, t, cx.say("boards.move_yes"), Kind::Main).clicked() {
+                        cx.send(Command::MoveBoard(id));
+                        self.moving = None;
+                    }
+                } else if button(ui, t, cx.say("boards.move"), Kind::Plain).clicked() {
+                    self.moving = Some(id);
+                }
+            });
+        }
         labelled(ui, cx.say("boards.pay"), |ui| {
             field(ui, &mut self.pay_to, cx.say("wallet.to"), 300.0);
             field(ui, &mut self.pay_amount, cx.say("wallet.amount"), 110.0);

@@ -27,6 +27,8 @@ pub trait FleetPort: Send + Sync {
     fn job(&self, key: &str) -> Option<String>;
     /// Blocks for up to a few seconds.
     fn run_line(&self, board: BoardId, line: &str) -> Result<(), LineError>;
+    /// Like `run_line`, with what the board answered.
+    fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError>;
     fn start_update(&self, board: BoardId);
     fn start_install(&self, path: &str, name: &str) -> bool;
     fn start_extra(

@@ -18,6 +18,7 @@ pub struct Local {
     form: NodeSpec,
     open_form: bool,
     pay_to: String,
+    mine_to: String,
     pay_amount: String,
     payer: Option<u32>,
 }
@@ -28,6 +29,7 @@ impl Default for Local {
             form: Preset::Esp32S3.spec(0),
             open_form: false,
             pay_to: String::new(),
+            mine_to: String::new(),
             pay_amount: String::new(),
             payer: None,
         }
@@ -177,6 +179,13 @@ impl Local {
                     to: self.pay_to.trim().to_string(),
                     amount: std::mem::take(&mut self.pay_amount),
                 });
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            field(ui, &mut self.mine_to, cx.say("mining.pay_to_hint"), 340.0);
+            if button(ui, t, cx.say("boards.mine_to"), Kind::Plain).clicked() {
+                let to = self.mine_to.trim().to_string();
+                cx.send(Command::NodeMiner { id, to });
             }
         });
         let others = cx.snap.local.iter().filter(|view| view.spec.id != id);

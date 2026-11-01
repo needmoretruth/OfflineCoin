@@ -165,12 +165,16 @@ impl FleetPort for SimFleet {
     }
 
     fn run_line(&self, board: BoardId, line: &str) -> Result<(), LineError> {
+        self.ask(board, line).map(|_| ())
+    }
+
+    fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError> {
         if !olc_control::allowed_remotely(line) {
             return Err(LineError::BadRequest);
         }
         match self.with_board(board, |board| board.command(line)) {
             Some(answer) if answer.starts_with("error") => Err(LineError::NotDone),
-            Some(_) => Ok(()),
+            Some(answer) => Ok(Some(answer)),
             None => Err(LineError::NoAnswer),
         }
     }

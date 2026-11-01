@@ -1,6 +1,7 @@
 //! Keys, coin and chain commands. A secret key only ever leaves through `println!`, which is the
 //! cable: the radio gate never lets a `key` line in, and `say` is never used on one.
-use crate::node::{decode_hash, device_ms, hex, Node};
+use crate::node::{decode_hash, hex, Node};
+use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -8,6 +9,9 @@ use esp_hal::rng::Rng;
 use esp_println::println;
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
+
+/// Shares held between two questions. They fit one radio line.
+const MOST_SHARES: usize = 8;
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) || !text.is_ascii() {
@@ -36,6 +40,8 @@ pub fn opened_name(opened: Opened) -> &'static str {
 pub struct Work {
     pub header: BlockHeader,
     pub difficulty: u64,
+    /// Headers that reached the difficulty, until someone asks for them.
+    pub found: VecDeque<BlockHeader>,
 }
 
 impl Node {
@@ -81,6 +87,7 @@ impl Node {
                 self.work = None;
                 self.say("work stopped".into());
             }
+            (Some("work"), Some("shares"), _) => self.print_shares(),
             (Some("work"), Some(header), Some(difficulty)) => self.take_work(header, difficulty),
             _ => return false,
         }
@@ -270,23 +277,43 @@ impl Node {
         let header = unhex(header).and_then(|bytes| BlockHeader::decode(&bytes));
         match (header, difficulty.parse()) {
             (Some(header), Ok(difficulty)) => {
-                self.work = Some(Work { header, difficulty });
+                let found = self.work.take().map(|work| work.found).unwrap_or_default();
+                self.work = Some(Work {
+                    header,
+                    difficulty,
+                    found,
+                });
                 self.say("work taken".into());
             }
             _ => self.say("error work HEADER DIFFICULTY".into()),
         }
     }
 
-    /// Tries a batch of the work in hand and reports each share found.
+    fn print_shares(&mut self) {
+        let found = self.work.as_mut().map(|work| core::mem::take(&mut work.found));
+        let words: Vec<String> = found
+            .unwrap_or_default()
+            .iter()
+            .map(|header| hex(&header.encode()))
+            .collect();
+        self.say(format!("shares {}", words.join(" ")));
+    }
+
+    /// Tries a batch of the work in hand and keeps each share found for whoever asks.
     pub fn grind(&mut self, batch: u32) {
         let Some(work) = &mut self.work else {
             return;
         };
-        let engine = &self.runner.engine;
-        if engine.grind(&mut work.header, work.difficulty, batch) {
-            let line = format!("share {} at {}", hex(&work.header.encode()), device_ms());
+        if self
+            .runner
+            .engine
+            .grind(&mut work.header, work.difficulty, batch)
+        {
+            if work.found.len() >= MOST_SHARES {
+                work.found.pop_front();
+            }
+            work.found.push_back(work.header);
             work.header.nonce = work.header.nonce.wrapping_add(1);
-            self.say(line);
         }
     }
 }

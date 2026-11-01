@@ -494,7 +494,7 @@ impl Engine {
             .sum()
     }
 
-    fn after_tip_change(&mut self, old_tip: Hash) {
+    pub(crate) fn after_tip_change(&mut self, old_tip: Hash) {
         self.candidate = None;
         let amount = self.received_since(&old_tip);
         if amount > 0 {
@@ -563,7 +563,7 @@ impl Engine {
         });
     }
 
-    fn announce(&mut self, except: Option<PeerId>) {
+    pub(crate) fn announce(&mut self, except: Option<PeerId>) {
         let message = Message::Tip {
             genesis: self.chain.genesis_id(),
             tip: self.chain.tip(),

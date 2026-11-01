@@ -2498,10 +2498,12 @@ dependencies = [
  "olc-link-tcp",
  "olc-logo",
  "olc-node",
+ "olc-pool",
  "olc-pow",
  "olc-store",
  "olc-wallet",
  "png",
+ "postcard",
  "serde",
  "serde_json",
 ]
@@ -2614,6 +2616,17 @@ dependencies = [
  "olc-wallet",
  "postcard",
  "serde",
+]
+
+[[package]]
+name = "olc-pool"
+version = "0.1.0"
+dependencies = [
+ "olc-core",
+ "olc-lang",
+ "olc-node",
+ "olc-pow",
+ "olc-wallet",
 ]
 
 [[package]]

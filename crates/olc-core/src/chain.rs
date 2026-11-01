@@ -211,6 +211,11 @@ impl Chain {
     }
 
     /// The id of the best chain's block at `height`. Very old blocks may have gone.
+    /// The height of a block this node still has in memory.
+    pub fn height_of_block(&self, id: &Hash) -> Option<u64> {
+        self.entries.get(id).map(|entry| entry.height)
+    }
+
     pub fn id_at(&self, height: u64) -> Option<Hash> {
         if height == 0 {
             return Some(self.genesis);

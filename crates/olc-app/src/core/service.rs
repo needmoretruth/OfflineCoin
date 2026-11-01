@@ -6,6 +6,7 @@ use super::coins::{
 use super::commands::{Command, StartCoin};
 use super::found::Found;
 use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
+use super::pool_run::{PoolSeat, PoolStart};
 use super::rows::{
     board_entry, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
@@ -95,6 +96,7 @@ struct Service {
     notices: Arc<AtomicU64>,
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
+    pool: PoolSeat,
     out: Arc<Mutex<Arc<Snapshot>>>,
 }
 
@@ -150,6 +152,7 @@ impl Service {
             notice: None,
             notices: Arc::default(),
             late: Arc::default(),
+            pool: PoolSeat::default(),
             out,
         };
         Ok(service)
@@ -198,6 +201,12 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
+            Command::Own(order) => {
+                let (key, detail, good) = self.host.obey(order);
+                if !key.is_empty() {
+                    self.say(key, detail, good);
+                }
+            }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => {
                 self.settings.take_choices(&settings);
@@ -224,6 +233,13 @@ impl Service {
                 if let Some(fleet) = &self.fleet {
                     fleet.start_update(id);
                 }
+            }
+            Command::MoveBoard(id) => {
+                let coin = current_coin(&self.paths, &self.settings);
+                let bytes = postcard::to_allocvec(&coin).unwrap_or_default();
+                let text: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                self.board_line(id, format!("coin {text}"));
+                self.board_line(id, "coin confirm".into());
             }
             Command::InstallBoard { path, name } => {
                 let started = self
@@ -279,6 +295,25 @@ impl Service {
                 let word = if on { "on" } else { "off" };
                 let _ = self.local.send(id, &format!("mine {word}"));
             }
+            Command::NodeMiner { id, to } => {
+                let target = if to.trim().is_empty() { "own" } else { to.trim() };
+                let _ = self.local.send(id, &format!("mineto {target}"));
+            }
+            Command::StartPool {
+                share_difficulty,
+                nodes,
+                boards,
+            } => {
+                let specs = self.settings.nodes.clone();
+                let start = PoolStart {
+                    share_difficulty,
+                    specs: &specs,
+                    nodes: &nodes,
+                    boards: &boards,
+                };
+                self.pool.start(&self.host, &mut self.local, self.fleet.as_ref(), &start);
+            }
+            Command::StopPool => self.pool.stop(&mut self.local, self.fleet.as_ref()),
             Command::NodePay { id, to, amount } => {
                 let _ = self.local.send(id, &format!("pay {} {}", to.trim(), amount.trim()));
             }
@@ -471,6 +506,7 @@ impl Service {
             self.say(key, detail, good);
         }
         for (id, answer) in self.local.take_answers() {
+            self.pool.take_node_shares(id, &answer.shares);
             match (answer.paid, answer.error) {
                 (Some(_), _) => self.say("notice.node_paid", id.to_string(), true),
                 (_, Some(error)) => self.say("notice.pay_failed", error, false),
@@ -478,6 +514,7 @@ impl Service {
             }
         }
         self.local.reap();
+        self.pool.step(&self.host, &mut self.local, self.fleet.as_ref());
     }
 
     fn own_hello(&self) -> Option<Hello> {
@@ -543,6 +580,7 @@ impl Service {
                 age_secs: self.scanner.age().map(|age| age.as_secs()),
             },
             experiment: ExperimentView { lines, running },
+            pool: self.pool.view(),
             notice: self.notice.clone(),
             usb: self.usb,
             full_rate: self.full_rate,
