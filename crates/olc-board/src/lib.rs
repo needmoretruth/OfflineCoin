@@ -3,6 +3,7 @@
 mod args;
 pub mod autoupdate;
 mod board;
+pub mod burst;
 mod cable;
 pub mod carried;
 pub mod clearance;

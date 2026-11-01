@@ -24,6 +24,8 @@ const FIRST_BEACON_AFTER_MS: u64 = 1_200;
 const ASK_AROUND_EVERY_MS: u64 = 30_000;
 const DEVICE: &str = "esp32-s3";
 const CHUNK_PAUSE_MS: u64 = 1_000;
+/// An image nobody finished stops holding memory after this long.
+const UPDATE_FORGOTTEN_MS: u64 = 600_000;
 const UPDATE_GONE_MS: u64 = 15_000;
 /// How long printed lines keep going to whoever gave the last order.
 const LISTEN_MS: u64 = 60_000;
@@ -38,12 +40,21 @@ pub const BUILD: &str = match option_env!("OLC_BUILD") {
     None => include_str!("../build-id").trim_ascii(),
 };
 
+/// An image on its way in: where it goes and who sent it.
+struct Arrival {
+    update: Update,
+    slot_start: u32,
+    sender: BoardId,
+}
+
 pub struct Control {
     pub router: Router,
     pub gate: Gate,
     pub identity: Identity,
     pub slot: u8,
-    update: Option<(Update, u32)>,
+    update: Option<Arrival>,
+    /// An image this board is sending to another.
+    pub serving: Option<crate::serve::Serving>,
     listener: Option<(BoardId, u64)>,
     /// Who gets the answer to the question being handled.
     reader: Option<BoardId>,
@@ -59,8 +70,8 @@ pub struct Control {
 impl Control {
     /// How far an image that is still arriving has come.
     pub fn update_percent(&self, now: u64) -> Option<u8> {
-        let (update, _) = self.update.as_ref()?;
-        (now < self.chunk_ms + UPDATE_GONE_MS).then(|| update.percent())
+        let arrival = self.update.as_ref()?;
+        (now < self.chunk_ms + UPDATE_GONE_MS).then(|| arrival.update.percent())
     }
 
     /// True while someone with the key listens to this board.
@@ -70,8 +81,8 @@ impl Control {
 
     /// A piece of an image is several radio frames and the radio holds only a few, so mining must
     /// not sit on them.
-    pub fn taking_an_image(&self, now: u64) -> bool {
-        self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
+    pub fn moving_image(&self, now: u64) -> bool {
+        self.serving.is_some() || self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
     }
 
     pub fn new(
@@ -88,6 +99,7 @@ impl Control {
             identity,
             slot,
             update: None,
+            serving: None,
             listener: None,
             reader: None,
             refused: 0,
@@ -122,6 +134,8 @@ impl ImageSlot for Spare<'_> {
 impl Node {
     /// Handles what the links heard and says what this board shows, every few seconds.
     pub fn serve_control(&mut self, now: u64) {
+        self.write_update(now);
+        self.serve_turn(now);
         while let Some((peer, bytes)) = self.runner.take_control() {
             let Some(mut packet) = Packet::decode(&bytes) else {
                 self.pass_on_old_beacon(peer, &bytes);
@@ -227,7 +241,7 @@ impl Node {
         }
     }
 
-    fn start_packet(&mut self, to: Option<BoardId>, body: Body) {
+    pub fn start_packet(&mut self, to: Option<BoardId>, body: Body) {
         let router = &mut self.control.router;
         let packet = Packet {
             from: router.me(),
@@ -286,11 +300,25 @@ impl Node {
                 self.control.reader = None;
             }
             Body::Order(signed) => self.take_order(from, &signed, now),
-            Body::Chunk {
+            Body::Piece {
                 session,
-                offset,
+                index,
                 data,
-            } => self.take_chunk(from, session, offset, &data),
+            } => {
+                self.control.chunk_ms = now;
+                match &mut self.control.update {
+                    Some(arrival) if arrival.update.session() == session => {
+                        arrival.update.piece(index, &data);
+                    }
+                    _ => {}
+                }
+            }
+            Body::AskMissing { session } => self.say_missing(from, session),
+            Body::Missing {
+                session,
+                done,
+                runs,
+            } => self.hear_missing(session, done, runs),
             _ => {}
         }
     }
@@ -313,65 +341,109 @@ impl Node {
                         // The page shows the change at once instead of at the next beacon.
                         self.control.beacon_ms = 0;
                     }
-                    Action::Update {
+                    Action::Burst {
                         session,
                         size,
                         image,
                     } => self.start_update(from, session, size, image),
+                    Action::Update { .. } => self.refuse(from, Refusal::NoUpdateRunning),
+                    Action::Serve {
+                        target,
+                        session,
+                        size,
+                        image,
+                    } => self.start_serving(from, target, session, size, image),
                 }
             }
             Err(reason) => self.refuse(from, reason),
         }
     }
 
-    fn refuse(&mut self, from: BoardId, reason: Refusal) {
+    pub fn refuse(&mut self, from: BoardId, reason: Refusal) {
         self.control.refused += 1;
         println!("refused {reason:?}");
         self.start_packet(Some(from), Body::Refused(reason));
     }
 
     fn start_update(&mut self, from: BoardId, session: u32, size: u32, image: olc_crypto::Hash) {
-        let Some((start, capacity)) = self.store.spare_slot() else {
+        let Some((slot_start, capacity)) = self.store.spare_slot() else {
             return self.refuse(from, Refusal::FlashFailed);
         };
-        match Update::begin(session, size, image, capacity) {
-            Ok(update) => {
-                self.control.update = Some((update, start));
-                self.say(format!("update {size} bytes"));
-                self.start_packet(Some(from), Body::Progress { session, next: 0 });
+        self.control.chunk_ms = crate::node::device_ms();
+        match &mut self.control.update {
+            Some(arrival) if arrival.update.same_image(size, &image) => {
+                arrival.update.go_on_as(session);
+                arrival.sender = from;
             }
-            Err(reason) => self.refuse(from, reason),
+            arrival => {
+                // Memory for the last image comes free before the next one asks for any.
+                *arrival = None;
+                match Update::begin(session, size, image, capacity) {
+                    Ok(update) => {
+                        *arrival = Some(Arrival {
+                            update,
+                            slot_start,
+                            sender: from,
+                        });
+                        self.say(format!("update {size} bytes"));
+                    }
+                    Err(reason) => return self.refuse(from, reason),
+                }
+            }
         }
+        self.say_missing(from, session);
     }
 
-    fn take_chunk(&mut self, from: BoardId, session: u32, offset: u32, data: &[u8]) {
-        self.control.chunk_ms = crate::node::device_ms();
-        let Some((mut update, start)) = self.control.update.take() else {
-            return self.refuse(from, Refusal::NoUpdateRunning);
+    fn say_missing(&mut self, from: BoardId, session: u32) {
+        let Some(arrival) = &self.control.update else {
+            return;
         };
-        if update.session() != session {
-            self.control.update = Some((update, start));
-            return self.refuse(from, Refusal::NoUpdateRunning);
+        if arrival.update.session() != session {
+            return;
         }
+        let body = Body::Missing {
+            session,
+            done: arrival.update.done(),
+            runs: arrival.update.missing(),
+        };
+        self.start_packet(Some(from), body);
+    }
+
+    /// Writes a page each turn once everything arrived, so the board keeps following the chain.
+    fn write_update(&mut self, now: u64) {
+        let Some(mut arrival) = self.control.update.take() else {
+            return;
+        };
+        if now > self.control.chunk_ms + UPDATE_FORGOTTEN_MS {
+            return;
+        }
+        if !arrival.update.all_here() {
+            self.control.update = Some(arrival);
+            return;
+        }
+        self.control.chunk_ms = now;
         let mut slot = Spare {
             store: &mut self.store,
-            start,
+            start: arrival.slot_start,
             size: 0,
         };
-        if let Err(reason) = update.chunk(&mut slot, offset, data) {
-            return self.refuse(from, reason);
-        }
-        let done = update.done();
-        let checked = done.then(|| update.verify(&mut slot));
-        let next = update.next();
-        match checked {
-            None => self.control.update = Some((update, start)),
-            Some(Err(reason)) => return self.refuse(from, reason),
-            Some(Ok(())) => {}
-        }
-        self.start_packet(Some(from), Body::Progress { session, next });
-        if done {
-            self.switch_build(from);
+        let sender = arrival.sender;
+        let verdict = match arrival.update.write_next(&mut slot) {
+            Ok(false) => {
+                self.control.update = Some(arrival);
+                return;
+            }
+            Ok(true) => arrival.update.verify(&mut slot),
+            Err(reason) => Err(reason),
+        };
+        match verdict {
+            Ok(()) => {
+                let session = arrival.update.session();
+                self.control.update = Some(arrival);
+                self.say_missing(sender, session);
+                self.switch_build(sender);
+            }
+            Err(reason) => self.refuse(sender, reason),
         }
     }
 

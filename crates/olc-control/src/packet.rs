@@ -125,6 +125,22 @@ pub enum Body {
         next: u32,
     },
     Refused(Refusal),
+    /// One piece of an image. Nothing answers it: the hash decides in the end.
+    Piece {
+        session: u32,
+        index: u32,
+        data: Vec<u8>,
+    },
+    AskMissing {
+        session: u32,
+    },
+    /// `done` counts bytes arrived plus bytes written. `runs` are the first (piece, count) still
+    /// missing. Empty means everything arrived.
+    Missing {
+        session: u32,
+        done: u32,
+        runs: Vec<(u32, u32)>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +193,20 @@ pub enum Action {
     Line(String),
     /// A new image of `size` bytes follows as chunks.
     Update {
+        session: u32,
+        size: u32,
+        image: Hash,
+    },
+    /// A new image of `size` bytes follows as pieces. Builds from before pieces cannot read
+    /// this order and stay silent, so the sender falls back on `Update`.
+    Burst {
+        session: u32,
+        size: u32,
+        image: Hash,
+    },
+    /// Send the build this board runs to `target`, if it is the one with this hash.
+    Serve {
+        target: BoardId,
         session: u32,
         size: u32,
         image: Hash,
