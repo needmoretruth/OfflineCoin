@@ -29,6 +29,8 @@ impl Packet {
     }
 }
 
+// A packet lives for one trip, so its size here costs nothing that a box would save.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Body {
     /// A board saying what it shows on its own, every few seconds.
