@@ -17,7 +17,7 @@ rm -rf "$stage"
 mkdir -p "$dist" "$stage"
 
 linux() {
-  local name=OLC-Core-$version-linux-x86_64
+  local name=OLC-Core-$version-linux-$1
   local top=$stage/$name
   mkdir -p "$top/bin" "$top/share/applications"
   cp "$built/olc-core" "$tool" "$top/bin/"
@@ -76,7 +76,8 @@ terminal() {
 }
 
 case $target in
-  x86_64-unknown-linux-gnu) linux; terminal linux-x86_64 ;;
+  x86_64-unknown-linux-gnu) linux x86_64; terminal linux-x86_64 ;;
+  aarch64-unknown-linux-gnu) linux arm64; terminal linux-arm64 ;;
   x86_64-pc-windows-msvc) windows; terminal windows-x86_64 ;;
   aarch64-apple-darwin) mac apple-silicon; terminal macos-apple-silicon ;;
   x86_64-apple-darwin) mac intel; terminal macos-intel ;;
