@@ -120,7 +120,7 @@ mod tests {
         let mut texts = Vec::new();
         sources(&folder.join("pages"), &mut texts);
         sources(&folder.join("ui"), &mut texts);
-        sources(&folder.join("core"), &mut texts);
+        sources(&folder.join("../../olc-service/src/core"), &mut texts);
         let known = keys(en::WORDS);
         let prefixes: BTreeSet<&str> = en::WORDS
             .iter()

@@ -8,6 +8,7 @@ use super::snapshot::BoardView;
 use super::words::Desk;
 use super::{new_coin, write_coin_file};
 use crate::fleet::{FleetPort, RealFleet};
+use crate::instance::{claim, Instance};
 use crate::settings::{standard_folder, Paths, Settings};
 use olc_board::carried::firmware_path;
 use olc_board::control_key::{config_folder, ControlKey};
@@ -32,7 +33,8 @@ pub struct Terminal {
     pub firmware: Option<String>,
     /// Asked for before anything runs, so this stays free of prompts.
     pub given_password: Option<String>,
-    core: Option<Core>,
+    /// The core, with the hold that keeps a second copy off the same wallet and cables.
+    core: Option<(Core, Instance)>,
 }
 
 impl Terminal {
@@ -53,7 +55,7 @@ impl Terminal {
                 Some(root) => root.clone(),
                 None => standard_folder()?,
             };
-            std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+            let instance = claim(&root)?.ok_or("OLC Core is open. Use it, or close it first.")?;
             let fleet: Arc<dyn FleetPort> = Arc::new(RealFleet::new(self.ports.clone())?);
             let settings = Settings::load(&root);
             let launch = CoreLaunch {
@@ -62,19 +64,23 @@ impl Terminal {
                 usb: true,
                 node_program: None,
             };
-            self.core = Some(Core::start(launch, settings)?);
+            self.core = Some((Core::start(launch, settings)?, instance));
         }
-        self.core.as_ref().ok_or_else(|| "The core did not start.".to_string())
+        let core = self.core.as_ref().map(|(core, _)| core);
+        core.ok_or_else(|| "The core did not start.".to_string())
     }
 
     /// Hands `command` to the core and waits for what it says.
     fn through_core(&mut self, command: Command) -> Result<String, String> {
-        let asks_board = matches!(command, Command::Board { .. });
+        let board = match command {
+            Command::Board { id, .. } => Some(id),
+            _ => None,
+        };
         let core = self.core()?;
         let number = core.snapshot().notice.as_ref().map_or(0, |notice| notice.number);
         core.send(command);
         let started = Instant::now();
-        let wait = if asks_board { ANSWER_WAIT } else { LOOK_EVERY * 20 };
+        let wait = if board.is_some() { ANSWER_WAIT } else { LOOK_EVERY * 20 };
         while started.elapsed() < wait {
             let snapshot = core.snapshot();
             if let Some(notice) = snapshot.notice.as_ref().filter(|notice| notice.number > number) {
@@ -82,8 +88,8 @@ impl Terminal {
                 if !notice.good {
                     return Err(format!("{said}: {}", notice.detail));
                 }
-                let mut answers = snapshot.boards.iter().rev();
-                let answer = answers.find_map(|view| view.answer.as_deref());
+                let asked = snapshot.boards.iter().find(|view| Some(view.seen.id) == board);
+                let answer = asked.and_then(|view| view.answer.as_deref());
                 return Ok(answer.unwrap_or(&notice.detail).to_string());
             }
             thread::sleep(LOOK_EVERY);
