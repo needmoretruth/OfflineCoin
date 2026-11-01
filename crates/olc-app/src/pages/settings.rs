@@ -3,6 +3,7 @@ use super::network::medium_text;
 use super::{Cx, Page};
 use crate::core::{Command, Personal};
 use crate::i18n::Lang;
+use crate::local::Holding;
 use crate::settings::{Device, Theme};
 use crate::ui::format;
 use crate::ui::tokens;
@@ -161,16 +162,30 @@ impl SettingsPage {
         let node = &cx.snap.node;
         section(ui, cx.say("storage.title"));
         let held = format::number(node.oldest.into());
-        meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
-        if let Some(fits) = node.fits {
-            meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+        if node.light.is_none() {
+            meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
+            if let Some(fits) = node.fits {
+                meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+            }
         }
-        let mut keep_all = node.recent.is_none();
-        if switch_row(ui, t, &mut keep_all, cx.say("storage.all")) {
-            let recent = (!keep_all).then_some(self.recent.max(FEWEST_RECENT));
-            cx.send(Command::Own(Personal::SetRecent(recent)));
+        let holding = match (&node.light, node.recent) {
+            (Some(_), _) => Holding::Headers,
+            (None, Some(_)) => Holding::Recent,
+            (None, None) => Holding::Everything,
+        };
+        let items = [Holding::Everything, Holding::Recent, Holding::Headers]
+            .map(|holding| (holding, cx.say(holding.key()).to_string()));
+        if let Some(chosen) = segments(ui, t, &items, Some(holding)).filter(|c| *c != holding) {
+            if chosen != Holding::Headers {
+                let recent = (chosen == Holding::Recent).then_some(self.recent.max(FEWEST_RECENT));
+                cx.send(Command::Own(Personal::SetRecent(recent)));
+            }
+            cx.send(Command::Own(Personal::SetLight(chosen == Holding::Headers)));
         }
-        if !keep_all {
+        if holding == Holding::Headers {
+            meta(ui, cx.say("local.light_trust"), t);
+        }
+        if holding == Holding::Recent {
             if self.recent == 0 {
                 self.recent = node.recent.unwrap_or(FEWEST_RECENT);
             }

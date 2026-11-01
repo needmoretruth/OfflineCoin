@@ -61,9 +61,13 @@ impl Page for Mining {
         let node = &cx.snap.node;
         widgets::title(ui, cx.say("page.mining"));
         card(ui, t, |ui| {
-            let mut on = node.mining;
-            if switch_row(ui, t, &mut on, cx.say("mining.mine_here")) {
-                cx.send(Command::SetMining(on));
+            if node.light.is_some() {
+                meta(ui, cx.say("mining.light"), t);
+            } else {
+                let mut on = node.mining;
+                if switch_row(ui, t, &mut on, cx.say("mining.mine_here")) {
+                    cx.send(Command::SetMining(on));
+                }
             }
             if let Some(target) = node.syncing_to {
                 let text = cx.fill("mining.catching_up", &[&format::number(target.into())]);

@@ -168,46 +168,16 @@ impl Wallet {
         fee: u64,
         reserved: &[OutPoint],
     ) -> Result<Tx, WalletError> {
-        let next = chain.height() + 1;
-        let total = payments.iter().try_fold(fee, |sum, (_, amount)| sum.checked_add(*amount));
-        let needed = total.ok_or(WalletError::NotEnoughCoins)?;
-        let mut chosen = Vec::new();
-        let mut gathered = 0u64;
-        'keys: for (number, key) in self.keys.iter().enumerate() {
-            for (point, entry) in chain.unspent_of(&key.address) {
-                if !chosen.is_empty() && gathered >= needed {
-                    break 'keys;
-                }
-                if chain.is_mature(&entry, next) && !reserved.contains(&point) {
-                    gathered += entry.output.value;
-                    chosen.push((number, point));
-                }
-            }
-        }
-        if gathered < needed || chosen.is_empty() {
-            return Err(WalletError::NotEnoughCoins);
-        }
-        let plain = |(to, value): &(Address, u64)| TxOut {
-            value: *value,
-            language: ALPHA,
-            lock: to.to_vec(),
-        };
-        let mut outputs: Vec<TxOut> = payments.iter().map(plain).collect();
-        if !data.is_empty() {
-            outputs.push(TxOut::data(data.to_vec()));
-        }
-        let change = gathered - needed;
-        if change > 0 {
-            outputs.push(plain(&(self.address(), change)));
-        }
-        self.signed(&chosen, outputs)
+        let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
+        let order = Order { payments, data, fee, change: self.address() };
+        self.sign(&prepare(chain, &owners, &order, reserved)?)
     }
 
     /// Merges small coins of one key into a single coin, so a miner's many rewards do not stay in
     /// every node's unspent set. An ordinary transaction. `None` when no key has enough of them.
     pub fn merge(&self, chain: &dyn Coins, fee: u64, reserved: &[OutPoint]) -> Option<Tx> {
         let next = chain.height() + 1;
-        for (number, key) in self.keys.iter().enumerate() {
+        for key in &self.keys {
             let mut coins: Vec<(u64, OutPoint)> = chain
                 .unspent_of(&key.address)
                 .into_iter()
@@ -223,41 +193,103 @@ impl Wallet {
             coins.truncate(MERGE_AT_ONCE);
             let total: u64 = coins.iter().map(|(value, _)| *value).sum();
             let value = total.checked_sub(fee).filter(|value| *value > 0)?;
-            let chosen: Vec<(usize, OutPoint)> =
-                coins.iter().map(|(_, point)| (number, *point)).collect();
+            let chosen: Vec<(Address, OutPoint)> =
+                coins.iter().map(|(_, point)| (key.address, *point)).collect();
             let output = TxOut {
                 value,
                 language: ALPHA,
                 lock: key.address.to_vec(),
             };
-            return self.signed(&chosen, vec![output]).ok();
+            return self.sign(&unsigned(&chosen, vec![output])).ok();
         }
         None
     }
 
-    fn signed(
-        &self,
-        coins: &[(usize, OutPoint)],
-        outputs: Vec<TxOut>,
-    ) -> Result<Tx, WalletError> {
-        let unlocked = |(_, previous): &(usize, OutPoint)| TxIn {
-            previous: *previous,
-            unlock: Vec::new(),
-        };
-        let mut tx = Tx {
-            version: 1,
-            inputs: coins.iter().map(unlocked).collect(),
-            outputs,
-            coinbase_height: None,
-        };
-        for (index, (number, _)) in coins.iter().enumerate() {
-            let key = &self.keys[*number];
+    /// Signs what [`prepare`] built. Needs no chain, so the keys can stay on a computer that
+    /// is never connected to anything.
+    pub fn sign(&self, (tx, owners): &Unsigned) -> Result<Tx, WalletError> {
+        let mut tx = tx.clone();
+        for (index, owner) in owners.iter().enumerate() {
+            let key = self.keys.iter().find(|key| key.address == *owner);
+            let key = key.ok_or(WalletError::NoSuchKey)?;
             let digest = tx.signature_hash(index, &key.address);
             let signature = sign(&key.secret, &digest).ok_or(WalletError::BadKey)?;
-            tx.inputs[index].unlock = alpha::unlock_data(&key.public, &signature);
+            let input = tx.inputs.get_mut(index).ok_or(WalletError::NoSuchKey)?;
+            input.unlock = alpha::unlock_data(&key.public, &signature);
         }
         Ok(tx)
     }
+}
+
+/// A payment nobody signed yet, and the address each input spends from.
+pub type Unsigned = (Tx, Vec<Address>);
+
+/// What a payment should do.
+pub struct Order<'a> {
+    pub payments: &'a [(Address, u64)],
+    pub data: &'a [u8],
+    pub fee: u64,
+    pub change: Address,
+}
+
+/// Builds a payment from the coins of `owners`, with no key in reach.
+pub fn prepare(
+    chain: &dyn Coins,
+    owners: &[Address],
+    order: &Order,
+    reserved: &[OutPoint],
+) -> Result<Unsigned, WalletError> {
+    let next = chain.height() + 1;
+    let mut amounts = order.payments.iter();
+    let total = amounts.try_fold(order.fee, |sum, (_, amount)| sum.checked_add(*amount));
+    let needed = total.ok_or(WalletError::NotEnoughCoins)?;
+    let mut chosen = Vec::new();
+    let mut gathered = 0u64;
+    'owners: for owner in owners {
+        for (point, entry) in chain.unspent_of(owner) {
+            if !chosen.is_empty() && gathered >= needed {
+                break 'owners;
+            }
+            if chain.is_mature(&entry, next) && !reserved.contains(&point) {
+                gathered += entry.output.value;
+                chosen.push((*owner, point));
+            }
+        }
+    }
+    if gathered < needed || chosen.is_empty() {
+        return Err(WalletError::NotEnoughCoins);
+    }
+    let mut outputs: Vec<TxOut> = order.payments.iter().map(plain).collect();
+    if !order.data.is_empty() {
+        outputs.push(TxOut::data(order.data.to_vec()));
+    }
+    let change = gathered - needed;
+    if change > 0 {
+        outputs.push(plain(&(order.change, change)));
+    }
+    Ok(unsigned(&chosen, outputs))
+}
+
+fn plain((to, value): &(Address, u64)) -> TxOut {
+    TxOut {
+        value: *value,
+        language: ALPHA,
+        lock: to.to_vec(),
+    }
+}
+
+fn unsigned(coins: &[(Address, OutPoint)], outputs: Vec<TxOut>) -> Unsigned {
+    let unlocked = |(_, previous): &(Address, OutPoint)| TxIn {
+        previous: *previous,
+        unlock: Vec::new(),
+    };
+    let tx = Tx {
+        version: 1,
+        inputs: coins.iter().map(unlocked).collect(),
+        outputs,
+        coinbase_height: None,
+    };
+    (tx, coins.iter().map(|(owner, _)| *owner).collect())
 }
 
 pub fn format_address(address: &Address) -> String {

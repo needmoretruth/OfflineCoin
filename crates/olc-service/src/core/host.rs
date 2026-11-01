@@ -5,9 +5,9 @@ use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened, Plugins};
 use olc_link_tcp::{TcpControl, TcpLink};
-use olc_node::{Card, Engine, Hello, Rank, Runner};
+use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
 use olc_pow::ProofOfWork;
-use olc_store::{load_wallet, open_chain, NodeSettings};
+use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
 use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -25,6 +25,7 @@ const ASK_EVERY: Duration = Duration::from_secs(20);
 /// How often connected nodes are asked how they stand, so their rows stay true.
 const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
 const MAX_HEARD: usize = 64;
+const HEADERS_SAVED_EVERY: Duration = Duration::from_secs(30);
 
 pub fn unix_ms() -> u64 {
     SystemTime::now()
@@ -137,6 +138,16 @@ fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
         .map(|address| address.port())
 }
 
+fn watched_view(engine: &Engine) -> Vec<(String, u64)> {
+    let shown = engine.watched().into_iter();
+    shown.map(|(address, coins)| (format_address(&address), coins)).collect()
+}
+
+fn stored_bytes(engine: &Engine, blocks: u64) -> u64 {
+    let header = BlockHeader::ENCODED_LEN as u64;
+    engine.light().map_or(blocks, |light| light.headers().held() as u64 * header)
+}
+
 impl Host {
     /// Returns at once. The chain loads on the host's own thread.
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
@@ -186,6 +197,8 @@ impl Host {
             port,
             tips: 0,
             last_tip: [0; 32],
+            saved_tip: [0; 32],
+            saved_at: Instant::now(),
             blocks: Vec::new(),
         };
         let done = thread::spawn(move || worker.run());
@@ -328,6 +341,8 @@ struct Worker {
     port: Option<u16>,
     tips: u64,
     last_tip: Hash,
+    saved_tip: Hash,
+    saved_at: Instant,
     blocks: Vec<BlockRow>,
 }
 
@@ -453,6 +468,12 @@ impl Worker {
         engine.set_miner(settings.miner.as_deref().and_then(parse_address));
         engine.set_note(settings.note.as_bytes());
         engine.set_merging(!settings.no_merge);
+        for address in settings.watched.iter().filter_map(|text| parse_address(text)) {
+            engine.watch(address);
+        }
+        if settings.light {
+            engine.become_light(usize::MAX, &load_headers(&switch.folder));
+        }
         if let Ok(mut folder) = self.state.folder.lock() {
             *folder = Some(switch.folder);
         }
@@ -471,6 +492,21 @@ impl Worker {
         }
     }
 
+    /// Keeps a light node's headers for the next start, now and then.
+    fn save_light(&mut self, engine: &Engine, tip: &Hash) {
+        if self.saved_tip == *tip || self.saved_at.elapsed() < HEADERS_SAVED_EVERY {
+            return;
+        }
+        let folder = self.state.folder.lock().ok().and_then(|folder| folder.clone());
+        let headers = engine.light().and_then(|light| light.headers().saved());
+        if let (Some(folder), Some(headers)) = (folder, headers) {
+            self.saved_tip = *tip;
+            self.saved_at = Instant::now();
+            // The next save tries again, and peers can give back whatever is lost.
+            let _ = save_headers(&folder, headers);
+        }
+    }
+
     fn publish(&mut self, runner: &mut Runner) {
         let engine = &runner.engine;
         let chain = engine.chain();
@@ -483,11 +519,13 @@ impl Worker {
             self.tips += 1;
             self.blocks = recent_blocks(chain);
         }
-        let next = chain.height() + 1;
+        self.save_light(engine, &status.tip);
+        let coins = engine.coins();
+        let next = coins.height() + 1;
         let spendable = own
             .iter()
-            .flat_map(|address| chain.unspent_of(address))
-            .filter(|(_, entry)| chain.is_mature(entry, next))
+            .flat_map(|address| coins.unspent_of(address))
+            .filter(|(_, entry)| coins.is_mature(entry, next))
             .map(|(_, entry)| entry.output.value)
             .sum();
         let receiving = wallet.receiving();
@@ -520,7 +558,9 @@ impl Worker {
             pool: status.pool,
             hashrate: self.state.hashrate.load(Ordering::Relaxed),
             cap: self.state.cap.load(Ordering::Relaxed),
-            mining: self.state.mining.load(Ordering::Relaxed),
+            mining: self.state.mining.load(Ordering::Relaxed) && engine.light().is_none(),
+            light: engine.light().map(Light::status),
+            watched: watched_view(engine),
             syncing_to: status.syncing_to,
             loading: None,
             balance: status.balance,
@@ -530,7 +570,7 @@ impl Worker {
             blocks_mined: self.history.blocks_mined(),
             port: self.port,
             tip_changes: self.tips,
-            stored_bytes: held.bytes,
+            stored_bytes: stored_bytes(engine, held.bytes),
             storage_full: held.oldest > 0,
             keys: keys.collect(),
             miner: format_address(&engine.miner()),

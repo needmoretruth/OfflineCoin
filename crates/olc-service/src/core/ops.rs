@@ -8,7 +8,8 @@ use olc_store::{
     back_up, format_secret, new_secret, parse_secret, restore, save_wallet, NodeSettings,
 };
 use olc_platform::platform;
-use olc_wallet::{format_address, parse_address, Wallet};
+use olc_wallet::{format_address, parse_address, Unsigned, Wallet};
+use std::fs;
 use std::path::Path;
 
 const STOPPED: &str = "The node stopped";
@@ -28,6 +29,33 @@ pub trait Book {
     /// Writes a note into a block. The answer is what to show for it.
     fn write_note(&self, text: &str) -> Result<String, String>;
     fn show_explored(&self, text: &str) -> Result<(), String>;
+    /// Asks the node `olc node` runs on this computer.
+    fn ask_node(&self, path: &str, body: &str) -> Result<String, String>;
+
+    /// Follows an address without its key, now and after a restart.
+    fn watch(&self, text: &str) -> Result<(), String> {
+        let text = text.trim();
+        let address = parse_address(text).ok_or("That is not an address.")?;
+        self.live(|runner| runner.engine.watch(address))?;
+        self.change_settings(|settings| {
+            if !settings.watched.iter().any(|known| known == text) {
+                settings.watched.push(text.to_string());
+            }
+        })
+    }
+
+    /// Signs a payment read from a file. Touches no network.
+    fn sign_file(&self, path: &str) -> Result<String, String> {
+        let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        let answer: serde_json::Value =
+            serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))?;
+        let unsigned: Unsigned = serde_json::from_value(answer["unsigned"].clone())
+            .map_err(|error| format!("{path}: {error}"))?;
+        let signed = self
+            .wallet_view(|wallet| wallet.sign(&unsigned))?
+            .map_err(|error| format!("{error:?}"))?;
+        serde_json::to_string(&signed).map_err(|error| error.to_string())
+    }
 
     fn new_key(&self) -> Result<String, String> {
         self.add_key(new_secret()?)
@@ -165,6 +193,22 @@ pub trait Book {
             Personal::SetMerging(on) => {
                 self.set_merging(on).map(|()| ("notice.saved", String::new()))
             }
+            Personal::Watch(text) => self.watch(&text).map(|()| ("notice.saved", String::new())),
+            Personal::SetLight(on) => self
+                .change_settings(|settings| settings.light = on)
+                .map(|()| ("notice.saved", String::new())),
+            Personal::SetMining(on) => self
+                .change_settings(|settings| settings.mining = on)
+                .map(|()| ("notice.saved", String::new())),
+            Personal::Prepare { to, units, fee } => {
+                let body = serde_json::json!({ "to": to, "amount": units, "fee": fee }).to_string();
+                self.ask_node("prepare", &body).map(|answer| ("notice.saved", answer))
+            }
+            Personal::Sign(path) => self.sign_file(&path).map(|signed| ("notice.saved", signed)),
+            Personal::Broadcast(path) => fs::read_to_string(&path)
+                .map_err(|error| format!("{path}: {error}"))
+                .and_then(|body| self.ask_node("broadcast", body.trim()))
+                .map(|answer| ("notice.saved", answer)),
             Personal::WriteNote(text) => self.write_note(&text).map(|_| ("notice.noted", text)),
             Personal::AcceptSnapshot => {
                 self.accept_snapshot().map(|()| ("notice.snapshot_taking", String::new()))
@@ -228,6 +272,10 @@ impl Book for Host {
         self.on_runner(|runner| runner.engine.write_note(text.as_bytes()))?
             .map(|_| text.to_string())
             .map_err(|error| format!("{error:?}"))
+    }
+
+    fn ask_node(&self, _path: &str, _body: &str) -> Result<String, String> {
+        Err(NO_NODE.to_string())
     }
 
     fn show_explored(&self, text: &str) -> Result<(), String> {

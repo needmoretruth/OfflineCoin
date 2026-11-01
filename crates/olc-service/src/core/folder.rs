@@ -38,11 +38,14 @@ impl Book for Folder {
     }
 
     fn write_note(&self, text: &str) -> Result<String, String> {
-        let body = serde_json::json!({ "text": text }).to_string();
+        self.ask_node("note", &serde_json::json!({ "text": text }).to_string())
+    }
+
+    fn ask_node(&self, path: &str, body: &str) -> Result<String, String> {
         let mut stream = TcpStream::connect(("127.0.0.1", self.web_port))
             .map_err(|_| "No node runs on this computer.")?;
         let request = format!(
-            "POST /api/note HTTP/1.0\r\nContent-Length: {}\r\n\r\n{body}",
+            "POST /api/{path} HTTP/1.0\r\nContent-Length: {}\r\n\r\n{body}",
             body.len()
         );
         stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;

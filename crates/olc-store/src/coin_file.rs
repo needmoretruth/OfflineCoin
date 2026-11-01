@@ -1,5 +1,5 @@
 //! Coin files: the JSON form of a coin, with addresses written as text.
-use olc_core::coin::COIN;
+use olc_core::coin::{COIN, MIN_DIFFICULTY};
 use olc_core::{Address, CoinConfig, Rules};
 use olc_wallet::{format_address, parse_address};
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,8 @@ pub struct NewCoin {
     pub reward: Option<u64>,
     pub halving: Option<u64>,
     pub difficulty: Option<u64>,
+    /// The lowest difficulty. Empty follows the block time.
+    pub floor: Option<u64>,
     /// A later start than OfflineCoin's own, which makes a coin of its own at once.
     pub genesis_time_ms: Option<u64>,
     pub premine: Vec<(Address, u64)>,
@@ -98,7 +100,10 @@ pub fn new_coin(choices: NewCoin) -> CoinConfig {
     coin.rules.block_time_ms = choices.block_time_ms.unwrap_or(coin.rules.block_time_ms);
     coin.rules.reward = choices.reward.map_or(coin.rules.reward, |reward| reward * COIN);
     coin.rules.halving_interval = choices.halving.unwrap_or(coin.rules.halving_interval);
-    coin.initial_difficulty = choices.difficulty.unwrap_or(coin.initial_difficulty);
+    let floor = choices.floor.unwrap_or(Rules::floor_for(coin.rules.block_time_ms));
+    coin.rules.min_difficulty = floor.max(1);
+    coin.rules.floor_from_height = 0;
+    coin.initial_difficulty = choices.difficulty.unwrap_or(MIN_DIFFICULTY);
     coin.genesis_time_ms = choices.genesis_time_ms.unwrap_or(coin.genesis_time_ms);
     coin.premine = choices.premine;
     coin

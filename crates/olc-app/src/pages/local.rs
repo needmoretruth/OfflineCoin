@@ -2,7 +2,9 @@
 //! held to numbers the operating system enforces, and shown beside what it really uses.
 use super::{Cx, Page};
 use crate::core::Command;
-use crate::local::{Enforcement, LocalView, NodeSpec, Preset, WalletChoice, PROCESS_OVERHEAD_MIB};
+use crate::local::{
+    Enforcement, Holding, LocalView, NodeSpec, Preset, WalletChoice, PROCESS_OVERHEAD_MIB,
+};
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
@@ -119,6 +121,7 @@ impl Local {
                     WalletChoice::Shared => "local.wallet_shared",
                 };
                 chip(ui, cx.say(wallet), t.muted, t);
+                chip(ui, cx.say(view.spec.holding.key()), t.muted, t);
                 if let Some(ended) = &view.ended {
                     chip(ui, &cx.fill("local.ended", &[ended]), t.bad, t);
                 }
@@ -126,15 +129,22 @@ impl Local {
                     chip(ui, cx.say("local.disk_full"), t.warn, t);
                 }
             });
+            if view.spec.holding == Holding::Headers {
+                meta(ui, cx.say("local.light_trust"), t);
+            }
             if let Some(status) = &view.status {
                 let ticker = cx.snap.node.coin.as_ref().map_or("", |coin| coin.ticker.as_str());
+                let (key, last) = match status.headers {
+                    Some(headers) => ("local.line_light", headers),
+                    None => ("local.line", status.blocks_mined),
+                };
                 let line = cx.fill(
-                    "local.line",
+                    key,
                     &[
                         &format::number(status.height.into()),
                         &status.peers.to_string(),
                         &format::coins(status.balance, ticker),
-                        &format::number(status.blocks_mined.into()),
+                        &format::number(last.into()),
                     ],
                 );
                 meta(ui, &line, t);
@@ -147,7 +157,8 @@ impl Local {
                     }
                     let mining = view.status.as_ref().is_some_and(|status| status.mining);
                     let key = if mining { "boards.stop_mining" } else { "boards.start_mining" };
-                    if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    let can_mine = view.spec.holding != Holding::Headers;
+                    if can_mine && button(ui, t, cx.say(key), Kind::Plain).clicked() {
                         cx.send(Command::NodeMining { id, on: !mining });
                     }
                     if button(ui, t, cx.say("local.pay_from"), Kind::Plain).clicked() {
@@ -260,9 +271,26 @@ impl Local {
                 }
                 ui.add_space(tokens::GAP_WIDE);
                 widgets::switch_row(ui, t, &mut form.joined, cx.say("local.joined"));
-                switch_row(ui, t, &mut form.mining, cx.say("local.mine"));
+                if form.holding != Holding::Headers {
+                    switch_row(ui, t, &mut form.mining, cx.say("local.mine"));
+                }
                 switch_row(ui, t, &mut form.listen_lan, cx.say("local.listen_lan"));
             });
+            ui.horizontal(|ui| {
+                let items = [Holding::Everything, Holding::Recent, Holding::Headers]
+                    .map(|holding| (holding, cx.say(holding.key()).to_string()));
+                if let Some(holding) = segments(ui, t, &items, Some(form.holding)) {
+                    form.holding = holding;
+                    form.mining &= holding != Holding::Headers;
+                }
+                if form.holding == Holding::Recent {
+                    ui.add_space(tokens::GAP_WIDE);
+                    number_field(ui, &mut form.recent, 100.0);
+                }
+            });
+            if form.holding == Holding::Headers {
+                meta(ui, cx.say("local.light_trust"), t);
+            }
             ui.horizontal(|ui| {
                 if button(ui, t, cx.say("local.add"), Kind::Main).clicked() {
                     let id = next_id(cx);

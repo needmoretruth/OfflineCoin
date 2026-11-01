@@ -2,11 +2,11 @@
 //! real core. Node processes in the pictures are real, and a real board appears only in a real
 //! window, so these leave USB alone.
 use crate::app::App;
-use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Host, Plan, Snapshot};
+use crate::core::{coin_folder, save_coin, Command, Core, CoreLaunch, Host, Plan, Snapshot};
 use crate::discovery::Entry;
 use crate::core::Book;
 use crate::i18n::Lang;
-use crate::local::{is_running, NodeSpec, Preset, Supervisor};
+use crate::local::{is_running, Holding, NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
@@ -212,6 +212,81 @@ fn the_first_run_starts_real_node_processes() {
     assert!(heights.len() > 1, "the chain never moved");
 }
 
+/// The owner's scene: one node full without mining, one pruned and mining, one light, all on one
+/// chain, and each set in the window as a person would set it.
+#[test]
+fn each_node_is_the_kind_its_person_chose() {
+    let settings = Settings {
+        port: 7330,
+        ..quiet_settings()
+    };
+    let window = app(scratch("kinds"), settings, Some(node_program()));
+    let mut harness = harness(window, SIZES[1]);
+    let mut coin = CoinConfig::olc();
+    coin.name = "Kinds".into();
+    coin.rules.block_time_ms = 1_000;
+    coin.rules.min_difficulty = 100;
+    coin.initial_difficulty = 100;
+    harness.state().send(Command::Join { coin: Box::new(coin), address: None });
+    harness.run_steps(2);
+    let spec = |id: u32, mining, holding| NodeSpec {
+        mining,
+        holding,
+        recent: 300,
+        ..Preset::Custom.spec(id)
+    };
+    for node in [
+        spec(10, false, Holding::Everything),
+        spec(11, true, Holding::Recent),
+        spec(12, false, Holding::Headers),
+    ] {
+        harness.state().send(Command::AddNode(Box::new(node)));
+    }
+    wait_until(&mut harness, |app| {
+        let local = &app.snapshot().local;
+        let at = |index: usize| local.get(index).and_then(|view| view.status.as_ref());
+        let held = at(2).and_then(|status| status.headers).unwrap_or(0);
+        let miner = at(1).is_some_and(|status| status.height >= 5 && status.hashrate > 0);
+        local.len() == 3 && held >= 5 && miner
+    });
+    let snap = harness.state().snapshot().clone();
+    let status: Vec<_> = snap.local.iter().filter_map(|view| view.status.clone()).collect();
+    assert_eq!(status[0].headers, None);
+    assert!(!status[0].mining, "a full node here only validates");
+    assert!(status[1].mining);
+    assert!(!status[2].mining);
+    wait_until(&mut harness, |app| {
+        let local = &app.snapshot().local;
+        let height = |index: usize| local[index].status.as_ref().map_or(0, |status| status.height);
+        height(0).abs_diff(height(2)) <= MOST_BLOCKS_BEHIND
+    });
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        harness.state_mut().open("page.local");
+        shot(&mut harness, &folder, "scene-kinds");
+    }
+
+    // The same choice on this app's own node, which comes back as the other kind.
+    harness.set_size(egui::vec2(1280.0, 1900.0));
+    harness.state_mut().open("page.settings");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("Keep headers only (light)").click();
+    wait_until(&mut harness, |app| {
+        let node = &app.snapshot().node;
+        node.height >= 5 && node.light.is_some_and(|light| light.held_headers >= 5)
+    });
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-own-light");
+        harness.state_mut().open("page.keys");
+        shot(&mut harness, &folder, "scene-keys-watch");
+    }
+    harness.state_mut().open("page.mining");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("A node that keeps only headers cannot mine.");
+    harness.state_mut().open("page.explorer");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_label("This node keeps only headers, so it has no blocks to show.");
+}
+
 /// The owner's scene: a note goes into a block and shows in the explorer, and a second key is made,
 /// backed up and restored, all by clicking in the window on a real node.
 #[test]
@@ -242,8 +317,10 @@ fn a_note_and_a_key_go_through_the_window() {
     wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
 
     let backup = root.join("wallet.backup");
-    // Export path, then backup path. The password and the import sit in hidden fields.
-    type_into(&mut harness, 1, backup.to_str().unwrap());
+    harness.set_size(egui::vec2(1280.0, 1400.0));
+    harness.run_steps(SETTLE_STEPS);
+    // Export path, watched address, then backup path. The password and the import are hidden.
+    type_into(&mut harness, 2, backup.to_str().unwrap());
     type_secret(&mut harness, 1, "a long password");
     harness.get_by_label("Back up").click();
     wait_until(&mut harness, |app| {

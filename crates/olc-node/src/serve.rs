@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
 use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Served, Tx};
+use olc_wallet::{prepare, Order, Unsigned, WalletError};
 
 /// A page of headers. A small radio queue on a slow reader sets this, as it does for blocks.
 const HEADERS_AT_ONCE: usize = 16;
@@ -27,7 +28,7 @@ impl Engine {
     }
 
     /// Where this node's wallet finds its coins.
-    pub(crate) fn coins(&self) -> &dyn Coins {
+    pub fn coins(&self) -> &dyn Coins {
         match self.light.as_deref() {
             Some(light) => light,
             None => &self.chain,
@@ -47,6 +48,14 @@ impl Engine {
     pub fn watched(&self) -> Vec<(Address, u64)> {
         let balance = |address: &Address| (*address, self.coins().balance(address));
         self.watched.iter().map(balance).collect()
+    }
+
+    /// Builds a payment from the watched addresses, for a wallet elsewhere to sign.
+    pub fn prepare(&self, to: Address, amount: u64, fee: u64) -> Result<Unsigned, WalletError> {
+        let change = *self.watched.first().ok_or(WalletError::NoSuchKey)?;
+        let payments = [(to, amount)];
+        let order = Order { payments: &payments, data: &[], fee, change };
+        prepare(self.coins(), &self.watched, &order, &[])
     }
 
     /// A light node's turn. False on a node that holds blocks.
@@ -88,7 +97,7 @@ impl Engine {
     }
 
     /// Sends what this wallet signed. A light node has nothing to check it against.
-    pub(crate) fn send_signed(&mut self, tx: Tx) -> Hash {
+    pub fn send_signed(&mut self, tx: Tx) -> Hash {
         match self.light.as_mut() {
             Some(light) => {
                 let id = tx.id();

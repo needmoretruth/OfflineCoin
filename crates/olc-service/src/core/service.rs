@@ -26,6 +26,7 @@ use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
 use olc_node::{Card, Rank};
 use olc_wallet::WalletError;
+use olc_store::NodeSettings;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -216,6 +217,7 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
+            Command::Own(Personal::SetLight(on)) => self.set_light(on),
             Command::Own(order) => {
                 let (key, detail, good) = self.host.obey(order);
                 if !key.is_empty() {
@@ -417,6 +419,23 @@ impl Service {
         self.host.set_mining(self.settings.mine_on_start);
         self.save();
         self.plan_scan();
+    }
+
+    /// The node comes back as the other kind on the same coin and the same folder.
+    fn set_light(&mut self, on: bool) {
+        let Some(name) = self.settings.coin.clone() else {
+            return;
+        };
+        let folder = self.paths.coin(&name);
+        let mut settings = NodeSettings::load(&folder);
+        settings.light = on;
+        match settings.save(&folder) {
+            Ok(()) => {
+                let coin = current_coin(&self.paths, &self.settings);
+                self.host.switch(coin, folder, self.settings.peers.clone());
+            }
+            Err(error) => self.say("notice.save_failed", error, false),
+        }
     }
 
     /// Moves this app to a coin a person picked. Every node process follows it.

@@ -33,6 +33,12 @@ pub const WORDS: &[Word] = &[
     Word { name: "miner", usage: "miner ADDRESS|off    where mined coins go", run: miner },
     Word { name: "keep", usage: "keep BLOCKS|all      recent blocks to hold", run: keep },
     Word { name: "merge", usage: "merge on|off         merge small coins by itself", run: merge },
+    Word { name: "light", usage: "light on|off         hold headers only, trusting peers on unspent coins", run: light },
+    Word { name: "mining", usage: "mining on|off        mine from the start", run: mining },
+    Word { name: "watch", usage: "watch ADDRESS        follow an address without its key", run: watch },
+    Word { name: "prepare", usage: "prepare ADDRESS UNITS [--fee UNITS]  a payment from watched addresses", run: prepare },
+    Word { name: "sign", usage: "sign FILE            sign that payment, offline", run: sign },
+    Word { name: "broadcast", usage: "broadcast FILE       send it", run: broadcast },
     Word { name: "note", usage: "note TEXT            write a note into a block", run: note },
     Word { name: "mine-note", usage: "mine-note TEXT       a note in every mined block", run: mine_note },
     Word { name: "snapshot", usage: "snapshot accept      take a peer's unspent set", run: snapshot },
@@ -45,7 +51,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "new-coin",
         usage: "new-coin FILE [--name NAME] [--ticker TICKER] [--block-time-ms MS]\n              \
-                [--reward COINS] [--halving BLOCKS] [--difficulty N]",
+                [--reward COINS] [--halving BLOCKS] [--difficulty N] [--min-difficulty N]",
         run: make_coin,
     },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
@@ -188,6 +194,36 @@ fn explore(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     own(desk, Personal::Explore(rest(args, 1)))
 }
 
+fn light(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    own(desk, Personal::SetLight(switch(args)?))
+}
+
+fn mining(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    own(desk, Personal::SetMining(switch(args)?))
+}
+
+fn watch(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let address = first(args, "Name the address: olc watch ADDRESS")?;
+    own(desk, Personal::Watch(address.to_string()))
+}
+
+fn prepare(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let to = first(args, "Name the address: olc prepare ADDRESS UNITS")?.to_string();
+    let units = number(args.word(2))?;
+    let fee = args.value("fee").map_or(Ok(0), |word| number(Some(word)))?;
+    own(desk, Personal::Prepare { to, units, fee })
+}
+
+fn sign(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let path = first(args, "Name the file: olc sign unsigned.json")?;
+    own(desk, Personal::Sign(path.to_string()))
+}
+
+fn broadcast(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let path = first(args, "Name the file: olc broadcast signed.json")?;
+    own(desk, Personal::Broadcast(path.to_string()))
+}
+
 fn mine(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let on = switch(args)?;
     desk.command(Command::SetMining(on))
@@ -224,15 +260,13 @@ fn make_coin(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
         block_time_ms: chosen(args, "block-time-ms")?,
         reward: chosen(args, "reward")?,
         halving: chosen(args, "halving")?,
-        difficulty: Some(chosen(args, "difficulty")?.unwrap_or(NEW_COIN_DIFFICULTY)),
+        difficulty: chosen(args, "difficulty")?,
+        floor: chosen(args, "min-difficulty")?,
         ..NewCoin::default()
     };
     let path = first(args, "Name the file: olc new-coin my-coin.json")?.to_string();
     desk.command(Command::NewCoinFile { choices, path })
 }
-
-/// About what one relaxed board finds in a 30 s block. It rises by itself as more join.
-const NEW_COIN_DIFFICULTY: u64 = 30_000;
 
 fn join(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     desk.command(Command::JoinCoinFile(first(args, "Name the file.")?.into()))

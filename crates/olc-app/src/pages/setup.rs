@@ -199,6 +199,8 @@ impl Setup {
             reward: Some(self.reward),
             halving: Some(self.halving),
             difficulty: Some(self.difficulty),
+            floor: Some(self.floor),
+            message_in_block: true,
             genesis_time_ms: Some(crate::core::unix_ms()),
             premine,
             ..NewCoin::default()

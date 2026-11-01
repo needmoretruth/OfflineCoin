@@ -43,6 +43,21 @@ pub enum Personal {
     SetRecent(Option<u64>),
     SetMerging(bool),
     SetLinks(Rank),
+    Watch(String),
+    /// Whether this node holds headers only.
+    SetLight(bool),
+    /// Whether this node mines from its next start.
+    SetMining(bool),
+    /// A payment from the watched addresses, for a wallet elsewhere to sign.
+    Prepare {
+        to: String,
+        units: u64,
+        fee: u64,
+    },
+    /// Signs the payment in this file.
+    Sign(String),
+    /// Sends the signed payment in this file.
+    Broadcast(String),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),

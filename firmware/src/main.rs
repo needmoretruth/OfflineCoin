@@ -47,7 +47,7 @@ use node::Node;
 use olc_control::bootlog::Stage;
 use olc_core::{Chain, CoinConfig, Plugins};
 use olc_crypto::Signer;
-use olc_node::{Engine, Rank, Runner};
+use olc_node::{Engine, Rank, Runner, MOST_HEADERS_ON_A_BOARD};
 use olc_pow::ProofOfWork;
 use olc_wallet::{format_address, parse_address, Wallet};
 use radio::RadioLink;
@@ -176,6 +176,10 @@ async fn main(spawner: Spawner) -> ! {
     engine.set_miner(parse_address(&settings.miner));
     engine.set_note(&commands::note_bytes(&settings.note));
     engine.set_merging(settings.merge != "off");
+    let light = settings.light == "on";
+    if light {
+        engine.become_light(MOST_HEADERS_ON_A_BOARD, &[]);
+    }
     store.reach(Stage::ChainRead);
     let placed_ms = node::device_ms();
     let total = old_blocks.len();
@@ -263,7 +267,7 @@ async fn main(spawner: Spawner) -> ! {
         ),
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
-        mining: true,
+        mining: !light,
         work: None,
         waiting_coin: None,
         limit: limit.unwrap_or(node::RELAXED_LIMIT),

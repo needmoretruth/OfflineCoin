@@ -165,6 +165,10 @@ impl Page for Explorer {
         let t = cx.t;
         let ticker = cx.snap.node.coin.as_ref().map_or("", |coin| coin.ticker.as_str()).to_string();
         widgets::title(ui, cx.say("page.explorer"));
+        if cx.snap.node.light.is_some() {
+            meta(ui, cx.say("explorer.light"), t);
+            return;
+        }
         card(ui, t, |ui| {
             self.search(ui, cx);
             if self.asked {

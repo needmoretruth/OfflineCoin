@@ -1,4 +1,5 @@
 //! One consistent picture of the app for the screen.
+use olc_node::LightStatus;
 use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
 use super::pool_run::PoolView;
@@ -21,6 +22,10 @@ pub struct NodeView {
     pub hashrate: u64,
     pub cap: u64,
     pub mining: bool,
+    /// How a node that holds headers only stands. `None` on a node that holds blocks.
+    pub light: Option<LightStatus>,
+    /// Addresses followed without a key, with their coins.
+    pub watched: Vec<(String, u64)>,
     pub syncing_to: Option<u64>,
     /// Blocks read back from disk so far and in all, while the chain loads.
     pub loading: Option<(usize, usize)>,
