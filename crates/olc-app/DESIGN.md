@@ -93,6 +93,29 @@ with the rest dimmed.
 Basic mode says speed, tries a second, a block in about N seconds, by cable, nearby. Expert mode
 overrides only where the term differs. Basic tables are checked against a banned list.
 
+## Next to a modern finance app
+
+Compared at 1280 wide with Trezor Suite, from the Buy screen on trezor.io. That is the maker's own
+marketing picture of the real app, not a live capture, so motion cannot be judged from it and sizes
+are measured after scaling its window to 1280. OLC Core is the real window on this PC, light theme,
+with real nodes running.
+
+| Value | Trezor Suite | OLC Core | Judgment |
+| --- | --- | --- | --- |
+| Light | flat page `#F3F5F8` | page from `#FFFFFF` at top to `#ECEEF2` | same family, ours has light from above |
+| Material | white cards, no gradient | white to `#FAFBFC`, hairline, inner highlight | same family, ours a little richer |
+| Depth | card on page, no visible shadow | card on page, shadow only on what floats | same |
+| Radius | cards about 16, inputs about 8 | cards 12, inputs 10, sheets 16 | same family |
+| Density | inputs about 48, card padding about 24 | inputs 34, rows 38 to 46, card padding 16 | ours is denser on purpose: a ledger is read, a buy form is filled in |
+| Largest figure | about 36 | 44 | ours gives money more weight |
+| Main action | filled green | filled black or white | ours stays in the black and white family, as the brief asks |
+| Motion | not visible in a still | press 98 percent in 120 ms, balance rolls in 320 ms | ours exists and is short |
+
+What still reads older than Trezor: long registers in Settings are text only, and Trezor's form has
+more air. Air was left out on purpose for the register, so a person sees more rows at once.
+
+Picture: `.scratch/compare/side-by-side.png` in the working copy that made this judgment.
+
 ## Tried and abandoned
 
 - IBM Plex Sans KR for Korean. Replaced by Noto Sans KR, as the brief names it. Plex Mono stays for
@@ -102,6 +125,9 @@ overrides only where the term differs. Basic tables are checked against a banned
 - The notice as a bottom panel. A panel drawn before the page renames every widget in the page when
   it comes and goes, and a press on the old name is lost. The notice now floats after the page. Any
   block above a control that comes and goes with data sits in `widgets::slot`.
+- Found coins above the fixed choices, on the first run and on Coins. A coin can turn up at any
+  moment, and a row arriving above a button moves the button away from a press. What turns up on its
+  own now sits under the buttons, and a screen test fails if a control moves when the data changes.
 - A top strip with the language button. It held nothing else, so language moved to Settings.
 - A fair lock on the runner (`Turns`), tried against slow orders. Full speed on an idle PC: worst wait
   527 ms to 168 ms. Full speed with 16 hogs on 2 CPUs: worst wait 748 ms to 2.1 s. No clear gain, and

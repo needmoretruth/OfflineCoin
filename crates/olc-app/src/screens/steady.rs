@@ -64,6 +64,7 @@ fn busy(quiet: &Snapshot) -> Snapshot {
     };
     stage.node.activity = (1..4).map(row).collect();
     stage.node.spendable = 2_500_000_000;
+    stage.node.maturing = 5_000_000_000;
     stage.node.syncing_to = Some(90);
     stage.node.assumed_from = Some(10);
     stage.node.fetching = Some((1, 4));
@@ -83,7 +84,7 @@ fn busy(quiet: &Snapshot) -> Snapshot {
 }
 
 /// Named controls on screen. A name used twice says nothing, so it counts for neither side.
-fn controls(window: &Window) -> BTreeMap<String, Option<String>> {
+fn controls(window: &Window) -> BTreeMap<String, Option<(String, f32)>> {
     let wanted = |role: Role| {
         matches!(role, Role::Button | Role::TextInput | Role::PasswordInput | Role::Switch | Role::Tab)
     };
@@ -93,7 +94,8 @@ fn controls(window: &Window) -> BTreeMap<String, Option<String>> {
         let Some(name) = access.label().or_else(|| access.value()) else {
             continue;
         };
-        found.entry(name).and_modify(|id| *id = None).or_insert(Some(format!("{:?}", access.id())));
+        let place = (format!("{:?}", access.id()), node.rect().top());
+        found.entry(name).and_modify(|place| *place = None).or_insert(Some(place));
     }
     found
 }
@@ -105,17 +107,31 @@ fn compare(window: &mut Window, quiet: &Snapshot, moved: &Snapshot, place: &str,
     window.state_mut().set_stage(Some(moved.clone()));
     window.run_steps(SETTLE_STEPS);
     let after = controls(window);
-    for (name, id) in &before {
-        if let (Some(id), Some(Some(same))) = (id, after.get(name)) {
+    // The line after a repair is left out: it comes once, as the app starts.
+    let mut calm = moved.clone();
+    calm.node.rebuilt = false;
+    window.state_mut().set_stage(Some(calm));
+    window.run_steps(SETTLE_STEPS);
+    let settled = controls(window);
+    for (name, was) in &before {
+        let Some((id, top)) = was else {
+            continue;
+        };
+        if let Some(Some((same, _))) = after.get(name) {
             if id != same {
-                wrong.push(format!("{place}: {name}"));
+                wrong.push(format!("{place}: {name} became another widget"));
+            }
+        }
+        if let Some(Some((_, now))) = settled.get(name) {
+            if (top - now).abs() > 1.0 {
+                wrong.push(format!("{place}: {name} moved from {top} to {now}"));
             }
         }
     }
 }
 
 #[test]
-fn what_the_core_says_leaves_every_control_the_same_widget() {
+fn what_the_core_says_leaves_every_control_where_it_is() {
     let mut window = harness(app(scratch("steady"), quiet_settings(), None), SIZES[0]);
     wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
     let quiet = (*window.state().snapshot()).clone();
@@ -141,5 +157,5 @@ fn what_the_core_says_leaves_every_control_the_same_widget() {
     let boards = Snapshot { boards: moved.boards.clone(), ..quiet.clone() };
     window.state_mut().open("page.boards");
     compare(&mut window, &boards, &moved, "a new port", &mut wrong);
-    assert!(wrong.is_empty(), "these became other widgets: {wrong:#?}");
+    assert!(wrong.is_empty(), "these did not hold still: {wrong:#?}");
 }

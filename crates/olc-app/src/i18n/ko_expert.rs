@@ -83,6 +83,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.miner_me", "이 지갑의 키"),
     ("settings.mine_note", "코인베이스 메모"),
     ("settings.links", "링크 순서"),
+    ("home.soon", "미성숙 {}"),
     ("storage.headers", "헤더는 전부 보관합니다."),
     ("notice.radio_failed", "무선 링크를 시작하지 못했습니다: {}"),
     ("pro.esp_now_card", "ESP-NOW 카드"),
@@ -160,5 +161,4 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.board_silent", "보드 무응답: {}"),
     ("notice.board_failed", "보드 미완료: {}"),
     ("notice.node_paid", "노드 {}가 보냈습니다."),
-    ("notice.key_added", "새 키 {}"),
 ];

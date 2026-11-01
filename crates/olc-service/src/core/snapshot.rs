@@ -31,6 +31,8 @@ pub struct NodeView {
     pub loading: Option<(usize, usize)>,
     pub balance: u64,
     pub spendable: u64,
+    /// Mined coins still too young to spend, which the balance leaves out.
+    pub maturing: u64,
     pub address: String,
     pub activity: Vec<Activity>,
     pub blocks_mined: u64,

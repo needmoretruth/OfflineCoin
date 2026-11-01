@@ -12,6 +12,8 @@ pub const TITLE: f32 = 20.0;
 pub const SECTION: f32 = 15.0;
 pub const TEXT: f32 = 14.0;
 pub const META: f32 = 13.0;
+/// One line of meta text, in the taller of the two faces.
+pub const META_LINE: f32 = 20.0;
 
 pub const RAIL: f32 = 200.0;
 pub const RAIL_NARROW: f32 = 164.0;

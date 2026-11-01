@@ -380,12 +380,14 @@ impl Page for Coins {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         widgets::title(ui, cx.say("page.coins"));
-        widgets::slot(ui, |ui| history_card(ui, cx));
         self.this_coin(ui, cx);
+        ui.add_space(tokens::GAP_WIDE);
+        self.start_buttons(ui, cx);
+        // What turns up on its own goes under the buttons, so nothing moves under a press.
         ui.add_space(tokens::GAP_WIDE);
         widgets::slot(ui, |ui| self.found(ui, cx));
         ui.add_space(tokens::GAP_WIDE);
-        self.start_buttons(ui, cx);
+        widgets::slot(ui, |ui| history_card(ui, cx));
         if cx.expert() {
             ui.add_space(tokens::GAP_WIDE);
             for group in &cx.snap.groups {

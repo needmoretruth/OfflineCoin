@@ -137,27 +137,31 @@ impl App {
         let done = self.settings.setup_done;
         let wide = ui.available_width() >= tokens::NARROW_WINDOW;
         let margin = if wide { tokens::PAGE_MARGIN } else { tokens::PAGE_MARGIN_NARROW };
-        let frame = Frame::new().inner_margin(Margin { left: margin, right: margin, top: 22, bottom: 0 });
+        // The margin sits inside the scroll area, so the scroll bar stays at the window's edge, clear
+        // of the cards.
+        let page = Frame::new().inner_margin(Margin { left: margin, right: margin, top: 22, bottom: 0 });
         let mut go = None;
-        CentralPanel::default().frame(frame).show(ui, |ui| {
+        CentralPanel::default().frame(Frame::new()).show(ui, |ui| {
             ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                ui.set_max_width(tokens::PAGE_WIDTH.min(ui.available_width()));
-                let mut cx = Cx {
-                    lang,
-                    snap,
-                    settings: &mut self.settings,
-                    t: &t,
-                    core: &self.core,
-                    slip: &mut self.slip,
-                    go: &mut go,
-                    folder: &mut self.folder,
-                };
-                if done {
-                    self.pages[self.current].show(ui, &mut cx);
-                } else {
-                    self.setup.show(ui, &mut cx);
-                }
-                ui.add_space(tokens::GAP_PAGE);
+                page.show(ui, |ui| {
+                    ui.set_max_width(tokens::PAGE_WIDTH.min(ui.available_width()));
+                    let mut cx = Cx {
+                        lang,
+                        snap,
+                        settings: &mut self.settings,
+                        t: &t,
+                        core: &self.core,
+                        slip: &mut self.slip,
+                        go: &mut go,
+                        folder: &mut self.folder,
+                    };
+                    if done {
+                        self.pages[self.current].show(ui, &mut cx);
+                    } else {
+                        self.setup.show(ui, &mut cx);
+                    }
+                    ui.add_space(tokens::GAP_PAGE);
+                });
             });
         });
         if let Some(title) = go {

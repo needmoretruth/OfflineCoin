@@ -205,6 +205,8 @@ fn a_note_and_a_key_go_through_the_window() {
     harness.query_all_by_label("Open").last().expect("the picker's own button").click();
     wait_for_notice(&mut harness, "notice.restored");
 
+    // A block just found shows as coins on their way, not as nothing.
+    wait_until(&mut harness, |app| app.snapshot().node.maturing > 0);
     harness.state_mut().open("page.records");
     wait_until(&mut harness, |app| app.snapshot().node.height > 2);
     harness.run_steps(2);

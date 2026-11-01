@@ -1,5 +1,6 @@
 //! The rest of the expert English words.
 pub const WORDS: &[(&str, &str)] = &[
+    ("notice.key_added", "New key {}"),
     ("notice.key_chosen", "Receiving key changed."),
     ("notice.restored", "{} keys restored."),
     ("notice.snapshot_taking", "Receiving the UTXO snapshot."),

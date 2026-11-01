@@ -259,10 +259,11 @@ impl Page for Home {
         let wide = ui.available_width() >= tokens::COMPACT;
         meta(ui, cx.say("home.balance"), t);
         balance_line(ui, t, node.balance, &cx.ticker(), still);
+        // The line keeps its room, so the buttons stay put when the first block arrives.
         widgets::slot(ui, |ui| {
-            if node.spendable != node.balance {
-                let soon = node.balance.saturating_sub(node.spendable);
-                meta(ui, &cx.fill("home.soon", &[&format::coins(soon, cx.ticker())]), t);
+            ui.set_min_height(tokens::META_LINE);
+            if node.maturing > 0 {
+                meta(ui, &cx.fill("home.soon", &[&format::coins(node.maturing, cx.ticker())]), t);
             }
         });
         ui.add_space(tokens::GAP_WIDE - tokens::GAP);

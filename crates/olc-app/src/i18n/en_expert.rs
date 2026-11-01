@@ -83,6 +83,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.miner_me", "This wallet's key"),
     ("settings.mine_note", "Coinbase note"),
     ("settings.links", "Link order"),
+    ("home.soon", "{} immature"),
     ("storage.headers", "Every header stays here."),
     ("notice.radio_failed", "Radio link did not start: {}"),
     ("pro.esp_now_card", "ESP-NOW card"),
@@ -160,5 +161,4 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.board_silent", "The board did not answer: {}"),
     ("notice.board_failed", "The board did not finish: {}"),
     ("notice.node_paid", "Node {} sent the payment."),
-    ("notice.key_added", "New key {}"),
 ];

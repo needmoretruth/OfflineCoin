@@ -98,7 +98,7 @@ pub(super) fn wait_until(harness: &mut Window, mut done: impl FnMut(&App) -> boo
     }
     let snapshot = harness.state().snapshot();
     let nodes: Vec<_> =
-        snapshot.local.iter().map(|view| (&view.spec.name, view.pid, view.status.is_some())).collect();
+        snapshot.local.iter().map(|view| (&view.spec.name, view.pid, &view.ended, view.status.is_some())).collect();
     let own = (snapshot.node.height, snapshot.node.peers, snapshot.node.light);
     panic!("waited 60 s, last notice {:?}, nodes {nodes:?}, own {own:?}", snapshot.notice);
 }

@@ -108,13 +108,6 @@ impl Setup {
     fn coin_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         widgets::title(ui, cx.say("setup.coin"));
-        for (coin, count, address) in found_coins(cx) {
-            let about = cx.fill("setup.found_about", &[&coin.ticker, &count.to_string()]);
-            if choice(ui, cx, &coin.name, &about) {
-                self.start = Some(StartCoin::Join { coin, address });
-                self.step = Step::Mining;
-            }
-        }
         let olc = CoinConfig::olc();
         if choice(ui, cx, &olc.name, cx.say("setup.olc_about")) {
             self.start = Some(StartCoin::Default);
@@ -122,6 +115,14 @@ impl Setup {
         }
         if choice(ui, cx, cx.say("coins.new"), cx.say("setup.new_coin_about")) {
             self.step = Step::NewCoin;
+        }
+        // A coin can be found at any moment, so it goes under the choices a person may be pressing.
+        for (coin, count, address) in found_coins(cx) {
+            let about = cx.fill("setup.found_about", &[&coin.ticker, &count.to_string()]);
+            if choice(ui, cx, &coin.name, &about) {
+                self.start = Some(StartCoin::Join { coin, address });
+                self.step = Step::Mining;
+            }
         }
         ui.add_space(tokens::GAP);
         if button(ui, t, cx.say("common.back"), Kind::Quiet).clicked() {
