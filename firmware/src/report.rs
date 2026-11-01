@@ -38,7 +38,7 @@ impl Node {
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
-             power={} rssi={} key={} name={}",
+             power={} rssi={} bright={} busy={} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -75,6 +75,8 @@ impl Node {
             self.frames.last_slowest_us,
             self.power_dbm,
             radio::LAST_RSSI.load(Ordering::Relaxed),
+            self.bright,
+            self.busy_percent,
             self.control.gate.has_key(),
             self.control.identity.name,
         );

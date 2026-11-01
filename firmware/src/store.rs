@@ -10,20 +10,32 @@ use esp_bootloader_esp_idf::partitions::{
 };
 use esp_storage::FlashStorage;
 use olc_control::bootlog::{self, Stage};
+use olc_control::wear::{Flash, Ring};
 use olc_core::{Block, Hash};
 use olc_crypto::PublicKey;
 
 /// The `chain` partition, past the end of the first app slot. See `partitions.csv`.
 const META: u32 = 0x40_0000;
-const SETTINGS: u32 = META + 0x1000;
 const LOG_START: u32 = META + 0x2000;
 const LOG_END: u32 = 0xC0_0000;
 /// The `control` partition: the trusted key and name in one sector, the counter in the next, so
 /// the frequent write cannot damage the rare one.
 const IDENTITY: u32 = 0x9000;
-const COUNTER: u32 = 0xA000;
-const BOOT_LOG: u32 = 0xB000;
-const SECTOR: u32 = 0x1000;
+const COUNTER: Ring = Ring {
+    start: 0xA000,
+    sectors: 1,
+    slot: 8,
+};
+const BOOT_LOG: Ring = Ring {
+    start: 0xB000,
+    sectors: 2,
+    slot: 4,
+};
+const SETTINGS: Ring = Ring {
+    start: META + 0x1000,
+    sectors: 1,
+    slot: SETTINGS_LEN as u32,
+};
 const IDENTITY_LEN: usize = 8 + 33 + 32;
 const MAGIC: u32 = 0x4F4C_4331;
 const META_LEN: usize = 4 + 32 + 32;
@@ -31,6 +43,8 @@ const RECORD_HEADER: usize = 8;
 const MAX_RECORD: usize = 64 * 1024;
 
 const SETTINGS_LEN: usize = 256;
+/// How far back to look when the newest settings were cut short.
+const SETTINGS_KEPT: usize = 2;
 
 /// Set with the `wifi`, `dial`, `view`, `lang` and `limit` commands. Empty means off or the
 /// default. Each is one line, so settings saved before a line existed still load.
@@ -49,6 +63,8 @@ pub struct Settings {
     pub smooth: String,
     /// Radio power in dBm. Empty means the owner never chose.
     pub power: String,
+    /// The panel's contrast. Empty means the owner never chose.
+    pub bright: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -64,6 +80,27 @@ pub struct Store {
     genesis_matches: bool,
     /// This start's place in the boot log.
     boot_word: Option<(u32, u8)>,
+    /// A start after a brown-out may not last. Its stages wait until the supply has held.
+    pub marks_held: bool,
+}
+
+/// `FlashStorage` as the wear rings see it.
+struct Nor<'a>(&'a mut FlashStorage<'static>);
+
+impl Flash for Nor<'_> {
+    fn read(&mut self, at: u32, bytes: &mut [u8]) -> bool {
+        self.0.read(at, bytes).is_ok()
+    }
+
+    fn program(&mut self, at: u32, bytes: &[u8]) -> bool {
+        self.0.write_nor(at, bytes).is_ok()
+    }
+
+    fn erase(&mut self, sector: u32) -> bool {
+        self.0
+            .erase(sector, sector + olc_control::wear::SECTOR)
+            .is_ok()
+    }
 }
 
 fn is_ota(kind: AppPartitionSubType) -> bool {
@@ -81,45 +118,64 @@ impl Store {
             head: LOG_START,
             genesis_matches: false,
             boot_word: None,
+            marks_held: false,
         }
     }
 
-    /// Notes this start. Writes without erasing, so a board that restarts in a loop wears
-    /// nothing until the sector is full.
+    /// Notes this start. Writes without erasing, and a start that died before its next stage
+    /// shares the word of the last one like it, so a restart loop wears nothing.
     ///
     /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
-        let free = (0..bootlog::WORDS).find(|index| {
+        let mut flash = Nor(&mut self.flash);
+        let same = BOOT_LOG.newest(&mut flash).filter(|at| {
             let mut bytes = [0u8; 4];
-            let at = BOOT_LOG + (*index * 4) as u32;
-            self.flash.read(at, &mut bytes).is_ok() && word(&bytes) == bootlog::FREE
+            flash.read(*at, &mut bytes) && word(&bytes) == bootlog::word(reason, Stage::Started)
         });
-        let index = free.unwrap_or_else(|| {
-            let _ = self.flash.erase(BOOT_LOG, BOOT_LOG + SECTOR);
-            0
-        });
-        let at = BOOT_LOG + (index * 4) as u32;
+        if let Some(at) = same {
+            self.boot_word = Some((at, reason));
+            return;
+        }
+        let at = BOOT_LOG.next(&mut flash);
         self.boot_word = Some((at, reason));
         self.reach(Stage::Started);
+        BOOT_LOG.written(&mut Nor(&mut self.flash), at);
     }
 
     pub fn reach(&mut self, stage: Stage) {
+        if self.marks_held {
+            return;
+        }
         if let Some((at, reason)) = self.boot_word {
             let bytes = bootlog::word(reason, stage).to_le_bytes();
             let _ = self.flash.write_nor(at, &bytes);
         }
     }
 
-    pub fn boot_words(&mut self) -> Vec<u32> {
-        let mut bytes = vec![0u8; bootlog::WORDS * 4];
-        let _ = self.flash.read(BOOT_LOG, &mut bytes);
-        bytes.chunks_exact(4).map(word).collect()
+    /// The saved words of recent starts, oldest first.
+    pub fn boot_words(&mut self, count: usize) -> Vec<u32> {
+        let mut flash = Nor(&mut self.flash);
+        let places = BOOT_LOG.newest_first(&mut flash, count);
+        let mut words: Vec<u32> = places
+            .iter()
+            .map(|at| {
+                let mut bytes = [0u8; 4];
+                flash.read(*at, &mut bytes);
+                word(&bytes)
+            })
+            .collect();
+        words.reverse();
+        words
     }
 
     pub fn settings(&mut self) -> Settings {
         let mut bytes = [0u8; SETTINGS_LEN];
-        let _ = self.flash.read(SETTINGS, &mut bytes);
-        if word(&bytes) != MAGIC {
+        let mut flash = Nor(&mut self.flash);
+        let found = SETTINGS
+            .newest_first(&mut flash, SETTINGS_KEPT)
+            .into_iter()
+            .any(|at| flash.read(at, &mut bytes) && word(&bytes) == MAGIC);
+        if !found {
             return Settings::default();
         }
         let size = usize::min(word(&bytes[4..]) as usize, SETTINGS_LEN - RECORD_HEADER);
@@ -135,12 +191,13 @@ impl Store {
             cap: lines.next().unwrap_or_default(),
             smooth: lines.next().unwrap_or_default(),
             power: lines.next().unwrap_or_default(),
+            bright: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -150,13 +207,18 @@ impl Store {
             settings.cap,
             settings.smooth,
             settings.power,
+            settings.bright,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {
             bytes[..4].copy_from_slice(&MAGIC.to_le_bytes());
             bytes[4..8].copy_from_slice(&(text.len() as u32).to_le_bytes());
             bytes[RECORD_HEADER..][..text.len()].copy_from_slice(text.as_bytes());
-            let _ = self.flash.write(SETTINGS, &bytes);
+            // The mark goes last, so a write cut short is passed over when read.
+            let mut flash = Nor(&mut self.flash);
+            let at = SETTINGS.next(&mut flash);
+            flash.program(at + 4, &bytes[4..]);
+            flash.program(at, &bytes[..4]);
         }
     }
 
@@ -190,15 +252,17 @@ impl Store {
     /// The last order counter accepted. Erased flash reads as none used.
     pub fn counter(&mut self) -> u64 {
         let mut bytes = [0u8; 8];
-        let _ = self.flash.read(COUNTER, &mut bytes);
-        match u64::from_le_bytes(bytes) {
-            u64::MAX => 0,
-            counter => counter,
+        let mut flash = Nor(&mut self.flash);
+        match COUNTER.newest(&mut flash) {
+            Some(at) if flash.read(at, &mut bytes) => u64::from_le_bytes(bytes),
+            _ => 0,
         }
     }
 
     pub fn save_counter(&mut self, counter: u64) -> bool {
-        self.flash.write(COUNTER, &counter.to_le_bytes()).is_ok()
+        let mut flash = Nor(&mut self.flash);
+        let at = COUNTER.next(&mut flash);
+        flash.program(at, &counter.to_le_bytes())
     }
 
     /// The app slot that is not running, as (start, size).

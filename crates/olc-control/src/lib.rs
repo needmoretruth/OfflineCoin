@@ -9,6 +9,7 @@ pub mod gate;
 pub mod packet;
 pub mod router;
 pub mod update;
+pub mod wear;
 
 pub use beacon::{sign_beacon, SignedBeacon};
 pub use gate::{allowed_remotely, sign, Gate, REMOTE_WORDS};
