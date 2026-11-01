@@ -41,6 +41,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.wifi_about", "보드가 자체 AP를 엽니다. 보드가 재시작합니다."),
     ("boards.home_wifi", "Wi-Fi 스테이션"),
     ("boards.home_wifi_about", "AP에 접속합니다. 케이블로만 됩니다. 보드가 재시작합니다."),
+    ("boards.home_wifi_joined", "AP에 접속되어 있습니다. 바꾸면 보드가 재시작합니다."),
     ("boards.alone", "오프라인 모드"),
     ("boards.alone_about", "보드가 전파를 멈추고 혼자 채굴합니다."),
     ("boards.mine_to_about", "이 보드의 코인베이스 주소입니다."),

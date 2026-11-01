@@ -17,10 +17,12 @@ pub mod pins;
 mod ports;
 pub mod remote;
 pub mod rom;
+mod state;
 
 pub use ports::board_ports;
 pub use args::Args;
 pub use board::{on_off, Board, BoardLink, Place, Status, UsbBoard};
+pub use state::BoardState;
 pub use extra::{Extra, Say};
 pub use fleet::{Connection, Fleet, Seen};
 pub use manager::Manager;

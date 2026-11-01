@@ -146,6 +146,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.wifi_about", "다른 컴퓨터가 보드에 바로 붙을 수 있습니다. 보드가 다시 시작합니다."),
     ("boards.home_wifi", "집 와이파이"),
     ("boards.home_wifi_about", "공유기에 붙습니다. 케이블이 필요합니다. 보드가 다시 시작합니다."),
+    ("boards.home_wifi_joined", "공유기에 붙어 있습니다. 바꾸면 보드가 다시 시작합니다."),
     ("boards.wifi_name", "와이파이 이름"),
     ("boards.wifi_password", "비밀번호"),
     ("boards.connect", "연결"),

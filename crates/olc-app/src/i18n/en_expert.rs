@@ -41,6 +41,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.wifi_about", "The board runs its own access point. The board restarts."),
     ("boards.home_wifi", "Wi-Fi station"),
     ("boards.home_wifi_about", "Joins an access point. Cable only. The board restarts."),
+    ("boards.home_wifi_joined", "Associated with an access point. Changing this restarts the board."),
     ("boards.alone", "Offline mode"),
     ("boards.alone_about", "The board stops relaying and mines alone."),
     ("boards.mine_to_about", "Coinbase address of this board."),

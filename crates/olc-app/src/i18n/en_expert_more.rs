@@ -68,8 +68,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.export_key_about", "Prints a key by number. Cable only."),
     ("pro.floor", "Lowest difficulty"),
     ("pro.floor_about", "At the lowest difficulty, one device at 1,000 H/s keeps the block time."),
-    ("pro.full_off", "Back to the default"),
-    ("pro.full_on", "Full speed"),
     ("pro.full_speed", "Full speed"),
     ("pro.full_speed_about", "Top clock and no cap. The board restarts."),
     ("pro.genesis", "Genesis block id"),

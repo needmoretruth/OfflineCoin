@@ -1,6 +1,7 @@
 //! Tests of the whole window: every page in every language and mode, drawn by the real app on a
 //! real core. Node processes in the scenes are real. No test may open a serial port, so boards
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
+mod readings;
 mod scenes;
 mod shots;
 mod steady;
@@ -8,7 +9,7 @@ mod steady;
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};
 use crate::discovery::Reach;
-use crate::fleet::{Connection, Seen};
+use crate::fleet::{BoardState, Connection, Seen};
 use crate::i18n::{Lang, Mode};
 use crate::settings::{Paths, Settings};
 use egui::accesskit::Role;
@@ -168,7 +169,19 @@ pub(super) fn staged_board(online: bool, returning: bool) -> BoardView {
         old_format: false,
     };
     let job = returning.then(|| "restarting".to_string());
-    BoardView { seen, job, answer: None, returning, reach: Reach::Usb, bright: None }
+    let state = BoardState {
+        nearby: Some(true),
+        bluetooth: Some(false),
+        own_network: Some(true),
+        on_wifi: Some(false),
+        merging: Some(false),
+        headers_only: Some(false),
+        clock: Some(160),
+        power: Some(8),
+        keep: Some(0),
+        ..BoardState::default()
+    };
+    BoardView { seen, job, answer: None, returning, reach: Reach::Usb, state }
 }
 
 pub(super) fn staged(boards: Vec<BoardView>) -> Snapshot {

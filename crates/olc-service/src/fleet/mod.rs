@@ -3,7 +3,7 @@ mod cap_test;
 mod real;
 
 pub use cap_test::CapTest;
-pub use olc_board::{Args, Connection, Seen};
+pub use olc_board::{Args, BoardState, Connection, Seen};
 pub use olc_board::manager::{BoardRow, ExtraRun, LineError, StartError};
 pub use real::RealFleet;
 
@@ -25,7 +25,7 @@ pub trait FleetPort: Send + Sync {
         None
     }
     /// The panel's stored brightness, as the board says. Blocks for up to a few seconds.
-    fn bright_of(&self, _board: BoardId) -> Option<u8> {
+    fn state_of(&self, _board: BoardId) -> Option<BoardState> {
         None
     }
     /// The only boards an automatic update may touch.

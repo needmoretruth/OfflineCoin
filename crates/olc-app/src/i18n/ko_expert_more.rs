@@ -68,8 +68,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.export_key_about", "번호로 키를 출력합니다. 케이블로만 됩니다."),
     ("pro.floor", "최저 난이도"),
     ("pro.floor_about", "최저 난이도에서 1,000 H/s 기기 하나가 블록 시간을 지킵니다."),
-    ("pro.full_off", "기본값으로"),
-    ("pro.full_on", "풀 스피드"),
     ("pro.full_speed", "풀 스피드"),
     ("pro.full_speed_about", "최고 클럭에 상한 없음입니다. 보드가 재시작합니다."),
     ("pro.genesis", "제네시스 블록 ID"),

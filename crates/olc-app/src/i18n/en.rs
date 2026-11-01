@@ -146,6 +146,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.wifi_about", "Another computer can join the board directly. The board restarts."),
     ("boards.home_wifi", "Home Wi-Fi"),
     ("boards.home_wifi_about", "Joins your router. This needs the cable. The board restarts."),
+    ("boards.home_wifi_joined", "Connected to your router. The board restarts if you change this."),
     ("boards.wifi_name", "Wi-Fi name"),
     ("boards.wifi_password", "Password"),
     ("boards.connect", "Connect"),

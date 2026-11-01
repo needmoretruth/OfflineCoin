@@ -1,18 +1,10 @@
 //! Numbers as people read them.
-use crate::core::format_coins;
+use crate::core::{format_coins, group_thousands};
 use crate::i18n::{self, Voice};
 use olc_core::Hash;
 
 pub fn number(value: u128) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
+    group_thousands(value)
 }
 
 /// A speed in the reader's words: tries a second, or H/s for an expert.
@@ -23,9 +15,9 @@ pub fn rate(voice: Voice, value: u64) -> String {
 /// A length of time in whole seconds, then minutes, as anyone would say it.
 pub fn seconds(voice: Voice, value: u64) -> String {
     if value < 120 {
-        return i18n::fill(i18n::text(voice, "unit.seconds"), &[&value.to_string()]);
+        return i18n::fill(i18n::text(voice, "unit.seconds"), &[&number(value.into())]);
     }
-    i18n::fill(i18n::text(voice, "unit.minutes"), &[&(value / 60).to_string()])
+    i18n::fill(i18n::text(voice, "unit.minutes"), &[&number((value / 60).into())])
 }
 
 /// How long ago a moment was.
@@ -37,11 +29,16 @@ pub fn ago(voice: Voice, now_ms: u64, then_ms: u64) -> String {
         60..=1_439 => ("time.hours", minutes / 60),
         _ => ("time.days", minutes / 1_440),
     };
-    i18n::fill(i18n::text(voice, key), &[&count.to_string()])
+    i18n::fill(i18n::text(voice, key), &[&number(count.into())])
 }
 
 pub fn coins(units: u64, ticker: &str) -> String {
-    format!("{} {ticker}", format_coins(units))
+    format!("{} {ticker}", amount(units))
+}
+
+/// An amount with no coin's name beside it. No page draws an amount any other way.
+pub fn amount(units: u64) -> String {
+    format_coins(units)
 }
 
 pub fn short_id(hash: &Hash) -> String {

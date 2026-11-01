@@ -178,7 +178,7 @@ fn word(window: &Window, key: &str) -> String {
 }
 
 /// Presses the named control wherever it sits, also below the edge of the window.
-fn tap(window: &mut Window, key: &str) {
+pub(super) fn tap(window: &mut Window, key: &str) {
     let name = word(window, key);
     let Some(control) = window.query_all_by_label(&name).next() else {
         panic!("{key} is not on the screen");

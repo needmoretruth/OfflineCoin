@@ -5,7 +5,7 @@ use super::history::Activity;
 use super::pool_run::PoolView;
 use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
-use olc_board::Seen;
+use olc_board::{BoardState, Seen};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Rank;
 
@@ -93,8 +93,8 @@ pub struct BoardView {
     pub answer: Option<String>,
     /// Quiet because it is restarting, not because something is wrong.
     pub returning: bool,
-    /// The panel's stored brightness, once the board has said it.
-    pub bright: Option<u8>,
+    /// Its settings, once the board has said them.
+    pub state: BoardState,
 }
 
 #[derive(Clone, Debug, Default)]

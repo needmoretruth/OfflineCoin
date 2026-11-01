@@ -93,6 +93,8 @@ with the rest dimmed.
 Basic mode says speed, tries a second, a block in about N seconds, by cable, nearby. Expert mode
 overrides only where the term differs. Basic tables are checked against a banned list.
 
+Numbers read alike: every amount goes through `ui::format`, with its commas, and a test walks each page for one that does not. A setting shows its state: a switch or a marked choice from what the board said, and two plain buttons only on firmware that does not say.
+
 ## Next to a modern finance app
 
 Compared at 1280 wide with Trezor Suite, from the Buy screen on trezor.io. That is the maker's own

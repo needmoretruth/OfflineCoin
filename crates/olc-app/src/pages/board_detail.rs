@@ -7,7 +7,7 @@ use crate::ui::format;
 use crate::ui::register::{group, row};
 use crate::ui::tokens;
 use crate::ui::widgets::{
-    button, button_on, field, meta, number_field, secret_field, segments, switch, Kind,
+    button, button_on, field, meta, number_field, secret_field, segments, slot, switch, Kind,
 };
 use egui::Ui;
 use olc_control::defaults::BOARD_SCREEN_RATE;
@@ -37,6 +37,35 @@ pub fn tell(cx: &Cx, id: BoardId, action: BoardAction) {
     cx.send(Command::Board { id, action });
 }
 
+/// A row that turns something on or off. It is a switch once the board says which it is, and two
+/// words on a firmware that does not. The slot keeps what follows in place when the answer arrives.
+pub(super) fn switch_row(
+    ui: &mut Ui,
+    cx: &Cx,
+    id: BoardId,
+    keys: (&str, &str),
+    known: Option<bool>,
+    make: fn(bool) -> BoardAction,
+) {
+    let t = cx.t;
+    row(ui, t, cx.say(keys.0), cx.say(keys.1), |ui| {
+        slot(ui, |ui| match known {
+            Some(mut on) => {
+                if switch(ui, t, &mut on, cx.say(keys.0)).clicked() {
+                    tell(cx, id, make(on));
+                }
+            }
+            None => {
+                for (key, on) in [("common.on", true), ("common.off", false)] {
+                    if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                        tell(cx, id, make(on));
+                    }
+                }
+            }
+        });
+    });
+}
+
 impl BoardDetail {
     pub fn select(&mut self, cx: &Cx, board: &BoardView) {
         let beacon = &board.seen.beacon;
@@ -45,8 +74,8 @@ impl BoardDetail {
             0 => u64::from(BOARD_SCREEN_RATE),
             fps => u64::from(fps),
         };
-        self.bright = board.bright.map_or(BRIGHT_FALLBACK, u64::from);
-        cx.send(Command::ReadBright(board.seen.id));
+        self.bright = board.state.bright.map_or(BRIGHT_FALLBACK, u64::from);
+        cx.send(Command::ReadBoardState(board.seen.id));
         self.name.clone_from(&beacon.name);
     }
 
@@ -152,21 +181,12 @@ impl BoardDetail {
         });
     }
 
-    /// Turns a way of talking on or off. A board does not report these, so both stay offered.
-    fn link_row(ui: &mut Ui, cx: &Cx, id: BoardId, keys: (&str, &str), make: fn(bool) -> BoardAction) {
+    fn wifi_row(&mut self, ui: &mut Ui, cx: &Cx, board: &BoardView) {
         let t = cx.t;
-        row(ui, t, cx.say(keys.0), cx.say(keys.1), |ui| {
-            for (key, on) in [("common.on", true), ("common.off", false)] {
-                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                    tell(cx, id, make(on));
-                }
-            }
-        });
-    }
-
-    fn wifi_row(&mut self, ui: &mut Ui, cx: &Cx, id: BoardId) {
-        let t = cx.t;
-        row(ui, t, cx.say("boards.home_wifi"), cx.say("boards.home_wifi_about"), |ui| {
+        let id = board.seen.id;
+        let joined = board.state.on_wifi;
+        let about = if joined == Some(true) { "boards.home_wifi_joined" } else { "boards.home_wifi_about" };
+        row(ui, t, cx.say("boards.home_wifi"), cx.say(about), |ui| {
             field(ui, &mut self.wifi_name, cx.say("boards.wifi_name"), 130.0);
             secret_field(ui, &mut self.wifi_password, cx.say("boards.wifi_password"), 110.0);
             let ready = !self.wifi_name.trim().is_empty();
@@ -185,13 +205,14 @@ impl BoardDetail {
         let t = cx.t;
         let id = board.seen.id;
         let beacon = &board.seen.beacon;
+        let state = &board.state;
         let keys = ("boards.nearby", "boards.nearby_about");
-        Self::link_row(ui, cx, id, keys, BoardAction::EspNow);
+        switch_row(ui, cx, id, keys, state.nearby, BoardAction::EspNow);
         let keys = ("boards.bluetooth", "boards.bluetooth_about");
-        Self::link_row(ui, cx, id, keys, BoardAction::Bluetooth);
+        switch_row(ui, cx, id, keys, state.bluetooth, BoardAction::Bluetooth);
         let keys = ("boards.wifi", "boards.wifi_about");
-        Self::link_row(ui, cx, id, keys, BoardAction::OwnNetwork);
-        self.wifi_row(ui, cx, id);
+        switch_row(ui, cx, id, keys, state.own_network, BoardAction::OwnNetwork);
+        self.wifi_row(ui, cx, board);
         row(ui, t, cx.say("boards.alone"), cx.say("boards.alone_about"), |ui| {
             let mut offline = beacon.offline;
             if switch(ui, t, &mut offline, cx.say("boards.alone")).clicked() {

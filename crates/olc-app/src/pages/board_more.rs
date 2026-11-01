@@ -1,12 +1,12 @@
 //! The finer rows of a board, for an expert. Each sends one word the board already knows.
-use super::board_detail::{tell, BoardDetail};
+use super::board_detail::{switch_row, tell, BoardDetail};
 use crate::core::{BoardAction, BoardView};
 use super::Cx;
 use crate::ui::format;
 use crate::ui::register::{group, row};
-use crate::ui::widgets::{button, button_on, field, meta, mono, number_field, Kind};
+use crate::ui::tokens::Tokens;
+use crate::ui::widgets::{button, button_on, field, meta, mono, number_field, segments, Kind};
 use egui::{Label, Ui};
-use olc_control::BoardId;
 use std::collections::HashMap;
 
 /// Clocks the board's chip can run at, in MHz.
@@ -15,6 +15,8 @@ const CLOCKS: [u32; 3] = [80, 160, 240];
 const KEYS_SHOWN: usize = 3;
 /// Speeds the board's wire link is tried at.
 const WIRE_SPEEDS: [u32; 3] = [115_200, 460_800, 921_600];
+/// How many blocks a board may be told to keep.
+const KEEPS: [u64; 2] = [1_000, 10_000];
 
 fn cap_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
     let t = cx.t;
@@ -33,18 +35,12 @@ fn cap_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
             tell(cx, id, BoardAction::DefaultCap);
         }
     });
-    row(ui, t, cx.say("pro.full_speed"), cx.say("pro.full_speed_about"), |ui| {
-        let full = beacon.limit == 0;
-        let key = if full { "pro.full_off" } else { "pro.full_on" };
-        if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-            tell(cx, id, BoardAction::FullSpeed(!full));
-        }
-    });
+    let keys = ("pro.full_speed", "pro.full_speed_about");
+    switch_row(ui, cx, id, keys, Some(beacon.limit == 0), BoardAction::FullSpeed);
     row(ui, t, cx.say("pro.clock"), cx.say("pro.clock_about"), |ui| {
-        for clock in CLOCKS {
-            if button(ui, t, &format!("{clock} MHz"), Kind::Plain).clicked() {
-                tell(cx, id, BoardAction::Clock(clock));
-            }
+        let items = CLOCKS.map(|clock| (clock, format!("{clock} MHz")));
+        if let Some(clock) = picked(ui, t, &items, board.state.clock) {
+            tell(cx, id, BoardAction::Clock(clock));
         }
     });
     let (lowest, highest) = beacon.smooth_range;
@@ -61,18 +57,34 @@ fn cap_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
     });
 }
 
-/// A row with one text box and the word it sends.
+/// Choices where the one in force shows, and choosing it again sends nothing, since many restart.
+fn picked<T: Copy + PartialEq>(ui: &mut Ui, t: &Tokens, items: &[(T, String)], now: Option<T>) -> Option<T> {
+    segments(ui, t, items, now).filter(|chosen| now != Some(*chosen))
+}
+
 /// A row with its own text box. Each row keeps its own words in `words`, under its key.
 fn word_row(
     ui: &mut Ui,
     cx: &Cx,
+    keys: (&'static str, &'static str),
+    words: &mut HashMap<&'static str, String>,
+    send: &mut dyn FnMut(String),
+) {
+    now_row(ui, cx, keys, None, words, send);
+}
+
+/// The same row, saying what is set now in place of the explanation once the board has said it.
+fn now_row(
+    ui: &mut Ui,
+    cx: &Cx,
     (name, about): (&'static str, &'static str),
+    now: Option<&str>,
     words: &mut HashMap<&'static str, String>,
     send: &mut dyn FnMut(String),
 ) {
     let t = cx.t;
     let text = words.entry(name).or_default();
-    row(ui, t, cx.say(name), cx.say(about), |ui| {
+    row(ui, t, cx.say(name), now.unwrap_or(cx.say(about)), |ui| {
         field(ui, text, cx.say(name), 190.0);
         let ready = !text.trim().is_empty();
         if button_on(ui, t, cx.say("common.apply"), Kind::Plain, ready).clicked() {
@@ -81,13 +93,14 @@ fn word_row(
     });
 }
 
-fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
+fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
     let t = cx.t;
+    let id = board.seen.id;
     row(ui, t, cx.say("pro.radio_power"), cx.say("pro.radio_power_about"), |ui| {
-        for (dbm, key) in [(2, "pro.power_low"), (8, "pro.power_mid"), (20, "pro.power_full")] {
-            if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                tell(cx, id, BoardAction::RadioPower(dbm));
-            }
+        let items = [(2, "pro.power_low"), (8, "pro.power_mid"), (20, "pro.power_full")]
+            .map(|(dbm, key)| (dbm, cx.say(key).to_string()));
+        if let Some(dbm) = picked(ui, t, &items, board.state.power) {
+            tell(cx, id, BoardAction::RadioPower(dbm));
         }
     });
     let words = &mut detail.words;
@@ -99,7 +112,8 @@ fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
             tell(cx, id, BoardAction::DialOff);
         }
     });
-    word_row(ui, cx, ("pro.links", "pro.links_about"), words, &mut |text| {
+    let links = board.state.links.as_deref();
+    now_row(ui, cx, ("pro.links", "pro.links_about"), links, words, &mut |text| {
         tell(cx, id, BoardAction::Links(text));
     });
     word_row(ui, cx, ("pro.ignore", "pro.ignore_about"), words, &mut |text| {
@@ -116,7 +130,8 @@ fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
         }
     });
     row(ui, t, cx.say("pro.hear_all"), cx.say("pro.hear_all_about"), |ui| {
-        if button(ui, t, cx.say("pro.hear_all"), Kind::Plain).clicked() {
+        let trusts = board.seen.beacon.trusts_a_key;
+        if button_on(ui, t, cx.say("pro.hear_all"), Kind::Plain, trusts).clicked() {
             tell(cx, id, BoardAction::HearEveryone);
         }
     });
@@ -125,10 +140,13 @@ fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
     });
 }
 
-fn chain_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
+fn chain_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
     let t = cx.t;
+    let id = board.seen.id;
+    let state = &board.state;
     let words = &mut detail.words;
-    word_row(ui, cx, ("pro.mine_to", "pro.mine_to_about"), words, &mut |text| {
+    let miner = state.miner.as_deref();
+    now_row(ui, cx, ("pro.mine_to", "pro.mine_to_about"), miner, words, &mut |text| {
         tell(cx, id, BoardAction::MineTo(text));
     });
     row(ui, t, cx.say("pro.keys"), cx.say("pro.keys_about"), |ui| {
@@ -155,27 +173,16 @@ fn chain_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, id: BoardId) {
         tell(cx, id, BoardAction::ImportKey(text));
     });
     row(ui, t, cx.say("pro.keep"), cx.say("pro.keep_about"), |ui| {
-        if button(ui, t, cx.say("pro.keep_all"), Kind::Plain).clicked() {
-            tell(cx, id, BoardAction::Keep(None));
+        let mut items = vec![(0, cx.say("pro.keep_all").to_string())];
+        for blocks in KEEPS.into_iter().chain(state.keep.filter(|now| *now != 0 && !KEEPS.contains(now))) {
+            items.push((blocks, format::number(blocks.into())));
         }
-        for blocks in [1_000, 10_000] {
-            if button(ui, t, &format::number(blocks), Kind::Plain).clicked() {
-                tell(cx, id, BoardAction::Keep(Some(blocks as u64)));
-            }
+        if let Some(blocks) = picked(ui, t, &items, state.keep) {
+            tell(cx, id, BoardAction::Keep((blocks != 0).then_some(blocks)));
         }
     });
-    for (name, about, make) in [
-        ("pro.merge", "pro.merge_about", BoardAction::Merge as fn(bool) -> BoardAction),
-        ("pro.light", "pro.light_about", BoardAction::Light),
-    ] {
-        row(ui, t, cx.say(name), cx.say(about), |ui| {
-            for (key, on) in [("common.on", true), ("common.off", false)] {
-                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                    tell(cx, id, make(on));
-                }
-            }
-        });
-    }
+    switch_row(ui, cx, id, ("pro.merge", "pro.merge_about"), state.merging, BoardAction::Merge);
+    switch_row(ui, cx, id, ("pro.light", "pro.light_about"), state.headers_only, BoardAction::Light);
     word_row(ui, cx, ("pro.note", "pro.note_about"), words, &mut |text| {
         tell(cx, id, BoardAction::Note(text));
     });
@@ -244,13 +251,12 @@ fn read_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) 
 }
 
 pub fn expert_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView) {
-    let id = board.seen.id;
     group(ui, cx.say("pro.board_mining"));
     cap_rows(detail, ui, cx, board);
     group(ui, cx.say("pro.board_radio"));
-    radio_rows(detail, ui, cx, id);
+    radio_rows(detail, ui, cx, board);
     group(ui, cx.say("pro.board_chain"));
-    chain_rows(detail, ui, cx, id);
+    chain_rows(detail, ui, cx, board);
     group(ui, cx.say("pro.board_read"));
     read_rows(detail, ui, cx, board);
 }

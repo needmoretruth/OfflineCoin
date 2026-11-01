@@ -2,7 +2,6 @@
 use super::money::{ReceiveSheet, SendSheet};
 use super::{Cx, Page};
 use crate::core::{unix_ms, Activity, ActivityKind, Command, NodeView};
-use crate::core::format_coins;
 use crate::ui::floating::sheet;
 use crate::ui::paint::ink;
 use crate::ui::theme::desktop_reduces_motion;
@@ -36,7 +35,7 @@ fn balance_line(ui: &mut Ui, t: &Tokens, units: u64, ticker: &str, still: bool) 
     let seconds = if still { 0.0 } else { tokens::STAMP_SECONDS };
     let rolled = ui.ctx().animate_value_with_time(id, target, seconds);
     let shown = if (rolled - target).abs() < 1.0 { units } else { rolled as u64 };
-    let figure = format_coins(shown);
+    let figure = format::amount(shown);
     let font = FontId::new(tokens::AMOUNT, crate::ui::fonts::strong());
     let galley = ui.painter().layout_no_wrap(figure.clone(), font, t.text);
     let size = galley.size();

@@ -122,7 +122,7 @@ impl SendSheet {
             let hint = cx.say("send.amount_hint");
             field(ui, &mut self.amount, hint, width - 100.0);
             if button(ui, t, cx.say("send.all"), Kind::Plain).clicked() {
-                self.amount = crate::core::format_coins(node.spendable.saturating_sub(fee));
+                self.amount = format::amount(node.spendable.saturating_sub(fee));
             }
         });
         let units = parse_coins(self.amount.trim()).filter(|units| *units > 0);
