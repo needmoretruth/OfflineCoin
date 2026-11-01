@@ -11,6 +11,7 @@ mod pages;
 mod radio;
 mod screen;
 mod store;
+mod thermo;
 mod usb;
 mod views;
 mod wifi;
@@ -35,6 +36,7 @@ use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_println::println;
 use esp_storage::FlashStorage;
 use node::Node;
+use olc_control::bootlog::Stage;
 use olc_core::{CoinConfig, Plugins};
 use olc_node::{Engine, Runner};
 use olc_pow::ProofOfWork;
@@ -47,10 +49,19 @@ use views::{Language, View};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+/// Blocks loaded between two drawings of the start screen.
+const LOAD_REDRAW_EVERY: usize = 40;
+
 fn own_network_name() -> String {
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
     let mac = mac.as_bytes();
     format!("OLC-{:02X}{:02X}", mac[4], mac[5])
+}
+
+/// The cap the owner chose, if any. A saved 0 from before `cap` existed only meant unset.
+fn chosen_limit(settings: &store::Settings) -> Option<u32> {
+    let old = settings.limit.parse().ok().filter(|limit| *limit != 0);
+    settings.cap.parse().ok().or(old)
 }
 
 #[esp_rtos::main]
@@ -68,6 +79,9 @@ async fn main(spawner: Spawner) -> ! {
     let mut usb_device = UsbSerialJtag::new(peripherals.USB_DEVICE);
     usb_device.set_interrupt_handler(usb::on_usb_packet);
     let (rx, _tx) = usb_device.split();
+    let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
+    let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
+    store.begin_boot(reset);
     let bus = I2c::new(
         peripherals.I2C0,
         I2cConfig::default().with_frequency(Rate::from_khz(400)),
@@ -76,13 +90,19 @@ async fn main(spawner: Spawner) -> ! {
     .with_sda(peripherals.GPIO8)
     .with_scl(peripherals.GPIO9);
 
+    // A long chain takes a while to load, and a dark panel looks like a dead board.
+    thermo::start();
+    let mut screen = Screen::new(bus);
+    views::splash(&mut screen, 0);
+
     let coin = CoinConfig::olc();
-    let mut store = Store::new(FlashStorage::new(peripherals.FLASH));
     let settings = store.settings();
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let name = own_network_name();
     let (espnow, wifi_link, network) =
         wifi::start(spawner, peripherals.WIFI, &settings, &name, seed);
+
+    store.reach(Stage::Radio);
 
     let secret = store.secret(&coin.genesis().id(), || {
         // The radio is on, so this is true hardware randomness.
@@ -96,9 +116,18 @@ async fn main(spawner: Spawner) -> ! {
         languages: olc_lang::all(),
     };
     let mut engine = Engine::new(coin, plugins, wallet);
-    for block in store.load_blocks() {
+    let blocks = store.load_blocks();
+    let read_ms = node::device_ms();
+    store.reach(Stage::ChainRead);
+    let total = blocks.len();
+    for (done, block) in blocks.into_iter().enumerate() {
         engine.restore_block(block);
+        if done % LOAD_REDRAW_EVERY == 0 {
+            views::loading(&mut screen, node::device_ms(), done, total);
+        }
     }
+    let loaded_ms = node::device_ms();
+    store.reach(Stage::ChainLoaded);
     println!(
         "started address={} wifi={name}",
         format_address(&engine.address())
@@ -120,11 +149,17 @@ async fn main(spawner: Spawner) -> ! {
     runner.add_link(Box::new(wifi_link));
 
     let tip_seen = runner.engine.chain().tip();
+    let limit = chosen_limit(&settings);
     let mut node = Node {
         runner,
         control,
         store,
-        screen: Screen::new(bus),
+        screen,
+        started: node::Started {
+            reset,
+            read_ms,
+            loaded_ms,
+        },
         small_coin: views::SmallCoin::new(),
         commands,
         network,
@@ -135,7 +170,8 @@ async fn main(spawner: Spawner) -> ! {
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
         mining: true,
-        limit: settings.limit.parse().unwrap_or(0),
+        limit: limit.unwrap_or(node::RELAXED_LIMIT),
+        limit_chosen: limit.is_some(),
         memory_full: false,
         attempts: 0,
         rate: 0,
@@ -154,6 +190,7 @@ async fn main(spawner: Spawner) -> ! {
         pressed_ms: None,
         splash_until_ms: node::SPLASH_LENGTH_MS,
     };
+    node.store.reach(Stage::Running);
     if updated {
         node.note(0, views::Note::Updated(control::BUILD));
     }

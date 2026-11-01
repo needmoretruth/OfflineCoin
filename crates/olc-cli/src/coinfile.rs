@@ -5,6 +5,9 @@ use olc_core::{CoinConfig, Rules};
 use olc_wallet::{format_address, parse_address};
 use serde::{Deserialize, Serialize};
 
+/// About what one relaxed board finds in a 30 s block. It rises by itself with more boards.
+const NEW_COIN_DIFFICULTY: u64 = 30_000;
+
 #[derive(Serialize, Deserialize)]
 struct Premine {
     address: String,
@@ -82,7 +85,7 @@ pub fn create(args: &Args) -> Result<(), String> {
     coin.rules.block_time_ms = args.number("block-time-ms", coin.rules.block_time_ms)?;
     coin.rules.reward = args.number("reward", coin.rules.reward / COIN)? * COIN;
     coin.rules.halving_interval = args.number("halving", coin.rules.halving_interval)?;
-    coin.initial_difficulty = args.number("difficulty", coin.initial_difficulty)?;
+    coin.initial_difficulty = args.number("difficulty", NEW_COIN_DIFFICULTY)?;
     let text =
         serde_json::to_string_pretty(&CoinFile::from(coin)).map_err(|error| error.to_string())?;
     std::fs::write(path, text + "\n").map_err(|error| format!("{path}: {error}"))?;

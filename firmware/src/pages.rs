@@ -91,23 +91,24 @@ fn node_page(info: &Info, language: Language) -> Vec<String> {
     let free = short(info.free_memory as u64);
     let log = short(u64::from(info.log_left));
     let time = uptime(info.now_ms, language);
-    let cap = |none| match info.limit {
-        0 => String::from(none),
+    let heat = info.temperature;
+    let cap = |full| match info.limit {
+        0 => String::from(full),
         limit => short(u64::from(limit)),
     };
     match language {
         Language::English => vec![
             format!("addr {}", info.address.get(..20).unwrap_or(info.address)),
             format!("bal {balance}"),
-            format!("mined {mined}  wait {waiting}  cap {}", cap("none")),
-            format!("free {free}  log {log}"),
+            format!("mined {mined}  wait {waiting}  cap {}", cap("full")),
+            format!("{heat:.0}C free {free} log {log}"),
             format!("up {time}  build {}", info.build),
         ],
         Language::Korean => vec![
             format!("주소 {}", info.address.get(..15).unwrap_or(info.address)),
             format!("잔액 {balance}"),
-            format!("채굴 {mined} 대기 {waiting} 상한 {}", cap("없음")),
-            format!("여유 {free} 기록 {log}"),
+            format!("채굴 {mined} 대기 {waiting} 상한 {}", cap("최대")),
+            format!("{heat:.0}도 여유 {free} 기록 {log}"),
             format!("{time} 빌드 {}", info.build),
         ],
     }

@@ -52,6 +52,8 @@ pub struct Status {
     pub pool: u64,
     pub hashrate: u64,
     pub limit: u64,
+    /// The owner chose this cap, rather than the default standing in.
+    pub limit_chosen: bool,
     pub mining: bool,
     pub offline: bool,
     pub address: String,
@@ -73,6 +75,7 @@ impl Status {
             pool: fields.get("pool")?.parse().ok()?,
             hashrate: fields.get("hashrate")?.parse().ok()?,
             limit: fields.get("limit")?.parse().ok()?,
+            limit_chosen: fields.get("chosen").is_some_and(|word| *word == "true"),
             mining: fields.get("mining")?.parse().ok()?,
             offline: fields.get("offline")?.parse().ok()?,
             address: fields.get("address")?.to_string(),

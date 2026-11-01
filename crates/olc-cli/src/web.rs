@@ -58,6 +58,7 @@ fn handle(shared: &Shared, mut request: Request) {
         (Method::Get, "/api/status") => json_response(&status(shared)),
         (Method::Get, "/api/logo") => json_response(&json!(logo::frames_for_page())),
         (Method::Post, "/api/send") => json_response(&send(shared, &body)),
+        (Method::Post, "/api/limit") => json_response(&set_limit(shared, &body)),
         (Method::Post, "/api/mining") => json_response(&set_mining(shared, &body)),
         _ => Response::from_string("not found").with_status_code(404),
     };
@@ -94,6 +95,14 @@ fn event_json(time_ms: u64, event: &Event) -> Value {
         Event::TxDropped { id, .. } => ("tx_dropped", 0, hex(id)),
     };
     json!({ "time": time_ms, "kind": kind, "height": height, "detail": detail })
+}
+
+fn set_limit(shared: &Shared, body: &str) -> Value {
+    let Ok(request) = serde_json::from_str::<Value>(body) else {
+        return json!({ "error": "bad_request" });
+    };
+    crate::node::set_limit(shared, request["limit"].as_u64());
+    json!({ "ok": true })
 }
 
 fn status(shared: &Shared) -> Value {
@@ -148,6 +157,8 @@ fn status(shared: &Shared) -> Value {
         "peers": status.peers,
         "mining": shared.mining.load(Ordering::Relaxed),
         "hashrate": shared.hashrate.load(Ordering::Relaxed),
+        "limit": shared.hash_limit.load(Ordering::Relaxed),
+        "full_rate": shared.full_rate,
         "siblings": shared.siblings,
         "blocks": blocks,
         "events": events,

@@ -225,15 +225,20 @@ fn start_update(app: &Arc<App>, request: &Value) -> Value {
         return json!({ "error": "bad_request" });
     };
     let app = app.clone();
-    thread::spawn(move || {
-        let key = hex(&board);
-        let result = update_board(&app, board, &key);
-        if let Err(error) = &result {
-            eprintln!("update: {error}");
-        }
-        app.set_job(&key, result.err().map(|_| "update_failed".to_string()));
-    });
+    thread::spawn(move || run_update(&app, board));
     json!({ "ok": true })
+}
+
+/// Sends this program's build to a board and tells whether it came back with it.
+pub fn run_update(app: &App, board: BoardId) -> bool {
+    let key = hex(&board);
+    let result = update_board(app, board, &key);
+    if let Err(error) = &result {
+        eprintln!("update: {error}");
+    }
+    let done = result.is_ok();
+    app.set_job(&key, (!done).then(|| "update_failed".to_string()));
+    done
 }
 
 fn start_install(app: &Arc<App>, request: &Value) -> Value {
@@ -258,6 +263,9 @@ fn start_extra(app: &Arc<App>, request: &Value) -> Value {
             .filter_map(|id| id.as_str().and_then(parse_id))
             .collect()
     });
+    if app.is_updating() {
+        return json!({ "error": "busy" });
+    }
     let (Some(extra), Some(boards)) = (extra, boards) else {
         return json!({ "error": "bad_request" });
     };

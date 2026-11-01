@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+pub mod bootlog;
 pub mod gate;
 pub mod packet;
 pub mod router;

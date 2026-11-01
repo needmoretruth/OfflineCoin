@@ -9,7 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const POLL: Duration = Duration::from_millis(5);
-const ORDER_TRIES: u32 = 4;
+const ORDER_DEADLINE: Duration = Duration::from_secs(8);
+const UPDATE_START_TRIES: u32 = 4;
 const ORDER_WAIT: Duration = Duration::from_secs(2);
 const CHUNK_TRIES: u32 = 10;
 const CHUNK_WAIT: Duration = Duration::from_millis(500);
@@ -24,40 +25,50 @@ fn with<T>(fleet: &SharedFleet, action: impl FnOnce(&mut Fleet) -> T) -> Result<
 }
 
 /// Sends a line to a board and returns its answer once it ran. Repeats the same signed order, so
-/// a line that ran and lost its answer does not run twice.
+/// a line that ran and lost its answer does not run twice. Ends within `ORDER_DEADLINE`.
 pub fn command(fleet: &SharedFleet, board: BoardId, line: &str) -> Result<Option<String>, String> {
+    // What an earlier order left behind says nothing about this one.
+    with(fleet, |fleet| {
+        while fleet.take_line(board).is_some() {}
+        while fleet.take_refusal(board).is_some() {}
+    })?;
+    let deadline = Instant::now() + ORDER_DEADLINE;
     let mut answer = None;
-    for _ in 0..ORDER_TRIES {
-        let action = Action::Line(line.to_string());
-        let signed = with(fleet, |fleet| fleet.sign(board, action))??;
-        let counter = signed.order.counter;
-        for attempt in 0..ORDER_TRIES {
+    let mut signed = with(fleet, |fleet| {
+        fleet.sign(board, Action::Line(line.to_string()))
+    })??;
+    let mut sent = 0;
+    let mut resend = Instant::now();
+    while Instant::now() < deadline {
+        if Instant::now() >= resend {
             let copy = signed.clone();
             with(fleet, |fleet| fleet.send_signed(board, copy))?;
-            let deadline = Instant::now() + ORDER_WAIT;
-            while Instant::now() < deadline {
-                while let Some(line) = with(fleet, |fleet| fleet.take_line(board))? {
-                    if !line.starts_with("done ") {
-                        answer = Some(line);
-                    }
-                }
-                if with(fleet, |fleet| fleet.has_finished(board, counter))? {
-                    return Ok(answer);
-                }
-                match with(fleet, |fleet| fleet.take_refusal(board))? {
-                    // A repeat that is refused means the first copy got there.
-                    Some(Refusal::Replayed) if attempt > 0 => return Ok(answer),
-                    // The board was ahead of what this computer knew, so sign anew.
-                    Some(Refusal::Replayed) => break,
-                    Some(reason) => return Err(format!("refused: {reason:?}")),
-                    None => {}
-                }
-                thread::sleep(POLL);
-            }
-            if Instant::now() < deadline {
-                break;
+            sent += 1;
+            resend = Instant::now() + ORDER_WAIT;
+        }
+        while let Some(line) = with(fleet, |fleet| fleet.take_line(board))? {
+            if !line.starts_with("done ") {
+                answer = Some(line);
             }
         }
+        if with(fleet, |fleet| fleet.has_finished(board, signed.order.counter))? {
+            return Ok(answer);
+        }
+        match with(fleet, |fleet| fleet.take_refusal(board))? {
+            // A repeat that is refused means the first copy got there.
+            Some(Refusal::Replayed) if sent > 1 => return Ok(answer),
+            // The board was ahead of what this computer knew, so sign anew.
+            Some(Refusal::Replayed) => {
+                signed = with(fleet, |fleet| {
+                    fleet.sign(board, Action::Line(line.to_string()))
+                })??;
+                sent = 0;
+                resend = Instant::now();
+            }
+            Some(reason) => return Err(format!("refused: {reason:?}")),
+            None => {}
+        }
+        thread::sleep(POLL);
     }
     Err("The board did not answer.".to_string())
 }
@@ -108,7 +119,7 @@ pub fn send_image(
     let session = new_session()?;
     let size = u32::try_from(image.len()).map_err(|_| "The image is too large.")?;
     let mut begun = None;
-    for _ in 0..ORDER_TRIES {
+    for _ in 0..UPDATE_START_TRIES {
         let action = Action::Update {
             session,
             size,

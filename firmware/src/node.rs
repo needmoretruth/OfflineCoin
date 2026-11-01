@@ -13,6 +13,7 @@ use core::sync::atomic::Ordering;
 use esp_hal::gpio::Input;
 use esp_hal::time::Instant;
 use esp_println::println;
+use olc_control::bootlog;
 use olc_core::coin::COIN;
 use olc_core::Hash;
 use olc_node::{Event, Runner};
@@ -30,7 +31,10 @@ const MAX_DROPPED: usize = 8;
 const MAX_NOTES: usize = 5;
 const BLOCKS_AVERAGED: u64 = 10;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
+/// The cap of a board whose owner never chose one: enough to mine, little heat.
+pub const RELAXED_LIMIT: u32 = 3_000;
 const SPLASH_REDRAW_MS: u64 = 80;
+const BOOTS_SHOWN: usize = 8;
 const BUTTON_DEBOUNCE_MS: u64 = 30;
 const BUTTON_HOLD_MS: u64 = 800;
 /// Mining stops here, so a full memory ends in a message and not a crash.
@@ -61,6 +65,13 @@ fn decode_hash(text: &str, out: &mut Hash) -> bool {
     })
 }
 
+/// How this start went, kept for `status`.
+pub struct Started {
+    pub reset: u8,
+    pub read_ms: u64,
+    pub loaded_ms: u64,
+}
+
 pub struct Node {
     pub runner: Runner,
     pub control: Control,
@@ -74,8 +85,10 @@ pub struct Node {
     pub view: View,
     pub language: Language,
     pub mining: bool,
-    /// Hashes per second, 0 for no limit. Saved, so a cap outlives a restart.
+    /// Hashes per second, 0 for full. Saved once chosen, so a cap outlives a restart.
     pub limit: u32,
+    pub limit_chosen: bool,
+    pub started: Started,
     pub memory_full: bool,
     pub attempts: u32,
     pub rate: u32,
@@ -188,10 +201,16 @@ impl Node {
         self.save(|settings| settings.language = language.name().into());
     }
 
-    fn set_limit(&mut self, limit: u32) {
-        if limit != self.limit {
+    /// `None` goes back to what a board does when nobody chose.
+    fn set_limit(&mut self, choice: Option<u32>) {
+        let limit = choice.unwrap_or(RELAXED_LIMIT);
+        if limit != self.limit || choice.is_some() != self.limit_chosen {
             self.limit = limit;
-            self.save(|settings| settings.limit = format!("{limit}"));
+            self.limit_chosen = choice.is_some();
+            self.save(|settings| {
+                settings.limit.clear();
+                settings.cap = choice.map(|limit| format!("{limit}")).unwrap_or_default();
+            });
         }
     }
 
@@ -264,6 +283,11 @@ impl Node {
         match (words.next(), words.next(), words.next()) {
             (Some("status"), _, _) => self.print_status(),
             (Some("screen"), _, _) => self.print_screen(),
+            (Some("boots"), _, _) => {
+                let words = self.store.boot_words();
+                let recent = bootlog::recent(&words, BOOTS_SHOWN);
+                self.say(format!("boots {}", recent.join(" ")));
+            }
             (Some("logo"), _, _) => self.splash_until_ms = device_ms() + SPLASH_LENGTH_MS,
             (Some("view"), Some(name), _) => {
                 if let Some(view) = View::from_name(name) {
@@ -276,9 +300,10 @@ impl Node {
                 }
             }
             (Some("mine"), Some(state), _) => self.mining = state == "on",
+            (Some("limit"), Some("default"), _) => self.set_limit(None),
             (Some("limit"), Some(value), _) => {
                 if let Ok(limit) = value.parse() {
-                    self.set_limit(limit);
+                    self.set_limit(Some(limit));
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
@@ -312,8 +337,8 @@ impl Node {
                 self.restart_with(|settings| settings.dial = target.into());
             }
             _ => println!(
-                "commands: status, screen, logo, view basic|detail|easy, lang en|ko, \
-                 pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES, \
+                "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
+                 pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY"
             ),
@@ -359,13 +384,17 @@ impl Node {
         esp_hal::system::software_reset();
     }
 
+    fn temperature(&self) -> f32 {
+        crate::thermo::read().unwrap_or(f32::NAN)
+    }
+
     pub fn print_status(&mut self) {
         let status = self.runner.engine.status();
         let line = format!(
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
-             wifi={} pool={} hashrate={} limit={} mining={} offline={} view={} lang={} screen={} \
-             free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} key={} \
-             name={}",
+             wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
+             screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
+             temp={:.1} reset={} read_ms={} loaded_ms={} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -378,6 +407,7 @@ impl Node {
             status.pool,
             self.rate,
             self.limit,
+            self.limit_chosen,
             self.mining,
             self.runner.offline,
             self.view.name(),
@@ -390,6 +420,10 @@ impl Node {
             self.last_reorg.1,
             status.syncing_to.unwrap_or(0),
             self.control.slot,
+            self.temperature(),
+            bootlog::reason_name(self.started.reset),
+            self.started.read_ms,
+            self.started.loaded_ms,
             self.control.gate.has_key(),
             self.control.identity.name,
         );
@@ -465,6 +499,7 @@ impl Node {
             balance: status.balance,
             hash_rate: u64::from(self.rate),
             limit: self.limit,
+            temperature: self.temperature(),
             difficulty: status.difficulty,
             block_ms: rules.block_time_ms,
             tip: &status.tip,

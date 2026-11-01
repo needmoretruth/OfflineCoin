@@ -96,6 +96,10 @@ li time { color: var(--muted); font-size: 13px; flex: none; }
 .control > span { color: var(--muted); font-size: 13px; }
 .line { display: flex; gap: 8px; min-width: 0; align-items: center; }
 .line > button { flex: none; }
+.line.cap { flex-wrap: wrap; }
+.line.cap input { flex: 1 1 88px; width: 88px; }
+.line.cap button.chosen { font-weight: 600; border-color: currentColor; }
+#computer-cap { margin: 10px 0; max-width: 420px; }
 form.line { grid-template-columns: none; }
 .wide { grid-column: 1 / -1; }
 .pay { display: grid; gap: 8px; grid-template-columns: 1fr 110px auto; }
@@ -133,6 +137,7 @@ form.line { grid-template-columns: none; }
     <button id="mining"></button>
     <button id="language">한국어</button>
   </header>
+  <div id="computer-cap"></div>
   <section id="boards" hidden>
     <h2 data-text="boards"></h2>
     <div id="new-boards"></div>
@@ -177,13 +182,13 @@ const words = {
     money_in: "You received {d} OLC", money_out: "You sent {d} OLC",
     tx_returned: "A payment is waiting again", tx_dropped: "A payment was dropped: {d}",
     boards: "Boards", usb: "USB", radio: "Radio", radio_through: "Radio through {b}", network: "Network",
-    silent: "Not responding", cap: "Hash cap", no_cap: "No cap", balance: "Balance", set: "Set",
+    silent: "Not responding", cap: "Hash cap", relaxed: "Relaxed", half: "Half", full: "Full", balance: "Balance", set: "Set",
     state_offline: "Offline", go_offline: "Go offline", go_online: "Go online", go_mine: "Start mining", go_idle: "Stop mining",
     pay: "Pay", screen: "Screen", view_basic: "Basic", view_detail: "Detail", view_easy: "Easy",
     screen_language: "Screen language", board_name: "Name", save: "Save", firmware: "Firmware", update: "Update",
     refused_count: "Refused {n}", preparing: "Preparing", restarting: "Restarting", installing: "Installing",
     new_board: "New board", install: "Install", update_failed: "Update failed", install_failed: "Install failed",
-    no_answer: "The board did not answer", refused_order: "The board refused", not_done: "The board could not do that",
+    no_answer: "The board did not answer", busy: "Wait for the update to finish", refused_order: "The board refused", not_done: "The board could not do that",
     experiments: "Experiments", language_en: "English", language_ko: "한국어",
   },
   ko: {
@@ -197,13 +202,13 @@ const words = {
     money_in: "{d} OLC를 받았습니다", money_out: "{d} OLC를 보냈습니다",
     tx_returned: "송금이 다시 대기 중입니다", tx_dropped: "송금이 버려졌습니다: {d}",
     boards: "보드", usb: "USB", radio: "무선", radio_through: "{b} 통해 무선", network: "네트워크",
-    silent: "응답 없음", cap: "해시 상한", no_cap: "상한 없음", balance: "잔액", set: "적용",
+    silent: "응답 없음", cap: "해시 상한", relaxed: "여유", half: "절반", full: "최대", balance: "잔액", set: "적용",
     state_offline: "오프라인", go_offline: "오프라인으로", go_online: "온라인으로", go_mine: "채굴 시작", go_idle: "채굴 중지",
     pay: "송금", screen: "화면", view_basic: "기본", view_detail: "자세히", view_easy: "쉽게",
     screen_language: "화면 언어", board_name: "이름", save: "저장", firmware: "펌웨어", update: "업데이트",
     refused_count: "거부 {n}회", preparing: "준비 중", restarting: "다시 시작하는 중", installing: "설치 중",
     new_board: "새 보드", install: "설치", update_failed: "업데이트 실패", install_failed: "설치 실패",
-    no_answer: "보드가 응답하지 않습니다", refused_order: "보드가 거부했습니다", not_done: "보드가 처리하지 못했습니다",
+    no_answer: "보드가 응답하지 않습니다", busy: "업데이트가 끝나면 시작하세요", refused_order: "보드가 거부했습니다", not_done: "보드가 처리하지 못했습니다",
     experiments: "실험", language_en: "English", language_ko: "한국어",
   },
 };
@@ -240,6 +245,7 @@ function draw(state) {
   $("balance").textContent = `${state.balance.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${state.ticker}`;
   $("address").textContent = state.address;
   $("mining").textContent = say(state.mining ? "stop" : "start");
+  if (typeof showComputerCap === "function") showComputerCap(state);
 
   const chain = $("chain");
   chain.replaceChildren(...state.blocks.map((block) => {

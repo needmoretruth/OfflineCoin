@@ -22,10 +22,11 @@ const LISTEN_MS: u64 = 60_000;
 const FAREWELL_MS: u64 = 200;
 const MAX_NAME: usize = 32;
 
-/// Set by the `OLC_BUILD` variable at build time, to tell two builds apart.
+/// From `build-id`, which goes up with every firmware change that should reach boards.
+/// `OLC_BUILD` overrides it for a build made by hand.
 pub const BUILD: &str = match option_env!("OLC_BUILD") {
     Some(build) => build,
-    None => "dev",
+    None => include_str!("../build-id").trim_ascii(),
 };
 
 pub struct Control {
@@ -227,7 +228,7 @@ impl Node {
                 match action {
                     Action::Line(line) => {
                         let word = order_word(&line);
-                        if !matches!(word, "status" | "tx" | "pool") {
+                        if !matches!(word, "status" | "tx" | "pool" | "boots") {
                             self.note(now, Note::Order(word));
                         }
                         self.run_command(&line);

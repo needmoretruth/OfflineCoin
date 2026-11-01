@@ -9,6 +9,7 @@ use esp_bootloader_esp_idf::partitions::{
     read_partition_table, AppPartitionSubType, PartitionType, PARTITION_TABLE_MAX_LEN,
 };
 use esp_storage::FlashStorage;
+use olc_control::bootlog::{self, Stage};
 use olc_core::{Block, Hash};
 use olc_crypto::PublicKey;
 
@@ -21,6 +22,8 @@ const LOG_END: u32 = 0xC0_0000;
 /// the frequent write cannot damage the rare one.
 const IDENTITY: u32 = 0x9000;
 const COUNTER: u32 = 0xA000;
+const BOOT_LOG: u32 = 0xB000;
+const SECTOR: u32 = 0x1000;
 const IDENTITY_LEN: usize = 8 + 33 + 32;
 const MAGIC: u32 = 0x4F4C_4331;
 const META_LEN: usize = 4 + 32 + 32;
@@ -38,7 +41,10 @@ pub struct Settings {
     pub dial: String,
     pub view: String,
     pub language: String,
+    /// What builds before `cap` saved. A number other than 0 still counts as a choice.
     pub limit: String,
+    /// The chosen hash cap, 0 for full. Empty means the owner never chose.
+    pub cap: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -52,6 +58,8 @@ pub struct Store {
     flash: FlashStorage<'static>,
     head: u32,
     genesis_matches: bool,
+    /// This start's place in the boot log.
+    boot_word: Option<(u32, u8)>,
 }
 
 fn is_ota(kind: AppPartitionSubType) -> bool {
@@ -68,7 +76,34 @@ impl Store {
             flash,
             head: LOG_START,
             genesis_matches: false,
+            boot_word: None,
         }
+    }
+
+    /// Notes this start. Writes without erasing, so a board that restarts in a loop wears
+    /// nothing until the sector is full.
+    pub fn begin_boot(&mut self, reason: u8) {
+        let free = self.boot_words().iter().position(|word| *word == bootlog::FREE);
+        let index = free.unwrap_or_else(|| {
+            let _ = self.flash.erase(BOOT_LOG, BOOT_LOG + SECTOR);
+            0
+        });
+        let at = BOOT_LOG + (index * 4) as u32;
+        self.boot_word = Some((at, reason));
+        self.reach(Stage::Started);
+    }
+
+    pub fn reach(&mut self, stage: Stage) {
+        if let Some((at, reason)) = self.boot_word {
+            let bytes = bootlog::word(reason, stage).to_le_bytes();
+            let _ = self.flash.write_nor(at, &bytes);
+        }
+    }
+
+    pub fn boot_words(&mut self) -> Vec<u32> {
+        let mut bytes = vec![0u8; bootlog::WORDS * 4];
+        let _ = self.flash.read(BOOT_LOG, &mut bytes);
+        bytes.chunks_exact(4).map(word).collect()
     }
 
     pub fn settings(&mut self) -> Settings {
@@ -87,18 +122,20 @@ impl Store {
             view: lines.next().unwrap_or_default(),
             language: lines.next().unwrap_or_default(),
             limit: lines.next().unwrap_or_default(),
+            cap: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
             settings.view,
             settings.language,
             settings.limit,
+            settings.cap,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {

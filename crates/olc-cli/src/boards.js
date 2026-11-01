@@ -40,6 +40,44 @@ async function run(row, button, line, doneKey) {
   return !reply.error;
 }
 
+// The one knob: a cap in hashes per second. `apply` takes null for the default, 0 for full.
+function capControl(half, apply) {
+  const presets = [["relaxed", () => null], ["half", () => cap.half], ["full", () => 0]]
+    .map(([key, value]) => {
+      const button = worded("button", key, { type: "button" });
+      button.onclick = () => apply(value());
+      return button;
+    });
+  const field = hinted("hashes", { inputMode: "numeric", name: "cap" });
+  const set = worded("button", "set", { type: "button" });
+  set.onclick = () => apply(Number(field.value) || 0);
+  const cap = {
+    half, field,
+    box: make("div", { className: "line cap" }, ...presets, field, set),
+    show(limit, relaxed) {
+      const [gentle, middle, full] = presets;
+      gentle.classList.toggle("chosen", limit === relaxed);
+      middle.classList.toggle("chosen", limit === cap.half);
+      full.classList.toggle("chosen", limit === 0);
+    },
+  };
+  return cap;
+}
+
+const BOARD_RELAXED = 3000;
+const BOARD_HALF = 7500;
+const COMPUTER_RELAXED = 20000;
+const computerCap = capControl(0, async (limit) => {
+  await post("/api/limit", { limit });
+  refresh();
+});
+$("computer-cap").append(control("cap", computerCap.box));
+
+function showComputerCap(state) {
+  computerCap.half = Math.round(state.full_rate / 2);
+  computerCap.show(state.limit, COMPUTER_RELAXED);
+}
+
 function makeRow(board) {
   const row = { id: board.id, last: board };
   row.title = make("span", { className: "title" });
@@ -53,9 +91,8 @@ function makeRow(board) {
     head.setAttribute("aria-expanded", String(!row.controls.hidden));
   };
 
-  const cap = hinted("no_cap", { inputMode: "numeric", name: "cap" });
-  const capButton = worded("button", "set", { type: "button" });
-  capButton.onclick = () => run(row, capButton, `limit ${Number(cap.value) || 0}`);
+  row.cap = capControl(BOARD_HALF, (limit) =>
+    run(row, row.cap.field, `limit ${limit ?? "default"}`));
   row.mine = make("button", { type: "button" });
   row.mine.onclick = () => run(row, row.mine, `mine ${row.last.mining ? "off" : "on"}`);
   row.offline = make("button", { type: "button" });
@@ -89,7 +126,7 @@ function makeRow(board) {
 
   row.note = make("p", { className: "note" });
   row.controls.append(
-    control("cap", make("div", { className: "line" }, cap, capButton)),
+    control("cap", row.cap.box),
     control("state_offline", make("div", { className: "line" }, row.offline, row.mine)),
     make("div", { className: "wide" }, control("pay", pay)),
     control("screen", row.view),
@@ -115,11 +152,12 @@ function fill(row, board) {
   row.node.classList.toggle("silent", !board.online);
   row.title.textContent = board.name || board.id.slice(-4).toUpperCase();
   row.where.textContent = board.job ? say(board.job) : where(board);
+  row.cap.show(board.limit, BOARD_RELAXED);
   const facts = [
     [say("block"), board.height.toLocaleString()],
     [say("balance"), board.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })],
     [say("hashes"), board.hashrate.toLocaleString()],
-    [say("cap"), board.limit ? board.limit.toLocaleString() : say("no_cap")],
+    [say("cap"), board.limit ? board.limit.toLocaleString() : say("full")],
     [say("peers"), board.peers],
   ];
   if (board.offline) facts.push([say("state_offline"), ""]);

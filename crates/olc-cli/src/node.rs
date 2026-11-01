@@ -10,13 +10,17 @@ use olc_node::{Engine, Event, Runner};
 use olc_pow::ProofOfWork;
 use olc_wallet::Wallet;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MINING_BATCH: u32 = 5_000;
+/// The cap of a computer whose owner never chose one.
+const RELAXED_LIMIT: u64 = 20_000;
+const LIMIT_FILE: &str = "hash-limit";
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
 const MAX_LOG: usize = 40;
 
@@ -25,6 +29,11 @@ pub struct Shared {
     pub runner: Mutex<Runner>,
     pub mining: AtomicBool,
     pub hashrate: AtomicU64,
+    /// Hashes per second, 0 for full.
+    pub hash_limit: AtomicU64,
+    /// What this computer does with no cap, for the page's half-way choice.
+    pub full_rate: u64,
+    pub directory: PathBuf,
     pub log: Mutex<VecDeque<(u64, Event)>>,
     pub siblings: Vec<u16>,
     /// What the app adds to a plain node: the boards it runs.
@@ -70,7 +79,7 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
     };
     let port: u16 = args.number("port", default_port)?;
     let web_port: u16 = args.number("web", default_web)?;
-    let hash_limit: u64 = args.number("hash-limit", 0)?;
+    let hash_limit = chosen_limit(args, &directory)?;
 
     let secret = load_or_create_secret(&directory)?;
     let wallet = Wallet::from_secret(secret).map_err(|_| "The key file holds a bad key")?;
@@ -113,11 +122,17 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         runner: Mutex::new(runner),
         mining: AtomicBool::new(args.has("mine")),
         hashrate: AtomicU64::new(0),
+        hash_limit: AtomicU64::new(hash_limit),
+        full_rate: measure_full_rate(),
+        directory: directory.clone(),
         log: Mutex::new(VecDeque::new()),
         siblings,
         app,
     });
     crate::app::watch_ports(&shared);
+    if let (Some(app), Some(build)) = (&shared.app, crate::app::carried_build(args)) {
+        crate::autoupdate::start(app.clone(), build);
+    }
     let web_port = web::serve(shared.clone(), format!("{host}:{web_port}"))?;
     match &shared.app {
         Some(app) => {
@@ -127,21 +142,61 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         }
         None => println!("http://127.0.0.1:{web_port}"),
     }
-    main_loop(&shared, &mut store, hash_limit);
+    main_loop(&shared, &mut store);
     Ok(())
 }
 
-fn main_loop(shared: &Shared, store: &mut Store, hash_limit: u64) {
+/// The cap to start with: this run's flag, then the saved choice, then the relaxed default.
+fn chosen_limit(args: &Args, directory: &Path) -> Result<u64, String> {
+    if args.value("hash-limit").is_some() {
+        let limit = args.number("hash-limit", 0)?;
+        save_limit(directory, Some(limit));
+        return Ok(limit);
+    }
+    let saved = fs::read_to_string(directory.join(LIMIT_FILE)).ok();
+    Ok(saved
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(RELAXED_LIMIT))
+}
+
+/// `None` forgets the choice, which goes back to the default.
+fn save_limit(directory: &Path, choice: Option<u64>) {
+    let file = directory.join(LIMIT_FILE);
+    let _ = match choice {
+        Some(limit) => fs::write(file, limit.to_string()),
+        None => fs::remove_file(file),
+    };
+}
+
+pub fn set_limit(shared: &Shared, choice: Option<u64>) {
+    save_limit(&shared.directory, choice);
+    shared
+        .hash_limit
+        .store(choice.unwrap_or(RELAXED_LIMIT), Ordering::Relaxed);
+}
+
+fn measure_full_rate() -> u64 {
+    const ROUNDS: u32 = 20_000;
+    let started = Instant::now();
+    let mut seed = [0u8; 80];
+    for _ in 0..ROUNDS {
+        let digest = olc_crypto::hash(&seed);
+        seed[..32].copy_from_slice(&digest);
+    }
+    let micros = started.elapsed().as_micros().max(1) as u64;
+    u64::from(ROUNDS) * 1_000_000 / micros
+}
+
+fn main_loop(shared: &Shared, store: &mut Store) {
     let mut window = Instant::now();
     let mut hashes = 0u64;
-    // A batch bigger than the cap allows in a window would overrun it.
-    let batch = match hash_limit {
-        0 => MINING_BATCH,
-        limit => {
-            u32::try_from(limit / 100).map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH))
-        }
-    };
     loop {
+        let hash_limit = shared.hash_limit.load(Ordering::Relaxed);
+        // A batch bigger than the cap allows in a window would overrun it.
+        let batch = u32::try_from(hash_limit / 100)
+            .ok()
+            .filter(|share| *share != 0 || hash_limit != 0)
+            .map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH));
         let elapsed_ms = window.elapsed().as_millis() as u64;
         let allowed = hash_limit == 0 || hashes < hash_limit * elapsed_ms / 1_000;
         let mining = shared.mining.load(Ordering::Relaxed) && allowed;

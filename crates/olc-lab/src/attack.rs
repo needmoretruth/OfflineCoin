@@ -96,12 +96,20 @@ fn attack(
     result.and(restored)
 }
 
+/// A board that never chose a cap goes back to not having chosen.
+fn limit_line(saved: &Status) -> String {
+    match saved.limit_chosen {
+        true => format!("limit {}", saved.limit),
+        false => "limit default".to_string(),
+    }
+}
+
 fn restore(board: &mut Board, saved: &Status) -> Result<(), String> {
     let mut last = Err("The board did not answer.".to_string());
     for _ in 0..RESTORE_TRIES {
         let sent = board
             .send(&format!("offline {}", on_off(saved.offline)))
-            .and_then(|()| board.send(&format!("limit {}", saved.limit)))
+            .and_then(|()| board.send(&limit_line(saved)))
             .and_then(|()| board.send(&format!("mine {}", on_off(saved.mining))));
         last = sent.and_then(|()| {
             // Two reads: the first may have been printed before the commands ran.
@@ -452,7 +460,7 @@ mod tests {
                 if line == "status" {
                     self.replies.lock().unwrap().push_back(format!(
                         "status height=9 tip={} work=5 difficulty=1 balance=500.00 peers=1 \
-                         pool=0 hashrate=100 limit={} mining={} offline={} address=olc1",
+                         pool=0 hashrate=100 limit={} chosen=true mining={} offline={} address=olc1",
                         self.tip,
                         self.limit.lock().unwrap(),
                         !self.idle.load(Ordering::Relaxed),

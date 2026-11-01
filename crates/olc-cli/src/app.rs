@@ -9,6 +9,7 @@ use olc_link_serial::SerialLink;
 use olc_node::{Message, Outgoing, Runner};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,8 @@ const FIRMWARE_NAME: &str = "olc-firmware";
 const DEFAULT_FIRMWARE: &str = "../../firmware/target/xtensa-esp32s3-none-elf/release/olc-firmware";
 const PORT_FOLDER: &str = "/dev/serial/by-id";
 const PORT_MARK: &str = "Espressif";
+const CARRIED_FIRMWARE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/firmware.elf"));
+const UNPACKED_FIRMWARE: &str = "firmware.elf";
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before the page offers to install on it.
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
@@ -28,6 +31,7 @@ pub struct Port {
     link: usize,
     opened: Instant,
     closer: Arc<AtomicBool>,
+    device: u64,
 }
 
 /// A run of an optional program, as the page sees it.
@@ -54,15 +58,34 @@ pub struct App {
 
 /// The file next to the program when it was installed, else the one this source tree builds, so
 /// the app works from any folder.
+/// The firmware to install: the one asked for, or the build this program carries.
 fn firmware_path(args: &Args) -> PathBuf {
     if let Some(chosen) = args.value("firmware") {
         return PathBuf::from(chosen);
     }
+    let unpacked = unpack_carried();
     let beside_program = std::env::current_exe()
         .ok()
         .and_then(|program| Some(program.parent()?.join(FIRMWARE_NAME)));
     let built = Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_FIRMWARE);
-    beside_program.filter(|file| file.exists()).unwrap_or(built)
+    unpacked
+        .or(beside_program.filter(|file| file.exists()))
+        .unwrap_or(built)
+}
+
+fn unpack_carried() -> Option<PathBuf> {
+    if CARRIED_FIRMWARE.is_empty() {
+        return None;
+    }
+    let path = config_folder().ok()?.join(UNPACKED_FIRMWARE);
+    let same = fs::read(&path).is_ok_and(|saved| saved == CARRIED_FIRMWARE);
+    (same || fs::write(&path, CARRIED_FIRMWARE).is_ok()).then_some(path)
+}
+
+/// The build `olc` keeps boards on, when it runs the firmware it carries.
+pub fn carried_build(args: &Args) -> Option<&'static str> {
+    let usable = !CARRIED_FIRMWARE.is_empty() && !args.has("firmware");
+    usable.then_some(env!("OLC_CARRIED_BUILD"))
 }
 
 fn control_key() -> Result<ControlKey, String> {
@@ -138,6 +161,18 @@ impl App {
         }
     }
 
+    /// A board is taking an update right now.
+    pub fn is_updating(&self) -> bool {
+        self.jobs.lock().is_ok_and(|jobs| {
+            jobs.values().any(|job| job != "update_failed" && job != "installing")
+        })
+    }
+
+    /// Something is running that an update must not cut into.
+    pub fn is_busy(&self) -> bool {
+        self.is_updating() || self.run.lock().map_or(true, |run| run.running)
+    }
+
     pub fn job(&self, key: &str) -> Option<String> {
         self.jobs.lock().ok()?.get(key).cloned()
     }
@@ -168,7 +203,10 @@ impl App {
             return;
         };
         ports.retain(|path, port| {
-            let keep = present.contains(path) && !busy.contains(path);
+            // A board that left and came back between two looks has a new device behind the
+            // same name, and the file open on the old one hears nothing any more.
+            let same = device_of(path) == Some(port.device);
+            let keep = same && present.contains(path) && !busy.contains(path);
             if !keep {
                 port.closer.store(true, Ordering::Relaxed);
             }
@@ -178,6 +216,9 @@ impl App {
             if ports.contains_key(&path) || busy.contains(&path) {
                 continue;
             }
+            let Some(device) = device_of(&path) else {
+                continue;
+            };
             let Ok(link) = SerialLink::open(&path, |_| {}) else {
                 continue;
             };
@@ -191,6 +232,7 @@ impl App {
                         link,
                         opened,
                         closer,
+                        device,
                     },
                 );
             }
@@ -260,6 +302,11 @@ pub fn push_line(run: &Mutex<ExtraRun>, line: String) {
         }
         run.lines.push_back(line);
     }
+}
+
+/// Which device file a port name leads to right now.
+fn device_of(path: &str) -> Option<u64> {
+    std::fs::metadata(path).ok().map(|found| found.ino())
 }
 
 pub fn watch_ports(shared: &Arc<Shared>) {

@@ -119,6 +119,7 @@ pub struct Info<'a> {
     pub balance: u64,
     pub hash_rate: u64,
     pub limit: u32,
+    pub temperature: f32,
     pub difficulty: u64,
     pub block_ms: u64,
     pub tip: &'a [u8],
@@ -274,6 +275,27 @@ impl SmallCoin {
 }
 
 pub fn splash(screen: &mut Screen, now_ms: u64) {
+    draw_splash(screen, now_ms);
+    screen.flush();
+}
+
+/// The start screen with a line that fills while the chain loads.
+pub fn loading(screen: &mut Screen, now_ms: u64, done: usize, total: usize) {
+    const LEFT: i32 = 68;
+    const LENGTH: i32 = 54;
+    const TOP: i32 = 48;
+    draw_splash(screen, now_ms);
+    let filled = (done * LENGTH as usize / total.max(1)) as i32;
+    for x in LEFT..LEFT + LENGTH {
+        screen.pixel(x, TOP, true);
+        screen.pixel(x, TOP + 1, x < LEFT + filled);
+        screen.pixel(x, TOP + 2, x < LEFT + filled);
+        screen.pixel(x, TOP + 3, true);
+    }
+    screen.flush();
+}
+
+fn draw_splash(screen: &mut Screen, now_ms: u64) {
     const RADIUS: i32 = 30;
     screen.clear();
     let spin = olc_logo::Spin::new(spin_at(now_ms));
@@ -286,7 +308,6 @@ pub fn splash(screen: &mut Screen, now_ms: u64) {
     }
     screen.text(68, 20, "Offline", Font::Regular);
     screen.text(68, 32, "Coin", Font::Regular);
-    screen.flush();
 }
 
 fn basic(screen: &mut Screen, info: &Info, language: Language) {
