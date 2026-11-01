@@ -6,6 +6,7 @@
 //! an update by radio. That proof is two deliveries of the same image: the first puts it on the
 //! board, the second reaches the running build by radio and it comes back from that.
 use crate::fleet::Connection;
+use crate::ports::board_ports;
 use crate::remote::{send_image, SharedFleet};
 use olc_control::BoardId;
 use olc_crypto::Hash;
@@ -16,13 +17,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const LEDGER_FILE: &str = "proven-builds";
-pub const PORT_FOLDER: &str = "/dev/serial/by-id";
 pub const UNPROVEN: &str = "This build has not proved itself on a board with a cable yet.";
 
 /// Which builds have proved themselves, kept in the configuration folder.
 pub struct Ledger {
     file: PathBuf,
-    ports: PathBuf,
+    cables: fn() -> Vec<String>,
 }
 
 /// A build this board may take. Only [`Ledger`] makes one, so nothing sends without asking.
@@ -45,24 +45,25 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
+/// A board gives its MAC address as its USB serial number.
+fn cabled_boards() -> Vec<String> {
+    board_ports().into_iter().map(|port| port.serial).collect()
+}
+
 impl Ledger {
     pub fn open(folder: &Path) -> Self {
-        Self::at(folder.join(LEDGER_FILE), PORT_FOLDER.into())
+        Self::at(folder.join(LEDGER_FILE), cabled_boards)
     }
 
-    fn at(file: PathBuf, ports: PathBuf) -> Self {
-        Self { file, ports }
+    fn at(file: PathBuf, cables: fn() -> Vec<String>) -> Self {
+        Self { file, cables }
     }
 
     /// Whether this computer has a cable to the board, used or not.
     pub fn has_cable(&self, board: BoardId) -> bool {
         let mac: Vec<String> = board.iter().map(|byte| format!("{byte:02X}")).collect();
         let mac = mac.join(":");
-        fs::read_dir(&self.ports).is_ok_and(|ports| {
-            ports
-                .flatten()
-                .any(|port| port.file_name().to_string_lossy().contains(&mac))
-        })
+        (self.cables)().iter().any(|serial| serial.eq_ignore_ascii_case(&mac))
     }
 
     fn lines(&self) -> Vec<String> {
@@ -150,10 +151,16 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("olc-clear-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&folder);
         fs::create_dir_all(&folder).unwrap();
-        if cable {
-            fs::write(folder.join("usb-Espressif_AC:27:6E:AA:EF:90-if00"), "").unwrap();
-        }
-        Ledger::at(folder.join(LEDGER_FILE), folder)
+        let cables = if cable { one_cable } else { no_cable };
+        Ledger::at(folder.join(LEDGER_FILE), cables)
+    }
+
+    fn one_cable() -> Vec<String> {
+        vec!["AC:27:6E:AA:EF:90".into()]
+    }
+
+    fn no_cable() -> Vec<String> {
+        Vec::new()
     }
 
     fn delivery(by_radio: bool, hash: Hash) -> Delivery {

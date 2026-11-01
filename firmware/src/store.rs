@@ -85,8 +85,6 @@ pub struct Settings {
     pub bright: String,
     /// `on` brings up the board's own network. Empty means down.
     pub own_network: String,
-    /// Processor speed in MHz. Empty means the default.
-    pub clock: String,
     /// Where mined coins go. Empty means this board's own key.
     pub miner: String,
     /// Words to put in each mined block, as hex.
@@ -97,6 +95,8 @@ pub struct Settings {
     pub merge: String,
     /// "on" holds headers only, and asks full nodes for its coins.
     pub light: String,
+    /// Processor speed in MHz. Empty means the default.
+    pub clock: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -167,13 +167,22 @@ fn word(bytes: &[u8]) -> u32 {
 }
 
 impl Store {
-    /// Notes this start.
+    /// Notes this start. Writes without erasing, and a start that died before its next stage
+    /// shares the word of the last one like it, so a restart loop wears nothing.
     ///
     /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
         COUNTER.adopt(&mut Nor);
         SETTINGS.adopt(&mut Nor);
         CHOICES.adopt(&mut Nor);
+        let same = BOOT_LOG.newest(&mut Nor).filter(|at| {
+            let mut bytes = [0u8; 4];
+            flash::read(*at, &mut bytes) && word(&bytes) == bootlog::word(reason, Stage::Started)
+        });
+        if let Some(at) = same {
+            self.boot_word = Some((at, reason));
+            return;
+        }
         let at = BOOT_LOG.next(&mut Nor);
         self.boot_word = Some((at, reason));
         self.reach(Stage::Started);
@@ -219,11 +228,11 @@ impl Store {
             power: lines.next().unwrap_or_default(),
             bright: lines.next().unwrap_or_default(),
             own_network: lines.next().unwrap_or_default(),
-            clock: lines.next().unwrap_or_default(),
             miner: choice.next().unwrap_or_default(),
             note: choice.next().unwrap_or_default(),
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
+            clock: lines.next().unwrap_or_default(),
             light: choice.next().unwrap_or_default(),
         }
     }

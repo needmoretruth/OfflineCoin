@@ -147,6 +147,7 @@ mod tests {
             connection: Connection::Direct { link: 0 },
             online: true,
             silent_for: Duration::ZERO,
+            old_format: false,
         };
         let boards = [board(1), board(2)];
         let attempts = BTreeMap::new();

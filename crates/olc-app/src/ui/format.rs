@@ -1,6 +1,6 @@
 //! Numbers as people read them.
 use crate::core::format_coins;
-use crate::i18n::{self, Lang};
+use crate::i18n::{self, Voice};
 use olc_core::Hash;
 
 pub fn number(value: u128) -> String {
@@ -49,7 +49,7 @@ pub fn short_address(address: &str) -> String {
     format!("{head}...{tail}")
 }
 
-pub fn device(lang: Lang, kind: &str) -> String {
+pub fn device(voice: Voice, kind: &str) -> String {
     let key = match kind {
         "computer" => "device.computer",
         "raspberry-pi" => "device.raspberry_pi",
@@ -57,7 +57,7 @@ pub fn device(lang: Lang, kind: &str) -> String {
         "" => "device.unknown",
         other => return other.to_string(),
     };
-    i18n::text(lang, key).to_string()
+    i18n::text(voice, key).to_string()
 }
 
 #[cfg(test)]

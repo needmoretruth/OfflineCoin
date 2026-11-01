@@ -1,30 +1,17 @@
 //! All words of the app: one table per language, English first. A key missing from either fails
-//! a test, and so does a key used in the code that no table has.
+//! a test, and so does a key used in the code that no table has. Expert tables hold only the words
+//! that differ from basic ones.
 mod en;
+mod en_expert;
 mod ko;
+mod ko_expert;
 mod lab;
 
+pub use crate::settings::{Lang, Mode};
 pub use lab::lab_line;
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Lang {
-    #[default]
-    En,
-    Ko,
-}
-
-impl Lang {
-    pub fn other(self) -> Self {
-        match self {
-            Self::En => Self::Ko,
-            Self::Ko => Self::En,
-        }
-    }
-}
 
 type Table = HashMap<&'static str, &'static str>;
 
@@ -37,8 +24,28 @@ fn table(lang: Lang) -> &'static Table {
     }
 }
 
-pub fn text(lang: Lang, key: &str) -> &'static str {
-    table(lang).get(key).copied().unwrap_or("?")
+fn expert_table(lang: Lang) -> &'static Table {
+    static EN: OnceLock<Table> = OnceLock::new();
+    static KO: OnceLock<Table> = OnceLock::new();
+    match lang {
+        Lang::En => EN.get_or_init(|| en_expert::WORDS.iter().copied().collect()),
+        Lang::Ko => KO.get_or_init(|| ko_expert::WORDS.iter().copied().collect()),
+    }
+}
+
+/// Who the words are for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Voice {
+    pub lang: Lang,
+    pub mode: Mode,
+}
+
+pub fn text(voice: Voice, key: &str) -> &'static str {
+    let expert = match voice.mode {
+        Mode::Basic => None,
+        Mode::Expert => expert_table(voice.lang).get(key).copied(),
+    };
+    expert.or_else(|| table(voice.lang).get(key).copied()).unwrap_or("?")
 }
 
 /// Puts `values` into the `{}` of `text`, in order.
@@ -74,10 +81,23 @@ mod tests {
         assert_eq!(keys(ko::WORDS).len(), ko::WORDS.len());
     }
 
+    fn voice(lang: Lang) -> Voice {
+        Voice { lang, mode: Mode::Basic }
+    }
+
+    #[test]
+    fn expert_words_only_replace_basic_ones() {
+        for (key, _) in en_expert::WORDS.iter().chain(ko_expert::WORDS) {
+            assert_ne!(text(voice(Lang::En), key), "?", "{key}");
+        }
+        let expert = Voice { lang: Lang::Ko, mode: Mode::Expert };
+        assert_eq!(text(expert, "notice.saved"), text(voice(Lang::Ko), "notice.saved"));
+    }
+
     #[test]
     fn a_blank_takes_the_same_values_in_both_languages() {
         for (key, english) in en::WORDS {
-            let korean = text(Lang::Ko, key);
+            let korean = text(voice(Lang::Ko), key);
             assert_eq!(english.matches("{}").count(), korean.matches("{}").count(), "{key}");
         }
     }
@@ -100,7 +120,7 @@ mod tests {
         let mut texts = Vec::new();
         sources(&folder.join("pages"), &mut texts);
         sources(&folder.join("ui"), &mut texts);
-        sources(&folder.join("core"), &mut texts);
+        sources(&folder.join("../../olc-service/src/core"), &mut texts);
         let known = keys(en::WORDS);
         let prefixes: BTreeSet<&str> = en::WORDS
             .iter()

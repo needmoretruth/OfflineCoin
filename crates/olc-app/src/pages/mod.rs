@@ -12,7 +12,7 @@ pub mod setup;
 mod wallet;
 
 use crate::core::{Command, Core, Snapshot};
-use crate::i18n::{self, Lang};
+use crate::i18n::{self, Lang, Voice};
 use crate::settings::Settings;
 use crate::ui::{Icon, Tokens};
 use egui::Ui;
@@ -27,8 +27,12 @@ pub struct Cx<'a> {
 }
 
 impl Cx<'_> {
+    pub fn voice(&self) -> Voice {
+        Voice { lang: self.lang, mode: self.settings.mode }
+    }
+
     pub fn say(&self, key: &str) -> &'static str {
-        i18n::text(self.lang, key)
+        i18n::text(self.voice(), key)
     }
 
     pub fn fill(&self, key: &str, values: &[&str]) -> String {

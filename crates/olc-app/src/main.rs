@@ -1,3 +1,4 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! `olc-core`: the OLC Core desktop app, and the same program as a node process of its own.
 use olc_app::app::{run, Launch};
 use olc_app::local::run_node;

@@ -11,5 +11,7 @@ olc-control.workspace = true
 olc-crypto.workspace = true
 olc-link-serial.workspace = true
 olc-node.workspace = true
+olc-platform.workspace = true
+serial2 = "0.2"
 olc-wallet.workspace = true
 getrandom = "0.3"

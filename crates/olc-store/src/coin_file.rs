@@ -1,5 +1,6 @@
 //! Coin files: the JSON form of a coin, with addresses written as text.
-use olc_core::{CoinConfig, Rules};
+use olc_core::coin::{COIN, MIN_DIFFICULTY};
+use olc_core::{Address, CoinConfig, Rules};
 use olc_wallet::{format_address, parse_address};
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +66,47 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
     };
     coin.settle_floor();
     Ok(coin)
+}
+
+/// The choices behind a new coin. What is left alone stays as OfflineCoin has it.
+#[derive(Clone, Debug, Default)]
+pub struct NewCoin {
+    pub name: Option<String>,
+    pub message: Option<String>,
+    pub message_in_block: bool,
+    pub ticker: Option<String>,
+    pub block_time_ms: Option<u64>,
+    /// Whole coins.
+    pub reward: Option<u64>,
+    pub halving: Option<u64>,
+    pub difficulty: Option<u64>,
+    /// The lowest difficulty. Empty follows the block time.
+    pub floor: Option<u64>,
+    /// A later start than OfflineCoin's own, which makes a coin of its own at once.
+    pub genesis_time_ms: Option<u64>,
+    pub premine: Vec<(Address, u64)>,
+}
+
+/// One way to make a coin, for the window and the command line alike.
+pub fn new_coin(choices: NewCoin) -> CoinConfig {
+    let mut coin = CoinConfig::olc();
+    if let Some(name) = choices.name {
+        coin.message = format!("{name} genesis");
+        coin.name = name;
+    }
+    coin.message = choices.message.unwrap_or(coin.message);
+    coin.message_in_block = choices.message_in_block;
+    coin.ticker = choices.ticker.unwrap_or(coin.ticker);
+    coin.rules.block_time_ms = choices.block_time_ms.unwrap_or(coin.rules.block_time_ms);
+    coin.rules.reward = choices.reward.map_or(coin.rules.reward, |reward| reward * COIN);
+    coin.rules.halving_interval = choices.halving.unwrap_or(coin.rules.halving_interval);
+    let floor = choices.floor.unwrap_or(Rules::floor_for(coin.rules.block_time_ms));
+    coin.rules.min_difficulty = floor.max(1);
+    coin.rules.floor_from_height = 0;
+    coin.initial_difficulty = choices.difficulty.unwrap_or(MIN_DIFFICULTY);
+    coin.genesis_time_ms = choices.genesis_time_ms.unwrap_or(coin.genesis_time_ms);
+    coin.premine = choices.premine;
+    coin
 }
 
 pub fn to_json(coin: &CoinConfig) -> Result<String, String> {

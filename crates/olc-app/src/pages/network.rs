@@ -68,6 +68,7 @@ fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
         Work::Silent => (t.bad, cx.say("work.silent").to_string()),
+        Work::Restarting => (t.muted, cx.say("work.restarting").to_string()),
     };
     dot(ui, colour);
     cell(ui, text);
@@ -89,7 +90,7 @@ fn row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, identity: Option<
             }
         }
         1 => {
-            let device = format::device(cx.lang, &entry.device);
+            let device = format::device(cx.voice(), &entry.device);
             let text = if entry.name.is_empty() {
                 device
             } else {

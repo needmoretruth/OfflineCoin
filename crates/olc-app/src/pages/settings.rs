@@ -18,7 +18,6 @@ pub fn device_name(device: Device) -> &'static str {
         Device::Esp32 => "setup.esp32",
         Device::RaspberryPi => "setup.pi",
         Device::ThisComputer => "setup.this_computer",
-        Device::ComputerAndPhone => "setup.computer_phone",
         Device::TwoComputers => "setup.two_computers",
     }
 }
@@ -80,6 +79,7 @@ impl SettingsPage {
         });
         labelled(ui, cx.say("settings.board_cap"), |ui| {
             if number_field(ui, &mut cx.settings.board_cap, 120.0) {
+                cx.settings.board_cap_chosen = true;
                 cx.save();
             }
             ui.label("H/s");
@@ -93,6 +93,13 @@ impl SettingsPage {
             cx.save();
         }
         meta(ui, cx.say("settings.auto_update_note"), t);
+    }
+
+    fn data(cx: &mut Cx, ui: &mut Ui) {
+        section(ui, cx.say("settings.data"));
+        if button(ui, cx.t, cx.say("settings.open_data"), Kind::Plain).clicked() {
+            cx.send(Command::OpenDataFolder);
+        }
     }
 
     fn network(&mut self, cx: &mut Cx, ui: &mut Ui) {
@@ -151,7 +158,7 @@ impl SettingsPage {
                 let recent = (chosen == Holding::Recent).then_some(self.recent.max(FEWEST_RECENT));
                 cx.send(Command::Own(Personal::SetRecent(recent)));
             }
-            cx.send(Command::SetLight(chosen == Holding::Headers));
+            cx.send(Command::Own(Personal::SetLight(chosen == Holding::Headers)));
         }
         if holding == Holding::Headers {
             meta(ui, cx.say("local.light_trust"), t);
@@ -196,6 +203,7 @@ impl Page for SettingsPage {
         card(ui, t, |ui| Self::look(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| Self::mining(cx, ui));
+        card(ui, t, |ui| Self::data(cx, ui));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.network(cx, ui));
         ui.add_space(tokens::GAP);

@@ -2,8 +2,10 @@
 //! and naming it. A board's wallet and chain live in partitions flashing does not touch.
 use crate::board::{Board, UsbBoard};
 use crate::control_key::config_folder;
+use olc_link_serial::port_is_here;
+use olc_platform::{platform, tool};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,11 +17,11 @@ const START_WAIT: Duration = Duration::from_secs(90);
 const PORT_WAIT: Duration = Duration::from_secs(30);
 const STEP: Duration = Duration::from_millis(500);
 
-fn espflash() -> PathBuf {
-    let local = std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/bin/espflash"));
-    local
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| PathBuf::from("espflash"))
+/// The flashing tool, which release builds carry beside the app.
+fn espflash() -> Command {
+    let mut command = Command::new(tool("espflash"));
+    platform().hide_window(&mut command);
+    command
 }
 
 fn run(command: &mut Command) -> Result<(), String> {
@@ -35,7 +37,7 @@ fn run(command: &mut Command) -> Result<(), String> {
 
 fn wait_for_port(port: &str) -> Result<(), String> {
     let deadline = Instant::now() + PORT_WAIT;
-    while !Path::new(port).exists() {
+    while !port_is_here(port) {
         if Instant::now() > deadline {
             return Err(format!("{port} did not come back."));
         }
@@ -47,7 +49,7 @@ fn wait_for_port(port: &str) -> Result<(), String> {
 fn flash(port: &str, firmware: &Path) -> Result<(), String> {
     let table = config_folder()?.join("partitions.csv");
     fs::write(&table, PARTITIONS).map_err(|error| error.to_string())?;
-    run(Command::new(espflash())
+    run(espflash()
         .args(["flash", "--chip", "esp32s3", "--non-interactive"])
         .args(["--port", port, "--flash-size", FLASH_SIZE])
         .arg("--partition-table")
@@ -61,7 +63,7 @@ fn flash(port: &str, firmware: &Path) -> Result<(), String> {
 /// The bytes of the update slot for `firmware`, an ELF file.
 pub fn app_image(firmware: &Path) -> Result<Vec<u8>, String> {
     let out = config_folder()?.join("update.bin");
-    run(Command::new(espflash())
+    run(espflash()
         .args(["save-image", "--chip", "esp32s3"])
         .args(["--flash-size", FLASH_SIZE])
         .arg(firmware)

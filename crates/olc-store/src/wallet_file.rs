@@ -3,11 +3,10 @@
 use argon2::Argon2;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use olc_platform::platform;
 use olc_wallet::Wallet;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 use std::path::Path;
 
 const WALLET_FILE: &str = "wallet.json";
@@ -72,15 +71,7 @@ fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
 fn write_private(path: &Path, text: &str) -> Result<(), String> {
     let temporary = path.with_extension("new");
     let _ = fs::remove_file(&temporary);
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    file.write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|error| error.to_string())?;
+    platform().write_private(&temporary, text.as_bytes()).map_err(|error| error.to_string())?;
     fs::rename(&temporary, path).map_err(|error| error.to_string())
 }
 

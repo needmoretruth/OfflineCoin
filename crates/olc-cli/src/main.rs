@@ -1,43 +1,34 @@
-//! `olc`: run a node, start a test network or write a new coin file.
+//! `olc`: OfflineCoin for a terminal. Every action is the core's. This file only reads the flags
+//! that say where to work and prints what comes back.
 mod app;
 mod coinfile;
 mod devnet;
 mod fleet_api;
-mod keys;
 mod logo;
 mod node;
 mod web;
 mod window;
 
 use olc_board::{Args, Extra};
+use olc_service::core::{run_words, usage, Folder, Terminal};
+use olc_service::local::run_node;
+use std::io::Write;
+use std::path::PathBuf;
 
-const USAGE: &str = "\
+const PROGRAMS: &str = "\
 OfflineCoin
 
+  olc start   --data DIR --wallet DIR --coin FILE --port 7000 [--bind HOST] [--connect HOST:PORT]...
+              [--cap HASHES] [--mine]      a node through the core
   olc node    [--coin FILE] [--data DIR] [--port 7000] [--connect HOST:PORT]...
-              [--serial /dev/ttyACM0]... [--web 8000] [--web-public]
+              [--serial <port>]... [--web 8000] [--web-public]
               [--mine] [--hash-limit HASHES_PER_SECOND]
   olc app     [--firmware FILE] [--serial PORT]... [--web 8000] [--data DIR]
-  olc install --port PORT --name NAME [--firmware FILE]
   olc devnet  [--nodes 3] [--coin FILE] [--hash-limit HASHES_PER_SECOND]
-  olc new-coin FILE [--name NAME] [--ticker TICKER] [--block-time-ms MS]
-              [--reward COINS] [--halving BLOCKS] [--difficulty N] [--min-difficulty N]
-  olc keys    [--data DIR]              list keys
-  olc key new|use N|import HEX|export N [--data DIR]
-  olc backup FILE [--password] [--data DIR]
-  olc restore FILE [--password] [--data DIR]
-  olc miner ADDRESS|off [--data DIR]    where mined coins go
-  olc keep BLOCKS|all [--data DIR]      recent blocks to hold
-  olc merge on|off [--data DIR]         merge small coins by itself
-  olc mining on|off [--data DIR]        mine from the start
-  olc light on|off [--data DIR]         hold headers only, trusting peers on unspent coins
-  olc watch ADDRESS [--data DIR]        follow an address without its key
-  olc prepare ADDRESS UNITS [--fee UNITS] [--web 8000]   a payment from watched addresses
-  olc sign FILE [--data DIR]            sign it, offline
-  olc broadcast FILE [--web 8000]       send it
-  olc note TEXT [--web 8000]            write a note into a block
-  olc mine-note TEXT [--data DIR]       a note in every mined block
   olc logo    [--once]
+
+Each of these also takes --data DIR, --root DIR and --serial PORT:
+
 ";
 
 const CLOSING: &str = "\nA coin file is JSON. Edit it to change any rule.\n";
@@ -45,27 +36,56 @@ const CLOSING: &str = "\nA coin file is JSON. Edit it to change any rule.\n";
 /// Optional programs. Nothing else in this program names one.
 pub const EXTRAS: &[&dyn Extra] = &[&olc_lab::Lab];
 
-fn main() {
-    let args = Args::parse(std::env::args().skip(1));
-    let result = match args.command() {
-        Some("node") => node::run(&args),
-        Some("app") | None => node::run_app(&args),
-        Some("install") => app::install(&args),
-        Some("devnet") => devnet::run(&args),
-        Some("new-coin") => coinfile::create(&args),
-        Some("logo") => logo::run(&args),
-        Some(word @ ("keys" | "key" | "backup" | "restore" | "miner" | "keep" | "merge" | "light" | "mining" | "watch" | "prepare"
-        | "sign" | "broadcast" | "note"
-        | "mine-note")) => keys::run(word, &args),
-        word => match EXTRAS.iter().find(|extra| Some(extra.command()) == word) {
-            Some(extra) => extra.run(&args),
+fn asked_password() -> Result<String, String> {
+    print!("Password: ");
+    std::io::stdout().flush().map_err(|error| error.to_string())?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).map_err(|error| error.to_string())?;
+    Ok(line.trim_end().to_string())
+}
+
+fn terminal(args: &Args) -> Result<Terminal, String> {
+    let folder = Folder {
+        directory: PathBuf::from(args.value("data").unwrap_or(".olc/node")),
+        web_port: args.number("web", 8000)?,
+    };
+    let mut terminal = Terminal::new(folder);
+    terminal.root = args.value("root").map(PathBuf::from);
+    terminal.ports = args.values("serial");
+    terminal.firmware = args.value("firmware").map(str::to_string);
+    if args.has("password") {
+        terminal.given_password = Some(asked_password()?);
+    }
+    Ok(terminal)
+}
+
+fn action(args: &Args) -> Result<(), String> {
+    match run_words(&mut terminal(args)?, args) {
+        Some(answer) => {
+            println!("{}", answer?);
+            Ok(())
+        }
+        None => match EXTRAS.iter().find(|extra| Some(extra.command()) == args.command()) {
+            Some(extra) => extra.run(args),
             None => {
-                print!("{USAGE}");
+                print!("{PROGRAMS}{}", usage());
                 EXTRAS.iter().for_each(|extra| print!("{}", extra.usage()));
                 print!("{CLOSING}");
                 Ok(())
             }
         },
+    }
+}
+
+fn main() {
+    let args = Args::parse(std::env::args().skip(1));
+    let result = match args.command() {
+        Some("node") => node::run(&args),
+        Some("app") | None => node::run_app(&args),
+        Some("start") => run_node(std::env::args().skip(2).collect()),
+        Some("devnet") => devnet::run(&args),
+        Some("logo") => logo::run(&args),
+        _ => action(&args),
     };
     if let Err(message) = result {
         eprintln!("{message}");

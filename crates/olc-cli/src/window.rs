@@ -1,6 +1,7 @@
 //! Opens the app for someone who never typed a flag: one running copy, in a window of its own
 //! when a Chromium browser is installed.
 use crate::app::App;
+use olc_platform::platform;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -66,7 +67,7 @@ fn open_window(url: &str, folder: &Path) -> Option<Child> {
 }
 
 fn open_in_default_browser(url: &str) {
-    let _ = spawn_quietly(Command::new("xdg-open").arg(url));
+    let _ = platform().open_folder(Path::new(url));
 }
 
 /// True when a copy of the app answers on `port`.

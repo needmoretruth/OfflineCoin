@@ -1,6 +1,6 @@
 //! Every board this app can reach, and what can be done to one.
 use super::{Cx, Page};
-use crate::core::{BoardView, Command};
+use crate::core::{BoardAction, BoardView, Command};
 use crate::discovery::Reach;
 use crate::ui::format;
 use crate::ui::tokens;
@@ -17,7 +17,6 @@ const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
 /// Used only until a board says its own number.
 const BRIGHT_FALLBACK: u64 = 64;
 const BRIGHT_MAX: u64 = 255;
-const HALF_CAP: u64 = 7_500;
 const LABEL_WIDTH: f32 = 150.0;
 
 #[derive(Default)]
@@ -86,10 +85,16 @@ impl Boards {
         let beacon = &board.seen.beacon;
         columns.row(ui, |ui, index| match index {
             0 => {
-                let colour = if board.seen.online { t.good } else { t.bad };
+                let colour = match (board.seen.online, board.returning) {
+                    (true, _) => t.good,
+                    (false, true) => t.muted,
+                    (false, false) => t.bad,
+                };
                 dot(ui, colour);
                 cell(ui, beacon.name.clone());
             }
+            // Nothing is known of how a restarting board will come back.
+            1 if board.returning => cell(ui, String::new()),
             1 => cell(ui, connection(cx, board)),
             2 => cell(ui, format::number(beacon.height.into())),
             3 => cell(ui, format::rate(beacon.hashrate.into())),
@@ -116,8 +121,8 @@ impl Boards {
         }
     }
 
-    fn line(cx: &Cx, id: BoardId, line: String) {
-        cx.send(Command::BoardLine { id, line });
+    fn tell(cx: &Cx, id: BoardId, action: BoardAction) {
+        cx.send(Command::Board { id, action });
     }
 
     fn pick_for_updates(ui: &mut Ui, cx: &mut Cx, id: BoardId) {
@@ -136,30 +141,33 @@ impl Boards {
         let id = board.seen.id;
         let beacon = &board.seen.beacon;
         labelled(ui, cx.say("boards.cap"), |ui| {
-            let items = [
-                (cx.settings.board_cap, format::number(cx.settings.board_cap.into())),
-                (HALF_CAP, format::number(HALF_CAP.into())),
-            ];
+            let items = [(cx.settings.board_cap, format::number(cx.settings.board_cap.into()))];
             if let Some(cap) = segments(ui, t, &items, Some(self.cap)) {
                 self.cap = cap;
-                Self::line(cx, id, format!("limit {cap}"));
+                Self::tell(cx, id, BoardAction::Cap(cap));
+            }
+            let full = beacon.limit == 0;
+            let key = if full { "boards.full_off" } else { "boards.full_on" };
+            if button(ui, t, cx.say(key), Kind::Plain)
+                .on_hover_text(cx.say("boards.full_note"))
+                .clicked()
+            {
+                Self::tell(cx, id, BoardAction::FullSpeed(!full));
             }
             number_field(ui, &mut self.cap, 90.0);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
-                Self::line(cx, id, format!("limit {}", self.cap));
+                Self::tell(cx, id, BoardAction::Cap(self.cap));
             }
         });
         labelled(ui, cx.say("boards.state"), |ui| {
             let offline = beacon.offline;
             let key = if offline { "boards.go_online" } else { "boards.go_offline" };
             if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                let word = if offline { "off" } else { "on" };
-                Self::line(cx, id, format!("offline {word}"));
+                Self::tell(cx, id, BoardAction::Offline(!offline));
             }
             let key = if beacon.mining { "boards.stop_mining" } else { "boards.start_mining" };
             if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                let word = if beacon.mining { "off" } else { "on" };
-                Self::line(cx, id, format!("mine {word}"));
+                Self::tell(cx, id, BoardAction::Mine(!beacon.mining));
             }
             if button(ui, t, cx.say("boards.update"), Kind::Plain).clicked() {
                 cx.send(Command::UpdateBoard(id));
@@ -173,14 +181,14 @@ impl Boards {
             ] {
                 let kind = if beacon.view == word { Kind::Main } else { Kind::Plain };
                 if button(ui, t, cx.say(key), kind).clicked() {
-                    Self::line(cx, id, format!("view {word}"));
+                    Self::tell(cx, id, BoardAction::View(word.into()));
                 }
             }
             ui.add_space(tokens::GAP);
             for (word, label) in [("en", "English"), ("ko", "한국어")] {
                 let kind = if beacon.language == word { Kind::Main } else { Kind::Plain };
                 if button(ui, t, label, kind).clicked() {
-                    Self::line(cx, id, format!("lang {word}"));
+                    Self::tell(cx, id, BoardAction::Language(word.into()));
                 }
             }
         });
@@ -191,7 +199,7 @@ impl Boards {
             meta(ui, &cx.fill("boards.frames_per_second", &[&range[0], &range[1]]), t);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
                 self.smooth = self.smooth.clamp(u64::from(lowest), u64::from(highest));
-                Self::line(cx, id, format!("smooth {}", self.smooth));
+                Self::tell(cx, id, BoardAction::Smooth(self.smooth));
             }
         });
         labelled(ui, cx.say("boards.bright"), |ui| {
@@ -204,13 +212,13 @@ impl Boards {
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
                 let level = level.min(BRIGHT_MAX);
                 self.bright = Some(level);
-                Self::line(cx, id, format!("bright {level}"));
+                Self::tell(cx, id, BoardAction::Bright(level));
             }
         });
         labelled(ui, cx.say("boards.wifi"), |ui| {
-            for (key, line) in [("boards.wifi_on", "network on"), ("boards.wifi_off", "network off")] {
+            for (key, on) in [("boards.wifi_on", true), ("boards.wifi_off", false)] {
                 if button(ui, t, cx.say(key), Kind::Plain).clicked() {
-                    Self::line(cx, id, line.into());
+                    Self::tell(cx, id, BoardAction::OwnNetwork(on));
                 }
             }
             meta(ui, cx.say("boards.wifi_note"), t);
@@ -218,20 +226,22 @@ impl Boards {
         labelled(ui, cx.say("boards.name"), |ui| {
             field(ui, &mut self.name, cx.say("boards.name"), 200.0);
             if button(ui, t, cx.say("boards.rename"), Kind::Plain).clicked() {
-                Self::line(cx, id, format!("name {}", self.name.trim()));
+                Self::tell(cx, id, BoardAction::Name(self.name.clone()));
             }
         });
         labelled(ui, cx.say("boards.mine_to"), |ui| {
             field(ui, &mut self.mine_to, cx.say("mining.pay_to_hint"), 300.0);
             if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
-                let target = self.mine_to.trim();
-                let target = if target.is_empty() { "own" } else { target };
-                Self::line(cx, id, format!("mineto {target}"));
+                let action = match self.mine_to.trim() {
+                    "" => BoardAction::MineToOwnKey,
+                    target => BoardAction::MineTo(target.into()),
+                };
+                Self::tell(cx, id, action);
             }
             let mine = cx.snap.node.address.clone();
             if button(ui, t, cx.say("boards.mine_to_me"), Kind::Quiet).clicked() {
                 self.mine_to.clone_from(&mine);
-                Self::line(cx, id, format!("mineto {mine}"));
+                Self::tell(cx, id, BoardAction::MineTo(mine));
             }
         });
         if beacon.genesis != cx.snap.node.genesis {
@@ -252,8 +262,9 @@ impl Boards {
             field(ui, &mut self.pay_to, cx.say("wallet.to"), 300.0);
             field(ui, &mut self.pay_amount, cx.say("wallet.amount"), 110.0);
             if button(ui, t, cx.say("wallet.send"), Kind::Plain).clicked() {
-                let line = format!("pay {} {}", self.pay_to.trim(), self.pay_amount.trim());
-                Self::line(cx, id, line);
+                let to = self.pay_to.clone();
+                let amount = self.pay_amount.clone();
+                Self::tell(cx, id, BoardAction::Pay { to, amount });
                 self.pay_amount.clear();
             }
         });
@@ -342,5 +353,82 @@ impl Page for Boards {
             });
         }
         self.install(ui, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Core, CoreLaunch, Snapshot};
+    use crate::discovery::Reach;
+    use crate::fleet::{Connection, Seen};
+    use crate::i18n::Lang;
+    use crate::settings::{Paths, Settings};
+    use crate::ui::tokens::DARK;
+    use egui_kittest::kittest::Queryable;
+    use egui_kittest::Harness;
+    use olc_control::Beacon;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    const BOARD: BoardId = [4; 6];
+
+    type Scene = (Boards, Snapshot, Settings, Core);
+
+    fn scene(online: bool, returning: bool) -> Scene {
+        let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.scratch/tests/board");
+        let settings = Settings {
+            setup_done: true,
+            scan_lan: false,
+            broadcast: false,
+            port: 7310,
+            ..Settings::default()
+        };
+        let launch = CoreLaunch {
+            paths: Paths { root: folder },
+            fleet: None,
+            usb: false,
+            node_program: None,
+        };
+        let core = Core::start(launch, settings.clone()).unwrap();
+        let beacon = Beacon { name: "board".into(), limit: 1_000, ..Beacon::default() };
+        let seen = Seen {
+            id: BOARD,
+            beacon,
+            connection: Connection::Direct { link: 0 },
+            online,
+            silent_for: Duration::ZERO,
+            old_format: false,
+        };
+        let job = returning.then(|| "restarting".to_string());
+        let view =
+            BoardView { seen, job, answer: None, returning, reach: Reach::Usb, bright: None };
+        let boards = Boards { open: Some(BOARD), ..Boards::default() };
+        (boards, Snapshot { boards: vec![view], usb: true, ..Snapshot::default() }, settings, core)
+    }
+
+    fn drawn(state: Scene) -> Harness<'static, Scene> {
+        let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 900.0)).build_ui_state(
+            |ui, (page, snap, settings, core): &mut Scene| {
+                let mut cx = Cx { lang: Lang::En, snap, settings, t: &DARK, core };
+                page.show(ui, &mut cx);
+            },
+            state,
+        );
+        harness.run_steps(3);
+        harness
+    }
+
+    #[test]
+    fn a_restarting_board_says_so_and_offers_the_full_speed_setting() {
+        let mut harness = drawn(scene(false, true));
+        assert!(harness.query_by_label_contains("Restarting").is_some());
+        assert!(harness.query_by_label_contains("Radio").is_none());
+        assert!(harness.query_by_label_contains("Full speed").is_some());
+        assert!(harness.query_by_label_contains("7,500").is_none());
+        if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+            let image = harness.render().expect("a renderer");
+            image.save(folder.join("board-restarting.png")).expect("save");
+        }
     }
 }

@@ -104,7 +104,6 @@ const BEACON_KIND: u32 = 0;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// A packet lives for one trip, so a large beacon costs nothing that boxing it would save.
-#[allow(clippy::large_enum_variant)]
 pub enum Body {
     /// A board saying what it shows on its own, every few seconds.
     Beacon(SignedBeacon),
