@@ -4,17 +4,53 @@ use crate::engine::{Engine, PeerId};
 use crate::event::{Outgoing, Status};
 use crate::light::Light;
 use crate::message::Message;
+use crate::sync::BLOCKS_AT_ONCE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
-use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Tx};
+use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Served, Tx};
 use olc_wallet::{prepare, Order, Unsigned, WalletError};
+
+/// A peer that asks again this soon has not had time to see the answer. Asks pile up while a slow
+/// store answers them, and answering each one only makes the store later.
+const ANSWERED_FOR_MS: u64 = 3_000;
 
 /// A page of headers. A small radio queue on a slow reader sets this, as it does for blocks.
 const HEADERS_AT_ONCE: usize = 16;
 const COINS_AT_ONCE: usize = 8;
 
 impl Engine {
+    /// Up to a few blocks after the newest one the peer named.
+    pub(crate) fn serve_blocks(&mut self, from: PeerId, ids: Vec<Hash>, heights: Vec<u64>) {
+        let asked = (from, ids.first().copied());
+        let repeated = self.answered.is_some_and(|(peer, newest, at)| {
+            (peer, newest) == asked && self.now_ms.saturating_sub(at) < ANSWERED_FOR_MS
+        });
+        if repeated {
+            return;
+        }
+        self.answered = Some((asked.0, asked.1, self.now_ms));
+        let served = match heights.len() == ids.len() {
+            true => {
+                let locator: Vec<_> = heights.into_iter().zip(ids).collect();
+                self.chain.blocks_after(&locator, BLOCKS_AT_ONCE)
+            }
+            false => self.chain.blocks_after_ids(&ids, BLOCKS_AT_ONCE),
+        };
+        match served {
+            Served::Blocks(blocks) => {
+                for block in blocks {
+                    let reply = Message::Block(block);
+                    self.outbox.push_back(Outgoing::To(from, reply));
+                }
+            }
+            Served::Pruned { oldest } => {
+                let reply = Message::Pruned { oldest };
+                self.outbox.push_back(Outgoing::To(from, reply));
+            }
+        }
+    }
+
     /// From now on this node holds headers only and never mines. Blocks it held stay on disk.
     pub fn become_light(&mut self, most_headers: usize, saved: &[BlockHeader]) {
         let mut light = Light::new(&self.chain, most_headers);

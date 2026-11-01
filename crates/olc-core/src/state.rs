@@ -76,6 +76,14 @@ fn holds_header(place: &dyn Medium) -> bool {
     place.read(0, &mut magic) && u32::from_le_bytes(magic) == MAGIC
 }
 
+/// The number a place says it was saved under, when its header is one.
+fn seq_of(place: &dyn Medium) -> Option<u64> {
+    let mut header = [0u8; 12];
+    let read = place.read(0, &mut header);
+    let magic = u32::from_le_bytes(header[0..4].try_into().ok()?);
+    (read && magic == MAGIC).then_some(u64::from_le_bytes(header[4..12].try_into().ok()?))
+}
+
 fn read_place(place: &dyn Medium, genesis: &Hash) -> Option<(u64, Saved)> {
     let mut header = [0u8; HEADER];
     if !place.read(0, &mut header) {
@@ -147,16 +155,15 @@ impl Chain {
     }
 
     fn come_back(&mut self) {
-        let places = [
-            read_place(self.places[0].as_ref(), &self.genesis),
-            read_place(self.places[1].as_ref(), &self.genesis),
-        ];
         let damaged = self.places.iter().any(|place| holds_header(place.as_ref()));
-        let [first, second] = places;
-        let newest = match (first, second) {
-            (Some(a), Some(b)) => Some(if a.0 >= b.0 { a } else { b }),
-            (a, b) => a.or(b),
+        // Reading a place takes most of a boot, so the older one waits until it is needed.
+        let order = match seq_of(self.places[0].as_ref()) >= seq_of(self.places[1].as_ref()) {
+            true => [0, 1],
+            false => [1, 0],
         };
+        let newest = order.iter().find_map(|place| {
+            read_place(self.places.get(*place)?.as_ref(), &self.genesis)
+        });
         if let Some((seq, saved)) = newest {
             self.saved_seq = seq;
             self.saved_head = saved.head;

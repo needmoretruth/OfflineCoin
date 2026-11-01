@@ -282,6 +282,7 @@ pub fn loading(screen: &mut Screen, coins: &Coins, now_ms: u64, done: usize, tot
         screen.pixel(x, TOP + 2, x < LEFT + filled);
         screen.pixel(x, TOP + 3, true);
     }
+    screen.text(LEFT, TOP + 5, &format!("{done}/{total}"), Font::Regular);
     screen.flush();
 }
 

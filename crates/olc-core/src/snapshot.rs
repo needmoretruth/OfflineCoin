@@ -4,7 +4,7 @@
 use crate::chain::Chain;
 use crate::ledger::{Found, UnspentSet};
 use crate::log::NOWHERE;
-use crate::tree::{Entries, Entry, Mark};
+use crate::tree::{Entries, Entry, Mark, MARK_EVERY};
 use crate::types::BlockHeader;
 use alloc::vec::Vec;
 use olc_crypto::Hash;
@@ -50,7 +50,12 @@ impl Chain {
             height: self.height(),
             total_work: self.total_work(),
             headers,
-            marks: self.marks.iter().map(|mark| (mark.height, mark.id)).collect(),
+            marks: self
+                .marks
+                .iter()
+                .filter(|mark| mark.height.is_multiple_of(MARK_EVERY))
+                .map(|mark| (mark.height, mark.id))
+                .collect(),
             unspent: self.unspent.clone(),
         };
         postcard::to_allocvec(&snapshot).unwrap_or_default()

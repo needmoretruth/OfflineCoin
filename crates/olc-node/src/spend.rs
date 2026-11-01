@@ -8,6 +8,13 @@ use olc_wallet::WalletError;
 /// Own payments remembered, so their change does not read as money received.
 const MAX_SENT: usize = 16;
 
+/// A merge waiting for its signatures. A board takes a good part of a second over each.
+pub(crate) struct Signing {
+    tx: Tx,
+    owners: Vec<Address>,
+    done: usize,
+}
+
 impl Engine {
     /// Signs a payment from this node's wallet and sends it to the network.
     pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
@@ -35,7 +42,8 @@ impl Engine {
     }
 
     fn reserved(&self) -> Vec<OutPoint> {
-        let inputs = self.pool.iter().flat_map(|tx| &tx.inputs);
+        let signing = self.signing.iter().map(|signing| &signing.tx);
+        let inputs = self.pool.iter().chain(signing).flat_map(|tx| &tx.inputs);
         inputs.map(|input| input.previous).collect()
     }
 
@@ -51,15 +59,32 @@ impl Engine {
 
     /// Merges small coins when a key has gathered many.
     pub(crate) fn merge_coins(&mut self) {
-        if !self.merging {
+        // While catching up, coins that look unspent may already be spent further on.
+        if !self.merging || self.signing.is_some() || self.syncing_to().is_some() {
             return;
         }
         let reserved = self.reserved();
         let fee = self.chain.rules().min_fee;
-        if let Some(tx) = self.wallet.merge(&self.chain, fee, &reserved) {
-            let inputs = tx.inputs.len();
-            self.send_own(tx);
-            self.push_event(Event::CoinsMerged { inputs });
+        if let Some((tx, owners)) = self.wallet.merge(&self.chain, fee, &reserved) {
+            self.signing = Some(Signing { tx, owners, done: 0 });
         }
+    }
+
+    /// One signature of the merge under way, then back to mining and talking.
+    pub(crate) fn sign_a_little(&mut self) {
+        let Some(mut signing) = self.signing.take() else {
+            return;
+        };
+        let done = signing.done;
+        if self.wallet.sign_input(&mut signing.tx, &signing.owners, done).is_err() {
+            return;
+        }
+        signing.done += 1;
+        if signing.done < signing.owners.len() {
+            self.signing = Some(signing);
+            return;
+        }
+        self.send_own(signing.tx);
+        self.push_event(Event::CoinsMerged { inputs: done + 1 });
     }
 }

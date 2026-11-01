@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 
 /// Blocks of the best chain between two marks. A walk to any height is at most this long.
 pub const MARK_EVERY: u64 = 256;
+/// The same for recent heights. Each step of a walk is a read, and on a board a read takes a
+/// millisecond, so a walk of 256 held up a peer's every request for seconds.
+pub(crate) const NEAR_MARK_EVERY: u64 = 16;
+/// How far below the tip the close marks stay: about what a board's blocks reach back to, and a
+/// fixed cost on a computer that holds far more.
+pub(crate) const NEAR_MARKS_FOR: u64 = 16_384;
 /// Headers kept below each branch's end, at the least.
 const WINDOW: u64 = 64;
 
