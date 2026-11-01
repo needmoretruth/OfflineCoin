@@ -509,7 +509,9 @@ impl Service {
         entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
-        entries.iter_mut().for_each(|entry| refresh_local(entry, &local));
+        for entry in &mut entries {
+            refresh_local(entry, &local, identity.as_ref());
+        }
         let boards = rows
             .into_iter()
             .map(|row| BoardView {

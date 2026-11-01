@@ -43,7 +43,12 @@ pub fn own_entry(view: &NodeView, identity: Option<Identity>) -> Entry {
 }
 
 /// A node this app runs reads live, rather than as it stood at the last look around.
-pub fn refresh_local(entry: &mut Entry, nodes: &[LocalView]) {
+pub fn refresh_local(entry: &mut Entry, nodes: &[LocalView], coin: Option<&Identity>) {
+    // Another program's node on this computer, on a coin of its own, stays as it answered.
+    let same = |found: &Identity| coin.is_some_and(|coin| coin.genesis == found.genesis);
+    if !entry.identity.as_ref().is_some_and(same) {
+        return;
+    }
     let port = entry.address.as_deref().and_then(|address| address.rsplit(':').next());
     let port = port.and_then(|port| port.parse::<u16>().ok());
     let live = nodes
@@ -99,5 +104,61 @@ pub fn board_entry(row: &BoardRow, said: Option<Hello>) -> Entry {
             (true, false, true) => Work::Mining(u64::from(beacon.hashrate)),
             (true, false, false) => Work::Idle,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::local::{ChildStatus, Enforcement, Preset};
+    use olc_core::CoinConfig;
+
+    fn found(coin: &CoinConfig) -> Entry {
+        Entry {
+            reach: Reach::ThisComputer,
+            address: Some("127.0.0.1:7100".into()),
+            via: None,
+            device: "computer".into(),
+            name: "node-0".into(),
+            identity: Some(Identity::of(coin.clone())),
+            tip: None,
+            height: Some(3),
+            work_done: Some(90),
+            build: String::new(),
+            work: Work::Idle,
+        }
+    }
+
+    fn running() -> Vec<LocalView> {
+        vec![LocalView {
+            spec: Preset::Esp32S3.spec(0),
+            pid: Some(1),
+            status: Some(ChildStatus {
+                height: 40,
+                work: "900".into(),
+                port: Some(7100),
+                ..ChildStatus::default()
+            }),
+            measured: None,
+            memory_limit: 0,
+            enforcement: Enforcement::Nothing,
+            ended: None,
+        }]
+    }
+
+    #[test]
+    fn a_running_node_reads_live_only_on_this_apps_coin() {
+        let ours = CoinConfig::olc();
+        let mut other = CoinConfig::olc();
+        other.message = "Another genesis".into();
+        let identity = Identity::of(ours.clone());
+
+        let mut entry = found(&ours);
+        refresh_local(&mut entry, &running(), Some(&identity));
+        assert_eq!(entry.height, Some(40));
+
+        let mut entry = found(&other);
+        refresh_local(&mut entry, &running(), Some(&identity));
+        assert_eq!(entry.height, Some(3));
     }
 }
