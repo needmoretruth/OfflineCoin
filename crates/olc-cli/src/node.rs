@@ -134,6 +134,13 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
 fn main_loop(shared: &Shared, store: &mut Store, hash_limit: u64) {
     let mut window = Instant::now();
     let mut hashes = 0u64;
+    // A batch bigger than the cap allows in a window would overrun it.
+    let batch = match hash_limit {
+        0 => MINING_BATCH,
+        limit => {
+            u32::try_from(limit / 100).map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH))
+        }
+    };
     loop {
         let elapsed_ms = window.elapsed().as_millis() as u64;
         let allowed = hash_limit == 0 || hashes < hash_limit * elapsed_ms / 1_000;
@@ -142,8 +149,8 @@ fn main_loop(shared: &Shared, store: &mut Store, hash_limit: u64) {
             let now = unix_ms();
             runner.step(now);
             if mining {
-                runner.engine.mine(MINING_BATCH, now);
-                hashes += u64::from(MINING_BATCH);
+                runner.engine.mine(batch, now);
+                hashes += u64::from(batch);
             }
             if let Some(app) = &shared.app {
                 app.pump(&mut runner);
