@@ -7,6 +7,7 @@ pub mod engine;
 mod event;
 pub mod fragment;
 pub mod frame;
+pub mod hello;
 pub mod message;
 pub mod network;
 mod refused;
@@ -15,5 +16,6 @@ mod sync;
 
 pub use engine::{Engine, PeerId};
 pub use event::{Event, Outgoing, Status};
+pub use hello::{Card, Hello};
 pub use message::Message;
 pub use runner::{Link, Runner, Target};
