@@ -4,6 +4,7 @@ mod args;
 pub mod autoupdate;
 mod board;
 pub mod carried;
+pub mod clearance;
 pub mod control_key;
 mod extra;
 pub mod fleet;

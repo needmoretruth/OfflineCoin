@@ -1,6 +1,7 @@
 //! What a person or a program does to one board of the fleet: waiting for the answer, repeating
 //! what got lost. The packets themselves are in `fleet`.
 use crate::board::BoardLink;
+use crate::clearance::Cleared;
 use crate::fleet::Fleet;
 use olc_control::{Action, BoardId, Read, Refusal, CHUNK};
 use olc_crypto::{Hash, StreamHash};
@@ -114,13 +115,13 @@ fn wait_for_progress(
 
 /// Sends `image` under a signature for `hash`, which a true update takes from the image itself.
 /// Returns how long it took. The board restarts on its own once it has checked all of it.
-pub fn send_image(
+pub(crate) fn send_image(
     fleet: &SharedFleet,
-    board: BoardId,
+    cleared: &Cleared,
     image: &[u8],
-    hash: Hash,
     on_progress: &dyn Fn(u32),
 ) -> Result<Duration, String> {
+    let (board, hash) = (cleared.board, cleared.hash);
     let started = Instant::now();
     let session = new_session()?;
     let size = u32::try_from(image.len()).map_err(|_| "The image is too large.")?;

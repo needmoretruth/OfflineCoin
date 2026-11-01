@@ -4,7 +4,8 @@
 //!   boardcheck PORT BOARD_ID update FIRMWARE
 use olc_board::control_key::{config_folder, ControlKey};
 use olc_board::install::app_image;
-use olc_board::remote::{command, hash_of, send_image};
+use olc_board::clearance::{deliver, Ledger};
+use olc_board::remote::{command, hash_of};
 use olc_board::{Fleet, SharedFleet};
 use olc_control::{sign, Action, BoardId, Body, Forward, Order, Signed};
 use olc_link_serial::SerialLink;
@@ -130,7 +131,8 @@ fn refusals(fleet: &SharedFleet, board: BoardId, firmware: Option<&str>) -> Resu
         let middle = image.len() / 2;
         image[middle] ^= 1;
         let build = beacon(fleet, board).ok_or("no beacon")?.build;
-        let result = send_image(fleet, board, &image, hash, &|_| {});
+        let ledger = Ledger::open(&config_folder()?);
+        let result = deliver(fleet, &ledger, board, &image, hash, &|_| {}).map(|sent| sent.took);
         println!("image with one flipped byte: {result:?}");
         thread::sleep(Duration::from_secs(8));
         let now = beacon(fleet, board).ok_or("no beacon")?;
@@ -157,7 +159,8 @@ fn update(fleet: &SharedFleet, board: BoardId, firmware: &str) -> Result<(), Str
     let mut percent = 0;
     let shown = Mutex::new(&mut percent);
     let total = image.len() as u64;
-    let took = send_image(fleet, board, &image, hash_of(&image), &|next| {
+    let ledger = Ledger::open(&config_folder()?);
+    let sent = deliver(fleet, &ledger, board, &image, hash_of(&image), &|next| {
         if let Ok(mut percent) = shown.lock() {
             let now = u64::from(next) * 10 / total;
             if now > **percent {
@@ -166,7 +169,7 @@ fn update(fleet: &SharedFleet, board: BoardId, firmware: &str) -> Result<(), Str
             }
         }
     })?;
-    println!("sent in {:.1} s", took.as_secs_f64());
+    println!("sent in {:.1} s", sent.took.as_secs_f64());
     let deadline = Instant::now() + RETURN_WAIT;
     while Instant::now() < deadline {
         let now = beacon(fleet, board).ok_or("no beacon")?;
@@ -178,6 +181,9 @@ fn update(fleet: &SharedFleet, board: BoardId, firmware: &str) -> Result<(), Str
                 now.height,
                 (RETURN_WAIT - (deadline - Instant::now())).as_secs_f64()
             );
+            println!("answers: {}", command(fleet, board, "status").is_ok());
+            ledger.landed(&sent)?;
+            println!("proved: {}", ledger.is_proven(&hash_of(&image)));
             return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
