@@ -44,6 +44,25 @@ fn silence_moves_traffic_to_what_is_already_alive_within_a_few_hellos() {
 }
 
 #[test]
+fn a_neighbour_silent_everywhere_stays_on_its_link_until_it_is_truly_gone() {
+    let mut table = table();
+    run(&mut table, 0, 60_000, &[WIRE, RADIO]);
+    let peer = table.list()[0].peer;
+    // A board signing a large payment stops every link at once for some seconds.
+    let busy = run(&mut table, 60_000 + 8_000, 60_000 + 40_000, &[WIRE, RADIO]);
+    assert_eq!((busy.len(), table.list()[0].moves), (0, 0), "{busy:?}");
+    assert_eq!(table.route(peer), Some((WIRE, 7)));
+
+    assert_eq!(table.settle(100_000 + SILENT_MS), []);
+    assert_eq!(table.route(peer), Some((WIRE, 7)), "still on it, as it may come back");
+    assert_eq!(table.fan(RADIO, None), Fan::Everyone, "the next word still reaches it");
+    assert_eq!(table.fan(WIRE, None), Fan::Everyone);
+    let gone = table.settle(99_000 + CLOSE_MS);
+    assert_eq!(gone.len(), 1);
+    assert_eq!((gone[0].to, table.count()), (None, 0));
+}
+
+#[test]
 fn a_better_link_must_stay_heard_before_traffic_returns() {
     let mut table = table();
     run(&mut table, 0, 5_000, &[BLUETOOTH]);

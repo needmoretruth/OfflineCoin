@@ -10,6 +10,8 @@ mod os;
 #[cfg(unix)]
 mod unix;
 
+use olc_node::network::Mark;
+use olc_node::Link;
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -112,6 +114,9 @@ pub struct Usage {
 /// Keeps a limit alive for as long as its process runs.
 pub type Hold = Box<dyn Any + Send>;
 
+pub const NO_BLUETOOTH: &str = "This computer cannot use Bluetooth.";
+pub const NO_ESP_NOW: &str = "This computer cannot use ESP-NOW.";
+
 pub trait Platform: Sync {
     /// Where nodes, coins and settings live.
     fn data_folder(&self) -> Option<PathBuf>;
@@ -140,6 +145,18 @@ pub trait Platform: Sync {
         Vec::new()
     }
 
+    /// Whether nodes here can use Bluetooth. Only Linux can so far.
+    fn has_bluetooth(&self) -> bool {
+        false
+    }
+    /// A link over Bluetooth, for the node with this id.
+    fn bluetooth_link(&self, _me: u64) -> Result<Box<dyn Link>, String> {
+        Err(NO_BLUETOOTH.into())
+    }
+    /// A link over ESP-NOW through a Wi-Fi card in monitor mode.
+    fn esp_now_link(&self, _card: &str, _mark: Mark) -> Result<Box<dyn Link>, String> {
+        Err(NO_ESP_NOW.into())
+    }
     fn process_exists(&self, pid: u32) -> bool;
     fn write_private(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
     fn is_private(&self, path: &Path) -> bool;

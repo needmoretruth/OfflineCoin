@@ -225,4 +225,5 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.read", "내용 확인"),
     ("history.from", "시작 블록"),
     ("history.trust", "그쪽의 코인 목록을 받아 거기서부터 이어 갑니다. 그 앞의 내용은 그쪽을 믿어야 합니다."),
+    ("history.accept", "믿고 받기"),
 ];

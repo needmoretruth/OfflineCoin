@@ -2,7 +2,7 @@
 //! ways are tried a moment apart and overlap, the first to work cancels the rest, and a way that
 //! fails waits twice as long each time. Nothing is dialled while a neighbour has a working link
 //! as good as what could be dialled.
-use crate::neighbours::{Neighbours, SILENT_MS};
+use crate::neighbours::{Neighbours, CLOSE_MS};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -171,8 +171,8 @@ impl Dialer {
         for at in 0..self.places.len() {
             let mut place = self.places[at].clone();
             if let (Some(number), Some(node)) = (place.number, place.node) {
-                let settled = now.saturating_sub(place.opened_ms) >= SILENT_MS;
-                if !settled || table.is_heard_on(node, place.link) {
+                let settled = now.saturating_sub(place.opened_ms) >= CLOSE_MS;
+                if !settled || !table.is_gone_from(node, place.link, now) {
                     continue;
                 }
                 orders.push(Order::Close { link: place.link, number });
@@ -220,6 +220,7 @@ impl Dialer {
 mod tests {
     use super::*;
     use crate::medium::Medium;
+    use crate::neighbours::SILENT_MS;
 
     const RADIO: usize = 0;
     const BLUETOOTH: usize = 1;
@@ -333,9 +334,11 @@ mod tests {
         dialer.learn(WIFI, 4, THEM);
         table.settle(0);
         table.settle(SILENT_MS);
-        let orders = dialer.step(&table, ME, SILENT_MS);
+        assert_eq!(dialer.step(&table, ME, SILENT_MS), [], "busy is not gone");
+        table.settle(CLOSE_MS);
+        let orders = dialer.step(&table, ME, CLOSE_MS);
         assert_eq!(orders, [Order::Close { link: WIFI, number: 4 }]);
-        assert_eq!(dials(&dialer.step(&table, ME, SILENT_MS + 1)), 1);
+        assert_eq!(dials(&dialer.step(&table, ME, CLOSE_MS + 1)), 1);
     }
 
     #[test]

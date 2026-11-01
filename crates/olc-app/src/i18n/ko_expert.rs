@@ -83,6 +83,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.miner_me", "이 지갑의 키"),
     ("settings.mine_note", "코인베이스 메모"),
     ("settings.links", "링크 순서"),
+    ("pro.esp_now_card", "ESP-NOW 카드"),
+    ("pro.esp_now_card_about", "모니터 모드의 와이파이 카드입니다. 없으면 비워 둡니다."),
     ("settings.links_first", "노드는 되는 링크 중 가장 위를 씁니다."),
     ("settings.keeping", "저장소"),
     ("settings.keep", "노드 종류"),
@@ -158,5 +160,4 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.node_paid", "노드 {}가 보냈습니다."),
     ("notice.key_added", "새 키 {}"),
     ("notice.key_chosen", "받는 키를 바꿨습니다."),
-    ("notice.restored", "키 {}개를 복원했습니다."),
 ];

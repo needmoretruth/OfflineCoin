@@ -1,5 +1,6 @@
 //! The rest of the expert Korean words.
 pub const WORDS: &[(&str, &str)] = &[
+    ("notice.restored", "키 {}개를 복원했습니다."),
     ("notice.snapshot_taking", "UTXO 스냅샷을 받는 중입니다."),
     ("notice.key_failed", "키 변경 실패: {}"),
     ("notice.import_failed", "가져오기 실패: {}"),

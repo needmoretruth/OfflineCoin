@@ -1,6 +1,5 @@
 //! The rest of the plain English words.
 pub const WORDS: &[(&str, &str)] = &[
-    ("history.accept", "Trust them"),
     ("history.fetching", "Receiving {} of {}"),
     ("history.assumed", "This coin's records start from a list others sent."),
     ("settings.general", "General"),
@@ -48,6 +47,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.auto_update_about", "Only boards you pick on the Boards page."),
     ("settings.links", "Which connection comes first"),
     ("settings.links_first", "Boards use this first."),
+    ("settings.no_bluetooth", "This computer cannot use Bluetooth."),
+    ("settings.bluetooth_note", "Turning it off takes effect the next time OLC Core starts."),
     ("settings.link_up", "Move {} up"),
     ("settings.keeping", "Keeping blocks"),
     ("settings.keep", "What to keep"),

@@ -1,6 +1,5 @@
 //! The rest of the plain Korean words.
 pub const WORDS: &[(&str, &str)] = &[
-    ("history.accept", "믿고 받기"),
     ("history.fetching", "{} / {} 받는 중"),
     ("history.assumed", "이 코인의 기록은 다른 기기가 보낸 목록에서 시작합니다."),
     ("settings.general", "일반"),
@@ -48,6 +47,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.auto_update_about", "보드 화면에서 고른 보드만 업데이트합니다."),
     ("settings.links", "먼저 쓸 연결"),
     ("settings.links_first", "보드는 이 연결을 먼저 씁니다."),
+    ("settings.no_bluetooth", "이 컴퓨터에서는 블루투스를 쓸 수 없습니다."),
+    ("settings.bluetooth_note", "끄면 OLC Core를 다시 켤 때 적용됩니다."),
     ("settings.link_up", "{} 위로"),
     ("settings.keeping", "블록 보관"),
     ("settings.keep", "보관할 것"),

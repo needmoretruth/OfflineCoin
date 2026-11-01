@@ -225,4 +225,5 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.read", "Read what this means"),
     ("history.from", "Starts from block"),
     ("history.trust", "You take their list of coins and go on from there. Everything before that point rests on trusting them."),
+    ("history.accept", "Trust them"),
 ];

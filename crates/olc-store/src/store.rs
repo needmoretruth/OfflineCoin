@@ -40,6 +40,12 @@ pub struct NodeSettings {
     /// usual order.
     #[serde(default)]
     pub links: String,
+    /// Reaches neighbours by Bluetooth too, where this computer can.
+    #[serde(default)]
+    pub bluetooth: bool,
+    /// A Wi-Fi card in monitor mode to reach boards through ESP-NOW. Empty means none.
+    #[serde(default)]
+    pub esp_now_card: String,
 }
 
 impl NodeSettings {

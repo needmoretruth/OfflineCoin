@@ -19,6 +19,7 @@ mod ops;
 #[cfg(test)]
 mod ops_tests;
 mod pool_run;
+pub mod radios;
 mod returning;
 mod rows;
 mod service;

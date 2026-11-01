@@ -16,6 +16,7 @@ pub struct ExtraValues {
     miner: String,
     note: String,
     ports: String,
+    card: String,
     recent: u64,
 }
 
@@ -41,6 +42,17 @@ fn link_rows(ui: &mut Ui, cx: &Cx) {
             }
         });
     }
+    let bluetooth = cx.snap.node.bluetooth;
+    let about = cx.say(if bluetooth.is_some() { "settings.bluetooth_note" } else { "settings.no_bluetooth" });
+    row(ui, t, cx.say("boards.bluetooth"), about, |ui| {
+        widgets::slot(ui, |ui| {
+            if let Some(mut on) = bluetooth {
+                if switch(ui, t, &mut on, cx.say("boards.bluetooth")).clicked() {
+                    cx.send(Command::Own(Personal::SetBluetooth(on)));
+                }
+            }
+        });
+    });
 }
 
 impl Extras<'_> {
@@ -156,6 +168,12 @@ impl Extras<'_> {
                 let read = self.values.ports.split(',').filter_map(|word| word.trim().parse().ok());
                 cx.settings.scan_ports = read.collect();
                 cx.save();
+            }
+        });
+        row(ui, t, cx.say("pro.esp_now_card"), cx.say("pro.esp_now_card_about"), |ui| {
+            field(ui, &mut self.values.card, cx.say("pro.esp_now_card"), 170.0);
+            if button(ui, t, cx.say("common.save"), Kind::Plain).clicked() {
+                cx.send(Command::Own(Personal::SetEspNowCard(self.values.card.trim().to_string())));
             }
         });
     }
