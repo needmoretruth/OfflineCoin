@@ -1,19 +1,26 @@
 //! The board's side of `olc-control`: hears packets on any link, passes on what is not for it,
 //! and obeys what the gate lets through.
 use crate::node::{hex, Node};
+use crate::node::{LINK_RADIO, LINK_USB};
 use crate::store::{Identity, Store};
 use crate::views::Note;
+use crate::wifi;
 use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 use esp_println::println;
 use olc_control::{
-    Action, Beacon, BoardId, Body, Forward, Gate, ImageSlot, Packet, Read, Refusal, Router, Signed,
-    Update,
+    sign_beacon, Action, Beacon, BoardId, Body, Forward, Gate, ImageSlot, Packet, Read, Refusal,
+    Router, Signed, Update,
 };
-use olc_node::{Message, Outgoing};
+use olc_logo::{MAX_FPS, MIN_FPS};
+use olc_node::{Card, Message, Outgoing};
 
 const BEACON_EVERY_MS: u64 = 4_000;
+/// How often a board with a computer on its cable asks the boards around what they are.
+const ASK_AROUND_EVERY_MS: u64 = 30_000;
+const DEVICE: &str = "esp32-s3";
 const CHUNK_PAUSE_MS: u64 = 1_000;
 const UPDATE_GONE_MS: u64 = 15_000;
 /// How long printed lines keep going to whoever gave the last order.
@@ -40,6 +47,9 @@ pub struct Control {
     reader: Option<BoardId>,
     refused: u32,
     beacon_ms: u64,
+    ask_around_ms: u64,
+    /// Signs beacons. It is the wallet's key: the address is what the app knows a board by.
+    secret: [u8; 32],
     /// When the last piece of an image came.
     chunk_ms: u64,
 }
@@ -62,7 +72,14 @@ impl Control {
         self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
     }
 
-    pub fn new(me: BoardId, first_id: u32, identity: Identity, counter: u64, slot: u8) -> Self {
+    pub fn new(
+        me: BoardId,
+        first_id: u32,
+        identity: Identity,
+        counter: u64,
+        slot: u8,
+        secret: [u8; 32],
+    ) -> Self {
         Self {
             router: Router::new(me, first_id),
             gate: Gate::new(me, identity.key, counter),
@@ -73,6 +90,8 @@ impl Control {
             reader: None,
             refused: 0,
             beacon_ms: 0,
+            ask_around_ms: 0,
+            secret,
             chunk_ms: 0,
         }
     }
@@ -116,8 +135,39 @@ impl Node {
         }
         if now >= self.control.beacon_ms {
             self.control.beacon_ms = now + BEACON_EVERY_MS;
-            let body = Body::Beacon(self.beacon());
-            self.start_packet(None, body);
+            self.runner.card = self.card();
+            let (me, secret) = (self.control.router.me(), self.control.secret);
+            if let Some(signed) = sign_beacon(&secret, &me, self.beacon()) {
+                self.start_packet(None, Body::Beacon(signed));
+            }
+        }
+        self.pass_hellos(now);
+    }
+
+    /// What this board says when asked. Public facts only.
+    fn card(&self) -> Card {
+        Card {
+            name: self.control.identity.name.clone(),
+            device: DEVICE.into(),
+            build: BUILD.into(),
+            port: wifi::PORT,
+            mining: self.mining,
+            hashrate: u64::from(self.rate),
+            known: Vec::new(),
+        }
+    }
+
+    /// A board on the air alone can only tell the computer through a board on a cable.
+    fn pass_hellos(&mut self, now: u64) {
+        let cabled = self.runner.peers_on(LINK_USB) > 0;
+        if cabled && now >= self.control.ask_around_ms {
+            self.control.ask_around_ms = now + ASK_AROUND_EVERY_MS;
+            self.runner.ask_who_on(LINK_RADIO);
+        }
+        while let Some((_, hello)) = self.runner.take_hello() {
+            if cabled {
+                self.runner.pass_hello(LINK_USB, hello);
+            }
         }
     }
 
@@ -167,6 +217,10 @@ impl Node {
             counter: self.control.gate.counter(),
             trusts_a_key: self.control.gate.has_key(),
             refused: self.control.refused,
+            smooth: self.smooth,
+            smooth_range: (MIN_FPS, MAX_FPS),
+            genesis: self.runner.engine.chain().genesis_id(),
+            work: status.work,
         }
     }
 

@@ -187,6 +187,17 @@ impl Board {
         Status::parse(&line).ok_or_else(|| format!("The {} board needs new firmware.", self.name))
     }
 
+    /// For a moment the board is known to be busy: moving to another branch holds it for a while.
+    pub fn status_within(&mut self, patience: Duration) -> Result<Status, String> {
+        let deadline = Instant::now() + patience;
+        loop {
+            match self.status() {
+                Err(_) if Instant::now() < deadline => {}
+                answer => return answer,
+            }
+        }
+    }
+
     /// Changes a setting and reads it back: a line sent to a busy board can get lost.
     pub fn set(&mut self, line: &str, holds: impl Fn(&Status) -> bool) -> Result<(), String> {
         for _ in 0..SET_TRIES {
