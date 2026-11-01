@@ -174,7 +174,9 @@ impl Node {
         }
         self.read_button(now);
         let window = now.saturating_sub(self.window_ms);
-        if window >= 1_000 {
+        if self.window_ms == 0 {
+            self.first_window(now);
+        } else if window >= 1_000 {
             self.rate = (u64::from(self.attempts) * 1_000 / window) as u32;
             self.busy_percent = self.busy_us / 10 / window;
             self.busy_us = 0;

@@ -39,7 +39,7 @@ impl Node {
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
-             power={} rssi={} bright={} busy={} clock={} boot_wdt={} strap={:#x} key={} name={}",
+             power={} rssi={} bright={} busy={} clock={} network={} boot_wdt={} strap={:#x} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -79,6 +79,11 @@ impl Node {
             self.bright,
             self.busy_percent,
             self.clock_mhz,
+            if self.network.own_name.is_empty() {
+                "off"
+            } else {
+                "on"
+            },
             self.boot_watchdog,
             GPIO::regs().strap().read().bits(),
             self.control.gate.has_key(),

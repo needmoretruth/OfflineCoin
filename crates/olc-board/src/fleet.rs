@@ -2,7 +2,8 @@
 use crate::control_key::ControlKey;
 use crate::pins::Pins;
 use olc_control::{
-    sign, Action, Beacon, BoardId, Body, Forward, Order, Packet, Read, Refusal, Router, Signed,
+    sign, Action, Beacon, BoardId, Body, Forward, OldBeacon, Order, Packet, Read, Refusal, Router,
+    Signed,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -27,10 +28,13 @@ pub struct Seen {
     pub connection: Connection,
     pub online: bool,
     pub silent_for: Duration,
+    /// Its build speaks a beacon format this program cannot check, so what it says is unproved.
+    pub old_format: bool,
 }
 
 struct Known {
     beacon: Beacon,
+    old_format: bool,
     heard: Instant,
     direct: Option<(Instant, usize)>,
     link: usize,
@@ -92,6 +96,7 @@ impl Fleet {
     /// Takes in a packet a link heard.
     pub fn hear(&mut self, peer: u32, bytes: &[u8]) {
         let Some(mut packet) = Packet::decode(bytes) else {
+            self.hear_old_board(peer, bytes);
             return;
         };
         if let Body::Beacon(signed) = &packet.body {
@@ -119,6 +124,32 @@ impl Fleet {
         }
     }
 
+    /// A board never disappears for being old. Unproved words stay away from any board that
+    /// has proved itself: they can add a row, never change one.
+    fn hear_old_board(&mut self, peer: u32, bytes: &[u8]) {
+        let Some(old) = OldBeacon::decode(bytes) else {
+            return;
+        };
+        let from = old.from;
+        if self
+            .boards
+            .get(&from)
+            .is_some_and(|known| !known.old_format)
+        {
+            return;
+        }
+        let link = (self.link_of)(peer);
+        let direct = (old.hops == 0).then(|| (Instant::now(), link));
+        let known = Known {
+            beacon: old.beacon(),
+            old_format: true,
+            heard: Instant::now(),
+            direct,
+            link,
+        };
+        self.boards.insert(from, known);
+    }
+
     fn take_in(&mut self, peer: u32, packet: Packet) {
         let from = packet.from;
         match packet.body {
@@ -129,6 +160,7 @@ impl Fleet {
                 let old = self.boards.get(&from).and_then(|known| known.direct);
                 let known = Known {
                     beacon,
+                    old_format: false,
                     heard: Instant::now(),
                     direct: direct.or(old),
                     link,
@@ -260,6 +292,7 @@ impl Fleet {
                 },
                 online: known.heard.elapsed() < SILENT_AFTER,
                 silent_for: known.heard.elapsed(),
+                old_format: known.old_format,
             }
         };
         self.boards.iter().map(view).collect()
@@ -328,6 +361,38 @@ mod tests {
             body: Body::Beacon(sign_beacon(&signer, &from, beacon).unwrap()),
         }
         .encode()
+    }
+
+    /// The bytes a build from before `smooth` and `genesis` sends: the fields it had, then a
+    /// signature in a place today's format reads as something else.
+    fn old_frame(from: BoardId, hops: u8) -> Vec<u8> {
+        let mut frame = OldBeacon::decode(&beacon(1, hops, from)).unwrap().encode();
+        frame.extend_from_slice(&[0, 0, 0]);
+        frame
+    }
+
+    #[test]
+    fn a_board_too_old_to_read_still_shows() {
+        let mut fleet = fleet("old-board");
+        fleet.hear(1, &old_frame(BOARD, 1));
+        let boards = fleet.boards();
+        assert_eq!(boards.len(), 1);
+        assert!(boards[0].old_format);
+        assert_eq!(boards[0].beacon.name, "one");
+        assert_eq!(boards[0].beacon.build, "x");
+        assert_eq!(boards[0].beacon.height, 9);
+    }
+
+    #[test]
+    fn old_words_cannot_change_a_board_that_proved_itself() {
+        let mut fleet = fleet("old-words");
+        fleet.hear(1, &beacon(1, 1, BOARD));
+        let mut frame = OldBeacon::decode(&beacon(2, 1, BOARD)).unwrap();
+        frame.name = "fake".into();
+        fleet.hear(1, &frame.encode());
+        let boards = fleet.boards();
+        assert_eq!(boards[0].beacon.name, "one");
+        assert!(!boards[0].old_format);
     }
 
     #[test]
