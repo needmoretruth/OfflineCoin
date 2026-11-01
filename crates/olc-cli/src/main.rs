@@ -5,7 +5,6 @@ mod devnet;
 mod fleet_api;
 mod logo;
 mod node;
-mod store;
 mod web;
 mod window;
 

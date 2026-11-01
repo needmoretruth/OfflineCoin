@@ -14,6 +14,8 @@ members = [
     "crates/olc-board",
     "crates/olc-lab",
     "crates/olc-cli",
+    "crates/olc-store",
+    "crates/olc-app",
 ]
 # The firmware targets Xtensa and has its own workspace.
 exclude = ["firmware"]
@@ -37,6 +39,7 @@ olc-link-tcp = { path = "crates/olc-link-tcp" }
 olc-link-serial = { path = "crates/olc-link-serial" }
 olc-board = { path = "crates/olc-board" }
 olc-lab = { path = "crates/olc-lab" }
+olc-store = { path = "crates/olc-store" }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "alloc"] }
 sha2 = { version = "0.10", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

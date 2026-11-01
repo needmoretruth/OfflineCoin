@@ -1,13 +1,13 @@
 //! Runs a node: the links, the mining loop and the browser screen.
 use crate::app::App;
-use crate::store::{load_or_create_secret, Store};
 use crate::{coinfile, web, window};
 use olc_board::{autoupdate, carried, Args};
 use olc_core::Plugins;
 use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
-use olc_node::{Engine, Event, Runner};
+use olc_node::{Card, Engine, Event, Runner};
 use olc_pow::ProofOfWork;
+use olc_store::{load_or_create_secret, Store};
 use olc_wallet::Wallet;
 use std::collections::VecDeque;
 use std::fs;
@@ -98,6 +98,13 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
     let listen_on = if app.is_some() { host } else { "0.0.0.0" };
     tcp.listen(&format!("{listen_on}:{port}"))
         .map_err(|error| format!("port {port}: {error}"))?;
+    runner.card = Card {
+        device: "computer".into(),
+        build: env!("CARGO_PKG_VERSION").into(),
+        port,
+        known: args.values("connect"),
+        ..Card::default()
+    };
     for address in args.values("connect") {
         tcp.connect(address);
     }
@@ -221,6 +228,10 @@ fn main_loop(shared: &Shared, store: &mut Store) {
             shared
                 .hashrate
                 .store(hashes * 1_000 / elapsed_ms, Ordering::Relaxed);
+            if let Ok(mut runner) = shared.runner.lock() {
+                runner.card.mining = shared.mining.load(Ordering::Relaxed);
+                runner.card.hashrate = hashes * 1_000 / elapsed_ms;
+            }
             hashes = 0;
             window = Instant::now();
         }
