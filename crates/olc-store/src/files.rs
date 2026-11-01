@@ -1,6 +1,7 @@
 //! A computer's [`Medium`]: files of a fixed size, one after another. Dropping old blocks is
 //! deleting the oldest file.
 use olc_core::medium::{Keep, Medium, SECTOR};
+use olc_core::{BlockHeader, Shelf};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 const SEGMENT: u64 = 64 * 1024 * 1024;
 const OPEN_AT_ONCE: usize = 4;
+const EVERY_HEADER: &str = "every-header.bin";
 
 pub struct Segments {
     directory: PathBuf,
@@ -155,15 +157,68 @@ impl Medium for Segments {
     }
 }
 
+/// One file with every header at its height, so a pruned computer can still show them all.
+struct HeaderFile(File);
+
+impl Shelf for HeaderFile {
+    fn put(&mut self, height: u64, header: &BlockHeader) -> bool {
+        let at = height * BlockHeader::ENCODED_LEN as u64;
+        let mut file = &self.0;
+        file.seek(SeekFrom::Start(at)).and_then(|_| file.write_all(&header.encode())).is_ok()
+    }
+
+    fn get(&self, height: u64) -> Option<BlockHeader> {
+        let mut bytes = [0u8; BlockHeader::ENCODED_LEN];
+        let mut file = &self.0;
+        file.seek(SeekFrom::Start(height * BlockHeader::ENCODED_LEN as u64)).ok()?;
+        file.read_exact(&mut bytes).ok()?;
+        // A height that was never written reads as zeros.
+        (bytes != [0u8; BlockHeader::ENCODED_LEN]).then(|| BlockHeader::decode(&bytes))?
+    }
+}
+
 /// Where a chain keeps its blocks and its saved state in `directory`.
 pub fn keep_in(directory: &Path, recent: Option<u64>, limit: Option<u64>) -> Result<Keep, String> {
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let headers = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join(EVERY_HEADER))
+        .map_err(|error| error.to_string())?;
     Ok(Keep {
         log: Box::new(Segments::new(directory, "chain", limit)),
         states: [
             Box::new(Segments::new(directory, "state-a", None)),
             Box::new(Segments::new(directory, "state-b", None)),
         ],
+        shelf: Some(Box::new(HeaderFile(headers))),
         recent,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::CoinConfig;
+
+    #[test]
+    fn the_header_file_holds_each_height_and_knows_its_gaps() {
+        let folder = std::env::temp_dir().join(format!("olc-shelf-{}", std::process::id()));
+        let mut keep = keep_in(&folder, None, None).unwrap();
+        let shelf = keep.shelf.as_mut().unwrap();
+        let mut header = CoinConfig::olc().genesis().header;
+        assert!(shelf.put(5, &header));
+        assert_eq!(shelf.get(5), Some(header));
+        assert_eq!(shelf.get(4), None);
+        assert_eq!(shelf.get(6), None);
+        header.nonce += 1;
+        assert!(shelf.put(5, &header));
+        assert_eq!(shelf.get(5), Some(header));
+        drop(keep);
+        let keep = keep_in(&folder, None, None).unwrap();
+        assert_eq!(keep.shelf.unwrap().get(5), Some(header));
+        fs::remove_dir_all(folder).unwrap();
+    }
 }

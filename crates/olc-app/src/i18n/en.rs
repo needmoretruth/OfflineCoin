@@ -333,6 +333,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("storage.title", "Keeping blocks"),
     ("storage.held", "Holding from block {}, {} on disk"),
     ("storage.fits", "About {} blocks fit here."),
+    ("storage.headers", "Every header stays here."),
     ("storage.all", "Keep every block"),
     ("storage.blocks", "Recent blocks to keep"),
     ("storage.merge", "Merge small coins by themselves"),

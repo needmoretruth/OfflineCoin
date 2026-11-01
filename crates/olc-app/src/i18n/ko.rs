@@ -333,6 +333,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("storage.title", "블록 보관"),
     ("storage.held", "{}번 블록부터 보관 중, 디스크 {}"),
     ("storage.fits", "여기에 블록 약 {}개가 들어갑니다."),
+    ("storage.headers", "헤더는 전부 보관합니다."),
     ("storage.all", "블록 전부 보관"),
     ("storage.blocks", "보관할 최근 블록 수"),
     ("storage.merge", "작은 코인 자동으로 합치기"),

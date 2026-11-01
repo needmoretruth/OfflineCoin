@@ -442,6 +442,12 @@ impl Engine {
                 self.push_event(Event::ReorgRefused);
                 self.history.pruned(from, self.chain.height() + 2, self.now_ms);
             }
+            // The bytes do not match their own header, which a damaged line does as well as a
+            // dishonest peer, and says nothing about the tip being followed.
+            Err(reason @ (ChainError::BadSeal | ChainError::BadMerkleRoot)) => {
+                self.refused.add_invalid(id, reason);
+                self.push_event(Event::BlockRejected { reason });
+            }
             Err(reason) => {
                 self.refused.add_invalid(id, reason);
                 self.stop_following(from);

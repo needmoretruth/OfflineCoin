@@ -18,6 +18,14 @@ pub enum Served {
     Pruned { oldest: u64 },
 }
 
+/// The newest block the locator names that is on this chain.
+pub(crate) fn shared_height(chain: &Chain, locator: &[(u64, Hash)]) -> u64 {
+    locator
+        .iter()
+        .find(|(height, id)| chain.id_at(*height).as_ref() == Some(id))
+        .map_or(0, |(height, _)| *height)
+}
+
 impl Chain {
     /// Blocks of the best chain, newest first, always ending with genesis.
     pub fn locator(&self) -> Vec<(u64, Hash)> {
@@ -45,11 +53,7 @@ impl Chain {
 
     /// Answers a locator with up to `most` blocks of the best chain after the newest one named.
     pub fn blocks_after(&self, locator: &[(u64, Hash)], most: usize) -> Served {
-        let shared = locator
-            .iter()
-            .find(|(height, id)| self.id_at(*height).as_ref() == Some(id))
-            .map_or(0, |(height, _)| *height);
-        let next = shared + 1;
+        let next = shared_height(self, locator) + 1;
         if next > self.height() {
             return Served::Blocks(Vec::new());
         }

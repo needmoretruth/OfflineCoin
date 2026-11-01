@@ -63,7 +63,16 @@ fn group_bytes(pid: u32) -> Option<u64> {
     // Only a scope is this process's alone. Anything above it is shared with the session.
     path.ends_with(".scope").then_some(())?;
     let file = Path::new("/sys/fs/cgroup").join(path.trim_start_matches('/'));
-    fs::read_to_string(file.join("memory.current")).ok()?.trim().parse().ok()
+    let charged: u64 = fs::read_to_string(file.join("memory.current")).ok()?.trim().parse().ok()?;
+    let stat = fs::read_to_string(file.join("memory.stat")).ok()?;
+    Some(charged.saturating_sub(file_cache(&stat)))
+}
+
+/// Page cache is charged to a group too, but the kernel gives it back whenever it is needed, so
+/// a node that read its chain would look full of memory it is not using.
+fn file_cache(stat: &str) -> u64 {
+    let line = stat.lines().find_map(|line| line.strip_prefix("file "));
+    line.and_then(|bytes| bytes.trim().parse().ok()).unwrap_or(0)
 }
 
 fn in_a_scope(limits: &Limits, program: &str, words: &[String]) -> Command {

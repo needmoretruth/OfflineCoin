@@ -5,7 +5,7 @@ use std::time::Instant;
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Measured {
     pub rss_bytes: u64,
-    /// What its control group is charged, when it has one of its own.
+    /// What its control group is charged for its own, without page cache, when it has a group.
     pub cgroup_bytes: Option<u64>,
     pub cpu_percent: f64,
     pub disk_bytes: u64,

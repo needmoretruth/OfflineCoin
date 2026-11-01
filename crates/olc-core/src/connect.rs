@@ -109,6 +109,7 @@ impl Chain {
         let id = block.id();
         apply_block(block, entry.height, &mut self.unspent);
         self.found.add(block, entry.height);
+        self.shelve(entry.height, &block.header);
         if entry.height.is_multiple_of(MARK_EVERY) {
             let at = entry.at;
             let height = entry.height;

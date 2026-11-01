@@ -410,6 +410,8 @@ impl Node {
             }
             (Some("mine"), Some(state), _) => {
                 self.mining = state == "on" && self.runner.engine.light().is_none();
+                let mine = if state == "on" { "" } else { "off" };
+                self.save(|settings| settings.mine = mine.into());
             }
             (Some("limit"), Some("default"), _) => self.set_limit(None),
             (Some("limit"), Some(value), _) => {
