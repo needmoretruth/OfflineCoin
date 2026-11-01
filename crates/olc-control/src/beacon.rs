@@ -2,7 +2,7 @@
 //! cannot speak for a board that did not send it. It says nothing secret and gives no control.
 use crate::packet::{Beacon, BoardId};
 use alloc::vec::Vec;
-use olc_crypto::{address_of, hash, public_key, sign, verify, Hash, PublicKey};
+use olc_crypto::{address_of, hash, verify, Hash, PublicKey, Signer};
 use serde::{Deserialize, Serialize};
 
 const DOMAIN: &[u8] = b"olc board beacon";
@@ -21,10 +21,10 @@ fn digest(board: &BoardId, beacon: &Beacon) -> Hash {
     hash(&bytes)
 }
 
-pub fn sign_beacon(secret: &[u8; 32], board: &BoardId, beacon: Beacon) -> Option<SignedBeacon> {
+pub fn sign_beacon(signer: &Signer, board: &BoardId, beacon: Beacon) -> Option<SignedBeacon> {
     Some(SignedBeacon {
-        public_key: public_key(secret)?.to_vec(),
-        signature: sign(secret, &digest(board, &beacon))?.to_vec(),
+        public_key: signer.public_key().to_vec(),
+        signature: signer.sign(&digest(board, &beacon))?.to_vec(),
         beacon,
     })
 }
@@ -44,17 +44,20 @@ impl SignedBeacon {
 mod tests {
     use super::*;
 
-    const SECRET: [u8; 32] = [5; 32];
     const BOARD: BoardId = [1; 6];
 
+    fn signer(seed: u8) -> Signer {
+        Signer::new(&[seed; 32]).unwrap()
+    }
+
     fn signed() -> SignedBeacon {
-        let key = public_key(&SECRET).unwrap();
+        let signer = signer(5);
         let beacon = Beacon {
-            address: address_of(&key),
+            address: address_of(signer.public_key()),
             height: 7,
             ..Beacon::default()
         };
-        sign_beacon(&SECRET, &BOARD, beacon).unwrap()
+        sign_beacon(&signer, &BOARD, beacon).unwrap()
     }
 
     #[test]
@@ -77,7 +80,7 @@ mod tests {
     #[test]
     fn another_key_cannot_sign_for_an_address() {
         let mut stolen = signed();
-        let other = sign_beacon(&[6; 32], &BOARD, stolen.beacon.clone()).unwrap();
+        let other = sign_beacon(&signer(6), &BOARD, stolen.beacon.clone()).unwrap();
         stolen.public_key = other.public_key;
         stolen.signature = other.signature;
         assert!(!stolen.is_from(&BOARD));

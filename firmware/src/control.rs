@@ -14,6 +14,7 @@ use olc_control::{
     sign_beacon, Action, Beacon, BoardId, Body, Forward, Gate, ImageSlot, Packet, Read, Refusal,
     Router, Signed, Update,
 };
+use olc_crypto::Signer;
 use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Card, Message, Outgoing};
 
@@ -49,7 +50,7 @@ pub struct Control {
     beacon_ms: u64,
     ask_around_ms: u64,
     /// Signs beacons. It is the wallet's key: the address is what the app knows a board by.
-    secret: [u8; 32],
+    signer: Signer,
     /// When the last piece of an image came.
     chunk_ms: u64,
 }
@@ -78,7 +79,7 @@ impl Control {
         identity: Identity,
         counter: u64,
         slot: u8,
-        secret: [u8; 32],
+        signer: Signer,
     ) -> Self {
         Self {
             router: Router::new(me, first_id),
@@ -91,7 +92,7 @@ impl Control {
             refused: 0,
             beacon_ms: 0,
             ask_around_ms: 0,
-            secret,
+            signer,
             chunk_ms: 0,
         }
     }
@@ -136,8 +137,8 @@ impl Node {
         if now >= self.control.beacon_ms {
             self.control.beacon_ms = now + BEACON_EVERY_MS;
             self.runner.card = self.card();
-            let (me, secret) = (self.control.router.me(), self.control.secret);
-            if let Some(signed) = sign_beacon(&secret, &me, self.beacon()) {
+            let me = self.control.router.me();
+            if let Some(signed) = sign_beacon(&self.control.signer, &me, self.beacon()) {
                 self.start_packet(None, Body::Beacon(signed));
             }
         }

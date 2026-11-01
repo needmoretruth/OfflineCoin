@@ -278,6 +278,7 @@ mod tests {
     use super::*;
     use crate::control_key::ControlKey;
     use olc_control::sign_beacon;
+    use olc_crypto::Signer;
 
     const LINK_SHIFT: u32 = 24;
     const BOARD: BoardId = [1, 2, 3, 4, 5, 6];
@@ -297,10 +298,10 @@ mod tests {
     }
 
     fn beacon(id: u32, hops: u8, from: BoardId) -> Vec<u8> {
-        let key = olc_crypto::public_key(&SECRET).unwrap();
+        let signer = Signer::new(&SECRET).unwrap();
         let beacon = Beacon {
             name: "one".into(),
-            address: olc_crypto::address_of(&key),
+            address: olc_crypto::address_of(signer.public_key()),
             height: 9,
             tip: [0; 32],
             balance: 0,
@@ -324,7 +325,7 @@ mod tests {
             to: None,
             id,
             hops,
-            body: Body::Beacon(sign_beacon(&SECRET, &from, beacon).unwrap()),
+            body: Body::Beacon(sign_beacon(&signer, &from, beacon).unwrap()),
         }
         .encode()
     }
@@ -344,9 +345,9 @@ mod tests {
     fn another_key_cannot_take_over_a_board_by_radio() {
         let mut fleet = fleet("taken");
         fleet.hear(CABLE, &beacon(1, 1, BOARD));
-        let other = olc_crypto::address_of(&olc_crypto::public_key(&[9; 32]).unwrap());
+        let other = Signer::new(&[9; 32]).unwrap();
         let forged = Beacon {
-            address: other,
+            address: olc_crypto::address_of(other.public_key()),
             height: 99,
             ..Beacon::default()
         };
@@ -355,7 +356,7 @@ mod tests {
             to: None,
             id: 2,
             hops: 1,
-            body: Body::Beacon(sign_beacon(&[9; 32], &BOARD, forged).unwrap()),
+            body: Body::Beacon(sign_beacon(&other, &BOARD, forged).unwrap()),
         };
         fleet.hear(CABLE, &forged.encode());
         assert_eq!(fleet.boards()[0].beacon.height, 9);

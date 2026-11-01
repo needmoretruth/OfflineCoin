@@ -39,6 +39,7 @@ use esp_storage::FlashStorage;
 use node::Node;
 use olc_control::bootlog::Stage;
 use olc_core::{CoinConfig, Plugins};
+use olc_crypto::Signer;
 use olc_node::{Engine, Runner};
 use olc_pow::ProofOfWork;
 use olc_wallet::{format_address, Wallet};
@@ -130,6 +131,7 @@ async fn main(spawner: Spawner) -> ! {
         secret
     });
     let wallet = Wallet::from_secret(secret).expect("a random key is valid");
+    let signer = Signer::new(&secret).expect("a random key is valid");
     let plugins = Plugins {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),
@@ -169,7 +171,7 @@ async fn main(spawner: Spawner) -> ! {
     let identity = store.identity();
     let counter = store.counter();
     let slot = store.running_slot();
-    let control = Control::new(me, Rng::new().random(), identity, counter, slot, secret);
+    let control = Control::new(me, Rng::new().random(), identity, counter, slot, signer);
 
     let mut runner = Runner::new(engine);
     runner.add_link(Box::new(RadioLink::new(espnow, runner.mark())));
