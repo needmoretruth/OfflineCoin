@@ -10,11 +10,11 @@ use crate::ui::widgets::{
 };
 use crate::ui::Icon;
 use egui::Ui;
+use olc_control::defaults::BOARD_SCREEN_RATE;
 use olc_control::BoardId;
 
 const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
 /// Used only until a board says its own number.
-const SMOOTH_FALLBACK: u64 = 10;
 const BRIGHT_FALLBACK: u64 = 64;
 const BRIGHT_MAX: u64 = 255;
 const HALF_CAP: u64 = 7_500;
@@ -70,7 +70,7 @@ impl Boards {
         self.open = Some(board.seen.id);
         self.cap = u64::from(beacon.limit);
         self.smooth = match beacon.smooth {
-            0 => SMOOTH_FALLBACK,
+            0 => u64::from(BOARD_SCREEN_RATE),
             fps => u64::from(fps),
         };
         self.bright = None;
