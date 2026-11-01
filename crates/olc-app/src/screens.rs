@@ -23,6 +23,7 @@ const SETTLE_STEPS: usize = 4;
 const LIVE_WATCH: Duration = Duration::from_secs(16);
 /// Two seconds between answers at a block a second, and some luck.
 const MOST_BLOCKS_BEHIND: u64 = 9;
+const CLICKS_ON_A_MOVING_PAGE: usize = 5;
 const OLDEST_LIVE_ROW: u64 = 15;
 
 /// A row may say it is a few seconds old on a busy machine: that is the truth, and telling it is
@@ -132,7 +133,8 @@ fn wait_until(harness: &mut Harness<'static, App>, mut done: impl FnMut(&App) ->
     let snapshot = harness.state().snapshot();
     let nodes: Vec<_> =
         snapshot.local.iter().map(|view| (&view.spec.name, view.pid, view.status.is_some())).collect();
-    panic!("waited 60 s, last notice {:?}, nodes {nodes:?}", snapshot.notice);
+    let own = (snapshot.node.height, snapshot.node.peers, snapshot.node.light);
+    panic!("waited 60 s, last notice {:?}, nodes {nodes:?}, own {own:?}", snapshot.notice);
 }
 
 /// A new node first reports after its first second.
@@ -284,7 +286,15 @@ fn each_node_is_the_kind_its_person_chose() {
     harness.set_size(egui::vec2(1280.0, 1900.0));
     harness.state_mut().open("page.settings");
     harness.run_steps(SETTLE_STEPS);
-    harness.get_by_label("Keep headers only (light)").click();
+    // The page can move under the pointer as a report arrives, and then a person clicks again.
+    for _ in 0..CLICKS_ON_A_MOVING_PAGE {
+        if harness.state().snapshot().node.light.is_none() {
+            harness.get_by_label("Keep headers only (light)").click();
+            harness.run_steps(SETTLE_STEPS);
+            std::thread::sleep(Duration::from_secs(2));
+            harness.run_steps(SETTLE_STEPS);
+        }
+    }
     wait_until(&mut harness, |app| {
         let node = &app.snapshot().node;
         node.height >= 5 && node.light.is_some_and(|light| light.held_headers >= 5)
