@@ -17,7 +17,7 @@ fn carry(nodes: &mut [Engine; 2], mut lost: impl FnMut(&Message) -> bool) -> usi
             while let Some(outgoing) = nodes[sender].take_outgoing() {
                 moved = true;
                 let (Outgoing::To(_, message) | Outgoing::All { message, .. }) = outgoing;
-                asked += usize::from(matches!(message, Message::GetBlocks(_)));
+                asked += usize::from(matches!(message, Message::GetBlocks(..)));
                 if !lost(&message) {
                     nodes[1 - sender].on_message(sender as u32, message);
                 }

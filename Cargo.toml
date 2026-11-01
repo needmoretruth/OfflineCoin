@@ -19,7 +19,7 @@ members = [
     "crates/olc-app",
 ]
 # The firmware targets Xtensa and has its own workspace.
-exclude = ["firmware"]
+exclude = ["firmware", "crates/olc-compat"]
 
 [workspace.package]
 version = "0.1.0"

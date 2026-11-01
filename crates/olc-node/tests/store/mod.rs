@@ -15,6 +15,8 @@ pub struct Nor {
     /// The step that loses power.
     pub cut_at: Option<u64>,
     pub dead: bool,
+    /// Erases each sector took, which is what wears flash out.
+    pub erases: Vec<u32>,
 }
 
 pub type Flash = Arc<Mutex<Nor>>;
@@ -25,17 +27,20 @@ pub fn flash(size: usize) -> Flash {
         steps: 0,
         cut_at: None,
         dead: false,
+        erases: vec![0; size / SECTOR as usize],
     }))
 }
 
 /// A copy of what the flash held when the power went, with the power back on.
 pub fn powered_again(flash: &Flash) -> Flash {
     let bytes = flash.lock().unwrap().bytes.clone();
+    let sectors = bytes.len() / SECTOR as usize;
     Arc::new(Mutex::new(Nor {
         bytes,
         steps: 0,
         cut_at: None,
         dead: false,
+        erases: vec![0; sectors],
     }))
 }
 
@@ -107,6 +112,7 @@ impl Medium for Region {
         let start = self.place(at);
         let mut flash = self.flash.lock().unwrap();
         let cut = flash.step();
+        flash.erases[start / SECTOR as usize] += 1;
         let cleared = match cut {
             None => SECTOR as usize,
             Some(0) => return false,

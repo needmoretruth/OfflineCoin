@@ -110,15 +110,17 @@ fn node_program() -> PathBuf {
     program
 }
 
+/// Long enough for a password's hash on a busy computer without optimisation.
+#[track_caller]
 fn wait_until(harness: &mut Harness<'static, App>, mut done: impl FnMut(&App) -> bool) {
-    for _ in 0..200 {
+    for _ in 0..600 {
         harness.run_steps(1);
         if done(harness.state()) {
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    panic!("waited 20 s");
+    panic!("waited 60 s");
 }
 
 /// A new node first reports after its first second.
@@ -283,7 +285,12 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
         let now = runner.engine.chain().tip_header().time_ms + block_time;
         while !runner.engine.mine(100_000, now) {}
     }
-    assert!(host.runner.lock().unwrap().engine.chain().held().oldest > 1);
+    // Nothing a boot still reads is dropped, so the state is saved first, as a tick would.
+    let mut runner = host.runner.lock().unwrap();
+    runner.engine.chain_mut().save_now();
+    runner.engine.chain_mut().set_recent(Some(FEWEST_RECENT));
+    assert!(runner.engine.chain().held().oldest > 1);
+    drop(runner);
     host
 }
 

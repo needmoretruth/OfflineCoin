@@ -1,6 +1,6 @@
 //! Node logic with no I/O: call it with what happened, then collect what it wants to send.
 use crate::event::{Event, Outgoing, Status};
-use crate::message::Message;
+use crate::message::{Heights, Message};
 use crate::refused::Refused;
 use crate::snapshot::{Fetching, History};
 use crate::sync::{Sync, BLOCKS_AT_ONCE};
@@ -237,8 +237,15 @@ impl Engine {
                 self.sync.heard(from, tip, height, work, self.now_ms);
                 self.ask_for_blocks();
             }
-            Message::GetBlocks(locator) => {
-                match self.chain.blocks_after(&locator, BLOCKS_AT_ONCE) {
+            Message::GetBlocks(ids, heights) => {
+                let served = match heights.0.len() == ids.len() {
+                    true => {
+                        let locator: Vec<_> = heights.0.into_iter().zip(ids).collect();
+                        self.chain.blocks_after(&locator, BLOCKS_AT_ONCE)
+                    }
+                    false => self.chain.blocks_after_ids(&ids, BLOCKS_AT_ONCE),
+                };
+                match served {
                     Served::Blocks(blocks) => {
                         for block in blocks {
                             let reply = Message::Block(block);
@@ -289,8 +296,9 @@ impl Engine {
             locator.insert(0, position);
         }
 
-        self.outbox
-            .push_back(Outgoing::To(peer, Message::GetBlocks(locator)));
+        let (heights, ids) = locator.into_iter().unzip();
+        let message = Message::GetBlocks(ids, Heights(heights));
+        self.outbox.push_back(Outgoing::To(peer, message));
     }
 
     /// Runs up to `attempts` sealing attempts and adds the block if one succeeds.

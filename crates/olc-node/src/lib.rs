@@ -20,5 +20,5 @@ mod work;
 pub use engine::{Engine, PeerId, MOST_DATA, MOST_NOTE};
 pub use event::{Event, Outgoing, Status};
 pub use hello::{Card, Hello};
-pub use message::Message;
+pub use message::{Heights, Message};
 pub use runner::{Link, Runner, Target};

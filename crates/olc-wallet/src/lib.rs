@@ -25,6 +25,7 @@ pub enum WalletError {
     KnownKey,
 }
 
+#[derive(Clone)]
 struct Key {
     secret: [u8; 32],
     public: PublicKey,
@@ -43,6 +44,7 @@ impl Key {
     }
 }
 
+#[derive(Clone)]
 pub struct Wallet {
     keys: Vec<Key>,
     receiving: usize,

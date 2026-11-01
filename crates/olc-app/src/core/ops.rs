@@ -72,7 +72,9 @@ impl Host {
     }
 
     pub fn back_up(&self, path: &Path, password: Option<&str>) -> Result<(), String> {
-        self.on_runner(|runner| back_up(runner.engine.wallet(), path, password))?
+        // A password's hash takes a while, and mining should not wait for it.
+        let wallet = self.on_runner(|runner| runner.engine.wallet().clone())?;
+        back_up(&wallet, path, password)
     }
 
     /// Adds the keys in a backup to this wallet and says how many were new.
