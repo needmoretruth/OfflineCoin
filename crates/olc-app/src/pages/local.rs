@@ -92,7 +92,7 @@ fn budget(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     let used = [
         status.map_or_else(unknown, |status| format::rate(status.hashrate)),
         measured.map_or_else(unknown, |used| {
-            format::mebibytes(used.cgroup_bytes.unwrap_or(0).max(used.rss_bytes))
+            format::mebibytes(used.cgroup_bytes.unwrap_or(used.rss_bytes))
         }),
         measured.map_or_else(unknown, |used| format!("{:.0}%", used.cpu_percent)),
         measured.map_or_else(unknown, |used| format::mebibytes(used.disk_bytes)),

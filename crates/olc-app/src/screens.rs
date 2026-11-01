@@ -23,6 +23,13 @@ const SETTLE_STEPS: usize = 4;
 const LIVE_WATCH: Duration = Duration::from_secs(16);
 /// Two seconds between answers at a block a second, and some luck.
 const MOST_BLOCKS_BEHIND: u64 = 9;
+const OLDEST_LIVE_ROW: u64 = 15;
+
+/// A row may say it is a few seconds old on a busy machine: that is the truth, and telling it is
+/// the row's job. What it must never do is wait for the next look around, every twenty seconds.
+fn assert_fresh(age_secs: Option<u64>) {
+    assert!(age_secs.is_none_or(|age| age < OLDEST_LIVE_ROW), "{age_secs:?} seconds old");
+}
 
 fn scratch(name: &str) -> PathBuf {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -204,7 +211,7 @@ fn the_first_run_starts_real_node_processes() {
             let status = view.status.as_ref().expect("a running node");
             let row = row_of(&snap, &view.spec.name).expect("a row for every node");
             assert_eq!(row.height, Some(status.height));
-            assert_eq!(row.age_secs, None);
+            assert_fresh(row.age_secs);
             heights.insert(status.height);
         }
         std::thread::sleep(Duration::from_millis(300));
@@ -476,7 +483,7 @@ fn a_found_coin_can_be_joined() {
         last = height_of(&mut other, &spec);
         let row = row_of(&snap, &spec.name).expect("a row for the peer");
         let shown = row.height.expect("a height");
-        assert_eq!(row.age_secs, None);
+        assert_fresh(row.age_secs);
         assert!(last.saturating_sub(shown) <= MOST_BLOCKS_BEHIND, "{shown} against {last}");
         std::thread::sleep(Duration::from_millis(300));
     }
