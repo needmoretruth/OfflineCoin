@@ -12,7 +12,7 @@ pub const NODE_PORT: u16 = 7000;
 pub const PORT_TRIES: u16 = 10;
 /// A computer's node, relaxed.
 pub const RELAXED_CAP: u64 = 20_000;
-pub const BOARD_CAP: u64 = 3_000;
+pub const BOARD_CAP: u64 = olc_control::defaults::BOARD_CAP as u64;
 pub const NEW_COIN_DIFFICULTY: u64 = 30_000;
 const FILE: &str = "core.json";
 const MAX_BOOK: usize = 64;
@@ -144,6 +144,8 @@ impl Default for Settings {
 impl Settings {
     /// Takes what the Settings page edits and keeps what the core itself keeps here.
     pub fn take_choices(&mut self, from: &Self) {
+        self.auto_update = from.auto_update;
+        self.auto_boards.clone_from(&from.auto_boards);
         self.language = from.language;
         self.theme = from.theme;
         self.reduce_motion = from.reduce_motion;
@@ -215,6 +217,20 @@ impl Paths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_update_switch_starts_off_and_is_stored() {
+        assert!(!Settings::default().auto_update);
+        let mut stored = Settings::default();
+        let chosen = Settings {
+            auto_update: true,
+            auto_boards: vec![[7; 6]],
+            ..Settings::default()
+        };
+        stored.take_choices(&chosen);
+        assert!(stored.auto_update);
+        assert_eq!(stored.auto_boards, vec![[7; 6]]);
+    }
 
     #[test]
     fn a_device_choice_only_fills_numbers() {

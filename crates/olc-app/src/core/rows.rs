@@ -4,7 +4,6 @@ use crate::discovery::{Entry, Identity, Reach, Work};
 use crate::fleet::BoardRow;
 use crate::local::LocalView;
 use olc_core::Hash;
-use olc_node::Hello;
 
 const BOARD_KIND: &str = "esp32-s3";
 
@@ -103,8 +102,14 @@ pub fn reach_of_board(row: &BoardRow) -> Reach {
     }
 }
 
-/// `said` is what the board told about itself. Until it has, its coin stays unknown.
-pub fn board_entry(row: &BoardRow, said: Option<Hello>) -> Entry {
+/// The coin a board's signed beacon names. An answer counts only if it agrees with the beacon,
+/// and a coin known here needs no answer at all. Any other coin stays unknown until one comes.
+pub fn coin_of_board(genesis: Hash, said: Option<Identity>, known: &[Identity]) -> Option<Identity> {
+    let answered = said.filter(|coin| coin.genesis == genesis);
+    answered.or_else(|| known.iter().find(|coin| coin.genesis == genesis).cloned())
+}
+
+pub fn board_entry(row: &BoardRow, coin: Option<Identity>) -> Entry {
     let beacon = &row.seen.beacon;
     Entry {
         reach: reach_of_board(row),
@@ -112,7 +117,7 @@ pub fn board_entry(row: &BoardRow, said: Option<Hello>) -> Entry {
         via: None,
         device: BOARD_KIND.into(),
         name: beacon.name.clone(),
-        identity: said.as_ref().map(|hello| Identity::of(hello.coin.clone())),
+        identity: coin,
         tip: Some(beacon.tip),
         height: Some(beacon.height),
         work_done: Some(beacon.work),
@@ -165,6 +170,24 @@ mod tests {
             enforcement: Enforcement::Nothing,
             ended: None,
         }]
+    }
+
+    #[test]
+    fn a_board_shows_the_coin_its_beacon_names() {
+        let ours = Identity::of(CoinConfig::olc());
+        let mut other = CoinConfig::olc();
+        other.message = "Another genesis".into();
+        let other = Identity::of(other);
+        let known = [ours.clone()];
+
+        let silent = coin_of_board(ours.genesis, None, &known);
+        assert_eq!(silent.map(|coin| coin.genesis), Some(ours.genesis));
+        assert!(coin_of_board(other.genesis, None, &known).is_none());
+
+        let answered = coin_of_board(other.genesis, Some(other.clone()), &known);
+        assert_eq!(answered.map(|coin| coin.genesis), Some(other.genesis));
+        let lied = coin_of_board(ours.genesis, Some(other), &[]);
+        assert!(lied.is_none());
     }
 
     #[test]

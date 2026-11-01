@@ -1,4 +1,5 @@
 //! One pass of the board's work: move messages, mine a little, save, redraw.
+use crate::clock;
 use crate::commands::Work;
 use crate::control::{cable_is_busy, parse_key, Control, BUILD};
 use crate::radio;
@@ -33,8 +34,7 @@ const MAX_DROPPED: usize = 8;
 const MAX_NOTES: usize = 5;
 const BLOCKS_AVERAGED: u64 = 10;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
-/// The cap of a board whose owner never chose one: enough to mine, little heat.
-pub const RELAXED_LIMIT: u32 = 3_000;
+pub use olc_control::defaults::BOARD_CAP as RELAXED_LIMIT;
 /// How often words and numbers change. The coin has its own pace.
 const TEXT_EVERY_MS: u64 = 250;
 /// A short mining batch while the coin shows, so a frame never waits long.
@@ -42,7 +42,8 @@ const COIN_MINING_BATCH: u32 = 60;
 /// Coin rows drawn on each pass of the loop, about 0.3 ms each.
 const COIN_ROWS_PER_TURN: usize = 2;
 /// The coin's frames a second on a board whose owner never chose.
-pub const DEFAULT_SMOOTH: u32 = 10;
+pub use olc_control::defaults::BOARD_SCREEN_RATE as DEFAULT_SMOOTH;
+const RESTART_DELAY_MS: u64 = 300;
 /// Radio power on a board whose owner never chose, enough for one desk or one room.
 pub const DEFAULT_POWER_DBM: i8 = 5;
 const POWER_RANGE: core::ops::RangeInclusive<i8> = 2..=20;
@@ -120,6 +121,9 @@ pub struct Node {
     pub bright: u8,
     /// Whether the watchdog was running when this program got the chip.
     pub boot_watchdog: bool,
+    pub clock_mhz: u32,
+    /// When to restart, so that the answer to the order leaves first.
+    pub restart_ms: Option<u64>,
     /// Time spent working in this second, and how much of the last second that was.
     pub busy_us: u64,
     pub busy_percent: u64,
@@ -164,6 +168,9 @@ pub struct Node {
 impl Node {
     /// Returns true when it did mining work, false when the caller may sleep.
     pub fn turn(&mut self) -> bool {
+        if self.restart_ms.is_some_and(|at| device_ms() >= at) {
+            esp_hal::system::software_reset();
+        }
         let now = device_ms();
         self.runner.step(now);
         self.serve_control(now);
@@ -450,6 +457,20 @@ impl Node {
                 self.rename(line["name".len()..].trim());
                 self.say("named".into());
             }
+            (Some("clock"), Some(value), _) => match value.parse() {
+                Ok(mhz) if clock::is_speed(mhz) => {
+                    self.restart_with(|settings| settings.clock = format!("{mhz}"));
+                }
+                _ => self.say("error clock 80 160 240".into()),
+            },
+            (Some("full"), Some("on"), _) => self.restart_with(|settings| {
+                settings.cap = "0".into();
+                settings.clock = "240".into();
+            }),
+            (Some("full"), Some("off"), _) => self.restart_with(|settings| {
+                settings.cap.clear();
+                settings.clock.clear();
+            }),
             (Some("network"), Some(state @ ("on" | "off")), _) => {
                 self.restart_with(|settings| settings.own_network = state.into());
             }
@@ -468,7 +489,7 @@ impl Node {
             _ if self.run_chain_command(line) => {}
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
-                 smooth FPS, bright 0-255, network on|off, power DBM, ignore MAC-END|none, \
+                 smooth FPS, bright 0-255, clock 80|160|240, full on|off, network on|off, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY, keys, key new|use N|import HEX|export N, \
@@ -498,7 +519,7 @@ impl Node {
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
     fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
         self.save(change);
-        esp_hal::system::software_reset();
+        self.restart_ms = Some(device_ms() + RESTART_DELAY_MS);
     }
 
     fn state(&self, now: u64) -> State {

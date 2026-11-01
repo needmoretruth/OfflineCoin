@@ -27,7 +27,7 @@ const WATCH_EVERY: Duration = Duration::from_secs(2);
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
 const MAX_LOADER_WAKES: u32 = 3;
-const RETURN_WAIT: Duration = Duration::from_secs(300);
+const RETURN_WAIT: Duration = Duration::from_secs(600);
 
 struct Port {
     link: usize,
@@ -422,6 +422,7 @@ impl Manager {
         self.set_job(key, Some("restarting".into()));
         let deadline = Instant::now() + RETURN_WAIT;
         thread::sleep(Duration::from_secs(5));
+        // The beacon comes back first, and a board still catching up may miss an order.
         while Instant::now() < deadline {
             let back = self.fleet.lock().map(|fleet| {
                 fleet
@@ -430,8 +431,10 @@ impl Manager {
                     .any(|seen| seen.id == board && seen.silent_for < Duration::from_secs(3))
             });
             if back.unwrap_or(false) {
-                command(&self.fleet, board, "status")?;
-                return ledger.landed(&delivery);
+                let answer = command(&self.fleet, board, "status");
+                if answer.is_ok_and(|line| line.is_some_and(|line| line.starts_with("status"))) {
+                    return ledger.landed(&delivery);
+                }
             }
             thread::sleep(Duration::from_millis(500));
         }

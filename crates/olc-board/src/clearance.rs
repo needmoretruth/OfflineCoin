@@ -81,7 +81,7 @@ impl Ledger {
 
     pub fn is_proven(&self, hash: &Hash) -> bool {
         let wanted = format!("proven {}", hex(hash));
-        self.lines().iter().any(|line| *line == wanted)
+        self.lines().contains(&wanted)
     }
 
     pub fn clear(&self, board: BoardId, hash: Hash) -> Result<Cleared, String> {

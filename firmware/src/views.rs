@@ -153,6 +153,9 @@ impl Info<'_> {
         match self.router {
             Some(address) => format!("IP {address}"),
             None if self.joining_router => language.pick("joining router", "공유기 접속 중").into(),
+            None if self.own_network.is_empty() => {
+                language.pick("wifi off", "와이파이 꺼짐").into()
+            }
             None => format!("{} {}", language.pick("wifi", "와이파이"), self.own_network),
         }
     }

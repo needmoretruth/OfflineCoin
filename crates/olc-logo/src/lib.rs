@@ -63,7 +63,7 @@ fn edge(x: f32, y: f32) -> Hit {
 }
 
 /// One turn on every surface, so the board, the terminal and the app spin alike.
-pub const TURN_MS: u64 = 6_000;
+pub const TURN_MS: u64 = 9_000;
 /// Frames in a turn. No frame shows twice at [`MAX_FPS`].
 pub const FRAMES: usize = (TURN_MS * MAX_FPS as u64 / 1_000) as usize;
 /// The most frames a second any surface shows.

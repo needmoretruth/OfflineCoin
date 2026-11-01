@@ -2,9 +2,9 @@
 //! how long an update takes. Run with no app holding the port:
 //!   boardcheck PORT BOARD_ID refuse [FIRMWARE]
 //!   boardcheck PORT BOARD_ID update FIRMWARE
+use olc_board::clearance::{deliver, Ledger};
 use olc_board::control_key::{config_folder, ControlKey};
 use olc_board::install::app_image;
-use olc_board::clearance::{deliver, Ledger};
 use olc_board::remote::{command, hash_of};
 use olc_board::{Fleet, SharedFleet};
 use olc_control::{sign, Action, BoardId, Body, Forward, Order, Signed};
@@ -181,8 +181,11 @@ fn update(fleet: &SharedFleet, board: BoardId, firmware: &str) -> Result<(), Str
                 now.height,
                 (RETURN_WAIT - (deadline - Instant::now())).as_secs_f64()
             );
-            println!("answers: {}", command(fleet, board, "status").is_ok());
-            ledger.landed(&sent)?;
+            let answer = command(fleet, board, "status")?;
+            println!("answers: {}", answer.is_some());
+            if answer.is_some() {
+                ledger.landed(&sent)?;
+            }
             println!("proved: {}", ledger.is_proven(&hash_of(&image)));
             return Ok(());
         }

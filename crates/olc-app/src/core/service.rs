@@ -9,7 +9,7 @@ use super::found::Found;
 use super::host::{full_rate, Host, PayError, Plan};
 use super::pool_run::{PoolSeat, PoolStart};
 use super::rows::{
-    board_entry, device_kind, hostname, merge_local, own_entry, reach_of_board,
+    board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, Scanner, Shout};
@@ -480,10 +480,14 @@ impl Service {
         let said = |row: &BoardRow| {
             let by_link = self.fleet.as_ref().and_then(|fleet| fleet.hello_of(row.seen.id));
             let hello = by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned());
-            // The beacon is signed and the answer is not, so the answer must agree with it.
-            hello.filter(|hello| hello.coin.genesis().id() == row.seen.beacon.genesis)
+            hello.map(|hello| Identity::of(hello.coin))
         };
-        entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
+        let answers: Vec<_> = rows.iter().map(said).collect();
+        let mut known: Vec<_> = entries.iter().filter_map(|entry| entry.identity.clone()).collect();
+        known.extend(answers.iter().flatten().cloned());
+        entries.extend(rows.iter().zip(answers).map(|(row, said)| {
+            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known))
+        }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;
             let boards = self.settings.auto_boards.iter().filter(|_| auto);

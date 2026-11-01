@@ -83,7 +83,7 @@ pub struct Settings {
     pub power: String,
     /// The panel's contrast. Empty means the owner never chose.
     pub bright: String,
-    /// `off` keeps the board's own network down. Empty means up.
+    /// `on` brings up the board's own network. Empty means down.
     pub own_network: String,
     /// Where mined coins go. Empty means this board's own key.
     pub miner: String,
@@ -93,6 +93,8 @@ pub struct Settings {
     pub recent: String,
     /// "off" stops the wallet merging small coins.
     pub merge: String,
+    /// Processor speed in MHz. Empty means the default.
+    pub clock: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -106,8 +108,6 @@ pub struct Identity {
 pub struct Store {
     /// This start's place in the boot log.
     boot_word: Option<(u32, u8)>,
-    /// A start after a brown-out may not last. Its stages wait until the supply has held.
-    pub marks_held: bool,
 }
 
 /// The chip as the wear rings see it.
@@ -170,6 +170,8 @@ impl Store {
     ///
     /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
+        COUNTER.adopt(&mut Nor);
+        SETTINGS.adopt(&mut Nor);
         let same = BOOT_LOG.newest(&mut Nor).filter(|at| {
             let mut bytes = [0u8; 4];
             flash::read(*at, &mut bytes) && word(&bytes) == bootlog::word(reason, Stage::Started)
@@ -185,9 +187,6 @@ impl Store {
     }
 
     pub fn reach(&mut self, stage: Stage) {
-        if self.marks_held {
-            return;
-        }
         if let Some((at, reason)) = self.boot_word {
             let bytes = bootlog::word(reason, stage).to_le_bytes();
             flash::program(at, &bytes);
@@ -230,12 +229,13 @@ impl Store {
             note: choice.next().unwrap_or_default(),
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
+            clock: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -247,6 +247,7 @@ impl Store {
             settings.power,
             settings.bright,
             settings.own_network,
+            settings.clock,
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(
