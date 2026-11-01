@@ -1,5 +1,6 @@
 //! Node logic with no I/O: call it with what happened, then collect what it wants to send.
 use crate::message::Message;
+use crate::refused::Refused;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -79,6 +80,7 @@ pub struct Engine {
     clock_offset_ms: u64,
     now_ms: u64,
     peers: BTreeMap<PeerId, u64>,
+    refused: Refused,
     /// Blocks accepted since the last `take_fresh_block`, for saving.
     fresh: VecDeque<Block>,
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
@@ -100,6 +102,7 @@ impl Engine {
             clock_offset_ms: 0,
             now_ms: 0,
             peers: BTreeMap::new(),
+            refused: Refused::default(),
             fresh: VecDeque::new(),
             balance: Cell::new(None),
         }
@@ -197,7 +200,7 @@ impl Engine {
                     } else {
                         Some(tip)
                     };
-                    if let Some(id) = wanted {
+                    if let Some(id) = wanted.filter(|id| !self.refused.has(id)) {
                         self.outbox
                             .push_back(Outgoing::To(from, Message::GetBlock(id)));
                     }
@@ -308,6 +311,11 @@ impl Engine {
     }
 
     fn add_block(&mut self, from: PeerId, block: Block) {
+        let id = block.id();
+        if self.refused.has(&id) || self.refused.has(&block.header.previous) {
+            self.refused.add(id);
+            return;
+        }
         let copy = block.clone();
         let outcome = self.chain.add_block(block);
         if matches!(
@@ -332,7 +340,10 @@ impl Engine {
                 }
             }
             Ok(AddOutcome::SideBranch) | Err(ChainError::AlreadyKnown) => {}
-            Err(reason) => self.push_event(Event::BlockRejected { reason }),
+            Err(reason) => {
+                self.refused.add_invalid(id, reason);
+                self.push_event(Event::BlockRejected { reason });
+            }
         }
     }
 

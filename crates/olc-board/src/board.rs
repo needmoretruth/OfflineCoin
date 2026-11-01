@@ -55,6 +55,8 @@ pub struct Status {
     pub mining: bool,
     pub offline: bool,
     pub address: String,
+    /// The last branch change as (height, blocks replaced).
+    pub reorg: (u64, u64),
 }
 
 impl Status {
@@ -74,35 +76,33 @@ impl Status {
             mining: fields.get("mining")?.parse().ok()?,
             offline: fields.get("offline")?.parse().ok()?,
             address: fields.get("address")?.to_string(),
+            reorg: fields
+                .get("reorg")
+                .and_then(|text| text.split_once('/'))
+                .and_then(|(height, count)| Some((height.parse().ok()?, count.parse().ok()?)))
+                .unwrap_or_default(),
         })
     }
 }
 
 /// Where a board sees a transaction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Place {
     Height(u64),
     Pool,
+    /// Thrown out after a branch change, with the reason the board gave.
+    Dropped(String),
     Nowhere,
 }
 
 pub struct Board {
     name: &'static str,
     link: Box<dyn BoardLink>,
-    /// The last reorganisation the board printed, as (height, blocks replaced).
-    pub reorg: Option<(u64, u64)>,
-    /// Payments the board threw out after a reorganisation, as (id, reason).
-    pub dropped: Vec<(String, String)>,
 }
 
 impl Board {
     pub fn new(name: &'static str, link: Box<dyn BoardLink>) -> Self {
-        Self {
-            name,
-            link,
-            reorg: None,
-            dropped: Vec::new(),
-        }
+        Self { name, link }
     }
 
     pub fn send(&mut self, line: &str) -> Result<(), String> {
@@ -112,14 +112,6 @@ impl Board {
     fn note(&mut self, line: &str) -> Result<(), String> {
         if line.starts_with("started ") {
             return Err(format!("The {} board restarted.", self.name));
-        }
-        if let Some(reorg) = parse_reorg(line) {
-            self.reorg = Some(reorg);
-        }
-        if let Some(rest) = line.strip_prefix("dropped ") {
-            if let Some((id, reason)) = rest.split_once(' ') {
-                self.dropped.push((id.to_string(), reason.to_string()));
-            }
         }
         Ok(())
     }
@@ -214,7 +206,10 @@ impl Board {
         Ok(match place.strip_prefix("height=") {
             Some(height) => Place::Height(height.parse().map_err(|_| line.clone())?),
             None if place == "pool" => Place::Pool,
-            None => Place::Nowhere,
+            None => match place.strip_prefix("dropped=") {
+                Some(reason) => Place::Dropped(reason.to_string()),
+                None => Place::Nowhere,
+            },
         })
     }
 }
@@ -225,12 +220,6 @@ pub fn on_off(on: bool) -> &'static str {
     } else {
         "off"
     }
-}
-
-fn parse_reorg(line: &str) -> Option<(u64, u64)> {
-    let rest = line.strip_prefix("reorg ")?;
-    let (height, replaced) = rest.split_once(" replaced=")?;
-    Some((height.parse().ok()?, replaced.parse().ok()?))
 }
 
 #[cfg(test)]
@@ -248,11 +237,5 @@ mod tests {
         assert_eq!(status.balance, "1.50");
         assert_eq!(status.limit, 4);
         assert!(status.mining && !status.offline);
-    }
-
-    #[test]
-    fn a_reorganisation_line_is_read() {
-        assert_eq!(parse_reorg("reorg 1365 replaced=3"), Some((1365, 3)));
-        assert_eq!(parse_reorg("block 1365"), None);
     }
 }

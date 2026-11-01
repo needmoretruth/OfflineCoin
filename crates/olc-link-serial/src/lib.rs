@@ -9,6 +9,9 @@ use std::sync::Arc;
 use std::thread;
 
 const READ_SIZE: usize = 4096;
+/// A board that is printing can lose up to three bytes where a transfer begins, so every line
+/// starts with bytes it can spare. Empty lines mean nothing to a board.
+const LINE_START: &str = "\n\n\n\n";
 
 pub struct SerialLink {
     writer: File,
@@ -81,7 +84,8 @@ impl SerialLink {
 
     /// Sends a typed command, as a person at a serial terminal would.
     pub fn send_line(&mut self, line: &str) -> std::io::Result<()> {
-        self.writer.write_all(format!("{line}\n").as_bytes())
+        self.writer
+            .write_all(format!("{LINE_START}{line}\n").as_bytes())
     }
 }
 
@@ -99,7 +103,8 @@ impl Link for SerialLink {
         if target == Target::AllExcept(0) {
             return;
         }
-        let mut line = String::with_capacity(message.len() * 2 + 2);
+        let mut line = String::with_capacity(message.len() * 2 + 2 + LINE_START.len());
+        line.push_str(LINE_START);
         line.push('#');
         for byte in message {
             line.push_str(&format!("{byte:02x}"));

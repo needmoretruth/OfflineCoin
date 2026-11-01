@@ -13,6 +13,7 @@ use olc_control::{
 use olc_node::{Message, Outgoing};
 
 const BEACON_EVERY_MS: u64 = 4_000;
+const CHUNK_PAUSE_MS: u64 = 1_000;
 /// How long printed lines keep going to whoever gave the last order.
 const LISTEN_MS: u64 = 60_000;
 /// Lets the last packet leave before the restart.
@@ -36,9 +37,17 @@ pub struct Control {
     reader: Option<BoardId>,
     refused: u32,
     beacon_ms: u64,
+    /// When the last piece of an image came.
+    chunk_ms: u64,
 }
 
 impl Control {
+    /// A piece of an image is several radio frames and the radio holds only a few, so mining must
+    /// not sit on them.
+    pub fn taking_an_image(&self, now: u64) -> bool {
+        self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
+    }
+
     pub fn new(me: BoardId, first_id: u32, identity: Identity, counter: u64, slot: u8) -> Self {
         Self {
             router: Router::new(me, first_id),
@@ -50,6 +59,7 @@ impl Control {
             reader: None,
             refused: 0,
             beacon_ms: 0,
+            chunk_ms: 0,
         }
     }
 }
@@ -240,6 +250,7 @@ impl Node {
     }
 
     fn take_chunk(&mut self, from: BoardId, session: u32, offset: u32, data: &[u8]) {
+        self.control.chunk_ms = crate::node::device_ms();
         let Some((mut update, start)) = self.control.update.take() else {
             return self.refuse(from, Refusal::NoUpdateRunning);
         };

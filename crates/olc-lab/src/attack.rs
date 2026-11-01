@@ -346,19 +346,20 @@ impl Race<'_> {
 
     fn come_back(&mut self) -> Result<(), String> {
         say!(self, "\n7. The attacker comes back");
-        self.victim.reorg = None;
+        let earlier = self.victim.status()?.reorg;
         self.attacker.set_offline(false)?;
         loop {
             let (attacker, victim) = (self.attacker.status()?, self.victim.status()?);
             if attacker.tip == victim.tip {
-                if let Some((height, replaced)) = self.victim.reorg {
-                    say!(
-                        self,
-                        "   the victim dropped {replaced} blocks at height {height}"
-                    );
-                    return Ok(());
+                if victim.reorg == earlier {
+                    return Err("the victim's own chain won the race.".into());
                 }
-                return Err("the victim's own chain won the race.".into());
+                let (height, replaced) = victim.reorg;
+                say!(
+                    self,
+                    "   the victim dropped {replaced} blocks at height {height}"
+                );
+                return Ok(());
             }
             self.pause()?;
         }
@@ -371,10 +372,8 @@ impl Race<'_> {
             self,
             "\n8. The payment goes back to the pool and is refused"
         );
-        self.victim.status()?;
-        let reason = self.victim.dropped.iter().find(|(id, _)| id == payment);
-        match reason.map(|(_, reason)| reason.as_str()) {
-            Some("Some(MissingInput)") => {
+        match self.victim.tx(payment)? {
+            Place::Dropped(reason) if reason == "Some(MissingInput)" => {
                 say!(
                     self,
                     "   the dropped blocks gave payment {} back",
@@ -386,8 +385,8 @@ impl Race<'_> {
                 );
                 Ok(())
             }
-            Some(other) => Err(format!("the payment was refused for {other}.")),
-            None => Err("the victim did not refuse the payment.".into()),
+            Place::Dropped(other) => Err(format!("the payment was refused for {other}.")),
+            _ => Err("the victim did not refuse the payment.".into()),
         }
     }
 
@@ -403,9 +402,8 @@ impl Race<'_> {
             Place::Height(height) => height,
             _ => return Err("the private spend is not on the winning chain.".into()),
         };
-        if self.victim.tx(payment)? != Place::Nowhere
-            || self.attacker.tx(payment)? != Place::Nowhere
-        {
+        let gone = |place| matches!(place, Place::Nowhere | Place::Dropped(_));
+        if !gone(self.victim.tx(payment)?) || !gone(self.attacker.tx(payment)?) {
             return Err("the payment is still on the winning chain.".into());
         }
         say!(self, "   winning chain height {}", after.height);

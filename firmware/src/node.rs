@@ -6,6 +6,7 @@ use crate::store::{Settings, Store};
 use crate::usb::Commands;
 use crate::views::{self, coins, Info, Language, SmallCoin, State, View};
 use crate::wifi::Network;
+use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use core::sync::atomic::Ordering;
@@ -25,6 +26,7 @@ pub const LINK_WIFI: usize = 2;
 /// About 13 ms of work, short enough to answer the radio between batches.
 const MINING_BATCH: u32 = 200;
 const STATUS_EVERY_MS: u64 = 10_000;
+const MAX_DROPPED: usize = 8;
 pub const SPLASH_LENGTH_MS: u64 = 2_500;
 const SPLASH_REDRAW_MS: u64 = 80;
 const BUTTON_DEBOUNCE_MS: u64 = 30;
@@ -75,6 +77,10 @@ pub struct Node {
     pub memory_full: bool,
     pub attempts: u32,
     pub rate: u32,
+    /// The last branch change as (height, blocks replaced), kept because a line can get lost.
+    pub last_reorg: (u64, u64),
+    /// The payments thrown out last, with why.
+    pub dropped: VecDeque<(Hash, String)>,
     pub window_ms: u64,
     /// Attempts since the tip last changed, which is what the bar on the screen shows.
     pub tip_attempts: u64,
@@ -112,7 +118,8 @@ impl Node {
             0 => MINING_BATCH,
             limit => MINING_BATCH.min(limit.saturating_sub(self.attempts)),
         };
-        let worked = self.mining && batch > 0 && !cable_is_busy(now);
+        let worked =
+            self.mining && batch > 0 && !cable_is_busy(now) && !self.control.taking_an_image(now);
         if worked {
             self.runner.engine.mine(batch, now);
             self.attempts += batch;
@@ -194,6 +201,7 @@ impl Node {
                 }
                 Event::BlockAccepted { height } => self.say(format!("block {height}")),
                 Event::Reorganized { replaced, height } => {
+                    self.last_reorg = (height, replaced);
                     self.say(format!("reorg {height} replaced={replaced}"));
                 }
                 Event::BlockRejected { reason } => self.say(format!("rejected block {reason:?}")),
@@ -202,6 +210,10 @@ impl Node {
                 Event::TxReturned { id } => self.say(format!("returned {}", hex(&id))),
                 Event::TxDropped { id, reason } => {
                     self.say(format!("dropped {} {reason:?}", hex(&id)));
+                    if self.dropped.len() >= MAX_DROPPED {
+                        self.dropped.pop_front();
+                    }
+                    self.dropped.push_back((id, format!("{reason:?}")));
                 }
             }
             self.event = Some((now, event));
@@ -293,7 +305,10 @@ impl Node {
             true => match engine.chain().find_tx(&id) {
                 Some(height) => format!("tx {text} height={height}"),
                 None if engine.in_pool(&id) => format!("tx {text} pool"),
-                None => format!("tx {text} none"),
+                None => match self.dropped.iter().find(|(known, _)| *known == id) {
+                    Some((_, reason)) => format!("tx {text} dropped={reason}"),
+                    None => format!("tx {text} none"),
+                },
             },
         };
         self.say(line);
@@ -310,7 +325,7 @@ impl Node {
         let line = format!(
             "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
              wifi={} pool={} hashrate={} limit={} mining={} offline={} view={} lang={} screen={} \
-             free={} router={:?} address={} build={BUILD} slot={} key={} name={}",
+             free={} router={:?} address={} reorg={}/{} build={BUILD} slot={} key={} name={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -331,6 +346,8 @@ impl Node {
             esp_alloc::HEAP.free(),
             self.network.router_address(),
             format_address(&self.runner.engine.address()),
+            self.last_reorg.0,
+            self.last_reorg.1,
             self.control.slot,
             self.control.gate.has_key(),
             self.control.identity.name,

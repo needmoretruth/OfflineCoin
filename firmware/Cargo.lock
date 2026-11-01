@@ -1784,6 +1784,7 @@ dependencies = [
 name = "olc-firmware"
 version = "0.1.0"
 dependencies = [
+ "critical-section",
  "edge-dhcp",
  "edge-nal",
  "edge-nal-embassy",

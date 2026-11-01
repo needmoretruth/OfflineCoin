@@ -75,6 +75,23 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Waits for the board to start. The port comes and goes while it restarts, so each try opens it
+/// anew.
+fn started_board(port: &str) -> Result<Board, String> {
+    let deadline = Instant::now() + START_WAIT;
+    loop {
+        let opened = wait_for_port(port).and_then(|()| UsbBoard::open(port));
+        let tried = opened.and_then(|link| {
+            let mut board = Board::new("new", Box::new(link));
+            board.status().map(|_| board)
+        });
+        if tried.is_ok() || Instant::now() > deadline {
+            return tried;
+        }
+        thread::sleep(STEP);
+    }
+}
+
 /// Flashes the board on `port`, gives it the control key and a name.
 pub fn install(
     port: &str,
@@ -83,14 +100,7 @@ pub fn install(
     key: olc_crypto::PublicKey,
 ) -> Result<(), String> {
     flash(port, firmware)?;
-    wait_for_port(port)?;
-    let mut board = Board::new("new", Box::new(UsbBoard::open(port)?));
-    let deadline = Instant::now() + START_WAIT;
-    let mut started = board.status();
-    while started.is_err() && Instant::now() < deadline {
-        started = board.status();
-    }
-    started?;
+    let mut board = started_board(port)?;
     board.command(&format!("trust {}", hex(&key)), "trusted")?;
     board.command(&format!("name {name}"), "named")
 }

@@ -4,16 +4,21 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use esp_radio::esp_now::{EspNow, EspNowWifiInterface, PeerInfo, BROADCAST_ADDRESS};
 use olc_node::fragment::{split, Reassembler};
+use olc_node::network::{self, Mark};
 use olc_node::{Link, Target};
 
 const FRAME_SIZE: usize = 250;
 const MAX_PEERS: usize = 16;
+/// Boards of another coin reach this board by control traffic alone, and may hold only this many
+/// entries, so the table always has room for this network.
+const MAX_OTHER_PEERS: usize = 8;
 
 /// Turns ESP-NOW off without touching Wi-Fi, to prove the other links carry the chain alone.
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
 
 pub struct RadioLink {
     radio: EspNow,
+    mark: Mark,
     peers: BTreeMap<u32, [u8; 6]>,
     joiner: Reassembler,
     next_message: u16,
@@ -29,9 +34,10 @@ fn peer_id(mac: &[u8; 6]) -> u32 {
 }
 
 impl RadioLink {
-    pub fn new(radio: EspNow) -> Self {
+    pub fn new(radio: EspNow, mark: Mark) -> Self {
         Self {
             radio,
+            mark,
             peers: BTreeMap::new(),
             joiner: Reassembler::default(),
             next_message: 0,
@@ -39,9 +45,9 @@ impl RadioLink {
     }
 
     /// Unicast frames are acknowledged and repeated by the radio, which broadcast frames are not.
-    fn remember(&mut self, mac: [u8; 6]) {
+    fn remember(&mut self, mac: [u8; 6], limit: usize) {
         let id = peer_id(&mac);
-        if self.peers.contains_key(&id) || self.peers.len() >= MAX_PEERS {
+        if self.peers.contains_key(&id) || self.peers.len() >= limit {
             return;
         }
         let peer = PeerInfo {
@@ -84,7 +90,11 @@ impl Link for RadioLink {
                 continue;
             }
             let mac = received.info.src_address;
-            self.remember(mac);
+            match network::read(received.data()) {
+                Some((mark, _)) if mark == self.mark => self.remember(mac, MAX_PEERS),
+                Some((network::CONTROL, _)) => self.remember(mac, MAX_OTHER_PEERS),
+                _ => continue,
+            }
             let id = peer_id(&mac);
             if let Some(message) = self.joiner.push(id, received.data()) {
                 return Some((id, message));

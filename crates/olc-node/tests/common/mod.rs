@@ -11,10 +11,20 @@ pub fn engine(seed: u8) -> Engine {
 }
 
 pub fn engine_with_maturity(seed: u8, maturity: u64) -> Engine {
+    let mut config = test_coin();
+    config.rules.coinbase_maturity = maturity;
+    engine_of(seed, config)
+}
+
+pub fn test_coin() -> CoinConfig {
     let mut config = CoinConfig::olc();
     config.initial_difficulty = 8;
-    config.rules.coinbase_maturity = maturity;
+    config.rules.coinbase_maturity = 1;
     config.rules.retarget_interval = 0;
+    config
+}
+
+pub fn engine_of(seed: u8, config: CoinConfig) -> Engine {
     let plugins = Plugins {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),

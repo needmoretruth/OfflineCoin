@@ -12,7 +12,7 @@ const POLL: Duration = Duration::from_millis(5);
 const ORDER_TRIES: u32 = 4;
 const ORDER_WAIT: Duration = Duration::from_secs(2);
 const CHUNK_TRIES: u32 = 10;
-const CHUNK_WAIT: Duration = Duration::from_millis(1_200);
+const CHUNK_WAIT: Duration = Duration::from_millis(500);
 /// Reading the whole image back takes the board about this long.
 const LAST_CHUNK_WAIT: Duration = Duration::from_secs(5);
 

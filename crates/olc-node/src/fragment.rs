@@ -2,13 +2,17 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-/// message id (2 bytes), fragment index, fragment count
-pub const HEADER: usize = 4;
+/// network mark (4 bytes), message id (2 bytes), fragment index, fragment count. The mark leads
+/// every frame so a receiver can drop one without keeping anything.
+pub const HEADER: usize = 8;
+const MARK: usize = 4;
 const MAX_PARTIALS: usize = 8;
 
+/// `message` starts with its mark, which moves into each frame's header.
 pub fn split(id: u16, message: &[u8], frame_size: usize) -> Vec<Vec<u8>> {
     let payload = frame_size.saturating_sub(HEADER).max(1);
-    let pieces: Vec<&[u8]> = message.chunks(payload).collect();
+    let (mark, body) = message.split_at(MARK.min(message.len()));
+    let pieces: Vec<&[u8]> = body.chunks(payload).collect();
     let count = pieces.len().min(255) as u8;
     pieces
         .iter()
@@ -16,6 +20,7 @@ pub fn split(id: u16, message: &[u8], frame_size: usize) -> Vec<Vec<u8>> {
         .enumerate()
         .map(|(index, piece)| {
             let mut frame = Vec::with_capacity(HEADER + piece.len());
+            frame.extend_from_slice(mark);
             frame.extend_from_slice(&id.to_le_bytes());
             frame.push(index as u8);
             frame.push(count);
@@ -42,8 +47,8 @@ impl Reassembler {
         if frame.len() < HEADER {
             return None;
         }
-        let id = u16::from_le_bytes([frame[0], frame[1]]);
-        let (index, count) = (usize::from(frame[2]), usize::from(frame[3]));
+        let id = u16::from_le_bytes([frame[MARK], frame[MARK + 1]]);
+        let (index, count) = (usize::from(frame[MARK + 2]), usize::from(frame[MARK + 3]));
         if index >= count {
             return None;
         }
@@ -74,7 +79,9 @@ impl Reassembler {
             return None;
         }
         let done = self.partials.remove(slot);
-        Some(done.pieces.into_iter().flatten().flatten().collect())
+        let mut message = frame[..MARK].to_vec();
+        message.extend(done.pieces.into_iter().flatten().flatten());
+        Some(message)
     }
 }
 

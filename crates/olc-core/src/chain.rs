@@ -3,6 +3,7 @@
 //! The rule for simplicity: after any reorganisation the unspent set is rebuilt from genesis.
 //! That is slow on a chain with millions of blocks and instant on the chains this coin is for.
 use crate::coin::{CoinConfig, Rules};
+use crate::orphans::Orphans;
 use crate::plugin::{Plugins, RetargetInput, SpendContext};
 use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -63,7 +64,7 @@ pub struct Chain {
     plugins: Plugins,
     genesis: Hash,
     entries: BTreeMap<Hash, Entry>,
-    orphans: BTreeMap<Hash, Block>,
+    orphans: Orphans,
     tip: Hash,
     unspent: UnspentSet,
 }
@@ -87,7 +88,7 @@ impl Chain {
             plugins,
             genesis: id,
             entries,
-            orphans: BTreeMap::new(),
+            orphans: Orphans::default(),
             tip: id,
             unspent,
         }
@@ -126,7 +127,7 @@ impl Chain {
     }
 
     pub fn contains(&self, id: &Hash) -> bool {
-        self.entries.contains_key(id) || self.orphans.contains_key(id)
+        self.entries.contains_key(id) || self.orphans.contains(id)
     }
 
     pub fn block(&self, id: &Hash) -> Option<&Block> {
@@ -339,15 +340,7 @@ impl Chain {
 
     /// Takes the orphans waiting for `parent`, so the caller can add them again.
     pub fn take_orphans_of(&mut self, parent: &Hash) -> Vec<Block> {
-        let ids: Vec<Hash> = self
-            .orphans
-            .iter()
-            .filter(|(_, block)| block.header.previous == *parent)
-            .map(|(id, _)| *id)
-            .collect();
-        ids.iter()
-            .filter_map(|id| self.orphans.remove(id))
-            .collect()
+        self.orphans.take_children(parent)
     }
 
     /// When `id` is an orphan, returns the block its branch is still waiting for.

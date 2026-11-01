@@ -8,7 +8,7 @@ use olc_board::remote::{command, hash_of, send_image};
 use olc_board::{Fleet, SharedFleet};
 use olc_control::{sign, Action, BoardId, Body, Forward, Order, Signed};
 use olc_link_serial::SerialLink;
-use olc_node::{Link, Message, Runner, Target};
+use olc_node::{network, Link, Message, Runner, Target};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,7 +29,8 @@ fn parse_id(text: &str) -> Option<BoardId> {
 fn pump(fleet: SharedFleet, mut link: SerialLink) {
     thread::spawn(move || loop {
         while let Some((peer, bytes)) = link.receive() {
-            if let Some(Message::Control(bytes)) = Message::decode(&bytes) {
+            let message = network::read(&bytes).and_then(|(_, body)| Message::decode(body));
+            if let Some(Message::Control(bytes)) = message {
                 if let Ok(mut fleet) = fleet.lock() {
                     fleet.hear(peer, &bytes);
                 }
@@ -41,7 +42,8 @@ fn pump(fleet: SharedFleet, mut link: SerialLink) {
             .and_then(|mut fleet| fleet.take_outgoing())
         {
             if out.0 != Forward::Nowhere {
-                link.send(Target::All, &Message::Control(out.1).encode());
+                let message = Message::Control(out.1).encode();
+                link.send(Target::All, &network::stamp(network::CONTROL, &message));
             }
         }
         thread::sleep(LOOK);
@@ -189,7 +191,12 @@ fn main() -> Result<(), String> {
     let board = parse_id(board).ok_or("bad board id")?;
     let key = ControlKey::load_or_create(&config_folder()?)?;
     let fleet: SharedFleet = Arc::new(Mutex::new(Fleet::new(key, Runner::link_of)?));
-    let link = SerialLink::open(port, |_| {}).map_err(|error| error.to_string())?;
+    let link = SerialLink::open(port, |line| {
+        if !line.starts_with("status") {
+            eprintln!("  board says: {line}");
+        }
+    })
+    .map_err(|error| error.to_string())?;
     pump(fleet.clone(), link);
     send(&fleet, board, Body::Read(olc_control::Read::Status));
     let deadline = Instant::now() + BOARD_WAIT;

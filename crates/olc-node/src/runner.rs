@@ -1,6 +1,7 @@
 //! Connects an [`Engine`] to any number of transports.
 use crate::engine::{Engine, Outgoing, PeerId};
 use crate::message::Message;
+use crate::network::{self, Mark};
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -30,6 +31,7 @@ pub struct Runner {
     /// Keeps the chain to itself while true, so it can fork on purpose. A board still answers
     /// control traffic, or nobody could bring it back from afar.
     pub offline: bool,
+    mark: Mark,
     links: Vec<Box<dyn Link>>,
     control: VecDeque<(PeerId, Vec<u8>)>,
 }
@@ -37,11 +39,18 @@ pub struct Runner {
 impl Runner {
     pub fn new(engine: Engine) -> Self {
         Self {
+            mark: network::mark_of(&engine.chain().genesis_id()),
             engine,
             offline: false,
             links: Vec::new(),
             control: VecDeque::new(),
         }
+    }
+
+    /// What this node's messages start with. A link that cuts messages up needs it to drop other
+    /// networks' frames before it keeps anything about them.
+    pub fn mark(&self) -> Mark {
+        self.mark
     }
 
     /// Returns the link's position, which is the top byte of its peers' ids.
@@ -72,12 +81,13 @@ impl Runner {
     pub fn send_now(&mut self, outgoing: Outgoing) {
         match outgoing {
             Outgoing::To(peer, message) => {
+                let bytes = self.stamped(&message);
                 if let Some(link) = self.links.get_mut((peer >> LINK_SHIFT) as usize) {
-                    link.send(Target::Peer(peer & PEER_MASK), &message.encode());
+                    link.send(Target::Peer(peer & PEER_MASK), &bytes);
                 }
             }
             Outgoing::All { except, message } => {
-                let bytes = message.encode();
+                let bytes = self.stamped(&message);
                 for (index, link) in self.links.iter_mut().enumerate() {
                     let target = match except {
                         Some(peer) if (peer >> LINK_SHIFT) as usize == index => {
@@ -91,20 +101,33 @@ impl Runner {
         }
     }
 
+    fn stamped(&self, message: &Message) -> Vec<u8> {
+        let mark = match message {
+            Message::Control(_) => network::CONTROL,
+            _ => self.mark,
+        };
+        network::stamp(mark, &message.encode())
+    }
+
     /// Handles everything waiting on the links and sends everything the engine queued.
     pub fn step(&mut self, device_ms: u64) {
         self.engine.tick(device_ms);
         for (index, link) in self.links.iter_mut().enumerate() {
             while let Some((peer, bytes)) = link.receive() {
                 let from: PeerId = (index as u32) << LINK_SHIFT | (peer & PEER_MASK);
-                match Message::decode(&bytes) {
-                    Some(Message::Control(packet)) => {
-                        if self.control.len() < MAX_CONTROL {
-                            self.control.push_back((from, packet));
-                        }
+                let Some((mark, body)) = network::read(&bytes) else {
+                    continue;
+                };
+                if mark == network::CONTROL {
+                    if let (Some(Message::Control(packet)), true) =
+                        (Message::decode(body), self.control.len() < MAX_CONTROL)
+                    {
+                        self.control.push_back((from, packet));
                     }
-                    Some(message) if !self.offline => self.engine.on_message(from, message),
-                    _ => {}
+                } else if mark == self.mark && !self.offline {
+                    if let Some(message) = Message::decode(body) {
+                        self.engine.on_message(from, message);
+                    }
                 }
             }
         }

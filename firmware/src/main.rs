@@ -63,7 +63,9 @@ async fn main(spawner: Spawner) -> ! {
     let timers = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timers.timer0, peripherals.FROM_CPU_INTR0);
 
-    let (rx, _tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).split();
+    let mut usb_device = UsbSerialJtag::new(peripherals.USB_DEVICE);
+    usb_device.set_interrupt_handler(usb::on_usb_packet);
+    let (rx, _tx) = usb_device.split();
     let bus = I2c::new(
         peripherals.I2C0,
         I2cConfig::default().with_frequency(Rate::from_khz(400)),
@@ -110,7 +112,7 @@ async fn main(spawner: Spawner) -> ! {
     let control = Control::new(me, Rng::new().random(), identity, counter, slot);
 
     let mut runner = Runner::new(engine);
-    runner.add_link(Box::new(RadioLink::new(espnow)));
+    runner.add_link(Box::new(RadioLink::new(espnow, runner.mark())));
     let (usb, commands) = UsbLink::new(rx);
     runner.add_link(Box::new(usb));
     runner.add_link(Box::new(wifi_link));
@@ -135,6 +137,8 @@ async fn main(spawner: Spawner) -> ! {
         memory_full: false,
         attempts: 0,
         rate: 0,
+        last_reorg: (0, 0),
+        dropped: Default::default(),
         window_ms: 0,
         tip_attempts: 0,
         tip_seen,
