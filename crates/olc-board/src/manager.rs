@@ -339,6 +339,11 @@ impl Manager {
 
     /// Runs a line on a board and waits for it, which ends within seconds.
     pub fn run_line(&self, board: BoardId, line: &str) -> Result<(), LineError> {
+        self.ask(board, line).map(|_| ())
+    }
+
+    /// Runs a command on a board and returns what it answered.
+    pub fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError> {
         if !allowed_remotely(line) {
             return Err(LineError::BadRequest);
         }
@@ -350,7 +355,7 @@ impl Manager {
             {
                 Err(LineError::NotDone)
             }
-            Ok(_) => Ok(()),
+            Ok(answer) => Ok(answer),
             Err(error) if error.starts_with("refused") => Err(LineError::Refused),
             Err(_) => Err(LineError::NoAnswer),
         }

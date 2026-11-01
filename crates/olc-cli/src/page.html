@@ -314,7 +314,7 @@ async function spinCoin() {
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   let frame = 1;
   $("coin").textContent = frames[frame];
-  if (!still) setInterval(() => { frame = (frame + 1) % frames.length; $("coin").textContent = frames[frame]; }, 70);
+  if (!still) setInterval(() => { frame = (frame + 1) % frames.length; $("coin").textContent = frames[frame]; }, 33);
 }
 applyWords();
 refresh();

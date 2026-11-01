@@ -1,7 +1,7 @@
 //! ESP-NOW transport. Messages are split into frames of at most 250 bytes.
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use esp_radio::esp_now::{EspNow, EspNowWifiInterface, PeerInfo, BROADCAST_ADDRESS};
 use olc_node::fragment::{split, Reassembler};
 use olc_node::network::{self, Mark};
@@ -15,6 +15,32 @@ const MAX_OTHER_PEERS: usize = 8;
 
 /// Turns ESP-NOW off without touching Wi-Fi, to prove the other links carry the chain alone.
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
+
+const NOBODY: u32 = u32::MAX;
+/// Boards this one acts as if it cannot hear, by peer id. A test can lay real boards out in a line
+/// on one desk this way. Nothing here survives a restart.
+static IGNORED: [AtomicU32; 4] = [const { AtomicU32::new(NOBODY) }; 4];
+
+/// Stops hearing a board, by the end of its MAC address such as `AAEF90`.
+pub fn ignore(peer: u32) -> bool {
+    let free = IGNORED
+        .iter()
+        .find(|slot| slot.load(Ordering::Relaxed) == NOBODY);
+    free.inspect(|slot| slot.store(peer, Ordering::Relaxed))
+        .is_some()
+}
+
+pub fn hear_everyone() {
+    for slot in &IGNORED {
+        slot.store(NOBODY, Ordering::Relaxed);
+    }
+}
+
+fn is_ignored(peer: u32) -> bool {
+    IGNORED
+        .iter()
+        .any(|slot| slot.load(Ordering::Relaxed) == peer)
+}
 
 pub struct RadioLink {
     radio: EspNow,
@@ -90,6 +116,9 @@ impl Link for RadioLink {
                 continue;
             }
             let mac = received.info.src_address;
+            if is_ignored(peer_id(&mac)) {
+                continue;
+            }
             match network::read(received.data()) {
                 Some((mark, _)) if mark == self.mark => self.remember(mac, MAX_PEERS),
                 Some((network::CONTROL, _)) => self.remember(mac, MAX_OTHER_PEERS),

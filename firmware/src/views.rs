@@ -6,23 +6,19 @@ use crate::words::{note_text, state_sentence, state_word};
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
-use alloc::vec::Vec;
-use core::f32::consts::TAU;
 use core::net::Ipv4Addr;
 use olc_core::coin::COIN;
+use olc_logo::Reel;
 use olc_node::Event;
 
 const LINE: i32 = 11;
 const LAST_ROW: i32 = 39 + LINE;
 const ROTATE_EVERY_MS: u64 = 3_000;
 const EVENT_SHOWN_MS: u64 = 4_000;
-const TURN_MS: u64 = 2_400;
-const SMALL_COIN_TURN_MS: u64 = 6_000;
 const SPINNER: [&str; 4] = ["-", "\\", "|", "/"];
 const SMALL_COIN_RADIUS: i32 = 19;
-const SMALL_COIN_FRAMES: usize = 32;
-const SOLID: f32 = 0.48;
-const DIM: f32 = 0.45;
+const LARGE_COIN_RADIUS: i32 = 30;
+const LARGE_COIN_TOP: i32 = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -52,17 +48,6 @@ impl View {
         [View::Basic, View::Detail, View::Easy]
             .into_iter()
             .find(|view| view.name() == name)
-    }
-
-    /// The coin needs more frames than numbers do.
-    pub fn redraw_ms(self) -> u64 {
-        // A redraw takes about 10 ms from mining and pushes its code out of the flash cache, so
-        // these keep the screen under 3% of it. The buttons and new states redraw at once.
-        if self == View::Easy {
-            1_000
-        } else {
-            2_000
-        }
     }
 }
 
@@ -220,71 +205,73 @@ pub fn coins(units: u64) -> String {
 
 /// Whether a pixel of the coin is lit. Bright metal is solid and the rest is a thin dither, which
 /// keeps the symbol readable on a panel with no greys.
-fn coin_pixel(spin: olc_logo::Spin, x: i32, y: i32, radius: i32) -> bool {
-    const BAYER: [[f32; 4]; 4] = [
-        [0.03, 0.53, 0.16, 0.66],
-        [0.78, 0.28, 0.91, 0.41],
-        [0.22, 0.72, 0.09, 0.59],
-        [0.97, 0.47, 0.84, 0.34],
-    ];
-    let (u, v) = (
-        (x as f32 + 0.5) / radius as f32,
-        -(y as f32 + 0.5) / radius as f32,
-    );
-    spin.shade(u, v).is_some_and(|light| {
-        light > SOLID || light * DIM > BAYER[(y & 3) as usize][(x & 3) as usize]
-    })
+/// The coin in both sizes. Drawing them is spare-time work, so the start does not wait for it.
+pub struct Coins {
+    small: Reel,
+    large: Reel,
 }
 
-fn spin_at(now_ms: u64) -> f32 {
-    (now_ms % TURN_MS) as f32 / TURN_MS as f32 * TAU
-}
-
-/// The coin of the easy view, drawn once at start-up, so spinning it costs the miner nothing.
-pub struct SmallCoin(Vec<[u64; SMALL_COIN_RADIUS as usize * 2]>);
-
-impl SmallCoin {
+impl Coins {
     pub fn new() -> Self {
-        let frames = (0..SMALL_COIN_FRAMES).map(|frame| {
-            let spin = olc_logo::Spin::new(frame as f32 / SMALL_COIN_FRAMES as f32 * TAU);
-            let mut rows = [0u64; SMALL_COIN_RADIUS as usize * 2];
-            for (row, bits) in rows.iter_mut().enumerate() {
-                for column in 0..SMALL_COIN_RADIUS * 2 {
-                    let (x, y) = (column - SMALL_COIN_RADIUS, row as i32 - SMALL_COIN_RADIUS);
-                    if coin_pixel(spin, x, y, SMALL_COIN_RADIUS) {
-                        *bits |= 1 << column;
-                    }
-                }
-            }
-            rows
-        });
-        Self(frames.collect())
-    }
-
-    fn draw(&self, screen: &mut Screen, now_ms: u64) {
-        let turn = now_ms % SMALL_COIN_TURN_MS;
-        let frame = turn as usize * SMALL_COIN_FRAMES / SMALL_COIN_TURN_MS as usize;
-        for (y, bits) in self.0[frame].iter().enumerate() {
-            for x in 0..SMALL_COIN_RADIUS * 2 {
-                if bits >> x & 1 == 1 {
-                    screen.pixel(x, y as i32, true);
-                }
-            }
+        Self {
+            small: Reel::new(SMALL_COIN_RADIUS),
+            large: Reel::new(LARGE_COIN_RADIUS),
         }
     }
+
+    /// Enough of the logo to show the first screen.
+    pub fn first_frame(&mut self) {
+        self.large.work(LARGE_COIN_RADIUS as usize * 2);
+    }
+
+    pub fn work_on_logo(&mut self, rows: usize) {
+        self.large.work(rows);
+    }
+
+    pub fn work(&mut self, rows: usize) {
+        if self.small.is_full() {
+            self.large.work(rows);
+        } else {
+            self.small.work(rows);
+        }
+    }
+
+    fn draw_small(&self, screen: &mut Screen, now_ms: u64) {
+        let width = self.small.width();
+        if let Some(rows) = self.small.frame(olc_logo::frame_at(now_ms)) {
+            screen.stamp(0, 0, width, rows);
+        }
+    }
+
+    fn draw_large(&self, screen: &mut Screen, now_ms: u64) {
+        let width = self.large.width();
+        if let Some(rows) = self.large.frame(olc_logo::frame_at(now_ms)) {
+            screen.stamp(0, LARGE_COIN_TOP, width, rows);
+        }
+    }
+
+    /// Only the coin changes, so a frame costs a few rows on the wire.
+    pub fn next_frame(&self, screen: &mut Screen, now_ms: u64, splash: bool) {
+        if splash {
+            self.draw_large(screen, now_ms);
+        } else {
+            self.draw_small(screen, now_ms);
+        }
+        screen.flush();
+    }
 }
 
-pub fn splash(screen: &mut Screen, now_ms: u64) {
-    draw_splash(screen, now_ms);
+pub fn splash(screen: &mut Screen, coins: &Coins, now_ms: u64) {
+    draw_splash(screen, coins, now_ms);
     screen.flush();
 }
 
 /// The start screen with a line that fills while the chain loads.
-pub fn loading(screen: &mut Screen, now_ms: u64, done: usize, total: usize) {
+pub fn loading(screen: &mut Screen, coins: &Coins, now_ms: u64, done: usize, total: usize) {
     const LEFT: i32 = 68;
     const LENGTH: i32 = 54;
     const TOP: i32 = 48;
-    draw_splash(screen, now_ms);
+    draw_splash(screen, coins, now_ms);
     let filled = (done * LENGTH as usize / total.max(1)) as i32;
     for x in LEFT..LEFT + LENGTH {
         screen.pixel(x, TOP, true);
@@ -295,17 +282,9 @@ pub fn loading(screen: &mut Screen, now_ms: u64, done: usize, total: usize) {
     screen.flush();
 }
 
-fn draw_splash(screen: &mut Screen, now_ms: u64) {
-    const RADIUS: i32 = 30;
+fn draw_splash(screen: &mut Screen, coins: &Coins, now_ms: u64) {
     screen.clear();
-    let spin = olc_logo::Spin::new(spin_at(now_ms));
-    for y in -RADIUS..RADIUS {
-        for x in -RADIUS..RADIUS {
-            if coin_pixel(spin, x, y, RADIUS) {
-                screen.pixel(RADIUS + x, 32 + y, true);
-            }
-        }
-    }
+    coins.draw_large(screen, now_ms);
     screen.text(68, 20, "Offline", Font::Regular);
     screen.text(68, 32, "Coin", Font::Regular);
 }
@@ -351,8 +330,8 @@ fn basic(screen: &mut Screen, info: &Info, language: Language) {
     screen.bar(58, 5, info.progress);
 }
 
-fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Language) {
-    small_coin.draw(screen, info.now_ms);
+fn easy(screen: &mut Screen, reels: &Coins, info: &Info, language: Language) {
+    reels.draw_small(screen, info.now_ms);
     let whole = info.balance / COIN;
     let amount = if whole < 10_000 {
         coins(info.balance)
@@ -378,19 +357,13 @@ fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Lang
     );
 }
 
-pub fn draw(
-    screen: &mut Screen,
-    small_coin: &SmallCoin,
-    info: &Info,
-    view: View,
-    language: Language,
-) {
+pub fn draw(screen: &mut Screen, coins: &Coins, info: &Info, view: View, language: Language) {
     screen.clear();
     screen.shift_for(info.now_ms);
     match view {
         View::Basic => basic(screen, info, language),
         View::Detail => pages::draw(screen, info, language),
-        View::Easy => easy(screen, small_coin, info, language),
+        View::Easy => easy(screen, coins, info, language),
     }
     screen.flush();
 }

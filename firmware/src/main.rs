@@ -45,12 +45,20 @@ use radio::RadioLink;
 use screen::Screen;
 use store::Store;
 use usb::UsbLink;
-use views::{Language, View};
+use views::{Coins, Language, View};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 /// Blocks loaded between two drawings of the start screen.
-const LOAD_REDRAW_EVERY: usize = 40;
+/// Rows of the logo drawn for each block read back, so the chain's load still leads.
+const LOAD_COIN_ROWS: usize = 3;
+/// How often the logo moves while the chain loads.
+const LOAD_FRAME_MS: u64 = 100;
+/// The supply settles after the panel's first light before Wi-Fi starts, which draws the most.
+const SETTLE_MS: u64 = 300;
+/// And longer after the last start ran it dry.
+const SETTLE_AFTER_BROWN_OUT_MS: u64 = 2_000;
+const BROWN_OUT: u8 = 0x0F;
 
 fn own_network_name() -> String {
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
@@ -93,14 +101,23 @@ async fn main(spawner: Spawner) -> ! {
     // A long chain takes a while to load, and a dark panel looks like a dead board.
     thermo::start();
     let mut screen = Screen::new(bus);
-    views::splash(&mut screen, 0);
+    let mut coins = Coins::new();
+    coins.first_frame();
+    views::splash(&mut screen, &coins, 0);
+    store.reach(Stage::Panel);
 
     let coin = CoinConfig::olc();
     let settings = store.settings();
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let name = own_network_name();
+    let power_dbm = settings.power.parse().unwrap_or(node::DEFAULT_POWER_DBM);
+    let settle = match reset {
+        BROWN_OUT => SETTLE_AFTER_BROWN_OUT_MS,
+        _ => SETTLE_MS,
+    };
+    Timer::after_millis(settle).await;
     let (espnow, wifi_link, network) =
-        wifi::start(spawner, peripherals.WIFI, &settings, &name, seed);
+        wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
 
     store.reach(Stage::Radio);
 
@@ -120,12 +137,22 @@ async fn main(spawner: Spawner) -> ! {
     let read_ms = node::device_ms();
     store.reach(Stage::ChainRead);
     let total = blocks.len();
+    let mut frame_ms = 0;
+    let mut show = |coins: &mut Coins, done: usize, total: usize| {
+        coins.work_on_logo(LOAD_COIN_ROWS);
+        let now = node::device_ms();
+        if now >= frame_ms {
+            frame_ms = now + LOAD_FRAME_MS;
+            views::loading(&mut screen, coins, now, done, total);
+        }
+    };
+    engine.begin_restoring();
     for (done, block) in blocks.into_iter().enumerate() {
         engine.restore_block(block);
-        if done % LOAD_REDRAW_EVERY == 0 {
-            views::loading(&mut screen, node::device_ms(), done, total);
-        }
+        show(&mut coins, done, total * 2);
     }
+    let placed_ms = node::device_ms();
+    engine.finish_restoring(|done, path| show(&mut coins, path + done, path * 2));
     let loaded_ms = node::device_ms();
     store.reach(Stage::ChainLoaded);
     println!(
@@ -158,9 +185,14 @@ async fn main(spawner: Spawner) -> ! {
         started: node::Started {
             reset,
             read_ms,
+            placed_ms,
             loaded_ms,
         },
-        small_coin: views::SmallCoin::new(),
+        coins,
+        smooth: settings.smooth.parse().unwrap_or(node::DEFAULT_SMOOTH),
+        coin_ms: 0,
+        frames: Default::default(),
+        power_dbm,
         commands,
         network,
         button: Input::new(

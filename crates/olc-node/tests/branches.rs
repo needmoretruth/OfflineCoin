@@ -2,7 +2,7 @@
 mod common;
 
 use common::{deliver, engine, mine, silence};
-use olc_core::Hash;
+use olc_core::{Block, Hash};
 use olc_node::Engine;
 
 const AMOUNT: u64 = 1_000;
@@ -89,4 +89,42 @@ fn a_stale_template_keeps_its_payment_and_takes_the_new_time() {
     mine(&mut nodes[0], 11_000);
     assert_eq!(height_of(&nodes[0], &payment), Some(4));
     assert_eq!(nodes[0].chain().tip_header().time_ms, tip_time + 10_000);
+}
+
+/// Saved blocks hold every branch a node ever saw, in the order they came.
+#[test]
+fn saved_blocks_come_back_on_the_heaviest_branch() {
+    let mut nodes = [engine(1), engine(2)];
+    for block in 0..3 {
+        mine(&mut nodes[0], block * 1_000);
+    }
+    deliver(&mut nodes);
+    for block in 0..2 {
+        mine(&mut nodes[0], 10_000 + block * 1_000);
+    }
+    for block in 0..4 {
+        mine(&mut nodes[1], 20_000 + block * 1_000);
+    }
+    let short = nodes[0].chain().best_chain_from(1);
+    let long = nodes[1].chain().best_chain_from(4);
+    let (tip, balance) = (nodes[1].chain().tip(), nodes[1].status().balance);
+
+    let mut restored = engine(2);
+    restored.begin_restoring();
+    for block in short.iter().chain(&long) {
+        restored.restore_block(Block::clone(block));
+    }
+    assert_eq!(restored.chain().height(), 0);
+    restored.finish_restoring(|_, _| {});
+    assert_eq!(restored.chain().tip(), tip);
+    assert_eq!(restored.status().balance, balance);
+}
+
+#[test]
+fn no_saved_blocks_leave_a_new_chain() {
+    let mut restored = engine(1);
+    let tip = restored.chain().tip();
+    restored.begin_restoring();
+    restored.finish_restoring(|_, _| {});
+    assert_eq!(restored.chain().tip(), tip);
 }

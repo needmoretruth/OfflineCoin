@@ -159,6 +159,15 @@ impl Screen {
         self.shown.is_some()
     }
 
+    /// Copies one-bit rows to the picture, off pixels too, leaving the rest of it as it is.
+    pub fn stamp(&mut self, left: i32, top: i32, width: i32, rows: &[u64]) {
+        for (y, bits) in (top..).zip(rows) {
+            for x in 0..width {
+                self.pixel(left + x, y, bits >> x & 1 == 1);
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.pixels.fill(0);
     }

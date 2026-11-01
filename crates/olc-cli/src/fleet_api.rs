@@ -157,8 +157,8 @@ fn run_line(app: &App, request: &Value) -> Value {
     let (Some(board), Some(line)) = (board_of(request, "id"), request["line"].as_str()) else {
         return json!({ "error": "bad_request" });
     };
-    match app.run_line(board, line) {
-        Ok(()) => json!({ "ok": true }),
+    match app.ask(board, line) {
+        Ok(answer) => json!({ "ok": true, "answer": answer }),
         Err(LineError::BadRequest) => json!({ "error": "bad_request" }),
         Err(LineError::NotDone) => json!({ "error": "not_done" }),
         Err(LineError::Refused) => json!({ "error": "refused_order" }),
