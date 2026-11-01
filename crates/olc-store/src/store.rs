@@ -27,10 +27,6 @@ pub struct NodeSettings {
     /// Leaves small coins as they are when set.
     #[serde(default)]
     pub no_merge: bool,
-    /// The order links are preferred in, such as `wired,espnow,bluetooth,wifi`. Empty means the
-    /// usual order.
-    #[serde(default)]
-    pub links: String,
     /// Keeps headers only, and asks full nodes for its coins.
     #[serde(default)]
     pub light: bool,
@@ -40,6 +36,10 @@ pub struct NodeSettings {
     /// Addresses followed without a key.
     #[serde(default)]
     pub watched: Vec<String>,
+    /// The order links are preferred in, such as `wired,espnow,bluetooth,wifi`. Empty means the
+    /// usual order.
+    #[serde(default)]
+    pub links: String,
 }
 
 impl NodeSettings {

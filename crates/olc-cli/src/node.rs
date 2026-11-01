@@ -316,17 +316,6 @@ fn main_loop(shared: &Shared) {
     }
 }
 
-/// Traffic moving to another link is rare and worth a line in any log.
-fn print_moves(runner: &mut Runner) {
-    while let Some(moved) = runner.take_move() {
-        let name = |link: Option<usize>| {
-            let medium = link.and_then(|link| runner.medium_of(link));
-            medium.map_or("nothing", Medium::name)
-        };
-        println!("link {:x} {} -> {}", moved.peer, name(moved.from), name(moved.to));
-    }
-}
-
 fn save_light(shared: &Shared) {
     let Ok(runner) = shared.runner.lock() else {
         return;
@@ -335,6 +324,17 @@ fn save_light(shared: &Shared) {
     if let Some(headers) = light.and_then(|light| light.headers().saved()) {
         // The next save tries again, and peers can give back whatever is lost.
         let _ = save_headers(&shared.directory, headers);
+    }
+}
+
+/// Traffic moving to another link is rare and worth a line in any log.
+fn print_moves(runner: &mut Runner) {
+    while let Some(moved) = runner.take_move() {
+        let name = |link: Option<usize>| {
+            let medium = link.and_then(|link| runner.medium_of(link));
+            medium.map_or("nothing", Medium::name)
+        };
+        println!("link {:x} {} -> {}", moved.peer, name(moved.from), name(moved.to));
     }
 }
 

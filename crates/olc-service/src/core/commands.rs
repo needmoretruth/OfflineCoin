@@ -42,7 +42,6 @@ pub enum Personal {
     SetMineNote(String),
     SetRecent(Option<u64>),
     SetMerging(bool),
-    SetLinks(Rank),
     Watch(String),
     /// Whether this node holds headers only.
     SetLight(bool),
@@ -58,6 +57,7 @@ pub enum Personal {
     Sign(String),
     /// Sends the signed payment in this file.
     Broadcast(String),
+    SetLinks(Rank),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),
