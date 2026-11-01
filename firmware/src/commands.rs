@@ -1,6 +1,7 @@
 //! Keys, coin and chain commands. A secret key only ever leaves through `println!`, which is the
 //! cable: the radio gate never lets a `key` line in, and `say` is never used on one.
 use crate::node::{decode_hash, hex, Node};
+use olc_crypto::Signer;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
@@ -176,7 +177,9 @@ impl Node {
             // Beacons are signed by the key behind the address they show.
             let wallet = self.runner.engine.wallet();
             if let Some(secret) = wallet.export_secret(wallet.receiving()) {
-                self.control.secret = secret;
+                if let Ok(signer) = Signer::new(&secret) {
+                    self.control.signer = signer;
+                }
             }
             self.say(format!("receiving {index}"));
         } else {

@@ -47,10 +47,32 @@ pub fn public_key(secret: &[u8; 32]) -> Option<PublicKey> {
 
 /// Signs a 32-byte digest. The nonce is derived from the key and digest (RFC 6979).
 pub fn sign(secret: &[u8; 32], digest: &Hash) -> Option<SignatureBytes> {
-    let key = SigningKey::from_slice(secret).ok()?;
-    let signature: Signature = key.sign_prehash(digest).ok()?;
-    let signature = signature.normalize_s().unwrap_or(signature);
-    Some(signature.to_bytes().into())
+    Signer::new(secret)?.sign(digest)
+}
+
+/// A parsed key. Parsing costs as much as signing, so something that signs often keeps one.
+pub struct Signer {
+    key: SigningKey,
+    public: PublicKey,
+}
+
+impl Signer {
+    pub fn new(secret: &[u8; 32]) -> Option<Self> {
+        let key = SigningKey::from_slice(secret).ok()?;
+        let point = key.verifying_key().to_encoded_point(true);
+        let public = point.as_bytes().try_into().ok()?;
+        Some(Self { key, public })
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public
+    }
+
+    pub fn sign(&self, digest: &Hash) -> Option<SignatureBytes> {
+        let signature: Signature = self.key.sign_prehash(digest).ok()?;
+        let signature = signature.normalize_s().unwrap_or(signature);
+        Some(signature.to_bytes().into())
+    }
 }
 
 pub fn verify(public_key: &[u8], digest: &Hash, signature: &[u8]) -> bool {
