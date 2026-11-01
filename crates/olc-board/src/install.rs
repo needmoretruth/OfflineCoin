@@ -3,7 +3,7 @@
 use crate::board::{Board, UsbBoard};
 use crate::control_key::config_folder;
 use olc_link_serial::port_is_here;
-use olc_platform::{platform, tool};
+use olc_platform::{platform, tool, usb_is_off};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -25,6 +25,9 @@ fn espflash() -> Command {
 }
 
 fn run(command: &mut Command) -> Result<(), String> {
+    if usb_is_off() {
+        return Err("USB is switched off here".into());
+    }
     let output = command
         .output()
         .map_err(|error| format!("espflash: {error}"))?;

@@ -1,6 +1,6 @@
 //! One message per line: `#` followed by hex. Every other line is the board's log.
 use olc_node::{Link, Target};
-use olc_platform::platform;
+use olc_platform::{platform, usb_is_off};
 use serial2::{SerialPort, Settings};
 use std::io::ErrorKind;
 use std::path::Path;
@@ -37,6 +37,9 @@ impl Drop for SerialLink {
 
 /// Opens a serial device, raw, in the state a board expects of a terminal.
 pub fn open_port(path: &str) -> std::io::Result<SerialPort> {
+    if usb_is_off() {
+        return Err(std::io::Error::other("USB is switched off here"));
+    }
     let mut port = SerialPort::open(path, |mut settings: Settings| {
         settings.set_raw();
         settings.set_baud_rate(BAUD)?;

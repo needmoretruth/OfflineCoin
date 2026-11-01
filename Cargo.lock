@@ -2678,6 +2678,7 @@ dependencies = [
  "olc-crypto",
  "olc-lab",
  "olc-lang",
+ "olc-link-serial",
  "olc-link-tcp",
  "olc-node",
  "olc-platform",
