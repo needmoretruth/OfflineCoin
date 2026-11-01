@@ -29,6 +29,79 @@ impl Packet {
     }
 }
 
+/// The start of a beacon from a build older than this format. Later fields moved or did not
+/// exist yet, so nothing past `build` can be read and no signature can be checked: it shows that
+/// a board is there and what it says, never who it is for certain.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OldBeacon {
+    pub from: BoardId,
+    pub to: Option<BoardId>,
+    pub id: u32,
+    pub hops: u8,
+    body_kind: u32,
+    pub name: String,
+    pub address: [u8; 20],
+    pub height: u64,
+    pub tip: Hash,
+    pub balance: u64,
+    pub hashrate: u32,
+    pub limit: u32,
+    pub peers: u16,
+    pub pool: u16,
+    pub mining: bool,
+    pub offline: bool,
+    pub view: String,
+    pub language: String,
+    pub build: String,
+}
+
+impl OldBeacon {
+    /// Reads bytes that `Packet::decode` could not. Anything but a beacon is `None`.
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        postcard::from_bytes(bytes)
+            .ok()
+            .filter(|old: &Self| old.body_kind == BEACON_KIND)
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        postcard::to_allocvec(self).unwrap_or_default()
+    }
+
+    /// A stand-in with the same route, for the router to tell copies apart.
+    pub fn route(&self) -> Packet {
+        Packet {
+            from: self.from,
+            to: self.to,
+            id: self.id,
+            hops: self.hops,
+            body: Body::Beacon(SignedBeacon::default()),
+        }
+    }
+
+    pub fn beacon(self) -> Beacon {
+        Beacon {
+            name: self.name,
+            address: self.address,
+            height: self.height,
+            tip: self.tip,
+            balance: self.balance,
+            hashrate: self.hashrate,
+            limit: self.limit,
+            peers: self.peers,
+            pool: self.pool,
+            mining: self.mining,
+            offline: self.offline,
+            view: self.view,
+            language: self.language,
+            build: self.build,
+            ..Beacon::default()
+        }
+    }
+}
+
+/// Where `Body::Beacon` stands in `Body`.
+const BEACON_KIND: u32 = 0;
+
 // A packet lives for one trip, so its size here costs nothing that a box would save.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
