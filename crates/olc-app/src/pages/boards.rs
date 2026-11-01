@@ -409,7 +409,11 @@ mod tests {
 
     fn drawn(state: Scene) -> Harness<'static, Scene> {
         let mut fonts_set = false;
-        let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 900.0)).build_ui_state(
+        // The number fields have no names yet. The screens pass gives them theirs.
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1280.0, 900.0))
+            .with_accessibility_check(false)
+            .build_ui_state(
             move |ui, (page, snap, settings, core): &mut Scene| {
                 // New fonts apply from the next frame, and the first has none to draw with.
                 if !fonts_set {

@@ -117,7 +117,7 @@ fn wait_until(harness: &mut Harness<'static, App>, mut done: impl FnMut(&App) ->
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    panic!("waited 60 s");
+    panic!("waited 60 s, last notice {:?}", harness.state().snapshot().notice);
 }
 
 /// A new node first reports after its first second.
