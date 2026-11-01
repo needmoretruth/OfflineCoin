@@ -1,7 +1,7 @@
 //! ESP-NOW transport. Messages are split into frames of at most 250 bytes.
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use esp_radio::esp_now::{EspNow, EspNowWifiInterface, PeerInfo, BROADCAST_ADDRESS};
 use olc_node::fragment::{split, Reassembler};
 use olc_node::network::{self, Mark};
@@ -15,6 +15,9 @@ const MAX_OTHER_PEERS: usize = 8;
 
 /// Turns ESP-NOW off without touching Wi-Fi, to prove the other links carry the chain alone.
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// How strongly the last frame arrived, in dBm. It tells how much reach the power leaves.
+pub static LAST_RSSI: AtomicI32 = AtomicI32::new(0);
 
 const NOBODY: u32 = u32::MAX;
 /// Boards this one acts as if it cannot hear, by peer id. A test can lay real boards out in a line
@@ -119,6 +122,7 @@ impl Link for RadioLink {
             if is_ignored(peer_id(&mac)) {
                 continue;
             }
+            LAST_RSSI.store(received.info.rx_control.rssi, Ordering::Relaxed);
             match network::read(received.data()) {
                 Some((mark, _)) if mark == self.mark => self.remember(mac, MAX_PEERS),
                 Some((network::CONTROL, _)) => self.remember(mac, MAX_OTHER_PEERS),

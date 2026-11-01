@@ -177,7 +177,7 @@ impl Spin {
 
     fn light(self, normal: Vector, hit: Hit, x: f32, y: f32) -> f32 {
         // One light from above and in front: nothing swaps sides as the coin turns.
-        const KEY: Vector = [0.0, 0.60, 0.80];
+        const KEY: Vector = [0.0, 0.30, 0.954];
         let diffuse = dot(normal, KEY).max(0.0);
         let band = (x + y * SHEEN_SLANT - self.sheen) / SHEEN_WIDTH;
         let sheen = (1.0 - band * band).max(0.0);
@@ -301,8 +301,8 @@ mod tests {
             let picture = field(frame);
             let height = |columns: core::ops::Range<usize>| {
                 let (mut sum, mut count) = (0, 0);
-                for at in 0..picture.len() {
-                    if columns.contains(&(at % GRID)) && picture[at].is_some() {
+                for (at, spot) in picture.iter().enumerate() {
+                    if columns.contains(&(at % GRID)) && spot.is_some() {
                         sum += at / GRID;
                         count += 1;
                     }
