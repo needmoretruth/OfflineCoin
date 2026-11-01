@@ -1,7 +1,5 @@
 //! The rest of the plain Korean words.
 pub const WORDS: &[(&str, &str)] = &[
-    ("history.fetching", "{} / {} 받는 중"),
-    ("history.assumed", "이 코인의 기록은 다른 기기가 보낸 목록에서 시작합니다."),
     ("settings.general", "일반"),
     ("settings.language", "언어"),
     ("settings.language_about", "이 앱의 언어입니다."),
@@ -59,6 +57,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("storage.held", "디스크에서 {} 사용 중"),
     ("storage.held_fits", "디스크에서 {} 사용 중, 블록 약 {}개 들어갑니다."),
     ("storage.nothing_held", "디스크에 블록이 없습니다."),
+    ("storage.headers", "모든 블록의 요약은 여기 남습니다."),
     ("storage.blocks", "보관할 최근 블록 수"),
     ("storage.blocks_about", "오래된 블록은 지웁니다. 내 코인은 그대로입니다."),
     ("storage.merge", "작은 코인 합치기"),
@@ -223,6 +222,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.not_changed", "바뀌지 않았습니다. 다시 해 주세요."),
     ("notice.wrong_password", "비밀번호가 틀렸습니다. 다시 넣어 주세요."),
     ("notice.needs_password", "이 백업에는 비밀번호가 있습니다. 넣고 다시 해 주세요."),
+    ("notice.no_bluetooth", "이 컴퓨터에서는 블루투스를 쓸 수 없습니다."),
+    ("notice.radio_failed", "무선을 켜지 못했습니다. 설정을 확인해 주세요."),
     ("notice.not_a_backup", "그 파일은 백업이 아닙니다. 다른 파일을 골라 주세요."),
     ("notice.prepared", "결제 파일을 저장했습니다. 오프라인 컴퓨터로 옮기세요."),
     ("notice.signed", "서명했습니다. 파일을 다른 컴퓨터로 옮기세요."),

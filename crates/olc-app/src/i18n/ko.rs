@@ -226,4 +226,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.from", "시작 블록"),
     ("history.trust", "그쪽의 코인 목록을 받아 거기서부터 이어 갑니다. 그 앞의 내용은 그쪽을 믿어야 합니다."),
     ("history.accept", "믿고 받기"),
+    ("history.fetching", "{} / {} 받는 중"),
+    ("history.assumed", "이 코인의 기록은 다른 기기가 보낸 목록에서 시작합니다."),
 ];

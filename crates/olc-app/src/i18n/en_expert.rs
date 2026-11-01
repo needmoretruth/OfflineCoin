@@ -83,6 +83,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.miner_me", "This wallet's key"),
     ("settings.mine_note", "Coinbase note"),
     ("settings.links", "Link order"),
+    ("storage.headers", "Every header stays here."),
+    ("notice.radio_failed", "Radio link did not start: {}"),
     ("pro.esp_now_card", "ESP-NOW card"),
     ("pro.esp_now_card_about", "A Wi-Fi card in monitor mode. Leave empty for none."),
     ("settings.links_first", "Nodes use the highest link that works."),
@@ -159,5 +161,4 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.board_failed", "The board did not finish: {}"),
     ("notice.node_paid", "Node {} sent the payment."),
     ("notice.key_added", "New key {}"),
-    ("notice.key_chosen", "Receiving key changed."),
 ];

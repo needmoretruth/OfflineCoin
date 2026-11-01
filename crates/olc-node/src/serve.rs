@@ -7,7 +7,7 @@ use crate::message::Message;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
-use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Served, Tx};
+use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Tx};
 use olc_wallet::{prepare, Order, Unsigned, WalletError};
 
 /// A page of headers. A small radio queue on a slow reader sets this, as it does for blocks.
@@ -111,11 +111,9 @@ impl Engine {
     }
 
     pub(crate) fn serve_headers(&mut self, from: PeerId, named: &[(u64, Hash)]) {
-        let reply = match self.chain.blocks_after(named, HEADERS_AT_ONCE) {
-            Served::Blocks(blocks) => {
-                Message::Headers(blocks.iter().map(|block| block.header).collect())
-            }
-            Served::Pruned { oldest } => Message::Pruned { oldest },
+        let reply = match self.chain.headers_after(named, HEADERS_AT_ONCE) {
+            Ok(headers) => Message::Headers(headers),
+            Err(oldest) => Message::Pruned { oldest },
         };
         self.outbox.push_back(Outgoing::To(from, reply));
     }

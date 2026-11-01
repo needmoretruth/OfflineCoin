@@ -88,6 +88,36 @@ fn a_block_lost_on_the_way_comes_again() {
 }
 
 #[test]
+fn a_block_damaged_on_the_way_comes_again() {
+    let mut nodes = [engine(1), engine(2)];
+    grown_by(&mut nodes[0], 30, 0);
+    nodes[0].tick(100_000);
+    let mut blocks_seen = 0;
+    let mut damaged = None;
+    carry(&mut nodes, |message| {
+        let Message::Block(block) = message else {
+            return false;
+        };
+        blocks_seen += 1;
+        if blocks_seen == 3 {
+            damaged = Some(block.clone());
+        }
+        blocks_seen == 3
+    });
+    let mut damaged = damaged.unwrap();
+    damaged.header.merkle_root[0] ^= 1;
+    nodes[1].on_message(0, Message::Block(damaged));
+    let mut now = 110_000;
+    for _ in 0..20 {
+        nodes[0].tick(now);
+        nodes[1].tick(now);
+        carry(&mut nodes, |_| false);
+        now += 2_000;
+    }
+    assert_eq!(nodes[1].status().tip, nodes[0].status().tip);
+}
+
+#[test]
 fn a_node_well_behind_does_not_mine_until_it_has_caught_up() {
     let mut nodes = [engine(1), engine(2)];
     grown_by(&mut nodes[0], 30, 0);

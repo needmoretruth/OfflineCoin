@@ -32,7 +32,7 @@ impl Service {
         }
         self.scanner.take_silent();
         for note in self.host.take_radio_notes() {
-            self.say("notice.not_done", note, false);
+            self.say("notice.radio_failed", note, false);
         }
         for (from, hello) in self.host.take_heard() {
             match from {

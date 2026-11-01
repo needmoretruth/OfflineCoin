@@ -120,7 +120,8 @@ impl Extras<'_> {
             if self.values.recent == 0 {
                 self.values.recent = node.recent.unwrap_or(FEWEST_RECENT);
             }
-            row(ui, t, cx.say("storage.blocks"), cx.say("storage.blocks_about"), |ui| {
+            let about = format!("{} {}", cx.say("storage.blocks_about"), cx.say("storage.headers"));
+            row(ui, t, cx.say("storage.blocks"), &about, |ui| {
                 number_field(ui, &mut self.values.recent, cx.say("storage.blocks"), 120.0);
                 if button(ui, t, cx.say("common.save"), Kind::Plain).clicked() {
                     cx.send(Command::Own(Personal::SetRecent(Some(self.values.recent))));

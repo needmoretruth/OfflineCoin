@@ -1,7 +1,5 @@
 //! The rest of the plain English words.
 pub const WORDS: &[(&str, &str)] = &[
-    ("history.fetching", "Receiving {} of {}"),
-    ("history.assumed", "This coin's records start from a list others sent."),
     ("settings.general", "General"),
     ("settings.language", "Language"),
     ("settings.language_about", "The language of this app."),
@@ -59,6 +57,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("storage.held", "{} on disk."),
     ("storage.held_fits", "{} on disk. About {} blocks fit."),
     ("storage.nothing_held", "No blocks on disk."),
+    ("storage.headers", "A summary of every block stays here."),
     ("storage.blocks", "Recent blocks to keep"),
     ("storage.blocks_about", "Older blocks are removed. Your coins stay."),
     ("storage.merge", "Merge small coins"),
@@ -223,6 +222,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.not_changed", "That did not change. Try again."),
     ("notice.wrong_password", "That password is wrong. Try again."),
     ("notice.needs_password", "This backup has a password. Type it and try again."),
+    ("notice.no_bluetooth", "This computer cannot use Bluetooth."),
+    ("notice.radio_failed", "A radio did not start. Check its setting in Settings."),
     ("notice.not_a_backup", "That file is not a backup. Pick another file."),
     ("notice.prepared", "Payment file saved. Take it to the offline computer."),
     ("notice.signed", "Signed. Take the file back to the other computer."),

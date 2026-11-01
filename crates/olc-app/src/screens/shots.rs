@@ -3,7 +3,7 @@
 //! views whose names hold that word, and `OLC_SHOTS_BRIEF` draws each once in each language.
 //! Nodes, coins and blocks are real. Boards are staged, since no test may touch a port.
 use super::{
-    app, click, harness, node_program, quiet_settings, scratch, staged_board, type_into, wait_until,
+    app, click, harness, node_program, port_of_scene, quiet_settings, scratch, staged_board, type_into, wait_until,
     Window, SETTLE_STEPS, SIZES,
 };
 use crate::core::{coin_folder, save_coin, Notice, PoolRow, Snapshot};
@@ -265,7 +265,7 @@ fn draw_views(views: &[View], window: &mut Window, folder: &Path) {
 }
 
 fn setup_shots(folder: &Path) {
-    let settings = Settings { setup_done: false, port: 7380, ..quiet_settings() };
+    let settings = Settings { setup_done: false, port: port_of_scene(72), ..quiet_settings() };
     let mut first = harness(app(scratch("shots-first"), settings, None), SIZES[0]);
     all_combinations("setup-device", &mut first, folder);
     click(&mut first, "ESP32 boards");
@@ -284,7 +284,7 @@ fn screenshots() {
         return;
     };
     std::fs::create_dir_all(&folder).unwrap();
-    let mut empty = harness(app(scratch("shots-empty"), Settings { port: 7382, ..quiet_settings() }, None), SIZES[0]);
+    let mut empty = harness(app(scratch("shots-empty"), Settings { port: port_of_scene(74), ..quiet_settings() }, None), SIZES[0]);
     wait_until(&mut empty, |app| !app.snapshot().node.address.is_empty());
     draw_views(EMPTY, &mut empty, &folder);
     drop(empty);
@@ -311,7 +311,7 @@ fn screenshots() {
     settings.device = Device::ThisComputer;
     settings.mine_on_start = true;
     settings.scan_lan = true;
-    settings.port = 7384;
+    settings.port = port_of_scene(76);
     settings.nodes = (0..2).map(|id| Preset::Esp32S3.spec(id)).collect();
     let mut live = harness(app(root, settings, Some(node_program())), SIZES[0]);
     let seconds = std::env::var("OLC_SHOTS_WAIT").ok().and_then(|text| text.parse().ok());

@@ -101,6 +101,8 @@ pub struct Settings {
     pub merge: String,
     /// "on" holds headers only, and asks full nodes for its coins.
     pub light: String,
+    /// "off" keeps this board from mining until told otherwise.
+    pub mine: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -240,6 +242,7 @@ impl Store {
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
             light: choice.next().unwrap_or_default(),
+            mine: choice.next().unwrap_or_default(),
         }
     }
 
@@ -263,12 +266,13 @@ impl Store {
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}",
             settings.miner,
             settings.note,
             settings.recent,
             settings.merge,
             settings.light,
+            settings.mine,
         );
         write_text(&CHOICES, &choices);
     }

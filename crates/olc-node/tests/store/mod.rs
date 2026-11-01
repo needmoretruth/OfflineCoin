@@ -138,6 +138,7 @@ pub fn keep_on(flash: &Flash, recent: Option<u64>) -> Keep {
     Keep {
         log: region(STATE_SIZE * 2, size - STATE_SIZE * 2),
         states: [region(0, STATE_SIZE), region(STATE_SIZE, STATE_SIZE)],
+        shelf: None,
         recent,
     }
 }

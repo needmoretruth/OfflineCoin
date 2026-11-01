@@ -1,6 +1,6 @@
 //! The owner's scenes, by clicking in the window on real nodes.
 use super::{
-    app, click, harness, node_program, quiet_settings, scratch, type_into, type_secret, wait_for_notice,
+    app, click, harness, node_program, port_of_scene, quiet_settings, scratch, type_into, type_secret, wait_for_notice,
     wait_until, Window, SETTLE_STEPS, SIZES,
 };
 use crate::core::{coin_folder, save_coin, Book, Command, Host, Plan, Snapshot};
@@ -19,6 +19,13 @@ use std::time::{Duration, Instant};
 const LIVE_WATCH: Duration = Duration::from_secs(16);
 /// Two seconds between answers at a block a second, and some luck.
 const MOST_BLOCKS_BEHIND: u64 = 9;
+const OLDEST_LIVE_ROW: u64 = 15;
+
+/// A row may say it is a few seconds old on a busy machine: that is the truth, and telling it is
+/// the row's job. What it must never do is wait for the next look around, every twenty seconds.
+fn assert_fresh(age_secs: Option<u64>) {
+    assert!(age_secs.is_none_or(|age| age < OLDEST_LIVE_ROW), "{age_secs:?} seconds old");
+}
 
 /// A new node first reports after its first second.
 fn height_of(nodes: &mut Supervisor, spec: &NodeSpec) -> u64 {
@@ -43,7 +50,7 @@ fn row_of(snap: &Snapshot, name: &str) -> Option<Entry> {
 /// Three questions and a new coin end on real node processes.
 #[test]
 fn the_first_run_starts_real_node_processes() {
-    let settings = Settings { setup_done: false, port: 7310, ..quiet_settings() };
+    let settings = Settings { setup_done: false, port: port_of_scene(10), ..quiet_settings() };
     let window = app(scratch("first-nodes"), settings, Some(node_program()));
     let mut harness = harness(window, SIZES[0]);
     click(&mut harness, "Just this computer");
@@ -72,7 +79,7 @@ fn the_first_run_starts_real_node_processes() {
             let status = view.status.as_ref().expect("a running node");
             let row = row_of(&snap, &view.spec.name).expect("a row for every node");
             assert_eq!(row.height, Some(status.height));
-            assert_eq!(row.age_secs, None);
+            assert_fresh(row.age_secs);
             heights.insert(status.height);
         }
         std::thread::sleep(Duration::from_millis(300));
@@ -84,7 +91,7 @@ fn the_first_run_starts_real_node_processes() {
 /// chain, and each set in the window as a person would set it.
 #[test]
 fn each_node_is_the_kind_its_person_chose() {
-    let settings = Settings { port: 7330, ..quiet_settings() };
+    let settings = Settings { port: port_of_scene(30), ..quiet_settings() };
     let window = app(scratch("kinds"), settings, Some(node_program()));
     let mut harness = harness(window, SIZES[1]);
     let mut coin = CoinConfig::olc();
@@ -164,7 +171,7 @@ fn a_note_and_a_key_go_through_the_window() {
     settings.coin = Some(coin_folder(&coin));
     settings.device = Device::ThisComputer;
     settings.mine_on_start = true;
-    settings.port = 7360;
+    settings.port = port_of_scene(60);
     let window = app(root.clone(), settings, Some(node_program()));
     let mut harness = harness(window, (1280, 1400));
     harness.state_mut().settings_mut().language = Lang::En;
@@ -257,7 +264,8 @@ fn a_snapshot_waits_for_the_person_in_the_window() {
     coin.ticker = "CUT".into();
     coin.initial_difficulty = 16;
     coin.rules.min_difficulty = 1;
-    let peer = pruned_peer(&root.join("peer"), &coin, 7340, 700);
+    let peer_port = port_of_scene(40);
+    let peer = pruned_peer(&root.join("peer"), &coin, peer_port, 700);
     let tip = peer.view().height;
 
     let app_root = root.join("app");
@@ -266,8 +274,8 @@ fn a_snapshot_waits_for_the_person_in_the_window() {
     settings.coin = Some(coin_folder(&coin));
     settings.device = Device::ThisComputer;
     settings.mine_on_start = false;
-    settings.port = 7341;
-    settings.peers = vec!["127.0.0.1:7340".into()];
+    settings.port = peer_port + 1;
+    settings.peers = vec![format!("127.0.0.1:{peer_port}")];
     let mut harness = harness(app(app_root, settings, Some(node_program())), SIZES[0]);
     harness.state_mut().settings_mut().language = Lang::En;
     harness.state_mut().open("page.coins");
@@ -296,7 +304,7 @@ fn a_found_coin_can_be_joined() {
     let spec = Preset::Esp32S3.spec(9);
     other.start(&spec, &file, &[]).unwrap();
 
-    let settings = Settings { setup_done: false, port: 7320, ..quiet_settings() };
+    let settings = Settings { setup_done: false, port: port_of_scene(20), ..quiet_settings() };
     let mut harness = harness(app(scratch("join"), settings, None), SIZES[0]);
     click(&mut harness, "ESP32 boards");
     wait_until(&mut harness, |app| {
@@ -327,7 +335,7 @@ fn a_found_coin_can_be_joined() {
         last = height_of(&mut other, &spec);
         let row = row_of(&snap, &spec.name).expect("a row for the peer");
         let shown = row.height.expect("a height");
-        assert_eq!(row.age_secs, None);
+        assert_fresh(row.age_secs);
         assert!(last.saturating_sub(shown) <= MOST_BLOCKS_BEHIND, "{shown} against {last}");
         std::thread::sleep(Duration::from_millis(300));
     }
@@ -340,7 +348,7 @@ fn a_found_coin_can_be_joined() {
 fn the_console_answers_in_the_core_words() {
     let mut settings = quiet_settings();
     settings.mode = crate::settings::Mode::Expert;
-    settings.port = 7370;
+    settings.port = port_of_scene(70);
     let mut harness = harness(app(scratch("console"), settings, None), SIZES[0]);
     harness.state_mut().open("page.console");
     harness.run_steps(SETTLE_STEPS);

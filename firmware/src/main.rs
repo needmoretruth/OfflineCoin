@@ -274,7 +274,7 @@ async fn main(spawner: Spawner) -> ! {
         ),
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
-        mining: !light,
+        mining: !light && settings.mine != "off",
         work: None,
         waiting_coin: None,
         limit: limit.unwrap_or(node::RELAXED_LIMIT),

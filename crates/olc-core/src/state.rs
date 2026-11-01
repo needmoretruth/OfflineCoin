@@ -115,6 +115,7 @@ impl Chain {
         let Keep {
             log,
             states,
+            shelf,
             recent,
         } = keep;
         let mut chain = Self {
@@ -130,6 +131,7 @@ impl Chain {
             found: Found::default(),
             log: Log::new(log, genesis),
             places: states,
+            shelf,
             recent,
             assumed_from: None,
             opened: Opened::New,
@@ -140,6 +142,7 @@ impl Chain {
             state_too_big: false,
         };
         chain.come_back();
+        chain.fill_shelf();
         chain
     }
 

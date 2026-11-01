@@ -15,7 +15,7 @@ use olc_platform::platform;
 use super::rows::{
     board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
-use super::radios::{bluetooth_here, NO_BLUETOOTH};
+use super::radios::bluetooth_here;
 use super::returning::{is_returning, Returning};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, Scanner, Shout};
@@ -221,7 +221,7 @@ impl Service {
         match command {
             Command::Own(Personal::SetLight(on)) => self.change_node(|node| node.light = on),
             Command::Own(Personal::SetBluetooth(on)) if on && !bluetooth_here() => {
-                self.say("notice.not_done", NO_BLUETOOTH.to_string(), false);
+                self.say("notice.no_bluetooth", String::new(), false);
             }
             Command::Own(Personal::SetBluetooth(on)) => self.change_node(|node| node.bluetooth = on),
             Command::Own(order) => {

@@ -37,7 +37,7 @@ pub(super) fn quiet_settings() -> Settings {
         setup_done: true,
         scan_lan: false,
         broadcast: false,
-        port: 7300,
+        port: port_of_scene(0),
         ..Settings::default()
     }
 }
@@ -73,6 +73,11 @@ pub(super) fn harness(app: App, size: (u32, u32)) -> Window {
 }
 
 /// The program node processes run, built beside the tests.
+/// Another working copy may run these scenes at the same moment, so no scene owns a fixed port.
+pub(super) fn port_of_scene(offset: u16) -> u16 {
+    20_000 + (std::process::id() % 500) as u16 * 80 + offset
+}
+
 pub(super) fn node_program() -> PathBuf {
     let test = std::env::current_exe().unwrap();
     let name = format!("olc-core{}", std::env::consts::EXE_SUFFIX);
@@ -91,7 +96,10 @@ pub(super) fn wait_until(harness: &mut Window, mut done: impl FnMut(&App) -> boo
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    panic!("waited 60 s, last notice {:?}", harness.state().snapshot().notice);
+    let snapshot = harness.state().snapshot();
+    let nodes: Vec<_> =
+        snapshot.local.iter().map(|view| (&view.spec.name, view.pid, view.status.is_some())).collect();
+    panic!("waited 60 s, last notice {:?}, nodes {nodes:?}", snapshot.notice);
 }
 
 /// Waits for this notice, and fails at once on a notice that says something went wrong.

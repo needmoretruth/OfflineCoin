@@ -70,7 +70,7 @@ fn budget_items(cx: &Cx, view: &LocalView) -> Vec<(&'static str, String, String)
         "local.memory_given",
         &[&format::mebibytes(spec.memory_mib * MIB), &format::mebibytes(PROCESS_OVERHEAD_MIB * MIB)],
     );
-    let bytes = |used: crate::local::Measured| used.cgroup_bytes.unwrap_or(0).max(used.rss_bytes);
+    let bytes = |used: crate::local::Measured| used.cgroup_bytes.unwrap_or(used.rss_bytes);
     items.push(("local.memory", measured.map_or_else(unknown, |used| format::mebibytes(bytes(used))), given(memory)));
     let share = match spec.cpu_percent {
         0 => cx.say("local.no_limit").to_string(),

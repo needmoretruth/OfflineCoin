@@ -82,6 +82,7 @@ pub fn keep(log: Region, states: [Region; 2], recent: Option<u64>) -> Keep {
     Keep {
         log: Box::new(log),
         states: [Box::new(first), Box::new(second)],
+        shelf: None,
         recent,
     }
 }

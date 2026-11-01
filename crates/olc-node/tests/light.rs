@@ -7,12 +7,14 @@ use olc_core::coin::COIN;
 use olc_core::proof::{merkle_branch, root_of_branch};
 use olc_core::types::merkle_root;
 use olc_core::{
-    Block, BlockHeader, Chain, CoinConfig, CoinProof, HeaderChain, HeaderRefused, OutPoint, Tx,
-    TxOut,
+    Block, BlockHeader, Chain, CoinConfig, CoinProof, HeaderChain, HeaderRefused, OutPoint, Shelf,
+    Tx, TxOut,
 };
 use olc_node::Engine;
 use olc_wallet::Wallet;
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use store::{flash, keep_on, plugins, STATE_SIZE};
 
 const EVERYTHING: usize = usize::MAX;
@@ -283,20 +285,100 @@ fn a_reorganisation_longer_than_one_page_still_lands() {
     assert_eq!(nodes[1].status().tip, nodes[0].chain().tip());
 }
 
-#[test]
-fn a_pruned_node_says_when_it_no_longer_holds_what_is_asked() {
+/// Headers by height, as a computer's file holds them.
+#[derive(Clone, Default)]
+struct Shelved(Arc<Mutex<BTreeMap<u64, BlockHeader>>>);
+
+impl Shelf for Shelved {
+    fn put(&mut self, height: u64, header: &BlockHeader) -> bool {
+        self.0.lock().unwrap().insert(height, *header);
+        true
+    }
+
+    fn get(&self, height: u64) -> Option<BlockHeader> {
+        self.0.lock().unwrap().get(&height).copied()
+    }
+}
+
+/// A node whose small store has dropped its oldest blocks.
+fn pruned_node(shelf: Option<Shelved>, clock: &mut u64) -> Engine {
     let drive = flash(STATE_SIZE * 2 + 128 * 1024);
-    let chain = Chain::open(test_coin(), plugins(), keep_on(&drive, None));
+    let mut keep = keep_on(&drive, None);
+    keep.shelf = shelf.map(|shelf| Box::new(shelf) as Box<dyn Shelf>);
+    let chain = Chain::open(test_coin(), plugins(), keep);
     let mut pruned = Engine::on_chain(chain, Wallet::from_secret([1; 32]).unwrap());
     pruned.set_merging(false);
-    let mut clock = 1_000;
     for _ in 0..6_000 {
-        mine_on(&mut pruned, 1, &mut clock);
-        pruned.tick(clock);
+        mine_on(&mut pruned, 1, clock);
+        pruned.tick(*clock);
         silence(&mut pruned);
     }
+    assert!(pruned.chain().oldest_held() > 1);
+    pruned
+}
+
+#[test]
+fn a_pruned_computer_still_serves_every_header() {
+    let mut clock = 1_000;
+    let pruned = pruned_node(Some(Shelved::default()), &mut clock);
+    let tip = pruned.status().height;
+    let id = pruned.chain().id_at(tip);
+    let mut nodes = [pruned, light_of(2, test_coin())];
+    while nodes[1].status().height < tip && clock < 10_000_000 {
+        settle(&mut nodes, &mut clock);
+        clock += 1_000;
+        nodes[1].tick(clock);
+    }
+    let light = nodes[1].light().unwrap();
+    assert_eq!(nodes[1].status().height, tip);
+    assert_eq!(light.headers().tip().id(), id.unwrap());
+    assert_eq!(light.status().pruned_from, None);
+}
+
+#[test]
+fn a_shelf_fills_from_what_the_log_holds_and_follows_a_reorganisation() {
+    let drive = flash(STATE_SIZE * 2 + 4 * 1024 * 1024);
+    let chain = Chain::open(test_coin(), plugins(), keep_on(&drive, None));
+    let mut node = Engine::on_chain(chain, Wallet::from_secret([1; 32]).unwrap());
+    let mut clock = 1_000;
+    mine_on(&mut node, 40, &mut clock);
+    node.tick(clock);
+    silence(&mut node);
+    let saved = node.chain().tip();
+    drop(node);
+
+    let shelf = Shelved::default();
+    let mut keep = keep_on(&drive, None);
+    keep.shelf = Some(Box::new(shelf.clone()));
+    let chain = Chain::open(test_coin(), plugins(), keep);
+    assert_eq!(chain.tip(), saved);
+    assert!(chain.keeps_every_header());
+    let same = |chain: &Chain| {
+        chain.blocks_from(1, EVERYTHING).iter().enumerate().all(|(index, block)| {
+            shelf.get(index as u64 + 1) == Some(block.header)
+        })
+    };
+    assert!(same(&chain));
+
+    let mut node = Engine::on_chain(chain, Wallet::from_secret([1; 32]).unwrap());
+    let mut rival = engine_of(9, test_coin());
+    for block in node.chain().blocks_from(1, 35) {
+        let _ = rival.chain_mut().add_block(block);
+    }
+    assert_eq!(rival.status().height, 35);
+    mine_on(&mut rival, 12, &mut clock);
+    for block in rival.chain().blocks_from(36, EVERYTHING) {
+        let _ = node.chain_mut().add_block(block);
+    }
+    assert_eq!(node.status().height, 47);
+    assert!(same(node.chain()));
+}
+
+#[test]
+fn a_pruned_node_says_when_it_no_longer_holds_what_is_asked() {
+    let mut clock = 1_000;
+    let pruned = pruned_node(None, &mut clock);
     let oldest = pruned.chain().oldest_held();
-    assert!(oldest > 1);
     let mut nodes = [pruned, light_of(2, test_coin())];
     settle(&mut nodes, &mut clock);
     assert_eq!(nodes[1].light().unwrap().status().pruned_from, Some(oldest));
