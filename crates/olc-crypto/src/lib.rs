@@ -16,6 +16,20 @@ pub fn hash(data: &[u8]) -> Hash {
     Sha256::digest(Sha256::digest(data)).into()
 }
 
+/// SHA-256 over data that arrives in pieces, such as a firmware image.
+#[derive(Clone, Default)]
+pub struct StreamHash(Sha256);
+
+impl StreamHash {
+    pub fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+
+    pub fn finish(self) -> Hash {
+        self.0.finalize().into()
+    }
+}
+
 /// An address is the first 20 bytes of the hash of a public key.
 pub fn address_of(public_key: &PublicKey) -> Address {
     let digest = hash(public_key);

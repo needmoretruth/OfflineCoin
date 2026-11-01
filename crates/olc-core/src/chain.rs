@@ -163,12 +163,14 @@ impl Chain {
     }
 
     /// Spendable balance: coinbase outputs count once they have matured.
+    /// Walks every unspent output, so callers on a hot path should keep the result.
     pub fn balance(&self, address: &Address) -> u64 {
         let next = self.height() + 1;
-        self.unspent_of(address)
-            .iter()
-            .filter(|(_, entry)| self.is_mature(entry, next))
-            .map(|(_, entry)| entry.output.value)
+        self.unspent
+            .values()
+            .filter(|entry| entry.output.lock.as_slice() == address.as_slice())
+            .filter(|entry| self.is_mature(entry, next))
+            .map(|entry| entry.output.value)
             .sum()
     }
 
@@ -288,11 +290,51 @@ impl Chain {
         }
     }
 
-    /// False once any input of `tx` has been spent. Costs no signature checks.
-    pub fn inputs_available(&self, tx: &Tx) -> bool {
-        tx.inputs
-            .iter()
-            .all(|input| self.unspent.contains_key(&input.previous))
+    /// False once `point` has been spent or was never made. Costs no signature checks.
+    pub fn is_unspent(&self, point: &OutPoint) -> bool {
+        self.unspent.contains_key(point)
+    }
+
+    /// The two sides of a move from `old_tip` to the best chain, each oldest block first: the
+    /// blocks that left the best chain and the ones that joined it.
+    pub fn branches_from(&self, old_tip: &Hash) -> (Vec<&Block>, Vec<&Block>) {
+        let (mut left, mut joined) = (Vec::new(), Vec::new());
+        let (mut old, mut new) = (self.entries.get(old_tip), self.entries.get(&self.tip));
+        while let (Some(from), Some(to)) = (old, new) {
+            if from.block.id() == to.block.id() {
+                break;
+            }
+            if from.height >= to.height {
+                left.push(&from.block);
+                old = self.entries.get(&from.block.header.previous);
+            }
+            if to.height >= from.height {
+                joined.push(&to.block);
+                new = self.entries.get(&to.block.header.previous);
+            }
+        }
+        left.reverse();
+        joined.reverse();
+        (left, joined)
+    }
+
+    /// Checks `txs` in order for the next block, each seeing the outputs of those kept before it.
+    /// Returns the ones that stay valid, then the rest with the reason each failed.
+    pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
+        let height = self.height() + 1;
+        let rules = &self.config.rules;
+        let mut unspent = self.unspent.clone();
+        let (mut kept, mut refused) = (Vec::new(), Vec::new());
+        for tx in txs {
+            match check_tx(&tx, height, &unspent, rules, &self.plugins) {
+                Ok(_) => {
+                    spend_and_create(&tx, height, &mut unspent);
+                    kept.push(tx);
+                }
+                Err(reason) => refused.push((tx, reason)),
+            }
+        }
+        (kept, refused)
     }
 
     /// Takes the orphans waiting for `parent`, so the caller can add them again.
@@ -315,6 +357,22 @@ impl Chain {
             cursor = block.header.previous;
         }
         (!self.entries.contains_key(&cursor)).then_some(cursor)
+    }
+
+    /// The height of a transaction on the best chain. Hashes every transaction, so it is for
+    /// someone asking, not for a loop.
+    pub fn find_tx(&self, id: &Hash) -> Option<u64> {
+        let mut cursor = self.tip;
+        while let Some(entry) = self.entries.get(&cursor) {
+            if entry.block.txs.iter().any(|tx| tx.id() == *id) {
+                return Some(entry.height);
+            }
+            if entry.height == 0 {
+                return None;
+            }
+            cursor = entry.block.header.previous;
+        }
+        None
     }
 
     /// Selects transactions and builds an unsealed block on the tip.

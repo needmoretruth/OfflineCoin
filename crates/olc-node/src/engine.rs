@@ -1,7 +1,8 @@
 //! Node logic with no I/O: call it with what happened, then collect what it wants to send.
 use crate::message::Message;
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
+use core::cell::Cell;
 use olc_core::{
     AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Tx,
 };
@@ -26,12 +27,32 @@ pub enum Outgoing {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
-    Mined { height: u64 },
-    BlockAccepted { height: u64 },
-    Reorganized { replaced: u64, height: u64 },
-    BlockRejected { reason: ChainError },
+    Mined {
+        height: u64,
+    },
+    BlockAccepted {
+        height: u64,
+    },
+    Reorganized {
+        replaced: u64,
+        height: u64,
+    },
+    BlockRejected {
+        reason: ChainError,
+    },
     TxAccepted,
-    TxRejected { reason: ChainError },
+    TxRejected {
+        reason: ChainError,
+    },
+    /// A payment from a block that left the best chain is waiting to be mined again.
+    TxReturned {
+        id: Hash,
+    },
+    /// A payment was thrown out after a reorganisation. No reason means the pool was full.
+    TxDropped {
+        id: Hash,
+        reason: Option<ChainError>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +81,9 @@ pub struct Engine {
     peers: BTreeMap<PeerId, u64>,
     /// Blocks accepted since the last `take_fresh_block`, for saving.
     fresh: VecDeque<Block>,
+    /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
+    /// and boards ask for the status many times a second, so it runs once per tip.
+    balance: Cell<Option<(Hash, u64)>>,
 }
 
 impl Engine {
@@ -77,6 +101,7 @@ impl Engine {
             now_ms: 0,
             peers: BTreeMap::new(),
             fresh: VecDeque::new(),
+            balance: Cell::new(None),
         }
     }
 
@@ -98,10 +123,33 @@ impl Engine {
             tip: self.chain.tip(),
             work: self.chain.total_work(),
             difficulty: self.chain.next_difficulty(&self.chain.tip()),
-            balance: self.wallet.balance(&self.chain),
+            balance: self.balance(),
             pool: self.pool.len(),
             peers: self.peers.len(),
         }
+    }
+
+    fn balance(&self) -> u64 {
+        let tip = self.chain.tip();
+        match self.balance.get() {
+            Some((counted_on, balance)) if counted_on == tip => balance,
+            _ => {
+                let balance = self.wallet.balance(&self.chain);
+                self.balance.set(Some((tip, balance)));
+                balance
+            }
+        }
+    }
+
+    /// True while a transaction waits in this node's pool.
+    pub fn in_pool(&self, id: &Hash) -> bool {
+        self.pool.iter().any(|tx| tx.id() == *id)
+    }
+
+    /// Empties this node's pool, as its owner may. Its coins can be spent anew.
+    pub fn clear_pool(&mut self) {
+        self.pool.clear();
+        self.candidate = None;
     }
 
     /// Puts a block saved by an earlier run back on the chain.
@@ -162,6 +210,7 @@ impl Engine {
                 }
             }
             Message::Block(block) => self.receive_block(from, block),
+            Message::Control(_) => {}
             Message::Tx(tx) => {
                 self.receive_tx(Some(from), tx);
             }
@@ -186,12 +235,13 @@ impl Engine {
             return false;
         };
         let height = self.chain.height() + 1;
+        let old_tip = self.chain.tip();
         if self.chain.add_block(block.clone()).is_err() {
             return false;
         }
         self.fresh.push_back(block);
         self.push_event(Event::Mined { height });
-        self.after_tip_change();
+        self.after_tip_change(old_tip);
         self.announce(None);
         true
     }
@@ -252,7 +302,7 @@ impl Engine {
             ready.extend(self.chain.take_orphans_of(&child_id));
         }
         if self.chain.tip() != tip_before {
-            self.after_tip_change();
+            self.after_tip_change(tip_before);
             self.announce(Some(from));
         }
     }
@@ -286,10 +336,68 @@ impl Engine {
         }
     }
 
-    fn after_tip_change(&mut self) {
+    fn after_tip_change(&mut self, old_tip: Hash) {
         self.candidate = None;
+        let (left, joined) = self.chain.branches_from(&old_tip);
+        if left.is_empty() {
+            self.drop_spent();
+            return;
+        }
+        let confirmed: BTreeSet<Hash> = joined.iter().flat_map(|b| &b.txs).map(Tx::id).collect();
+        let returning: Vec<Tx> = left
+            .iter()
+            .flat_map(|block| &block.txs)
+            .filter(|tx| !tx.is_coinbase() && !confirmed.contains(&tx.id()))
+            .cloned()
+            .collect();
+        self.settle_pool(returning, &confirmed);
+    }
+
+    /// Bitcoin's reorganisation rule: payments from the blocks that left go back through the same
+    /// check as a new payment, ahead of the pool because a waiting payment may spend their
+    /// outputs. Whatever the new chain made impossible is thrown out.
+    fn settle_pool(&mut self, returning: Vec<Tx>, confirmed: &BTreeSet<Hash>) {
+        let back: BTreeSet<Hash> = returning.iter().map(Tx::id).collect();
+        let waiting = core::mem::take(&mut self.pool)
+            .into_iter()
+            .filter(|tx| !confirmed.contains(&tx.id()) && !back.contains(&tx.id()));
+        let (mut kept, refused) = self
+            .chain
+            .recheck(returning.iter().cloned().chain(waiting).collect());
+        let over = kept.split_off(kept.len().min(MAX_POOL));
+        for tx in kept.iter().filter(|tx| back.contains(&tx.id())) {
+            self.push_event(Event::TxReturned { id: tx.id() });
+            self.outbox.push_back(Outgoing::All {
+                except: None,
+                message: Message::Tx(tx.clone()),
+            });
+        }
+        for (tx, reason) in refused {
+            let (id, reason) = (tx.id(), Some(reason));
+            self.push_event(Event::TxDropped { id, reason });
+        }
+        for tx in over {
+            let (id, reason) = (tx.id(), None);
+            self.push_event(Event::TxDropped { id, reason });
+        }
+        self.pool = kept;
+    }
+
+    /// A waiting payment may spend the output of one before it, as after a reorganisation.
+    fn drop_spent(&mut self) {
         let chain = &self.chain;
-        self.pool.retain(|tx| chain.inputs_available(tx));
+        let mut made = BTreeSet::new();
+        self.pool.retain(|tx| {
+            let spendable = tx
+                .inputs
+                .iter()
+                .all(|input| chain.is_unspent(&input.previous) || made.contains(&input.previous));
+            if spendable {
+                let txid = tx.id();
+                made.extend((0..tx.outputs.len() as u32).map(|index| OutPoint { txid, index }));
+            }
+            spendable
+        });
     }
 
     fn announce(&mut self, except: Option<PeerId>) {
@@ -304,13 +412,23 @@ impl Engine {
 
     fn refresh_candidate(&mut self, device_ms: u64) {
         let stale = device_ms.saturating_sub(self.candidate_built_ms) >= REFRESH_TEMPLATE_EVERY_MS;
-        if self.candidate.is_none() || stale {
-            let now = device_ms + self.clock_offset_ms;
-            let block = self
-                .chain
-                .block_template(&self.wallet.address(), &self.pool, now);
-            self.candidate = Some(block);
-            self.candidate_built_ms = device_ms;
+        let now = device_ms + self.clock_offset_ms;
+        match self.candidate.as_mut() {
+            None => {
+                let block = self
+                    .chain
+                    .block_template(&self.wallet.address(), &self.pool, now);
+                self.candidate = Some(block);
+                self.candidate_built_ms = device_ms;
+            }
+            // A tip or pool change clears the candidate, so only its time can be out of date.
+            // Building it again would copy the unspent set whenever a payment is waiting.
+            Some(block) if stale => {
+                block.header.time_ms = now.max(block.header.time_ms);
+                block.header.nonce = 0;
+                self.candidate_built_ms = device_ms;
+            }
+            Some(_) => {}
         }
     }
 

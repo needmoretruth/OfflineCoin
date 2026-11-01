@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn double_spend_in_one_block_is_rejected() {
+    fn the_same_coin_twice_in_one_block_is_rejected() {
         let (alice, bob) = wallets();
         let mut main = chain(config());
         for _ in 0..3 {
@@ -214,7 +214,7 @@ mod tests {
         }
         let tx = alice.pay(&main, bob.address(), 1_000, 0, &[]).unwrap();
         let block = main.block_template(&alice.address(), &[tx.clone(), tx], 2_000_000_000_000);
-        // The template keeps the first copy and drops the double spend.
+        // The template keeps the first copy and drops the second.
         assert_eq!(block.txs.len(), 2);
     }
 

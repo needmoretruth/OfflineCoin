@@ -15,6 +15,8 @@ pub enum Message {
     GetBlock(Hash),
     Block(Block),
     Tx(Tx),
+    /// Running boards from afar. Carried for whoever reads it; the chain ignores it.
+    Control(Vec<u8>),
 }
 
 impl Message {
