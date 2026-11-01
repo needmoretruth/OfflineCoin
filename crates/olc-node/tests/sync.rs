@@ -6,6 +6,7 @@ use olc_node::{Engine, Message, Outgoing};
 
 const LONG_CHAIN: u64 = 200;
 const HEAVY_ATTEMPTS: u32 = 1_000_000;
+const BLOCKS_AT_ONCE: usize = 8;
 
 /// Passes everything from `from` to `to` and back, dropping what `lost` picks, and counts requests.
 fn carry(nodes: &mut [Engine; 2], mut lost: impl FnMut(&Message) -> bool) -> usize {
@@ -115,6 +116,40 @@ fn a_block_damaged_on_the_way_comes_again() {
         now += 2_000;
     }
     assert_eq!(nodes[1].status().tip, nodes[0].status().tip);
+}
+
+/// A board takes seconds over a block with many inputs, and asking again then only sends the
+/// same blocks twice: on a real board that was five copies of every block.
+#[test]
+fn a_slow_check_is_not_taken_for_a_quiet_peer() {
+    let mut nodes = [engine(1), engine(2)];
+    grown_by(&mut nodes[0], 30, 0);
+    nodes[0].tick(100_000);
+    nodes[1].tick(100_000);
+    let mut held = Vec::new();
+    carry(&mut nodes, |message| {
+        let Message::Block(block) = message else {
+            return false;
+        };
+        held.push(block.clone());
+        true
+    });
+    assert_eq!(held.len(), BLOCKS_AT_ONCE);
+    let asks = |node: &mut Engine| {
+        std::iter::from_fn(|| node.take_outgoing())
+            .filter(|out| matches!(out, Outgoing::To(_, Message::GetBlocks(..))))
+            .count()
+    };
+    let last = held.pop().unwrap();
+    for block in held {
+        nodes[1].on_message(0, Message::Block(block));
+        nodes[1].tick(105_000);
+        assert_eq!(asks(&mut nodes[1]), 0);
+    }
+    nodes[1].tick(105_500);
+    assert_eq!(asks(&mut nodes[1]), 0);
+    nodes[1].on_message(0, Message::Block(last));
+    assert_eq!(asks(&mut nodes[1]), 1);
 }
 
 #[test]
