@@ -59,7 +59,8 @@ impl Engine {
 
     /// Merges small coins when a key has gathered many.
     pub(crate) fn merge_coins(&mut self) {
-        if !self.merging || self.signing.is_some() {
+        // While catching up, coins that look unspent may already be spent further on.
+        if !self.merging || self.signing.is_some() || self.syncing_to().is_some() {
             return;
         }
         let reserved = self.reserved();
