@@ -2,18 +2,56 @@
 use super::commands::Personal;
 use super::explorer::{explore, Explored};
 use super::host::Host;
-use olc_core::BlockHeader;
+use olc_core::{BlockHeader, Tx};
 use olc_node::{Rank, Runner, Status};
 use olc_store::{
     back_up, format_secret, new_secret, parse_secret, restore, save_wallet, NodeSettings,
+    NEEDS_PASSWORD, NOT_A_BACKUP, WRONG_PASSWORD,
 };
 use olc_platform::platform;
 use olc_wallet::{format_address, parse_address, Unsigned, Wallet};
+use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 
 const STOPPED: &str = "The node stopped";
 const NO_NODE: &str = "No node runs here";
+
+/// Writes `text` for the next computer, or gives it back when no file was asked for.
+fn deliver(text: String, save: Option<&str>) -> Result<String, String> {
+    let Some(path) = save else {
+        return Ok(text);
+    };
+    fs::write(path, text).map_err(|error| format!("{path}: {error}"))?;
+    Ok(path.to_string())
+}
+
+/// A node answers in JSON, and says so when it refused.
+fn checked(answer: String) -> Result<String, String> {
+    let error = serde_json::from_str::<Value>(&answer).ok().map(|value| value["error"].clone());
+    match error.as_ref().and_then(Value::as_str) {
+        Some(error) => Err(error.to_string()),
+        None => Ok(answer),
+    }
+}
+
+/// The notice that says in plain words that `order` failed. The raw reason stays in its detail.
+fn failure_of(order: &Personal) -> &'static str {
+    match order {
+        Personal::NewKey | Personal::ListKeys | Personal::UseKey(_) => "notice.key_failed",
+        Personal::ImportKey(_) => "notice.import_failed",
+        Personal::ExportKey { .. } => "notice.export_failed",
+        Personal::BackUp { .. } => "notice.backup_failed",
+        Personal::Restore { .. } => "notice.restore_failed",
+        Personal::Prepare { .. } | Personal::Sign { .. } | Personal::Broadcast(_) => {
+            "notice.offline_failed"
+        }
+        Personal::WriteNote(_) => "notice.note_failed",
+        Personal::AcceptSnapshot => "notice.snapshot_failed",
+        Personal::Watch(_) | Personal::SetMiner(_) => "notice.bad_address",
+        _ => "notice.not_changed",
+    }
+}
 
 /// What an order needs from the place it lands: a running node, or a node's folder.
 pub trait Book {
@@ -45,7 +83,7 @@ pub trait Book {
     }
 
     /// Signs a payment read from a file. Touches no network.
-    fn sign_file(&self, path: &str) -> Result<String, String> {
+    fn sign_file(&self, path: &str, save: Option<&str>) -> Result<String, String> {
         let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
         let answer: serde_json::Value =
             serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))?;
@@ -54,7 +92,18 @@ pub trait Book {
         let signed = self
             .wallet_view(|wallet| wallet.sign(&unsigned))?
             .map_err(|error| format!("{error:?}"))?;
-        serde_json::to_string(&signed).map_err(|error| error.to_string())
+        deliver(serde_json::to_string(&signed).map_err(|error| error.to_string())?, save)
+    }
+
+    /// A payment from the watched addresses, ready for a wallet elsewhere to sign.
+    fn prepare(&self, to: &str, units: u64, fee: u64, save: Option<&str>) -> Result<String, String> {
+        let body = json!({ "to": to, "amount": units, "fee": fee }).to_string();
+        deliver(checked(self.ask_node("prepare", &body)?)?, save)
+    }
+
+    fn broadcast(&self, path: &str) -> Result<String, String> {
+        let body = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        checked(self.ask_node("broadcast", body.trim())?)
     }
 
     fn new_key(&self) -> Result<String, String> {
@@ -200,15 +249,15 @@ pub trait Book {
             Personal::SetMining(on) => self
                 .change_settings(|settings| settings.mining = on)
                 .map(|()| ("notice.saved", String::new())),
-            Personal::Prepare { to, units, fee } => {
-                let body = serde_json::json!({ "to": to, "amount": units, "fee": fee }).to_string();
-                self.ask_node("prepare", &body).map(|answer| ("notice.saved", answer))
+            Personal::Prepare { to, units, fee, save } => self
+                .prepare(&to, units, fee, save.as_deref())
+                .map(|answer| ("notice.prepared", answer)),
+            Personal::Sign { path, save } => self
+                .sign_file(&path, save.as_deref())
+                .map(|signed| ("notice.signed", signed)),
+            Personal::Broadcast(path) => {
+                self.broadcast(&path).map(|answer| ("notice.broadcast", answer))
             }
-            Personal::Sign(path) => self.sign_file(&path).map(|signed| ("notice.saved", signed)),
-            Personal::Broadcast(path) => fs::read_to_string(&path)
-                .map_err(|error| format!("{path}: {error}"))
-                .and_then(|body| self.ask_node("broadcast", body.trim()))
-                .map(|answer| ("notice.saved", answer)),
             Personal::WriteNote(text) => self.write_note(&text).map(|_| ("notice.noted", text)),
             Personal::AcceptSnapshot => {
                 self.accept_snapshot().map(|()| ("notice.snapshot_taking", String::new()))
@@ -231,10 +280,37 @@ impl Host {
 
     /// Does what a person asked. The answer is a notice's key, its detail, and whether it went well.
     pub fn obey(&self, order: Personal) -> (&'static str, String, bool) {
+        let failed = failure_of(&order);
         match self.carry_out(order) {
             Ok((key, detail)) => (key, detail, true),
-            Err(error) => ("notice.not_done", error, false),
+            Err(error) => {
+                let key = match error.as_str() {
+                    WRONG_PASSWORD => "notice.wrong_password",
+                    NEEDS_PASSWORD => "notice.needs_password",
+                    NOT_A_BACKUP => "notice.not_a_backup",
+                    _ => failed,
+                };
+                (key, error, false)
+            }
         }
+    }
+
+    /// A payment built on this node's chain from what it watches.
+    fn prepare_here(&self, body: &str) -> Result<String, String> {
+        let request: Value = serde_json::from_str(body).map_err(|error| error.to_string())?;
+        let to = request["to"].as_str().and_then(parse_address).ok_or("That is not an address.")?;
+        let amount = request["amount"].as_u64().filter(|amount| *amount > 0).ok_or("No amount")?;
+        let fee = request["fee"].as_u64().unwrap_or(0);
+        let unsigned = self
+            .on_runner(|runner| runner.engine.prepare(to, amount, fee))?
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(json!({ "unsigned": unsigned }).to_string())
+    }
+
+    fn broadcast_here(&self, body: &str) -> Result<String, String> {
+        let tx: Tx = serde_json::from_str(body).map_err(|error| error.to_string())?;
+        let id = self.on_runner(|runner| runner.engine.send_signed(tx))?;
+        Ok(json!({ "id": id.iter().map(|byte| format!("{byte:02x}")).collect::<String>() }).to_string())
     }
 }
 
@@ -274,8 +350,12 @@ impl Book for Host {
             .map_err(|error| format!("{error:?}"))
     }
 
-    fn ask_node(&self, _path: &str, _body: &str) -> Result<String, String> {
-        Err(NO_NODE.to_string())
+    fn ask_node(&self, path: &str, body: &str) -> Result<String, String> {
+        match path {
+            "prepare" => self.prepare_here(body),
+            "broadcast" => self.broadcast_here(body),
+            _ => Err(NO_NODE.to_string()),
+        }
     }
 
     fn show_explored(&self, text: &str) -> Result<(), String> {

@@ -70,6 +70,11 @@ pub struct KeyView {
 }
 
 impl NodeView {
+    /// About how long this computer takes to find a block alone. `None` when it is not trying.
+    pub fn seconds_per_block(&self) -> Option<u64> {
+        (self.hashrate > 0).then(|| (self.difficulty / self.hashrate.max(1)).max(1))
+    }
+
     pub fn tip_hex(&self) -> String {
         self.tip.iter().map(|byte| format!("{byte:02x}")).collect()
     }

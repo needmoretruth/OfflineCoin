@@ -25,6 +25,7 @@ postcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 if-addrs = "0.15"
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 olc-link-serial.workspace = true

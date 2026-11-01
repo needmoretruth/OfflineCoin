@@ -46,6 +46,7 @@ pub struct CoreLaunch {
 }
 
 /// The window's handle on all of it.
+#[derive(Clone)]
 pub struct Core {
     snapshot: Arc<Mutex<Arc<Snapshot>>>,
     commands: Sender<Command>,

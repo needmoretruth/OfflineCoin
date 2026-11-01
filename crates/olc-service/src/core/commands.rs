@@ -52,9 +52,15 @@ pub enum Personal {
         to: String,
         units: u64,
         fee: u64,
+        /// Where to write it. Without it, the answer is the payment itself.
+        save: Option<String>,
     },
     /// Signs the payment in this file.
-    Sign(String),
+    Sign {
+        path: String,
+        /// Where to write the signed payment. Without it, the answer is the payment itself.
+        save: Option<String>,
+    },
     /// Sends the signed payment in this file.
     Broadcast(String),
     SetLinks(Rank),

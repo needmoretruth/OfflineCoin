@@ -57,6 +57,14 @@ pub enum BoardAction {
     ConfirmCoin,
     TakeWork { header: String, difficulty: String },
     StopWork,
+    /// Whether the board holds headers only.
+    Light(bool),
+    /// Who the board hears around it.
+    Neighbours,
+    ReadWires,
+    /// Crosses the board's two wire pins.
+    SwapWires,
+    WireSpeed(u32),
 }
 
 fn on_off(on: bool) -> &'static str {
@@ -135,6 +143,11 @@ impl BoardAction {
                 format!("work {} {}", word(header)?, word(difficulty)?)
             }
             Self::StopWork => "work stop".into(),
+            Self::Light(on) => format!("light {}", on_off(*on)),
+            Self::Neighbours => "near".into(),
+            Self::ReadWires => "wires".into(),
+            Self::SwapWires => "wires swap".into(),
+            Self::WireSpeed(baud) => format!("wires {baud}"),
         })
     }
 
@@ -170,6 +183,13 @@ impl BoardAction {
             ["dial", "off"] => Self::DialOff,
             ["dial", target] => Self::Dial(name(target)),
             ["espnow", word] => Self::EspNow(on(word)?),
+            ["bluetooth", word] => Self::Bluetooth(on(word)?),
+            ["links", order] => Self::Links(name(order)),
+            ["light", word] => Self::Light(on(word)?),
+            ["near"] => Self::Neighbours,
+            ["wires"] => Self::ReadWires,
+            ["wires", "swap"] => Self::SwapWires,
+            ["wires", baud] => Self::WireSpeed(baud.parse().ok()?),
             ["power", dbm] => Self::RadioPower(dbm.parse().ok()?),
             ["ignore", "none"] => Self::HearEveryone,
             ["ignore", peer] => Self::Ignore(name(peer)),
@@ -308,6 +328,13 @@ mod tests {
             BoardAction::ConfirmCoin,
             BoardAction::TakeWork { header: word(), difficulty: word() },
             BoardAction::StopWork,
+            BoardAction::Bluetooth(true),
+            BoardAction::Links(word()),
+            BoardAction::Light(true),
+            BoardAction::Neighbours,
+            BoardAction::ReadWires,
+            BoardAction::SwapWires,
+            BoardAction::WireSpeed(115_200),
         ];
         for action in actions {
             let line = action.line().unwrap();

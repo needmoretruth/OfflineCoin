@@ -29,6 +29,52 @@ pub struct UsbPort {
     pub serial: String,
 }
 
+/// What kind of place a folder is, so the window can name it in the reader's language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaceKind {
+    Home,
+    Desktop,
+    Documents,
+    Downloads,
+    /// A USB stick or another drive.
+    Drive,
+}
+
+/// A folder worth offering first when a file is chosen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub kind: PlaceKind,
+    /// The drive's own label, empty for the usual folders.
+    pub label: String,
+    pub path: PathBuf,
+}
+
+/// The usual folders under `home`, keeping those that exist.
+fn usual_places(home: &Path, names: [(PlaceKind, PathBuf); 3]) -> Vec<Place> {
+    let first = Place { kind: PlaceKind::Home, label: String::new(), path: home.to_path_buf() };
+    let rest = names.into_iter().filter(|(_, path)| path.is_dir());
+    let rest = rest.map(|(kind, path)| Place { kind, label: String::new(), path });
+    std::iter::once(first).chain(rest).collect()
+}
+
+/// Every folder inside `root`, as drives.
+#[cfg(unix)]
+fn drives_in(root: &Path) -> Vec<Place> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let folders = entries.flatten().filter(|entry| entry.path().is_dir());
+    let mut drives: Vec<Place> = folders
+        .map(|entry| Place {
+            kind: PlaceKind::Drive,
+            label: entry.file_name().to_string_lossy().to_string(),
+            path: entry.path(),
+        })
+        .collect();
+    drives.sort_by(|one, other| one.label.cmp(&other.label));
+    drives
+}
+
 /// What a node process may use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Limits {
@@ -110,6 +156,8 @@ pub trait Platform: Sync {
     /// Shows a folder in the system's file manager.
     /// Shows a folder in the file manager. Web addresses go the same way.
     fn open_folder(&self, path: &Path) -> std::io::Result<()>;
+    /// Where a person keeps files: their usual folders, then any drive plugged in.
+    fn places(&self) -> Vec<Place>;
 }
 
 /// This computer's system.
