@@ -186,7 +186,7 @@ impl<P: Pipe> Link for LineLink<P> {
                 }
                 self.waiting = 0..size;
             }
-            while let Some(at) = self.waiting.next() {
+            for at in self.waiting.by_ref() {
                 match self.lines.push(self.bytes[at]) {
                     Heard::Message(message) => {
                         self.pipe.heard_line();
