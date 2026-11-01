@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 const LOOK: Duration = Duration::from_millis(2);
 const REFUSAL_WAIT: Duration = Duration::from_secs(4);
 const BOARD_WAIT: Duration = Duration::from_secs(30);
-const RETURN_WAIT: Duration = Duration::from_secs(90);
+const RETURN_WAIT: Duration = Duration::from_secs(180);
 
 fn parse_id(text: &str) -> Option<BoardId> {
     let mut id = [0u8; 6];
