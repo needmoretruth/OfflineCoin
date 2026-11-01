@@ -1,7 +1,7 @@
 //! The keys this node holds, and the wallet file. A secret key never shows on screen.
 use super::{Cx, Page};
 use crate::core::{Command, Personal};
-use crate::ui::tokens;
+use crate::ui::{format, tokens};
 use crate::ui::widgets::{
     self, button, button_on, card, chip, field, meta, mono, secret_field, section, Kind,
 };
@@ -14,6 +14,7 @@ pub struct Keys {
     export_path: String,
     backup_path: String,
     password: String,
+    watch: String,
 }
 
 fn own(cx: &Cx, order: Personal) {
@@ -62,6 +63,26 @@ impl Keys {
         });
     }
 
+    fn watched(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        section(ui, cx.say("keys.watch_title"));
+        let ticker = cx.snap.node.coin.as_ref().map_or("", |coin| coin.ticker.as_str());
+        for (address, coins) in &cx.snap.node.watched {
+            ui.horizontal(|ui| {
+                ui.label(mono(address));
+                meta(ui, &format::coins(*coins, ticker), t);
+            });
+        }
+        ui.horizontal(|ui| {
+            field(ui, &mut self.watch, cx.say("keys.watch_hint"), 380.0);
+            let ready = !self.watch.trim().is_empty();
+            if button_on(ui, t, cx.say("keys.watch"), Kind::Plain, ready).clicked() {
+                own(cx, Personal::Watch(std::mem::take(&mut self.watch)));
+            }
+        });
+        meta(ui, cx.say("keys.watch_note"), t);
+    }
+
     fn backup(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         section(ui, cx.say("keys.backup_title"));
@@ -100,6 +121,8 @@ impl Page for Keys {
         card(ui, t, |ui| self.list(ui, cx));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.add(ui, cx));
+        ui.add_space(tokens::GAP);
+        card(ui, t, |ui| self.watched(ui, cx));
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.backup(ui, cx));
     }

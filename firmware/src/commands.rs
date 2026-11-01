@@ -74,6 +74,11 @@ impl Node {
             (Some("key"), Some("export"), Some(index)) => self.export_key(index),
             (Some("mineto"), Some(target), _) => self.mine_to(target),
             (Some("keep"), Some(blocks), _) => self.keep_blocks(blocks),
+            (Some("light"), Some(state), _) => {
+                let on = state == "on";
+                self.say(format!("light {on}"));
+                self.restart_with(|settings| settings.light = if on { "on" } else { "" }.into());
+            }
             (Some("merge"), Some(state), _) => {
                 let on = state == "on";
                 self.runner.engine.set_merging(on);

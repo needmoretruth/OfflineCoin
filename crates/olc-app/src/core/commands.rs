@@ -38,6 +38,7 @@ pub enum Personal {
     SetMineNote(String),
     SetRecent(Option<u64>),
     SetMerging(bool),
+    Watch(String),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),

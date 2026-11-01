@@ -5,7 +5,7 @@ use olc_store::{
     back_up, format_secret, load_wallet, new_secret, parse_secret, restore, save_wallet,
     NodeSettings,
 };
-use olc_wallet::{format_address, parse_address, Wallet};
+use olc_wallet::{format_address, parse_address, Unsigned, Wallet};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -73,18 +73,53 @@ fn merge_keys(wallet: &mut Wallet, restored: &Wallet) -> usize {
 
 fn send_note(args: &Args) -> Result<(), String> {
     let text = args.word(1).ok_or("Write the note: olc note \"hello\"")?;
-    let port: u16 = args.number("web", 8000)?;
     let body = serde_json::json!({ "text": text }).to_string();
+    println!("{}", post(args, "note", &body)?);
+    Ok(())
+}
+
+/// Asks the node on this computer.
+fn post(args: &Args, path: &str, body: &str) -> Result<String, String> {
+    let port: u16 = args.number("web", 8000)?;
     let mut stream =
         TcpStream::connect(("127.0.0.1", port)).map_err(|_| "No node runs on this computer.")?;
     let request = format!(
-        "POST /api/note HTTP/1.0\r\nContent-Length: {}\r\n\r\n{body}",
+        "POST /api/{path} HTTP/1.0\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
     let mut reply = String::new();
     stream.read_to_string(&mut reply).map_err(|error| error.to_string())?;
-    println!("{}", reply.split("\r\n\r\n").nth(1).unwrap_or(&reply));
+    Ok(reply.split("\r\n\r\n").nth(1).unwrap_or(&reply).to_string())
+}
+
+/// `olc prepare TO UNITS`: a payment from the watched addresses, for an offline wallet to sign.
+fn prepare(args: &Args) -> Result<(), String> {
+    let to = args.word(1).ok_or("Name the address: olc prepare ADDRESS UNITS")?;
+    let amount = args.word(2).and_then(|word| word.parse::<u64>().ok());
+    let amount = amount.ok_or("Name the amount in units: olc prepare ADDRESS UNITS")?;
+    let fee: u64 = args.number("fee", 0)?;
+    let body = serde_json::json!({ "to": to, "amount": amount, "fee": fee }).to_string();
+    println!("{}", post(args, "prepare", &body)?);
+    Ok(())
+}
+
+/// `olc sign FILE`: prints the signed payment. Touches no network.
+fn sign(args: &Args, wallet: &Wallet) -> Result<(), String> {
+    let path = args.word(1).ok_or("Name the file: olc sign unsigned.json")?;
+    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let reply: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let unsigned: Unsigned =
+        serde_json::from_value(reply["unsigned"].clone()).map_err(|e| e.to_string())?;
+    let signed = wallet.sign(&unsigned).map_err(|error| format!("{error:?}"))?;
+    println!("{}", serde_json::to_string(&signed).map_err(|error| error.to_string())?);
+    Ok(())
+}
+
+fn broadcast(args: &Args) -> Result<(), String> {
+    let path = args.word(1).ok_or("Name the file: olc broadcast signed.json")?;
+    let body = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    println!("{}", post(args, "broadcast", body.trim())?);
     Ok(())
 }
 
@@ -104,6 +139,12 @@ fn choice(args: &Args, word: &str) -> Result<(), String> {
             settings.recent = Some(blocks);
         }
         "merge" => settings.no_merge = value == "off",
+        "light" => settings.light = value == "on",
+        "mining" => settings.mining = value == "on",
+        "watch" => {
+            parse_address(&value).ok_or("That is not an address.")?;
+            settings.watched.push(value.to_string());
+        }
         _ => settings.note = value.to_string(),
     }
     settings.save(&directory)
@@ -113,12 +154,17 @@ pub fn run(word: &str, args: &Args) -> Result<(), String> {
     let directory = folder(args);
     match word {
         "note" => return send_note(args),
-        "miner" | "keep" | "merge" | "mine-note" => return choice(args, word),
+        "prepare" => return prepare(args),
+        "broadcast" => return broadcast(args),
+        "miner" | "keep" | "merge" | "mine-note" | "light" | "mining" | "watch" => {
+            return choice(args, word);
+        }
         _ => {}
     }
     let mut wallet = load_wallet(&directory)?;
     match word {
         "keys" => list(&wallet),
+        "sign" => sign(args, &wallet)?,
         "key" => {
             if key(args, &mut wallet)? {
                 save_wallet(&directory, &wallet)?;

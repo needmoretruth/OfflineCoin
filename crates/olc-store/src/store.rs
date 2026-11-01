@@ -1,7 +1,7 @@
 //! Opening a node's chain on a computer. Blocks live in segment files behind the same log a board
 //! uses. Blocks an older version left in `blocks.log` join the new store once.
 use crate::files::keep_in;
-use olc_core::{Block, Chain, CoinConfig, Plugins};
+use olc_core::{Block, BlockHeader, Chain, CoinConfig, Plugins};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -9,6 +9,8 @@ use std::path::Path;
 const OLD_BLOCKS: &str = "blocks.log";
 const OLD_BLOCKS_DONE: &str = "blocks.log.imported";
 const SETTINGS: &str = "node.json";
+const HEADERS: &str = "headers.bin";
+const HEADERS_NEW: &str = "headers.new";
 
 /// What a person chose for this node.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +27,15 @@ pub struct NodeSettings {
     /// Leaves small coins as they are when set.
     #[serde(default)]
     pub no_merge: bool,
+    /// Keeps headers only, and asks full nodes for its coins.
+    #[serde(default)]
+    pub light: bool,
+    /// Mines from the start. Off unless the owner turns it on, as in Bitcoin Core.
+    #[serde(default)]
+    pub mining: bool,
+    /// Addresses followed without a key.
+    #[serde(default)]
+    pub watched: Vec<String>,
 }
 
 impl NodeSettings {
@@ -38,6 +49,21 @@ impl NodeSettings {
         fs::create_dir_all(directory).map_err(|error| error.to_string())?;
         fs::write(directory.join(SETTINGS), text).map_err(|error| error.to_string())
     }
+}
+
+/// The headers a light node saved. Each one is checked again as it is taken back.
+pub fn load_headers(directory: &Path) -> Vec<BlockHeader> {
+    let bytes = fs::read(directory.join(HEADERS)).unwrap_or_default();
+    let headers = bytes.chunks_exact(BlockHeader::ENCODED_LEN);
+    headers.map_while(BlockHeader::decode).collect()
+}
+
+/// Replaces the saved headers whole, so a cut while saving leaves the last ones.
+pub fn save_headers(directory: &Path, headers: &[BlockHeader]) -> Result<(), String> {
+    let bytes: Vec<u8> = headers.iter().flat_map(BlockHeader::encode).collect();
+    let fresh = directory.join(HEADERS_NEW);
+    fs::write(&fresh, bytes).map_err(|error| error.to_string())?;
+    fs::rename(&fresh, directory.join(HEADERS)).map_err(|error| error.to_string())
 }
 
 /// Opens the chain in `directory`, with `limit` bytes of disk if it has a limit.

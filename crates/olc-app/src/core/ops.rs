@@ -30,6 +30,14 @@ impl Host {
         settings.save(&folder)
     }
 
+    /// Follows an address without its key, now and after a restart.
+    pub fn watch(&self, text: &str) -> Result<(), String> {
+        let text = text.trim();
+        let address = parse_address(text).ok_or("That is not an address.")?;
+        self.on_runner(|runner| runner.engine.watch(address))?;
+        self.change_settings(|settings| settings.watched.push(text.to_string()))
+    }
+
     pub fn new_key(&self) -> Result<String, String> {
         self.add_key(new_secret()?)
     }
@@ -173,6 +181,7 @@ impl Host {
             Personal::SetMerging(on) => {
                 self.set_merging(on).map(|()| ("notice.saved", String::new()))
             }
+            Personal::Watch(text) => self.watch(&text).map(|()| ("notice.saved", String::new())),
             Personal::WriteNote(text) => self.write_note(&text).map(|_| ("notice.noted", text)),
             Personal::AcceptSnapshot => {
                 self.accept_snapshot().map(|()| ("notice.snapshot_taking", String::new()))

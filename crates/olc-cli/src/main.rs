@@ -29,6 +29,12 @@ OfflineCoin
   olc miner ADDRESS|off [--data DIR]    where mined coins go
   olc keep BLOCKS|all [--data DIR]      recent blocks to hold
   olc merge on|off [--data DIR]         merge small coins by itself
+  olc mining on|off [--data DIR]        mine from the start
+  olc light on|off [--data DIR]         hold headers only, trusting peers on unspent coins
+  olc watch ADDRESS [--data DIR]        follow an address without its key
+  olc prepare ADDRESS UNITS [--fee UNITS] [--web 8000]   a payment from watched addresses
+  olc sign FILE [--data DIR]            sign it, offline
+  olc broadcast FILE [--web 8000]       send it
   olc note TEXT [--web 8000]            write a note into a block
   olc mine-note TEXT [--data DIR]       a note in every mined block
   olc logo    [--once]
@@ -48,7 +54,8 @@ fn main() {
         Some("devnet") => devnet::run(&args),
         Some("new-coin") => coinfile::create(&args),
         Some("logo") => logo::run(&args),
-        Some(word @ ("keys" | "key" | "backup" | "restore" | "miner" | "keep" | "merge" | "note"
+        Some(word @ ("keys" | "key" | "backup" | "restore" | "miner" | "keep" | "merge" | "light" | "mining" | "watch" | "prepare"
+        | "sign" | "broadcast" | "note"
         | "mine-note")) => keys::run(word, &args),
         word => match EXTRAS.iter().find(|extra| Some(extra.command()) == word) {
             Some(extra) => extra.run(&args),

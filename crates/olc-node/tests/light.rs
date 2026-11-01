@@ -326,3 +326,27 @@ fn an_address_can_be_followed_without_a_key() {
     assert_eq!(nodes[1].watched(), vec![(followed, held)]);
     assert_eq!(nodes[2].watched(), vec![(followed, held)]);
 }
+
+#[test]
+fn a_key_that_never_touches_a_network_can_pay() {
+    let mut clock = 1_000;
+    let mut miner = engine_of(1, test_coin());
+    mine_on(&mut miner, 5, &mut clock);
+    let offline = Wallet::from_secret([1; 32]).unwrap();
+    let mut online = engine_of(2, test_coin());
+    online.watch(offline.address());
+    let payee = engine_of(3, test_coin()).address();
+    let mut nodes = [miner, online];
+    settle(&mut nodes, &mut clock);
+
+    let fee = nodes[1].chain().rules().min_fee;
+    let unsigned = nodes[1].prepare(payee, COIN, fee).unwrap();
+    let stranger = Wallet::from_secret([9; 32]).unwrap();
+    assert!(stranger.sign(&unsigned).is_err());
+    let signed = offline.sign(&unsigned).unwrap();
+    nodes[1].send_signed(signed);
+    deliver(&mut nodes);
+    confirm(&mut nodes[0], &mut clock);
+    settle(&mut nodes, &mut clock);
+    assert_eq!(nodes[1].chain().balance(&payee), COIN);
+}

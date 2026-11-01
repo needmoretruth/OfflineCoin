@@ -39,6 +39,11 @@ pub struct ChildStatus {
     pub stored_bytes: u64,
     pub storage_full: bool,
     pub loading: bool,
+    /// Headers held, on a node that holds nothing else.
+    pub headers: Option<u64>,
+    /// Proofs and headers that did not pass.
+    pub refused: u32,
+    pub reorganized: u32,
     pub paid: Option<String>,
     pub error: Option<String>,
     /// Headers found on work from outside since the last line.
@@ -65,6 +70,9 @@ impl ChildStatus {
             stored_bytes: view.stored_bytes,
             storage_full: view.storage_full,
             loading: view.loading.is_some(),
+            headers: view.light.map(|light| light.held_headers as u64),
+            refused: view.light.map_or(0, |light| light.refused),
+            reorganized: view.light.map_or(0, |light| light.reorganized),
             paid: None,
             error: None,
             shares: Vec::new(),
@@ -192,6 +200,7 @@ impl Supervisor {
         let coin_name = coin.parent().and_then(Path::file_name).unwrap_or_default();
         let chain = folder.join(coin_name);
         fs::create_dir_all(&chain).map_err(|error| error.to_string())?;
+        spec.apply_holding(&chain)?;
         let words = self.words(spec, coin, &chain, peers);
         let mut command = wrapped(
             enforcement(),

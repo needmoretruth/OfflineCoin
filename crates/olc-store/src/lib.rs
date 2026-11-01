@@ -5,7 +5,7 @@ mod store;
 mod wallet_file;
 
 pub use files::{keep_in, Segments};
-pub use store::{open_chain, NodeSettings};
+pub use store::{load_headers, open_chain, save_headers, NodeSettings};
 pub use wallet_file::{
     back_up, format_secret, load_wallet, new_secret, parse_secret, restore, save_wallet,
 };

@@ -408,7 +408,9 @@ impl Node {
                     self.set_language(language);
                 }
             }
-            (Some("mine"), Some(state), _) => self.mining = state == "on",
+            (Some("mine"), Some(state), _) => {
+                self.mining = state == "on" && self.runner.engine.light().is_none();
+            }
             (Some("limit"), Some("default"), _) => self.set_limit(None),
             (Some("limit"), Some(value), _) => {
                 if let Ok(limit) = value.parse() {
@@ -494,7 +496,7 @@ impl Node {
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY, keys, key new|use N|import HEX|export N, \
-                 mineto ADDRESS|own, keep BLOCKS|all, merge on|off, note TEXT, \
+                 mineto ADDRESS|own, keep BLOCKS|all, merge on|off, light on|off, note TEXT, \
                  minenote TEXT|off, snapshot accept, coin [HEX|default|confirm], \
                  work HEADER DIFFICULTY, work stop"
             ),
@@ -502,7 +504,7 @@ impl Node {
     }
 
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
-    fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
+    pub fn restart_with(&mut self, change: impl FnOnce(&mut Settings)) {
         self.save(change);
         self.restart_ms = Some(device_ms() + RESTART_DELAY_MS);
     }

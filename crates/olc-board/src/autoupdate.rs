@@ -2,6 +2,7 @@
 use crate::control_key::config_folder;
 use crate::fleet::Seen;
 use crate::manager::Manager;
+use crate::Connection;
 use olc_control::BoardId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};

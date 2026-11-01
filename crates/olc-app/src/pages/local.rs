@@ -2,7 +2,9 @@
 //! held to numbers the operating system enforces, and shown beside what it really uses.
 use super::{Cx, Page};
 use crate::core::Command;
-use crate::local::{Enforcement, LocalView, NodeSpec, Preset, WalletChoice, PROCESS_OVERHEAD_MIB};
+use crate::local::{
+    Enforcement, Holding, LocalView, NodeSpec, Preset, WalletChoice, PROCESS_OVERHEAD_MIB,
+};
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
@@ -46,6 +48,14 @@ fn preset_name(cx: &Cx, preset: Preset) -> &'static str {
         Preset::Esp32S3 => "local.preset_esp32",
         Preset::RaspberryPi4 => "local.preset_pi",
         Preset::Custom => "local.preset_custom",
+    })
+}
+
+fn holding_name(cx: &Cx, holding: Holding) -> &'static str {
+    cx.say(match holding {
+        Holding::Everything => "local.keep_all",
+        Holding::Recent => "local.keep_recent",
+        Holding::Headers => "local.keep_headers",
     })
 }
 
@@ -119,6 +129,7 @@ impl Local {
                     WalletChoice::Shared => "local.wallet_shared",
                 };
                 chip(ui, cx.say(wallet), t.muted, t);
+                chip(ui, holding_name(cx, view.spec.holding), t.muted, t);
                 if let Some(ended) = &view.ended {
                     chip(ui, &cx.fill("local.ended", &[ended]), t.bad, t);
                 }
@@ -126,6 +137,9 @@ impl Local {
                     chip(ui, cx.say("local.disk_full"), t.warn, t);
                 }
             });
+            if view.spec.holding == Holding::Headers {
+                meta(ui, cx.say("local.light_trust"), t);
+            }
             if let Some(status) = &view.status {
                 let ticker = cx.snap.node.coin.as_ref().map_or("", |coin| coin.ticker.as_str());
                 let line = cx.fill(
@@ -260,9 +274,26 @@ impl Local {
                 }
                 ui.add_space(tokens::GAP_WIDE);
                 widgets::switch_row(ui, t, &mut form.joined, cx.say("local.joined"));
-                switch_row(ui, t, &mut form.mining, cx.say("local.mine"));
+                if form.holding != Holding::Headers {
+                    switch_row(ui, t, &mut form.mining, cx.say("local.mine"));
+                }
                 switch_row(ui, t, &mut form.listen_lan, cx.say("local.listen_lan"));
             });
+            ui.horizontal(|ui| {
+                let items = [Holding::Everything, Holding::Recent, Holding::Headers]
+                    .map(|holding| (holding, holding_name(cx, holding).to_string()));
+                if let Some(holding) = segments(ui, t, &items, Some(form.holding)) {
+                    form.holding = holding;
+                    form.mining &= holding != Holding::Headers;
+                }
+                if form.holding == Holding::Recent {
+                    ui.add_space(tokens::GAP_WIDE);
+                    number_field(ui, &mut form.recent, 100.0);
+                }
+            });
+            if form.holding == Holding::Headers {
+                meta(ui, cx.say("local.light_trust"), t);
+            }
             ui.horizontal(|ui| {
                 if button(ui, t, cx.say("local.add"), Kind::Main).clicked() {
                     let id = next_id(cx);

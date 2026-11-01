@@ -7,7 +7,7 @@ use olc_link_serial::SerialLink;
 use olc_link_tcp::TcpLink;
 use olc_node::{Card, Engine, Event, Runner};
 use olc_pow::ProofOfWork;
-use olc_store::{load_wallet, open_chain, NodeSettings};
+use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
 use olc_wallet::parse_address;
 use std::collections::VecDeque;
 use std::fs;
@@ -23,6 +23,7 @@ const RELAXED_LIMIT: u64 = 20_000;
 const LIMIT_FILE: &str = "hash-limit";
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
 const MAX_LOG: usize = 40;
+const HEADERS_SAVED_EVERY: Duration = Duration::from_secs(30);
 
 /// Shared between the mining loop and the browser screen.
 pub struct Shared {
@@ -116,7 +117,7 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         .unwrap_or_default();
     let shared = Arc::new(Shared {
         runner: Arc::new(Mutex::new(runner)),
-        mining: AtomicBool::new(args.has("mine")),
+        mining: AtomicBool::new(args.has("mine") || NodeSettings::load(&directory).mining),
         hashrate: AtomicU64::new(0),
         hash_limit: AtomicU64::new(hash_limit),
         full_rate: measure_full_rate(),
@@ -157,6 +158,10 @@ fn open_engine(directory: &Path, coin: CoinConfig) -> Result<Engine, String> {
     engine.set_miner(settings.miner.as_deref().and_then(parse_address));
     engine.set_note(settings.note.as_bytes());
     engine.set_merging(!settings.no_merge);
+    settings.watched.iter().filter_map(|text| parse_address(text)).for_each(|a| engine.watch(a));
+    if settings.light {
+        engine.become_light(usize::MAX, &load_headers(directory));
+    }
     Ok(engine)
 }
 
@@ -204,6 +209,7 @@ fn measure_full_rate() -> u64 {
 fn main_loop(shared: &Shared) {
     let mut window = Instant::now();
     let mut hashes = 0u64;
+    let mut saved = Instant::now();
     loop {
         let hash_limit = shared.hash_limit.load(Ordering::Relaxed);
         // A batch bigger than the cap allows in a window would overrun it.
@@ -237,12 +243,27 @@ fn main_loop(shared: &Shared) {
             hashes = 0;
             window = Instant::now();
         }
+        if saved.elapsed() >= HEADERS_SAVED_EVERY {
+            saved = Instant::now();
+            save_light(shared);
+        }
         if mining {
             // Lets the browser screen take the lock between batches.
             thread::yield_now();
         } else {
             thread::sleep(IDLE_SLEEP);
         }
+    }
+}
+
+fn save_light(shared: &Shared) {
+    let Ok(runner) = shared.runner.lock() else {
+        return;
+    };
+    let light = runner.engine.light();
+    if let Some(headers) = light.and_then(|light| light.headers().saved()) {
+        // The next save tries again, and peers can give back whatever is lost.
+        let _ = save_headers(&shared.directory, headers);
     }
 }
 

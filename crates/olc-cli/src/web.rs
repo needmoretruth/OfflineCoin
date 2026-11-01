@@ -2,7 +2,9 @@
 use crate::node::Shared;
 use crate::{fleet_api, logo};
 use olc_core::coin::COIN;
-use olc_node::Event;
+use olc_core::Tx;
+use olc_node::{Event, LightStatus};
+use olc_store::NodeSettings;
 use olc_wallet::{format_address, parse_address};
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
@@ -58,6 +60,8 @@ fn handle(shared: &Shared, mut request: Request) {
         (Method::Get, "/api/status") => json_response(&status(shared)),
         (Method::Get, "/api/logo") => json_response(&json!(logo::frames_for_page())),
         (Method::Post, "/api/send") => json_response(&send(shared, &body)),
+        (Method::Post, "/api/prepare") => json_response(&prepare(shared, &body)),
+        (Method::Post, "/api/broadcast") => json_response(&broadcast(shared, &body)),
         (Method::Post, "/api/note") => json_response(&write_note(shared, &body)),
         (Method::Post, "/api/limit") => json_response(&set_limit(shared, &body)),
         (Method::Post, "/api/mining") => json_response(&set_mining(shared, &body)),
@@ -162,7 +166,12 @@ fn status(shared: &Shared) -> Value {
         "self": hex(&engine.address()),
         "pool": status.pool,
         "peers": status.peers,
-        "mining": shared.mining.load(Ordering::Relaxed),
+        "mining": shared.mining.load(Ordering::Relaxed) && engine.light().is_none(),
+        "light": engine.light().map(|light| light_status(light.status())),
+        "work": status.work.to_string(),
+        "watched": engine.watched().iter().map(|(address, coins)| {
+            json!({ "address": format_address(address), "balance": *coins as f64 / COIN as f64 })
+        }).collect::<Vec<_>>(),
         "hashrate": shared.hashrate.load(Ordering::Relaxed),
         "limit": shared.hash_limit.load(Ordering::Relaxed),
         "full_rate": shared.full_rate,
@@ -190,6 +199,34 @@ fn send(shared: &Shared, body: &str) -> Value {
     }
 }
 
+/// A payment from the watched addresses, unsigned, for a wallet that may be offline.
+fn prepare(shared: &Shared, body: &str) -> Value {
+    let request: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let to = request["to"].as_str().and_then(parse_address);
+    let amount = request["amount"].as_u64().filter(|amount| *amount > 0);
+    let (Some(to), Some(amount)) = (to, amount) else {
+        return json!({ "error": "bad_request" });
+    };
+    let fee = request["fee"].as_u64().unwrap_or(0);
+    let Ok(runner) = shared.runner.lock() else {
+        return json!({ "error": "busy" });
+    };
+    match runner.engine.prepare(to, amount, fee) {
+        Ok(unsigned) => json!({ "unsigned": unsigned }),
+        Err(error) => json!({ "error": format!("{error:?}") }),
+    }
+}
+
+fn broadcast(shared: &Shared, body: &str) -> Value {
+    let Ok(tx) = serde_json::from_str::<Tx>(body) else {
+        return json!({ "error": "bad_request" });
+    };
+    let Ok(mut runner) = shared.runner.lock() else {
+        return json!({ "error": "busy" });
+    };
+    json!({ "id": hex(&runner.engine.send_signed(tx)) })
+}
+
 fn write_note(shared: &Shared, body: &str) -> Value {
     let request: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let Some(text) = request["text"].as_str() else {
@@ -204,9 +241,23 @@ fn write_note(shared: &Shared, body: &str) -> Value {
     }
 }
 
+fn light_status(light: LightStatus) -> Value {
+    json!({
+        "headers": light.held_headers,
+        "coins": light.coins,
+        "refused": light.refused,
+        "reorganized": light.reorganized,
+        "pruned_from": light.pruned_from,
+    })
+}
+
 fn set_mining(shared: &Shared, body: &str) -> Value {
     let request: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let on = request["on"].as_bool().unwrap_or(false);
     shared.mining.store(on, Ordering::Relaxed);
+    let mut settings = NodeSettings::load(&shared.directory);
+    settings.mining = on;
+    // A choice that cannot be saved still holds for this run.
+    let _ = settings.save(&shared.directory);
     json!({ "mining": on })
 }

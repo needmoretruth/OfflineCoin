@@ -95,6 +95,8 @@ pub struct Settings {
     pub recent: String,
     /// "off" stops the wallet merging small coins.
     pub merge: String,
+    /// "on" holds headers only, and asks full nodes for its coins.
+    pub light: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -222,6 +224,7 @@ impl Store {
             note: choice.next().unwrap_or_default(),
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
+            light: choice.next().unwrap_or_default(),
         }
     }
 
@@ -243,11 +246,12 @@ impl Store {
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(
-            "{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}",
             settings.miner,
             settings.note,
             settings.recent,
             settings.merge,
+            settings.light,
         );
         write_text(&CHOICES, &choices);
     }
