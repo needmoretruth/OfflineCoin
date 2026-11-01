@@ -4,6 +4,7 @@
 #![no_main]
 extern crate alloc;
 
+mod control;
 mod hangul;
 mod node;
 mod radio;
@@ -16,6 +17,7 @@ mod wifi;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
+use control::Control;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_time::Timer;
@@ -98,6 +100,15 @@ async fn main(spawner: Spawner) -> ! {
         format_address(&engine.address())
     );
 
+    store.mark_running_build_good();
+    let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
+    let mut me = [0u8; 6];
+    me.copy_from_slice(mac.as_bytes());
+    let identity = store.identity();
+    let counter = store.counter();
+    let slot = store.running_slot();
+    let control = Control::new(me, Rng::new().random(), identity, counter, slot);
+
     let mut runner = Runner::new(engine);
     runner.add_link(Box::new(RadioLink::new(espnow)));
     let (usb, commands) = UsbLink::new(rx);
@@ -107,6 +118,7 @@ async fn main(spawner: Spawner) -> ! {
     let tip_seen = runner.engine.chain().tip();
     let mut node = Node {
         runner,
+        control,
         store,
         screen: Screen::new(bus),
         small_coin: views::SmallCoin::new(),
@@ -119,7 +131,7 @@ async fn main(spawner: Spawner) -> ! {
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
         mining: true,
-        limit: 0,
+        limit: settings.limit.parse().unwrap_or(0),
         memory_full: false,
         attempts: 0,
         rate: 0,

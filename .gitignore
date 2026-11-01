@@ -3,3 +3,4 @@ target/
 *.key
 blocks.log
 .olc/
+.scratch/

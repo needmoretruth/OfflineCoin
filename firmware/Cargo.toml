@@ -13,6 +13,7 @@ path = "src/main.rs"
 [workspace]
 
 [dependencies]
+olc-control = { path = "../crates/olc-control" }
 olc-core = { path = "../crates/olc-core" }
 olc-crypto = { path = "../crates/olc-crypto" }
 olc-lang = { path = "../crates/olc-lang" }

@@ -1755,6 +1755,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "olc-control"
+version = "0.1.0"
+dependencies = [
+ "olc-crypto",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "olc-core"
 version = "0.1.0"
 dependencies = [
@@ -1792,6 +1801,7 @@ dependencies = [
  "esp-rtos",
  "esp-storage",
  "log",
+ "olc-control",
  "olc-core",
  "olc-crypto",
  "olc-lang",

@@ -1,4 +1,5 @@
 //! One pass of the board's work: move messages, mine a little, save, redraw.
+use crate::control::{cable_is_busy, parse_key, Control, BUILD};
 use crate::radio;
 use crate::screen::{Screen, PAGES, WIDTH};
 use crate::store::{Settings, Store};
@@ -30,17 +31,35 @@ const BUTTON_DEBOUNCE_MS: u64 = 30;
 const BUTTON_HOLD_MS: u64 = 800;
 /// Mining stops here, so a full memory ends in a message and not a crash.
 const MIN_FREE_HEAP: usize = 256 * 1024;
+/// A line on the cable counts as finished this long after its last byte.
+pub const CABLE_QUIET_MS: u32 = 20;
 
 pub fn device_ms() -> u64 {
     Instant::now().duration_since_epoch().as_millis()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_hash(text: &str, out: &mut Hash) -> bool {
+    if text.len() != out.len() * 2 || !text.is_ascii() {
+        return false;
+    }
+    out.iter_mut().enumerate().all(|(index, byte)| {
+        match u8::from_str_radix(&text[index * 2..index * 2 + 2], 16) {
+            Ok(value) => {
+                *byte = value;
+                true
+            }
+            Err(_) => false,
+        }
+    })
 }
 
 pub struct Node {
     pub runner: Runner,
+    pub control: Control,
     pub store: Store,
     pub screen: Screen,
     pub commands: Commands,
@@ -51,7 +70,7 @@ pub struct Node {
     pub view: View,
     pub language: Language,
     pub mining: bool,
-    /// Hashes per second, 0 for no limit.
+    /// Hashes per second, 0 for no limit. Saved, so a cap outlives a restart.
     pub limit: u32,
     pub memory_full: bool,
     pub attempts: u32,
@@ -74,12 +93,14 @@ impl Node {
     pub fn turn(&mut self) -> bool {
         let now = device_ms();
         self.runner.step(now);
+        self.serve_control(now);
         while let Some(line) = self.next_command() {
             self.run_command(&line);
         }
         self.read_button(now);
-        if now.saturating_sub(self.window_ms) >= 1_000 {
-            self.rate = self.attempts;
+        let window = now.saturating_sub(self.window_ms);
+        if window >= 1_000 {
+            self.rate = (u64::from(self.attempts) * 1_000 / window) as u32;
             self.attempts = 0;
             self.window_ms = now;
         }
@@ -87,11 +108,15 @@ impl Node {
             self.mining = false;
             self.memory_full = true;
         }
-        let worked = self.mining && (self.limit == 0 || self.attempts < self.limit);
+        let batch = match self.limit {
+            0 => MINING_BATCH,
+            limit => MINING_BATCH.min(limit.saturating_sub(self.attempts)),
+        };
+        let worked = self.mining && batch > 0 && !cable_is_busy(now);
         if worked {
-            self.runner.engine.mine(MINING_BATCH, now);
-            self.attempts += MINING_BATCH;
-            self.tip_attempts += u64::from(MINING_BATCH);
+            self.runner.engine.mine(batch, now);
+            self.attempts += batch;
+            self.tip_attempts += u64::from(batch);
         }
         self.handle_events(now);
         while let Some(block) = self.runner.engine.take_fresh_block() {
@@ -147,6 +172,13 @@ impl Node {
         self.save(|settings| settings.language = language.name().into());
     }
 
+    fn set_limit(&mut self, limit: u32) {
+        if limit != self.limit {
+            self.limit = limit;
+            self.save(|settings| settings.limit = format!("{limit}"));
+        }
+    }
+
     fn save(&mut self, change: impl FnOnce(&mut Settings)) {
         let mut settings = self.store.settings();
         change(&mut settings);
@@ -158,21 +190,25 @@ impl Node {
             match event {
                 Event::Mined { height } => {
                     self.mined += 1;
-                    println!("mined {height}");
+                    self.say(format!("mined {height}"));
                 }
-                Event::BlockAccepted { height } => println!("block {height}"),
+                Event::BlockAccepted { height } => self.say(format!("block {height}")),
                 Event::Reorganized { replaced, height } => {
-                    println!("reorg {height} replaced={replaced}");
+                    self.say(format!("reorg {height} replaced={replaced}"));
                 }
-                Event::BlockRejected { reason } => println!("rejected block {reason:?}"),
-                Event::TxAccepted => println!("payment accepted"),
-                Event::TxRejected { reason } => println!("rejected payment {reason:?}"),
+                Event::BlockRejected { reason } => self.say(format!("rejected block {reason:?}")),
+                Event::TxAccepted => self.say("payment accepted".into()),
+                Event::TxRejected { reason } => self.say(format!("rejected payment {reason:?}")),
+                Event::TxReturned { id } => self.say(format!("returned {}", hex(&id))),
+                Event::TxDropped { id, reason } => {
+                    self.say(format!("dropped {} {reason:?}", hex(&id)));
+                }
             }
             self.event = Some((now, event));
         }
     }
 
-    fn run_command(&mut self, line: &str) {
+    pub fn run_command(&mut self, line: &str) {
         let mut words = line.split_whitespace();
         match (words.next(), words.next(), words.next()) {
             (Some("status"), _, _) => self.print_status(),
@@ -189,12 +225,29 @@ impl Node {
                 }
             }
             (Some("mine"), Some(state), _) => self.mining = state == "on",
-            (Some("limit"), Some(value), _) => self.limit = value.parse().unwrap_or(self.limit),
+            (Some("limit"), Some(value), _) => {
+                if let Ok(limit) = value.parse() {
+                    self.set_limit(limit);
+                }
+            }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
             (Some("espnow"), Some(state), _) => {
                 radio::ENABLED.store(state == "on", Ordering::Relaxed);
             }
             (Some("pay"), Some(address), Some(amount)) => self.pay(address, amount),
+            (Some("pool"), Some("clear"), _) => self.runner.engine.clear_pool(),
+            (Some("tx"), Some(id), _) => self.print_tx(id),
+            (Some("trust"), Some(key), _) => match parse_key(key) {
+                Some(key) => {
+                    self.trust(key);
+                    self.say("trusted".into());
+                }
+                None => self.say("error trust KEY".into()),
+            },
+            (Some("name"), Some(_), _) => {
+                self.rename(line["name".len()..].trim());
+                self.say("named".into());
+            }
             (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
                 settings.ssid.clear();
                 settings.password.clear();
@@ -209,8 +262,9 @@ impl Node {
             }
             _ => println!(
                 "commands: status, screen, logo, view basic|detail|easy, lang en|ko, \
-                 pay ADDRESS AMOUNT, mine on|off, limit HASHES, offline on|off, espnow on|off, \
-                 wifi SSID [PASSWORD], wifi off, dial IP:PORT, dial off"
+                 pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES, \
+                 offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
+                 dial off, name NAME, trust KEY"
             ),
         }
     }
@@ -220,14 +274,29 @@ impl Node {
             .parse::<f64>()
             .map(|value| (value * COIN as f64) as u64);
         let (Some(to), Ok(units)) = (parse_address(address), units) else {
-            println!("error pay ADDRESS AMOUNT");
+            self.say("error pay ADDRESS AMOUNT".into());
             return;
         };
         let started = device_ms();
         match self.runner.engine.pay(to, units, 0) {
-            Ok(id) => println!("paid {} in {}ms", hex(&id), device_ms() - started),
-            Err(error) => println!("error {error:?}"),
+            Ok(id) => self.say(format!("paid {} in {}ms", hex(&id), device_ms() - started)),
+            Err(error) => self.say(format!("error {error:?}")),
         }
+    }
+
+    /// Says where a transaction is: at a height on the best chain, waiting, or nowhere.
+    pub fn print_tx(&mut self, text: &str) {
+        let mut id: Hash = [0; 32];
+        let engine = &self.runner.engine;
+        let line = match decode_hash(text, &mut id) {
+            false => "error tx ID".into(),
+            true => match engine.chain().find_tx(&id) {
+                Some(height) => format!("tx {text} height={height}"),
+                None if engine.in_pool(&id) => format!("tx {text} pool"),
+                None => format!("tx {text} none"),
+            },
+        };
+        self.say(line);
     }
 
     /// Wi-Fi only takes new settings at start-up. The chain comes back from flash.
@@ -236,13 +305,15 @@ impl Node {
         esp_hal::system::software_reset();
     }
 
-    fn print_status(&self) {
+    pub fn print_status(&mut self) {
         let status = self.runner.engine.status();
-        println!(
-            "status height={} tip={} difficulty={} balance={} peers={} espnow={} usb={} wifi={} \
-             pool={} hashrate={} mining={} view={} lang={} screen={} free={} router={:?} address={}",
+        let line = format!(
+            "status height={} tip={} work={} difficulty={} balance={} peers={} espnow={} usb={} \
+             wifi={} pool={} hashrate={} limit={} mining={} offline={} view={} lang={} screen={} \
+             free={} router={:?} address={} build={BUILD} slot={} key={} name={}",
             status.height,
             hex(&status.tip),
+            status.work,
             status.difficulty,
             coins(status.balance),
             status.peers,
@@ -251,14 +322,20 @@ impl Node {
             self.runner.peers_on(LINK_WIFI),
             status.pool,
             self.rate,
+            self.limit,
             self.mining,
+            self.runner.offline,
             self.view.name(),
             self.language.name(),
             self.screen.is_connected(),
             esp_alloc::HEAP.free(),
             self.network.router_address(),
             format_address(&self.runner.engine.address()),
+            self.control.slot,
+            self.control.gate.has_key(),
+            self.control.identity.name,
         );
+        self.say(line);
     }
 
     /// Prints what was drawn and what the panel's own memory holds, row by row.

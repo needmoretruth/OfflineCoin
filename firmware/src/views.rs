@@ -11,6 +11,7 @@ use olc_node::Event;
 
 const TICKER: &str = "OLC";
 const LINE: i32 = 11;
+const LAST_ROW: i32 = 40 + LINE;
 const ROTATE_EVERY_MS: u64 = 3_000;
 const EVENT_SHOWN_MS: u64 = 4_000;
 const TURN_MS: u64 = 2_400;
@@ -203,6 +204,8 @@ fn event_text(event: Event, language: Language) -> String {
         }
         (Language::English, Event::TxAccepted) => "payment accepted".into(),
         (Language::Korean, Event::TxAccepted) => "송금 확인".into(),
+        (Language::English, Event::TxReturned { .. }) => "payment waiting again".into(),
+        (Language::Korean, Event::TxReturned { .. }) => "송금 다시 대기".into(),
         (Language::English, _) => "rejected".into(),
         (Language::Korean, _) => "거부함".into(),
     }
@@ -406,7 +409,7 @@ fn easy(screen: &mut Screen, small_coin: &SmallCoin, info: &Info, language: Lang
         (None, peers, Language::English) => format!("{peers} nodes connected"),
         (None, peers, Language::Korean) => format!("노드 {peers}대 연결됨"),
     };
-    screen.text(0, 51, &around, Font::Reading);
+    screen.text(0, LAST_ROW, &around, Font::Reading);
 }
 
 pub fn draw(

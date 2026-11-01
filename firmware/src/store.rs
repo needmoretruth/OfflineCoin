@@ -3,14 +3,25 @@
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use esp_bootloader_esp_idf::ota::OtaImageState;
+use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
+use esp_bootloader_esp_idf::partitions::{
+    read_partition_table, AppPartitionSubType, PartitionType, PARTITION_TABLE_MAX_LEN,
+};
 use esp_storage::FlashStorage;
 use olc_core::{Block, Hash};
+use olc_crypto::PublicKey;
 
-/// Past the end of the 4 MB the app can use, on a board with 16 MB of flash.
+/// The `chain` partition, past the end of the first app slot. See `partitions.csv`.
 const META: u32 = 0x40_0000;
 const SETTINGS: u32 = META + 0x1000;
 const LOG_START: u32 = META + 0x2000;
-const LOG_END: u32 = 0x100_0000;
+const LOG_END: u32 = 0xC0_0000;
+/// The `control` partition: the trusted key and name in one sector, the counter in the next, so
+/// the frequent write cannot damage the rare one.
+const IDENTITY: u32 = 0x9000;
+const COUNTER: u32 = 0xA000;
+const IDENTITY_LEN: usize = 8 + 33 + 32;
 const MAGIC: u32 = 0x4F4C_4331;
 const META_LEN: usize = 4 + 32 + 32;
 const RECORD_HEADER: usize = 8;
@@ -18,7 +29,8 @@ const MAX_RECORD: usize = 64 * 1024;
 
 const SETTINGS_LEN: usize = 256;
 
-/// Set with the `wifi`, `dial`, `view` and `lang` commands. Empty means off or the default.
+/// Set with the `wifi`, `dial`, `view`, `lang` and `limit` commands. Empty means off or the
+/// default. Each is one line, so settings saved before a line existed still load.
 #[derive(Default)]
 pub struct Settings {
     pub ssid: String,
@@ -26,12 +38,24 @@ pub struct Settings {
     pub dial: String,
     pub view: String,
     pub language: String,
+    pub limit: String,
+}
+
+/// Who may command this board, and what it is called.
+#[derive(Default)]
+pub struct Identity {
+    pub key: Option<PublicKey>,
+    pub name: String,
 }
 
 pub struct Store {
     flash: FlashStorage<'static>,
     head: u32,
     genesis_matches: bool,
+}
+
+fn is_ota(kind: AppPartitionSubType) -> bool {
+    matches!(kind, AppPartitionSubType::Ota0 | AppPartitionSubType::Ota1)
 }
 
 fn word(bytes: &[u8]) -> u32 {
@@ -62,17 +86,19 @@ impl Store {
             dial: lines.next().unwrap_or_default(),
             view: lines.next().unwrap_or_default(),
             language: lines.next().unwrap_or_default(),
+            limit: lines.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
             settings.view,
             settings.language,
+            settings.limit,
         );
         let mut bytes = [0u8; SETTINGS_LEN];
         if text.len() + RECORD_HEADER <= SETTINGS_LEN {
@@ -81,6 +107,105 @@ impl Store {
             bytes[RECORD_HEADER..][..text.len()].copy_from_slice(text.as_bytes());
             let _ = self.flash.write(SETTINGS, &bytes);
         }
+    }
+
+    pub fn identity(&mut self) -> Identity {
+        let mut bytes = [0u8; IDENTITY_LEN];
+        let _ = self.flash.read(IDENTITY, &mut bytes);
+        if word(&bytes) != MAGIC {
+            return Identity::default();
+        }
+        let mut key: PublicKey = [0; 33];
+        key.copy_from_slice(&bytes[8..41]);
+        let size = usize::min(word(&bytes[4..]) as usize, IDENTITY_LEN - 41);
+        Identity {
+            key: bytes[8..41].iter().any(|byte| *byte != 0).then_some(key),
+            name: core::str::from_utf8(&bytes[41..][..size])
+                .unwrap_or("")
+                .into(),
+        }
+    }
+
+    pub fn save_identity(&mut self, identity: &Identity) {
+        let mut bytes = [0u8; IDENTITY_LEN];
+        let size = identity.name.len().min(IDENTITY_LEN - 41);
+        bytes[..4].copy_from_slice(&MAGIC.to_le_bytes());
+        bytes[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        bytes[8..41].copy_from_slice(&identity.key.unwrap_or([0; 33]));
+        bytes[41..][..size].copy_from_slice(&identity.name.as_bytes()[..size]);
+        let _ = self.flash.write(IDENTITY, &bytes);
+    }
+
+    /// The last order counter accepted. Erased flash reads as none used.
+    pub fn counter(&mut self) -> u64 {
+        let mut bytes = [0u8; 8];
+        let _ = self.flash.read(COUNTER, &mut bytes);
+        match u64::from_le_bytes(bytes) {
+            u64::MAX => 0,
+            counter => counter,
+        }
+    }
+
+    pub fn save_counter(&mut self, counter: u64) -> bool {
+        self.flash.write(COUNTER, &counter.to_le_bytes()).is_ok()
+    }
+
+    /// The app slot that is not running, as (start, size).
+    pub fn spare_slot(&mut self) -> Option<(u32, u32)> {
+        let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
+        let table = read_partition_table(&mut self.flash, &mut buffer).ok()?;
+        let running = table.booted_partition().ok()??.offset();
+        let spare = table.iter().find(|entry| {
+            let app = matches!(entry.partition_type(), PartitionType::App(kind) if is_ota(kind));
+            app && entry.offset() != running
+        });
+        spare.map(|entry| (entry.offset(), entry.len()))
+    }
+
+    /// 0 or 1, the app slot this build runs from.
+    pub fn running_slot(&mut self) -> u8 {
+        let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
+        let booted = read_partition_table(&mut self.flash, &mut buffer)
+            .ok()
+            .and_then(|table| table.booted_partition().ok().flatten());
+        match booted.map(|entry| entry.partition_type()) {
+            Some(PartitionType::App(AppPartitionSubType::Ota1)) => 1,
+            _ => 0,
+        }
+    }
+
+    /// Makes the spare slot the one to boot.
+    pub fn boot_spare_slot(&mut self) -> bool {
+        let target = match self.running_slot() {
+            0 => AppPartitionSubType::Ota1,
+            _ => AppPartitionSubType::Ota0,
+        };
+        let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
+        let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) else {
+            return false;
+        };
+        let Ok(mut data) = updater.ota_data() else {
+            return false;
+        };
+        data.set_current_app_partition(target).is_ok()
+            && data.set_current_ota_state(OtaImageState::New).is_ok()
+    }
+
+    /// Says this build started. A bootloader with rollback reads this; the one espflash installs
+    /// does not, so an image that crashes at start stays selected.
+    pub fn mark_running_build_good(&mut self) {
+        let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
+        if let Ok(mut updater) = OtaUpdater::new(&mut self.flash, &mut buffer) {
+            let _ = updater.set_current_ota_state(OtaImageState::Valid);
+        }
+    }
+
+    pub fn write_page(&mut self, at: u32, page: &[u8]) -> bool {
+        self.flash.write(at, page).is_ok()
+    }
+
+    pub fn read_flash(&mut self, at: u32, bytes: &mut [u8]) -> bool {
+        self.flash.read(at, bytes).is_ok()
     }
 
     /// Returns the saved key, or saves `create()`. A key outlives a change of coin, a log does not.

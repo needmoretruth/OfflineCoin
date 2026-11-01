@@ -5,12 +5,17 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicU32, Ordering};
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtagRx;
 use esp_hal::Blocking;
 use esp_println::println;
 use olc_node::{Link, Target};
 
 const MAX_LINE: usize = 20_000;
+
+/// The clock when a line was last in progress, which keeps mining out of its way: the cable's
+/// buffer is small, so a long line would crawl at one buffer per mining batch.
+pub static LINE_IN_PROGRESS_MS: AtomicU32 = AtomicU32::new(0);
 
 /// Typed lines waiting for the main loop.
 pub type Commands = Rc<RefCell<VecDeque<String>>>;
@@ -47,6 +52,9 @@ impl UsbLink {
                 _ if self.line.len() < MAX_LINE => self.line.push(byte),
                 _ => {}
             }
+        }
+        if !self.line.is_empty() {
+            LINE_IN_PROGRESS_MS.store(crate::node::device_ms() as u32, Ordering::Relaxed);
         }
     }
 
