@@ -27,7 +27,7 @@ const WATCH_EVERY: Duration = Duration::from_secs(2);
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
 const MAX_LOADER_WAKES: u32 = 3;
-const RETURN_WAIT: Duration = Duration::from_secs(120);
+const RETURN_WAIT: Duration = Duration::from_secs(300);
 
 struct Port {
     link: usize,

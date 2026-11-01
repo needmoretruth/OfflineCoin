@@ -1,4 +1,5 @@
 //! Keeps every trusted board on the build this program carries.
+use crate::control_key::config_folder;
 use crate::manager::Manager;
 use olc_control::BoardId;
 use std::collections::BTreeMap;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+const HOLD_FILE: &str = "hold-builds";
 const LOOK_EVERY: Duration = Duration::from_secs(5);
 /// Tries in a row before a board is left alone for `REST`.
 const TRIES: u32 = 3;
@@ -48,7 +50,7 @@ pub fn start(manager: Arc<Manager>, carried: &'static str) {
         let mut attempts: BTreeMap<BoardId, Attempts> = BTreeMap::new();
         loop {
             thread::sleep(LOOK_EVERY);
-            if manager.is_busy() {
+            if manager.is_busy() || builds_are_held() {
                 continue;
             }
             let Some(board) = next_board(&manager, carried, &attempts) else {
@@ -67,6 +69,12 @@ pub fn start(manager: Arc<Manager>, carried: &'static str) {
             }
         }
     });
+}
+
+/// Nodes need the same rules, not the same program, so a test build may stay on a board for as
+/// long as this file exists.
+fn builds_are_held() -> bool {
+    config_folder().is_ok_and(|folder| folder.join(HOLD_FILE).exists())
 }
 
 fn next_board(
