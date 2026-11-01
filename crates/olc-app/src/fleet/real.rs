@@ -1,18 +1,23 @@
 //! The real boards, through the manager in `olc-board`.
 use super::{read_log, BoardRow, FleetPort, LineError, StartError};
-use olc_board::{autoupdate, carried, Args, Extra, Manager};
+use olc_board::autoupdate::{self, Picked};
+use olc_board::{carried, Args, Extra, Manager};
 use olc_control::BoardId;
 use olc_node::Runner;
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 pub struct RealFleet {
     manager: Arc<Manager>,
+    picked: Picked,
 }
 
 impl RealFleet {
-    pub fn new() -> Result<Self, String> {
-        let manager = Manager::new(carried::firmware_path(None), Vec::new())?;
-        Ok(Self { manager })
+    /// `ports` are the only USB ports to use. Empty finds every board by itself.
+    pub fn new(ports: Vec<String>) -> Result<Self, String> {
+        let manager = Manager::new(carried::firmware_path(None), ports)?;
+        let picked = Picked::default();
+        Ok(Self { manager, picked })
     }
 }
 
@@ -20,7 +25,7 @@ impl FleetPort for RealFleet {
     fn attach(&self, runner: Arc<Mutex<Runner>>) {
         self.manager.watch_ports(runner);
         if let Some(build) = carried::build() {
-            autoupdate::start(self.manager.clone(), build);
+            autoupdate::start_for(self.manager.clone(), build, self.picked.clone());
         }
     }
 
@@ -30,6 +35,12 @@ impl FleetPort for RealFleet {
 
     fn board_rows(&self) -> Vec<BoardRow> {
         self.manager.board_rows()
+    }
+
+    fn keep_updated(&self, boards: BTreeSet<BoardId>) {
+        if let Ok(mut picked) = self.picked.lock() {
+            *picked = boards;
+        }
     }
 
     fn new_boards(&self) -> Vec<String> {

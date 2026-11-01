@@ -11,9 +11,10 @@ use super::rows::{
 };
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
-use crate::fleet::{BoardRow, FleetPort, LineError};
+use crate::fleet::{BoardRow, CapTest, FleetPort, LineError};
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Paths, Settings, PORT_TRIES};
+use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::{Card, Hello};
 use olc_wallet::WalletError;
@@ -239,6 +240,17 @@ impl Service {
                     .fleet
                     .as_ref()
                     .map(|fleet| fleet.start_extra(&olc_lab::Lab, &boards, args));
+                if !matches!(started, Some(Ok(()))) {
+                    self.say("notice.experiment_busy", String::new(), false);
+                }
+            }
+            Command::StartCapTest(board) => {
+                let words = [CapTest.command().to_string()];
+                let args = Args::parse(words.into_iter());
+                let started = self
+                    .fleet
+                    .as_ref()
+                    .map(|fleet| fleet.start_extra(&CapTest, &[board], args));
                 if !matches!(started, Some(Ok(()))) {
                     self.say("notice.experiment_busy", String::new(), false);
                 }
@@ -504,9 +516,16 @@ impl Service {
         entries.push(own_entry(&node, identity.clone()));
         let said = |row: &BoardRow| {
             let by_link = self.fleet.as_ref().and_then(|fleet| fleet.hello_of(row.seen.id));
-            by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned())
+            let hello = by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned());
+            // The beacon is signed and the answer is not, so the answer must agree with it.
+            hello.filter(|hello| hello.coin.genesis().id() == row.seen.beacon.genesis)
         };
         entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
+        if let Some(fleet) = &self.fleet {
+            let auto = self.settings.auto_update;
+            let boards = self.settings.auto_boards.iter().filter(|_| auto);
+            fleet.keep_updated(boards.copied().collect());
+        }
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());

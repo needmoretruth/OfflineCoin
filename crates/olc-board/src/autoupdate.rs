@@ -1,9 +1,10 @@
 //! Keeps every trusted board on the build this program carries.
 use crate::control_key::config_folder;
+use crate::fleet::{Connection, Seen};
 use crate::manager::Manager;
 use olc_control::BoardId;
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -44,8 +45,26 @@ pub fn is_older(build: &str, carried: &str) -> bool {
     }
 }
 
+/// The only boards an update may touch. Empty touches none.
+pub type Picked = Arc<Mutex<BTreeSet<BoardId>>>;
+
 /// Runs for as long as the program does. `carried` is the build to keep boards on.
 pub fn start(manager: Arc<Manager>, carried: &'static str) {
+    keep_going(manager, carried, |_| true);
+}
+
+/// The same, for the boards a person picked and no others.
+pub fn start_for(manager: Arc<Manager>, carried: &'static str, picked: Picked) {
+    keep_going(manager, carried, move |board| {
+        picked.lock().is_ok_and(|picked| picked.contains(board))
+    });
+}
+
+fn keep_going(
+    manager: Arc<Manager>,
+    carried: &'static str,
+    allowed: impl Fn(&BoardId) -> bool + Send + 'static,
+) {
     thread::spawn(move || {
         let mut attempts: BTreeMap<BoardId, Attempts> = BTreeMap::new();
         loop {
@@ -53,7 +72,9 @@ pub fn start(manager: Arc<Manager>, carried: &'static str) {
             if manager.is_busy() || builds_are_held() {
                 continue;
             }
-            let Some(board) = next_board(&manager, carried, &attempts) else {
+            let boards = manager.fleet.lock().map(|fleet| fleet.boards());
+            let boards = boards.unwrap_or_default();
+            let Some(board) = next_board(&boards, carried, &attempts, &allowed) else {
                 continue;
             };
             let tried = attempts.get(&board).map_or(0, |seen| seen.count % TRIES);
@@ -78,13 +99,14 @@ fn builds_are_held() -> bool {
 }
 
 fn next_board(
-    manager: &Manager,
+    boards: &[Seen],
     carried: &str,
     attempts: &BTreeMap<BoardId, Attempts>,
+    allowed: &impl Fn(&BoardId) -> bool,
 ) -> Option<BoardId> {
-    let boards = manager.fleet.lock().ok()?.boards();
     boards
         .iter()
+        .filter(|board| allowed(&board.id))
         .filter(|board| board.online && board.beacon.trusts_a_key)
         .filter(|board| is_older(&board.beacon.build, carried))
         .find(|board| attempts.get(&board.id).is_none_or(Attempts::may_try))
@@ -94,6 +116,7 @@ fn next_board(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use olc_control::Beacon;
 
     #[test]
     fn a_higher_number_is_newer() {
@@ -106,6 +129,26 @@ mod tests {
     fn a_hand_made_build_is_left_alone() {
         assert!(!is_older("mine", "b10"));
         assert!(!is_older("b9", "dev"));
+    }
+
+    #[test]
+    fn only_a_picked_board_is_touched() {
+        let board = |id: u8| Seen {
+            id: [id; 6],
+            beacon: Beacon {
+                build: "b1".into(),
+                trusts_a_key: true,
+                ..Beacon::default()
+            },
+            connection: Connection::Direct { link: 0 },
+            online: true,
+            silent_for: Duration::ZERO,
+        };
+        let boards = [board(1), board(2)];
+        let attempts = BTreeMap::new();
+        assert_eq!(next_board(&boards, "b2", &attempts, &|_| false), None);
+        let second = next_board(&boards, "b2", &attempts, &|id| *id == [2; 6]);
+        assert_eq!(second, Some([2; 6]));
     }
 
     #[test]

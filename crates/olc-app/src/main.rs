@@ -14,8 +14,9 @@ fn main() {
         match word.as_str() {
             "--no-usb" => launch.usb = false,
             "--data" => launch.data = words.next().map(Into::into),
+            "--port" => launch.ports.extend(words.next()),
             _ => {
-                println!("OLC Core\n\n  olc-core [--no-usb] [--data DIR]");
+                println!("OLC Core\n\n  olc-core [--no-usb] [--port FILE]... [--data DIR]");
                 return;
             }
         }

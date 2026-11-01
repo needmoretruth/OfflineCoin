@@ -3,6 +3,9 @@
 use super::Lang;
 
 const LINES: &[(&str, &str)] = &[
+    ("1. Cap lowered to {} H/s", "1. 상한을 $1 H/s로 낮췄습니다"),
+    ("2. Measured {} H/s, {}% of the cap", "2. 실제 $1 H/s, 상한의 $2%"),
+    ("3. Cap put back", "3. 상한을 되돌렸습니다"),
     ("Attacker {} at height {}", "공격자 $1, 높이 $2"),
     ("Victim {} at height {}", "피해자 $1, 높이 $2"),
     ("1. Hash power", "1. 해시 비율"),

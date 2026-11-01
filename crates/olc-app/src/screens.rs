@@ -1,11 +1,9 @@
 //! Tests of the whole window: every page in every language and theme, drawn by the real app on a
-//! real core. Node processes in the pictures are real. Only the boards are the test stand-in,
-//! which the shipped program does not contain.
+//! real core. Node processes in the pictures are real, and a real board appears only in a real
+//! window, so these leave USB alone.
 use crate::app::App;
 use crate::core::{coin_folder, save_coin, Core, CoreLaunch, Snapshot};
 use crate::discovery::Entry;
-use crate::fleet::sim::SimFleet;
-use crate::fleet::FleetPort;
 use crate::i18n::Lang;
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
@@ -15,7 +13,6 @@ use egui_kittest::Harness;
 use olc_core::CoinConfig;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const SIZES: [(u32, u32); 2] = [(1280, 800), (1920, 1080)];
@@ -44,10 +41,10 @@ fn quiet_settings() -> Settings {
     }
 }
 
-fn app(root: PathBuf, settings: Settings, fleet: Option<Arc<dyn FleetPort>>, program: Option<PathBuf>) -> App {
+fn app(root: PathBuf, settings: Settings, program: Option<PathBuf>) -> App {
     let launch = CoreLaunch {
         paths: Paths { root },
-        fleet,
+        fleet: None,
         usb: false,
         node_program: program,
     };
@@ -65,7 +62,7 @@ fn harness(app: App, size: (u32, u32)) -> Harness<'static, App> {
 
 #[test]
 fn every_page_draws_in_both_languages() {
-    let mut harness = harness(app(scratch("pages"), quiet_settings(), None, None), SIZES[0]);
+    let mut harness = harness(app(scratch("pages"), quiet_settings(), None), SIZES[0]);
     for title in harness.state().page_titles() {
         for language in [Lang::En, Lang::Ko] {
             harness.state_mut().settings_mut().language = language;
@@ -77,7 +74,7 @@ fn every_page_draws_in_both_languages() {
 
 #[test]
 fn one_click_turns_every_word_korean() {
-    let mut harness = harness(app(scratch("toggle"), quiet_settings(), None, None), SIZES[0]);
+    let mut harness = harness(app(scratch("toggle"), quiet_settings(), None), SIZES[0]);
     assert!(harness.query_all_by_label("Network").count() > 0);
     harness.get_by_label("한국어").click();
     harness.run_steps(2);
@@ -92,7 +89,7 @@ fn the_first_run_offers_every_device() {
         setup_done: false,
         ..quiet_settings()
     };
-    let harness = harness(app(scratch("first"), settings, None, None), SIZES[0]);
+    let harness = harness(app(scratch("first"), settings, None), SIZES[0]);
     for name in ["ESP32 boards", "Raspberry Pi", "Several nodes on this computer"] {
         assert!(harness.query_by_label(name).is_some(), "{name}");
     }
@@ -160,7 +157,7 @@ fn the_first_run_starts_real_node_processes() {
         port: 7310,
         ..quiet_settings()
     };
-    let window = app(scratch("first-nodes"), settings, None, Some(node_program()));
+    let window = app(scratch("first-nodes"), settings, Some(node_program()));
     let mut harness = harness(window, SIZES[0]);
     harness.get_by_label("Several nodes on this computer").click();
     harness.run_steps(2);
@@ -221,7 +218,7 @@ fn a_found_coin_can_be_joined() {
         port: 7320,
         ..quiet_settings()
     };
-    let mut harness = harness(app(scratch("join"), settings, None, None), SIZES[0]);
+    let mut harness = harness(app(scratch("join"), settings, None), SIZES[0]);
     harness.get_by_label("Next").click();
     wait_until(&mut harness, |app| {
         app.snapshot().groups.iter().any(|group| {
@@ -281,8 +278,7 @@ fn screenshots() {
     settings.device = Device::ThisComputer;
     settings.mine_on_start = true;
     settings.nodes = (0..3).map(|id| Preset::Esp32S3.spec(id)).collect();
-    let fleet: Arc<dyn FleetPort> = Arc::new(SimFleet::new());
-    let window = app(root, settings, Some(fleet), Some(program));
+    let window = app(root, settings, Some(program));
     let mut live = harness(window, SIZES[0]);
     let wait = std::env::var("OLC_SHOTS_WAIT").ok().and_then(|text| text.parse().ok());
     std::thread::sleep(Duration::from_secs(wait.unwrap_or(45)));
@@ -321,7 +317,7 @@ fn screenshots() {
         setup_done: false,
         ..quiet_settings()
     };
-    let mut first = harness(app(scratch("shots-first"), settings, None, None), SIZES[0]);
+    let mut first = harness(app(scratch("shots-first"), settings, None), SIZES[0]);
     shot(&mut first, &folder, "setup-device");
     first.get_by_label("Next").click();
     shot(&mut first, &folder, "setup-coin");

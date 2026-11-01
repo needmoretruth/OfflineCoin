@@ -37,6 +37,7 @@ pub enum Command {
         line: String,
     },
     UpdateBoard(BoardId),
+    StartCapTest(BoardId),
     InstallBoard {
         path: String,
         name: String,

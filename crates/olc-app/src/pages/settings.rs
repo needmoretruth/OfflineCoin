@@ -81,6 +81,11 @@ impl SettingsPage {
         if switch_row(ui, t, &mut cx.settings.mine_on_start, label) {
             cx.save();
         }
+        let label = cx.say("settings.auto_update");
+        if switch_row(ui, t, &mut cx.settings.auto_update, label) {
+            cx.save();
+        }
+        meta(ui, cx.say("settings.auto_update_note"), t);
     }
 
     fn network(&mut self, cx: &mut Cx, ui: &mut Ui) {

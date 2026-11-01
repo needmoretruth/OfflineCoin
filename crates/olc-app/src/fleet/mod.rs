@@ -1,15 +1,15 @@
-//! The boards behind one small interface, which is the manager in `olc-board`. The stand-in used
-//! by tests is compiled only for tests, so nothing the app ships can show an invented board.
+//! The boards behind one small interface, which is the manager in `olc-board`.
+mod cap_test;
 mod real;
-#[cfg(test)]
-pub mod sim;
 
+pub use cap_test::CapTest;
 pub use olc_board::manager::{BoardRow, ExtraRun, LineError, StartError};
 pub use real::RealFleet;
 
 use olc_board::{Args, Extra};
 use olc_control::BoardId;
 use olc_node::{Hello, Runner};
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 /// The same shape as `olc_board::Manager`.
@@ -23,6 +23,8 @@ pub trait FleetPort: Send + Sync {
     fn hello_of(&self, _board: BoardId) -> Option<Hello> {
         None
     }
+    /// The only boards an automatic update may touch.
+    fn keep_updated(&self, _boards: BTreeSet<BoardId>) {}
     fn new_boards(&self) -> Vec<String>;
     fn job(&self, key: &str) -> Option<String>;
     /// Blocks for up to a few seconds.

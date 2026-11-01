@@ -115,7 +115,7 @@ pub fn board_entry(row: &BoardRow, said: Option<Hello>) -> Entry {
         identity: said.as_ref().map(|hello| Identity::of(hello.coin.clone())),
         tip: Some(beacon.tip),
         height: Some(beacon.height),
-        work_done: said.as_ref().map(|hello| hello.work),
+        work_done: Some(beacon.work),
         build: beacon.build.clone(),
         work: match (row.seen.online, beacon.offline, beacon.mining) {
             (false, _, _) => Work::Silent,
