@@ -292,8 +292,8 @@ fn a_note_and_a_key_go_through_the_window() {
     wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
 
     let backup = root.join("wallet.backup");
-    // Export path, then backup path. The password and the import sit in hidden fields.
-    type_into(&mut harness, 1, backup.to_str().unwrap());
+    // Export path, watched address, then backup path. The password and the import are hidden.
+    type_into(&mut harness, 2, backup.to_str().unwrap());
     type_secret(&mut harness, 1, "a long password");
     harness.get_by_label("Back up").click();
     wait_until(&mut harness, |app| {
