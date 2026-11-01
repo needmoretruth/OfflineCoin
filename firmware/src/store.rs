@@ -128,6 +128,8 @@ impl Store {
     /// Runs before there is a heap, so that a start that dies early still leaves its word.
     pub fn begin_boot(&mut self, reason: u8) {
         let mut flash = Nor(&mut self.flash);
+        COUNTER.adopt(&mut flash);
+        SETTINGS.adopt(&mut flash);
         let at = BOOT_LOG.next(&mut flash);
         self.boot_word = Some((at, reason));
         self.reach(Stage::Started);
