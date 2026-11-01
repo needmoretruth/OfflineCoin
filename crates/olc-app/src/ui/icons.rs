@@ -3,6 +3,7 @@ use egui::{vec2, Color32, Painter, Pos2, Rect, Shape, Stroke};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
+    Console,
     Network,
     Mining,
     Wallet,
@@ -33,6 +34,11 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
         painter.rect_stroke(area, corner, stroke, egui::StrokeKind::Middle);
     };
     match icon {
+        Icon::Console => {
+            boxed(2.5, 3.5, 15.5, 14.5, 2.0);
+            line(&[(5.5, 7.0), (8.0, 9.0), (5.5, 11.0)]);
+            line(&[(9.5, 11.0), (12.5, 11.0)]);
+        }
         Icon::Network => {
             for (x, y) in [(9.0, 3.5), (3.5, 14.0), (14.5, 14.0)] {
                 painter.circle_stroke(at(x, y), 2.2 * scale, stroke);

@@ -15,8 +15,29 @@ pub fn number(value: u128) -> String {
     out
 }
 
-pub fn rate(value: u64) -> String {
-    format!("{} H/s", number(value.into()))
+/// A speed in the reader's words: tries a second, or H/s for an expert.
+pub fn rate(voice: Voice, value: u64) -> String {
+    i18n::fill(i18n::text(voice, "unit.rate"), &[&number(value.into())])
+}
+
+/// A length of time in whole seconds, then minutes, as anyone would say it.
+pub fn seconds(voice: Voice, value: u64) -> String {
+    if value < 120 {
+        return i18n::fill(i18n::text(voice, "unit.seconds"), &[&value.to_string()]);
+    }
+    i18n::fill(i18n::text(voice, "unit.minutes"), &[&(value / 60).to_string()])
+}
+
+/// How long ago a moment was.
+pub fn ago(voice: Voice, now_ms: u64, then_ms: u64) -> String {
+    let minutes = now_ms.saturating_sub(then_ms) / 60_000;
+    let (key, count) = match minutes {
+        0 => return i18n::text(voice, "time.now").to_string(),
+        1..=59 => ("time.minutes", minutes),
+        60..=1_439 => ("time.hours", minutes / 60),
+        _ => ("time.days", minutes / 1_440),
+    };
+    i18n::fill(i18n::text(voice, key), &[&count.to_string()])
 }
 
 pub fn coins(units: u64, ticker: &str) -> String {

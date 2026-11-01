@@ -1,67 +1,34 @@
-//! The first run: what a person is using, then a coin to start or one to join.
+//! The first run: three questions at most, then a working wallet.
+use super::coin_new::CoinForm;
 use super::settings::device_name;
 use super::Cx;
-use crate::core::{new_coin, parse_coins, Command, NewCoin, StartCoin};
+use crate::core::{Command, StartCoin};
 use crate::discovery::{CoinGroup, Reach};
 use crate::settings::{Device, BOARD_CAP};
 use crate::ui::format;
 use crate::ui::paint::{surface, Surface};
 use crate::ui::tokens;
-use crate::ui::widgets::{
-    self, button, button_on, card, field, meta, number_field,
-    switch_row, Kind,
-};
-use egui::{pos2, vec2, Label, Sense, Ui};
-use olc_core::coin::{COIN, MIN_DIFFICULTY};
-use olc_core::{CoinConfig, Rules};
-use olc_wallet::parse_address;
+use crate::ui::widgets::{self, button, button_on, meta, Kind};
+use egui::{pos2, vec2, Sense, Ui};
+use olc_core::CoinConfig;
 
 const WIDTH: f32 = 620.0;
 const CHOICE_HEIGHT: f32 = 62.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Step {
+    #[default]
     Device,
     Coin,
+    NewCoin,
+    Mining,
 }
 
+#[derive(Default)]
 pub struct Setup {
     step: Step,
-    new_coin: bool,
-    name: String,
-    ticker: String,
-    block_seconds: u64,
-    reward: u64,
-    halving: u64,
-    difficulty: u64,
-    floor: u64,
-    premine: String,
-}
-
-/// The floor follows the block time until someone writes their own.
-fn floor_after(floor: u64, seconds_before: u64, seconds: u64) -> u64 {
-    match floor == Rules::floor_for(seconds_before.saturating_mul(1_000)) {
-        true => Rules::floor_for(seconds.saturating_mul(1_000)),
-        false => floor,
-    }
-}
-
-impl Default for Setup {
-    fn default() -> Self {
-        let rules = CoinConfig::olc().rules;
-        Self {
-            step: Step::Device,
-            new_coin: false,
-            name: String::new(),
-            ticker: String::new(),
-            block_seconds: rules.block_time_ms / 1000,
-            reward: rules.reward / COIN,
-            halving: rules.halving_interval,
-            difficulty: MIN_DIFFICULTY,
-            floor: rules.min_difficulty,
-            premine: String::new(),
-        }
-    }
+    form: CoinForm,
+    start: Option<StartCoin>,
 }
 
 fn device_about(device: Device) -> &'static str {
@@ -73,16 +40,8 @@ fn device_about(device: Device) -> &'static str {
     }
 }
 
-fn form_label(ui: &mut Ui, text: &str) {
-    let area = vec2(190.0, tokens::CONTROL);
-    ui.allocate_ui_with_layout(area, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        ui.set_width(area.x);
-        ui.add(Label::new(text).wrap());
-    });
-}
-
 /// A wide choice with a line under its name.
-fn choice(ui: &mut Ui, cx: &Cx, name: &str, about: &str, current: bool) -> bool {
+fn choice(ui: &mut Ui, cx: &Cx, name: &str, about: &str) -> bool {
     let t = cx.t;
     let size = vec2(ui.available_width(), CHOICE_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -90,21 +49,17 @@ fn choice(ui: &mut Ui, cx: &Cx, name: &str, about: &str, current: bool) -> bool 
     let look = Surface {
         top: if hover { t.hover } else { t.card_top },
         bottom: if hover { t.hover } else { t.card_bottom },
-        line: if current { t.text } else { t.line },
+        line: t.line,
         glint: t.glint,
         shadow: None,
         radius: tokens::RADIUS_CARD,
     };
     surface(ui.painter(), rect, &look, None);
-    let left = rect.left() + tokens::CARD_MARGIN as f32;
+    let left = rect.left() + f32::from(tokens::CARD_MARGIN);
     let name_font = egui::FontId::new(tokens::TEXT, crate::ui::fonts::strong());
     let about_font = egui::FontId::new(tokens::META, egui::FontFamily::Proportional);
     ui.painter().text(pos2(left, rect.top() + 13.0), egui::Align2::LEFT_TOP, name, name_font, t.text);
     ui.painter().text(pos2(left, rect.top() + 34.0), egui::Align2::LEFT_TOP, about, about_font, t.muted);
-    if current {
-        ui.painter()
-            .circle_filled(pos2(rect.right() - 22.0, rect.center().y), 5.0, t.text);
-    }
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect.expand(1.0),
@@ -136,80 +91,18 @@ fn found_coins(cx: &Cx) -> Vec<(CoinConfig, usize, Option<String>)> {
 
 impl Setup {
     fn device_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        let t = cx.t;
         widgets::title(ui, cx.say("setup.using"));
+        meta(ui, cx.say("setup.change_later"), cx.t);
+        ui.add_space(tokens::GAP);
         for device in Device::ALL {
             let name = cx.say(device_name(device));
-            let about = cx.fill(device_about(device), &[&format::number(BOARD_CAP.into())]);
-            if choice(ui, cx, name, &about, cx.settings.device == device) {
+            let cap = format::rate(cx.voice(), BOARD_CAP);
+            let about = cx.fill(device_about(device), &[&cap]);
+            if choice(ui, cx, name, &about) {
                 cx.settings.apply_device(device);
+                self.step = Step::Coin;
             }
         }
-        ui.add_space(tokens::GAP);
-        meta(ui, cx.say("setup.change_later"), t);
-        ui.add_space(tokens::GAP);
-        if button(ui, t, cx.say("setup.next"), Kind::Main).clicked() {
-            self.step = Step::Coin;
-        }
-    }
-
-    fn new_coin_form(&mut self, ui: &mut Ui, cx: &Cx) {
-        let seconds_before = self.block_seconds;
-        let rows: [(&str, &mut u64); 5] = [
-            ("setup.block_seconds", &mut self.block_seconds),
-            ("setup.reward", &mut self.reward),
-            ("setup.halving", &mut self.halving),
-            ("setup.difficulty", &mut self.difficulty),
-            ("setup.floor", &mut self.floor),
-        ];
-        ui.horizontal(|ui| {
-            field(ui, &mut self.name, cx.say("setup.coin_name"), 220.0);
-            field(ui, &mut self.ticker, cx.say("setup.ticker"), 110.0);
-        });
-        for (key, value) in rows {
-            ui.horizontal(|ui| {
-                form_label(ui, cx.say(key));
-                number_field(ui, value, 130.0);
-            });
-        }
-        self.floor = floor_after(self.floor, seconds_before, self.block_seconds);
-        meta(ui, cx.say("setup.floor_note"), cx.t);
-        ui.horizontal(|ui| {
-            form_label(ui, cx.say("setup.premine"));
-            field(ui, &mut self.premine, "0", 130.0);
-        });
-    }
-
-    fn coin_of_form(&self, cx: &Cx) -> Option<CoinConfig> {
-        let name = self.name.trim();
-        let ticker = self.ticker.trim();
-        if name.is_empty() || ticker.is_empty() || self.block_seconds == 0 {
-            return None;
-        }
-        let premine = self.premine.trim();
-        let premine = if premine.is_empty() || premine == "0" {
-            Vec::new()
-        } else {
-            vec![(parse_address(&cx.snap.node.address)?, parse_coins(premine)?)]
-        };
-        Some(new_coin(NewCoin {
-            name: Some(name.to_string()),
-            ticker: Some(ticker.to_string()),
-            block_time_ms: Some(self.block_seconds * 1000),
-            reward: Some(self.reward),
-            halving: Some(self.halving),
-            difficulty: Some(self.difficulty),
-            floor: Some(self.floor),
-            message_in_block: true,
-            genesis_time_ms: Some(crate::core::unix_ms()),
-            premine,
-            ..NewCoin::default()
-        }))
-    }
-
-    fn finish(cx: &mut Cx, start: StartCoin) {
-        cx.settings.setup_done = true;
-        cx.send(Command::FinishSetup(Box::new(cx.settings.clone()), start));
     }
 
     fn coin_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -217,35 +110,64 @@ impl Setup {
         widgets::title(ui, cx.say("setup.coin"));
         for (coin, count, address) in found_coins(cx) {
             let about = cx.fill("setup.found_about", &[&coin.ticker, &count.to_string()]);
-            if choice(ui, cx, &coin.name, &about, false) {
-                Self::finish(cx, StartCoin::Join { coin, address });
+            if choice(ui, cx, &coin.name, &about) {
+                self.start = Some(StartCoin::Join { coin, address });
+                self.step = Step::Mining;
             }
         }
         let olc = CoinConfig::olc();
-        if choice(ui, cx, &olc.name, cx.say("setup.olc_about"), false) {
-            Self::finish(cx, StartCoin::Default);
+        if choice(ui, cx, &olc.name, cx.say("setup.olc_about")) {
+            self.start = Some(StartCoin::Default);
+            self.step = Step::Mining;
         }
-        if choice(ui, cx, cx.say("setup.new_coin"), cx.say("setup.new_coin_about"), self.new_coin) {
-            self.new_coin = !self.new_coin;
-        }
-        if self.new_coin {
-            card(ui, t, |ui| {
-                self.new_coin_form(ui, cx);
-                let coin = self.coin_of_form(cx);
-                let ready = coin.is_some();
-                let start = button_on(ui, t, cx.say("setup.start_coin"), Kind::Main, ready);
-                if let Some(coin) = coin.filter(|_| start.clicked()) {
-                    Self::finish(cx, StartCoin::New(coin));
-                }
-            });
+        if choice(ui, cx, cx.say("coins.new"), cx.say("setup.new_coin_about")) {
+            self.step = Step::NewCoin;
         }
         ui.add_space(tokens::GAP);
-        let cap = format::rate(cx.settings.hash_cap);
-        let label = cx.fill("setup.mine_at", &[&cap]);
-        switch_row(ui, t, &mut cx.settings.mine_on_start, &label);
-        ui.add_space(tokens::GAP);
-        if button(ui, t, cx.say("setup.back"), Kind::Quiet).clicked() {
+        if button(ui, t, cx.say("common.back"), Kind::Quiet).clicked() {
             self.step = Step::Device;
+        }
+    }
+
+    fn new_coin_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        widgets::title(ui, cx.say("coins.new"));
+        ui.scope(|ui| self.form.show(ui, cx));
+        ui.add_space(tokens::GAP_WIDE);
+        let coin = self.form.coin(cx);
+        ui.horizontal(|ui| {
+            let next = button_on(ui, t, cx.say("common.next"), Kind::Main, coin.is_some());
+            if let Some(coin) = coin.filter(|_| next.clicked()) {
+                self.start = Some(StartCoin::New(coin));
+                self.step = Step::Mining;
+            }
+            if button(ui, t, cx.say("common.back"), Kind::Quiet).clicked() {
+                self.step = Step::Coin;
+            }
+        });
+    }
+
+    fn finish(&mut self, cx: &mut Cx) {
+        cx.settings.setup_done = true;
+        let start = self.start.take().unwrap_or(StartCoin::Default);
+        cx.send(Command::FinishSetup(Box::new(cx.settings.clone()), start));
+    }
+
+    fn mining_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        widgets::title(ui, cx.say("setup.mine"));
+        let about = cx.fill("setup.mine_about", &[&format::rate(cx.voice(), cx.settings.hash_cap)]);
+        if choice(ui, cx, cx.say("setup.mine_now"), &about) {
+            cx.settings.mine_on_start = true;
+            self.finish(cx);
+        }
+        if choice(ui, cx, cx.say("setup.mine_later"), cx.say("setup.mine_later_about")) {
+            cx.settings.mine_on_start = false;
+            self.finish(cx);
+        }
+        ui.add_space(tokens::GAP);
+        if button(ui, t, cx.say("common.back"), Kind::Quiet).clicked() {
+            self.step = Step::Coin;
         }
     }
 
@@ -255,23 +177,14 @@ impl Setup {
             ui.add_space(margin);
             ui.vertical(|ui| {
                 ui.set_width(WIDTH.min(ui.available_width()));
-                ui.add_space(tokens::GAP_WIDE * 2.0);
+                ui.add_space(tokens::GAP_WIDE);
                 match self.step {
                     Step::Device => self.device_step(ui, cx),
                     Step::Coin => self.coin_step(ui, cx),
+                    Step::NewCoin => self.new_coin_step(ui, cx),
+                    Step::Mining => self.mining_step(ui, cx),
                 }
             });
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::floor_after;
-
-    #[test]
-    fn the_floor_follows_the_block_time_until_it_is_edited() {
-        assert_eq!(floor_after(30_000, 30, 60), 60_000);
-        assert_eq!(floor_after(12_345, 30, 60), 12_345);
     }
 }
