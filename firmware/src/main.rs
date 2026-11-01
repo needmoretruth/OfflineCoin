@@ -12,6 +12,7 @@ mod pages;
 mod radio;
 mod report;
 mod screen;
+mod serve;
 mod store;
 mod thermo;
 mod usb;
@@ -78,6 +79,10 @@ fn chosen_limit(settings: &store::Settings) -> Option<u32> {
     settings.cap.parse().ok().or(old)
 }
 
+/// Kept free while the chain loads, then given back. The allocator walks its list of free
+/// stretches from the front, so one long stretch there keeps every later allocation quick.
+const ROOM_AT_THE_FRONT: usize = 1024 * 1024;
+
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // What the steps before this program left behind. `init` turns the watchdog off.
@@ -101,6 +106,8 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     esp_alloc::heap_allocator!(size: 64 * 1024);
+    let room = alloc::vec::Vec::<u8>::with_capacity(ROOM_AT_THE_FRONT);
+    core::hint::black_box(&room);
     store.reach(Stage::Psram);
 
     let timers = TimerGroup::new(peripherals.TIMG0);
@@ -258,6 +265,7 @@ async fn main(spawner: Spawner) -> ! {
         splash_until_ms: node::SPLASH_LENGTH_MS,
     };
     node.store.reach(Stage::Running);
+    drop(room);
     if updated {
         node.note(0, views::Note::Updated(control::BUILD));
     }

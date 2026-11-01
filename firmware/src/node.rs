@@ -198,7 +198,7 @@ impl Node {
             limit => longest.min(limit.saturating_sub(self.attempts)),
         };
         let worked =
-            self.mining && batch > 0 && !cable_is_busy(now) && !self.control.taking_an_image(now);
+            self.mining && batch > 0 && !cable_is_busy(now) && !self.control.moving_image(now);
         if worked {
             self.runner.engine.mine(batch, now);
             self.attempts += batch;
@@ -235,7 +235,7 @@ impl Node {
     }
 
     fn coin_shows(&self, now: u64) -> bool {
-        now < self.splash_until_ms || self.view == View::Easy
+        (now < self.splash_until_ms || self.view == View::Easy) && !self.control.moving_image(now)
     }
 
     /// Keeps to the pace rather than restarting it, so waiting a moment costs no frame.

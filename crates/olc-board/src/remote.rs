@@ -1,6 +1,7 @@
 //! What a person or a program does to one board of the fleet: waiting for the answer, repeating
 //! what got lost. The packets themselves are in `fleet`.
 use crate::board::BoardLink;
+use crate::burst;
 use crate::clearance::Cleared;
 use crate::fleet::Fleet;
 use olc_control::{Action, BoardId, Read, Refusal, CHUNK};
@@ -21,7 +22,10 @@ const LAST_CHUNK_WAIT: Duration = Duration::from_secs(5);
 
 pub type SharedFleet = Arc<Mutex<Fleet>>;
 
-fn with<T>(fleet: &SharedFleet, action: impl FnOnce(&mut Fleet) -> T) -> Result<T, String> {
+pub(crate) fn with<T>(
+    fleet: &SharedFleet,
+    action: impl FnOnce(&mut Fleet) -> T,
+) -> Result<T, String> {
     let mut fleet = fleet.lock().map_err(|_| "The app stopped.".to_string())?;
     Ok(action(&mut fleet))
 }
@@ -83,7 +87,7 @@ pub fn hash_of(image: &[u8]) -> Hash {
     hasher.finish()
 }
 
-fn new_session() -> Result<u32, String> {
+pub(crate) fn new_session() -> Result<u32, String> {
     let mut bytes = [0u8; 4];
     getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
     Ok(u32::from_le_bytes(bytes))
@@ -113,9 +117,23 @@ fn wait_for_progress(
     Ok(None)
 }
 
+/// Sends `image` in bursts, or in chunks to a build from before bursts. Returns how long it took.
+pub(crate) fn send_image(
+    fleet: &SharedFleet,
+    cleared: &Cleared,
+    image: &[u8],
+    on_progress: &dyn Fn(u32),
+) -> Result<Duration, String> {
+    let started = Instant::now();
+    if !burst::send(fleet, cleared, image, on_progress)? {
+        send_chunks(fleet, cleared, image, on_progress)?;
+    }
+    Ok(started.elapsed())
+}
+
 /// Sends `image` under a signature for `hash`, which a true update takes from the image itself.
 /// Returns how long it took. The board restarts on its own once it has checked all of it.
-pub(crate) fn send_image(
+fn send_chunks(
     fleet: &SharedFleet,
     cleared: &Cleared,
     image: &[u8],
