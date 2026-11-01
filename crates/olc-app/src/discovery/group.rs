@@ -244,6 +244,23 @@ mod tests {
     }
 
     #[test]
+    fn a_different_build_is_only_information() {
+        let mut older = entry("a", Some(coin("One")), 1);
+        older.build = "b12".into();
+        let mut newer = entry("b", Some(coin("One")), 1);
+        newer.build = "b13-test".into();
+        let mine = Identity::of(coin("One"));
+        let groups = group(&[older, newer], Some(&mine));
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].chains.len(), 1);
+        let chain = &groups[0].chains[0];
+        assert_eq!(chain.relation, Relation::Yours);
+        let builds: Vec<&str> = chain.entries.iter().map(|entry| entry.build.as_str()).collect();
+        assert_eq!(builds.len(), 2);
+        assert!(builds.contains(&"b12") && builds.contains(&"b13-test"));
+    }
+
+    #[test]
     fn a_different_genesis_is_a_different_coin() {
         let found = [
             entry("a", Some(coin("One")), 1),

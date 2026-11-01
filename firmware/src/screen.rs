@@ -27,8 +27,11 @@ const COMMAND: u8 = 0x00;
 const DATA: u8 = 0x40;
 const STARTUP: [u8; 24] = [
     COMMAND, 0xAE, 0xD5, 0x80, 0xA8, 0x3F, 0xD3, 0x00, 0x40, 0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8,
-    0xDA, 0x12, 0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4,
+    0xDA, 0x12, 0x81, DEFAULT_BRIGHT, 0xD9, 0xF1, 0xDB, 0x40, 0xA4,
 ];
+/// Plenty on a desk, and an organic panel ages with how hard it is driven.
+pub const DEFAULT_BRIGHT: u8 = 0x40;
+const SET_CONTRAST: u8 = 0x81;
 const SWITCH_ON: [u8; 3] = [COMMAND, 0xA6, 0xAF];
 
 #[derive(Clone, Copy)]
@@ -66,6 +69,7 @@ pub struct Screen {
     shown: Option<Pixels>,
     shift: (i32, i32),
     spilled: u32,
+    bright: u8,
 }
 
 struct Canvas<'a> {
@@ -134,7 +138,20 @@ impl Screen {
             shown: None,
             shift: (0, 0),
             spilled: 0,
+            bright: DEFAULT_BRIGHT,
         }
+    }
+
+    /// Takes effect at once, and again when a panel is plugged back in.
+    pub fn set_bright(&mut self, bright: u8) {
+        self.bright = bright;
+        let _ = self.send_bright();
+    }
+
+    fn send_bright(&mut self) -> Result<(), ()> {
+        self.bus
+            .write(ADDRESS, &[COMMAND, SET_CONTRAST, self.bright])
+            .map_err(|_| ())
     }
 
     fn canvas(&mut self) -> Canvas<'_> {
@@ -290,6 +307,7 @@ impl Screen {
 
     fn start(&mut self) -> Result<(), ()> {
         self.bus.write(ADDRESS, &STARTUP).map_err(|_| ())?;
+        self.send_bright()?;
         let blank = [DATA; WIDTH + 1];
         for page in 0..PAGES {
             self.select(page, 0)?;

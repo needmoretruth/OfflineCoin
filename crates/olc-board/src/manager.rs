@@ -1,10 +1,12 @@
 //! What a program that manages boards needs, whatever its face: the boards on the cables, the
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
+use crate::clearance::{deliver, Ledger, PORT_FOLDER, UNPROVEN};
 use crate::control_key::{config_folder, ControlKey};
 use crate::install::{app_image, install as install_board};
 use crate::journal::{Entry, Journal};
 use crate::pins::Pins;
-use crate::remote::{command, hash_of, send_image};
+use crate::remote::{command, hash_of};
+use crate::rom;
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
 use olc_link_serial::SerialLink;
@@ -19,13 +21,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const PORT_FOLDER: &str = "/dev/serial/by-id";
 const PORT_MARK: &str = "Espressif";
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
 const NEW_BOARD_AFTER: Duration = Duration::from_secs(14);
 const MAX_LOG: usize = 400;
-const RETURN_WAIT: Duration = Duration::from_secs(120);
+const MAX_LOADER_WAKES: u32 = 3;
+const RETURN_WAIT: Duration = Duration::from_secs(300);
 
 struct Port {
     link: usize,
@@ -74,6 +76,7 @@ pub struct Manager {
     fixed_ports: Vec<String>,
     ports: Mutex<BTreeMap<String, Port>>,
     busy_ports: Mutex<BTreeSet<String>>,
+    loader_wakes: Mutex<BTreeMap<String, u32>>,
     /// What is happening to a board or a port.
     jobs: Mutex<BTreeMap<String, String>>,
     pub run: Arc<Mutex<ExtraRun>>,
@@ -92,6 +95,7 @@ impl Manager {
             fixed_ports,
             ports: Mutex::new(BTreeMap::new()),
             busy_ports: Mutex::new(BTreeSet::new()),
+            loader_wakes: Mutex::new(BTreeMap::new()),
             jobs: Mutex::new(BTreeMap::new()),
             run: Arc::new(Mutex::new(ExtraRun::default())),
         }))
@@ -213,6 +217,20 @@ impl Manager {
             .collect()
     }
 
+    /// A board that came up in the chip's loader stays dark until something restarts it. It
+    /// comes back on the next look. A board that keeps landing there is left alone.
+    fn wake_from_loader(&self, path: &str) -> bool {
+        let Ok(mut wakes) = self.loader_wakes.lock() else {
+            return false;
+        };
+        let tried = wakes.entry(path.to_string()).or_insert(0);
+        if *tried >= MAX_LOADER_WAKES || !rom::wake(path) {
+            return false;
+        }
+        *tried += 1;
+        true
+    }
+
     /// Opens what appeared and lets go of what left.
     fn watch(&self, runner: &Mutex<Runner>) {
         let present = self.present_ports();
@@ -241,6 +259,9 @@ impl Manager {
             let Some(device) = device_of(&path) else {
                 continue;
             };
+            if self.wake_from_loader(&path) {
+                continue;
+            }
             let Ok(link) = SerialLink::open(&path, |_| {}) else {
                 continue;
             };
@@ -378,7 +399,11 @@ impl Manager {
             eprintln!("update: {error}");
         }
         let done = result.is_ok();
-        self.set_job(&key, (!done).then(|| "update_failed".to_string()));
+        let failed = match &result {
+            Err(error) if error == UNPROVEN => "unproven",
+            _ => "update_failed",
+        };
+        self.set_job(&key, (!done).then(|| failed.to_string()));
         done
     }
 
@@ -392,7 +417,8 @@ impl Manager {
                 Some(format!("{:.0}%", f64::from(next) * 100.0 / total)),
             )
         };
-        send_image(&self.fleet, board, &image, hash_of(&image), &shown)?;
+        let ledger = Ledger::open(&config_folder()?);
+        let delivery = deliver(&self.fleet, &ledger, board, &image, hash_of(&image), &shown)?;
         self.set_job(key, Some("restarting".into()));
         let deadline = Instant::now() + RETURN_WAIT;
         thread::sleep(Duration::from_secs(5));
@@ -404,7 +430,8 @@ impl Manager {
                     .any(|seen| seen.id == board && seen.silent_for < Duration::from_secs(3))
             });
             if back.unwrap_or(false) {
-                return Ok(());
+                command(&self.fleet, board, "status")?;
+                return ledger.landed(&delivery);
             }
             thread::sleep(Duration::from_millis(500));
         }

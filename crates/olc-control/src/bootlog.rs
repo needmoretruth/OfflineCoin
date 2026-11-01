@@ -14,21 +14,23 @@ const MARK_MASK: u32 = 0xFFFF << 16;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
     Started = 0,
-    Panel = 1,
-    Radio = 2,
-    ChainRead = 3,
-    ChainLoaded = 4,
-    Running = 5,
+    Psram = 1,
+    Panel = 2,
+    Radio = 3,
+    ChainRead = 4,
+    ChainLoaded = 5,
+    Running = 6,
 }
 
 impl Stage {
     fn from_cleared(bits: u32) -> Self {
         match bits {
             0 => Self::Started,
-            1 => Self::Panel,
-            2 => Self::Radio,
-            3 => Self::ChainRead,
-            4 => Self::ChainLoaded,
+            1 => Self::Psram,
+            2 => Self::Panel,
+            3 => Self::Radio,
+            4 => Self::ChainRead,
+            5 => Self::ChainLoaded,
             _ => Self::Running,
         }
     }
@@ -36,6 +38,7 @@ impl Stage {
     pub fn name(self) -> &'static str {
         match self {
             Self::Started => "started",
+            Self::Psram => "psram",
             Self::Panel => "panel",
             Self::Radio => "radio",
             Self::ChainRead => "chain-read",

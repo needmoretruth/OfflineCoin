@@ -29,6 +29,8 @@ impl Packet {
     }
 }
 
+// A packet lives for one trip, so its size here costs nothing that a box would save.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// A packet lives for one trip, so a large beacon costs nothing that boxing it would save.
 #[allow(clippy::large_enum_variant)]

@@ -32,8 +32,10 @@ use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
+use esp_hal::peripherals::LPWR;
 use esp_hal::rng::Rng;
-use esp_hal::time::Rate;
+use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
+use esp_hal::time::{Duration, Instant, Rate};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_println::println;
@@ -63,6 +65,8 @@ const SETTLE_MS: u64 = 300;
 /// And longer after the last start ran it dry.
 const SETTLE_AFTER_BROWN_OUT_MS: u64 = 2_000;
 const BROWN_OUT: u8 = 0x0F;
+/// Far longer than a healthy start takes to reach the radio.
+const START_WATCHDOG: Duration = Duration::from_secs(20);
 
 fn own_network_name() -> String {
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
@@ -78,12 +82,28 @@ fn chosen_limit(settings: &store::Settings) -> Option<u32> {
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    // What the steps before this program left behind. `init` turns the watchdog off.
+    let boot_watchdog = LPWR::regs().wdtconfig0().read().wdt_en().bit_is_set();
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
+
+    // A board with no cable has nobody to press its reset button. It restarts itself if it stops
+    // before the radio is up, and the word below shows how far the stopped start got.
+    let mut rtc = Rtc::new(peripherals.RTC_TIMER);
+    rtc.rwdt.set_timeout(RwdtStage::Stage0, START_WATCHDOG);
+    rtc.rwdt
+        .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
+    rtc.rwdt.enable();
+    flash::give(FlashStorage::new(peripherals.FLASH));
+    let mut store = Store::default();
+    let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
+    store.begin_boot(reset);
+    store.marks_held = reset == BROWN_OUT;
 
     // PSRAM comes first, so the chain lands there and internal memory stays free for the radio.
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     esp_alloc::heap_allocator!(size: 64 * 1024);
+    store.reach(Stage::Psram);
 
     let timers = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timers.timer0, peripherals.FROM_CPU_INTR0);
@@ -91,10 +111,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut usb_device = UsbSerialJtag::new(peripherals.USB_DEVICE);
     usb_device.set_interrupt_handler(usb::on_usb_packet);
     let (rx, _tx) = usb_device.split();
-    flash::give(FlashStorage::new(peripherals.FLASH));
-    let mut store = Store::default();
-    let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
-    store.begin_boot(reset);
     let bus = I2c::new(
         peripherals.I2C0,
         I2cConfig::default().with_frequency(Rate::from_khz(400)),
@@ -105,7 +121,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // A long chain takes a while to load, and a dark panel looks like a dead board.
     thermo::start();
+    let settings = store.settings();
+    let bright = settings.bright.parse().unwrap_or(screen::DEFAULT_BRIGHT);
     let mut screen = Screen::new(bus);
+    screen.set_bright(bright);
     let mut coins = Coins::new();
     coins.first_frame();
     views::splash(&mut screen, &coins, 0);
@@ -113,7 +132,6 @@ async fn main(spawner: Spawner) -> ! {
     store.reach(Stage::Panel);
 
     let coin = store.coin().unwrap_or_else(CoinConfig::olc);
-    let settings = store.settings();
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let name = own_network_name();
     let power_dbm = settings.power.parse().unwrap_or(node::DEFAULT_POWER_DBM);
@@ -122,10 +140,13 @@ async fn main(spawner: Spawner) -> ! {
         _ => SETTLE_MS,
     };
     Timer::after_millis(settle).await;
+    store.marks_held = false;
+    store.reach(Stage::Panel);
     let (espnow, wifi_link, network) =
         wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
 
     store.reach(Stage::Radio);
+    rtc.rwdt.disable();
 
     let (secrets, receiving) = store.keys(|| {
         // The radio is on, so this is true hardware randomness.
@@ -202,6 +223,10 @@ async fn main(spawner: Spawner) -> ! {
             loaded_ms,
         },
         coins,
+        bright,
+        boot_watchdog,
+        busy_us: 0,
+        busy_percent: 0,
         smooth: settings.smooth.parse().unwrap_or(node::DEFAULT_SMOOTH),
         coin_ms: 0,
         frames: Default::default(),
@@ -242,7 +267,10 @@ async fn main(spawner: Spawner) -> ! {
         node.note(0, views::Note::Updated(control::BUILD));
     }
     loop {
-        if node.turn() {
+        let start = Instant::now();
+        let worked = node.turn();
+        node.busy_us += start.elapsed().as_micros();
+        if worked {
             yield_now().await;
         } else {
             Timer::after_millis(5).await;

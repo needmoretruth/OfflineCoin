@@ -67,6 +67,8 @@ pub enum Command {
     UpdateBoard(BoardId),
     /// Puts a board on the coin this app runs. The person already said yes.
     MoveBoard(BoardId),
+    StartCapTest(BoardId),
+    ReadBright(BoardId),
     InstallBoard {
         path: String,
         name: String,

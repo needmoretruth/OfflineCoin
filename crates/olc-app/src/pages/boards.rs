@@ -1,21 +1,22 @@
 //! Every board this app can reach, and what can be done to one.
 use super::{Cx, Page};
-use olc_logo::{MAX_FPS, MIN_FPS};
 use crate::core::{BoardView, Command};
 use crate::discovery::Reach;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
     self, button, card, cell, dot, field, header_cell, meta, number_field, section, segments,
-    Columns, Kind,
+    switch_row, Columns, Kind,
 };
 use crate::ui::Icon;
 use egui::Ui;
 use olc_control::BoardId;
 
 const WEIGHTS: [f32; 8] = [1.5, 1.4, 0.8, 1.1, 1.1, 0.5, 0.9, 0.8];
-/// What a board starts at. The status beacon does not carry its present value.
-const SMOOTH_DEFAULT: u64 = 10;
+/// Used only until a board says its own number.
+const SMOOTH_FALLBACK: u64 = 10;
+const BRIGHT_FALLBACK: u64 = 64;
+const BRIGHT_MAX: u64 = 255;
 const HALF_CAP: u64 = 7_500;
 const LABEL_WIDTH: f32 = 150.0;
 
@@ -24,6 +25,7 @@ pub struct Boards {
     open: Option<BoardId>,
     cap: u64,
     smooth: u64,
+    bright: Option<u64>,
     name: String,
     pay_to: String,
     pay_amount: String,
@@ -55,11 +57,16 @@ fn connection(cx: &Cx, board: &BoardView) -> String {
 }
 
 impl Boards {
-    fn select(&mut self, board: &BoardView) {
+    fn select(&mut self, cx: &Cx, board: &BoardView) {
         let beacon = &board.seen.beacon;
         self.open = Some(board.seen.id);
         self.cap = u64::from(beacon.limit);
-        self.smooth = SMOOTH_DEFAULT;
+        self.smooth = match beacon.smooth {
+            0 => SMOOTH_FALLBACK,
+            fps => u64::from(fps),
+        };
+        self.bright = None;
+        cx.send(Command::ReadBright(board.seen.id));
         self.name.clone_from(&beacon.name);
     }
 
@@ -85,7 +92,7 @@ impl Boards {
                     if open {
                         self.open = None;
                     } else {
-                        self.select(board);
+                        self.select(cx, board);
                     }
                 }
             }
@@ -97,6 +104,17 @@ impl Boards {
 
     fn line(cx: &Cx, id: BoardId, line: String) {
         cx.send(Command::BoardLine { id, line });
+    }
+
+    fn pick_for_updates(ui: &mut Ui, cx: &mut Cx, id: BoardId) {
+        let mut picked = cx.settings.auto_boards.contains(&id);
+        if switch_row(ui, cx.t, &mut picked, cx.say("boards.auto_update")) {
+            cx.settings.auto_boards.retain(|board| *board != id);
+            if picked {
+                cx.settings.auto_boards.push(id);
+            }
+            cx.save();
+        }
     }
 
     fn actions(&mut self, ui: &mut Ui, cx: &Cx, board: &BoardView) {
@@ -154,11 +172,25 @@ impl Boards {
         });
         labelled(ui, cx.say("boards.smooth"), |ui| {
             number_field(ui, &mut self.smooth, 70.0);
-            let range = [MIN_FPS.to_string(), MAX_FPS.to_string()];
+            let (lowest, highest) = beacon.smooth_range;
+            let range = [lowest.to_string(), highest.to_string()];
             meta(ui, &cx.fill("boards.frames_per_second", &[&range[0], &range[1]]), t);
             if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
-                self.smooth = self.smooth.clamp(u64::from(MIN_FPS), u64::from(MAX_FPS));
+                self.smooth = self.smooth.clamp(u64::from(lowest), u64::from(highest));
                 Self::line(cx, id, format!("smooth {}", self.smooth));
+            }
+        });
+        labelled(ui, cx.say("boards.bright"), |ui| {
+            let said = board.bright.map_or(BRIGHT_FALLBACK, u64::from);
+            let mut level = self.bright.unwrap_or(said);
+            if number_field(ui, &mut level, 70.0) {
+                self.bright = Some(level);
+            }
+            meta(ui, &cx.fill("boards.bright_range", &[&BRIGHT_MAX.to_string()]), t);
+            if button(ui, t, cx.say("boards.apply"), Kind::Plain).clicked() {
+                let level = level.min(BRIGHT_MAX);
+                self.bright = Some(level);
+                Self::line(cx, id, format!("bright {level}"));
             }
         });
         labelled(ui, cx.say("boards.name"), |ui| {
@@ -278,6 +310,9 @@ impl Page for Boards {
                         widgets::divider(ui, t);
                         ui.add_space(tokens::GAP);
                         self.actions(ui, cx, board);
+                        if cx.settings.auto_update {
+                            Self::pick_for_updates(ui, cx, board.seen.id);
+                        }
                         ui.add_space(tokens::GAP);
                         widgets::divider(ui, t);
                     }

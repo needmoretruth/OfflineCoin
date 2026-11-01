@@ -5,8 +5,9 @@ use crate::fleet::{BoardRow, FleetPort, LineError, StartError};
 use olc_board::control_key::ControlKey;
 use olc_board::fleet::Fleet;
 use olc_board::{Args, Extra};
-use olc_control::{Beacon, BoardId, Body, Packet};
+use olc_control::{sign_beacon, Beacon, BoardId, Body, Packet};
 use olc_core::CoinConfig;
+use olc_crypto::{address_of, Signer};
 use olc_node::frame::encode;
 use olc_node::network::{stamp, CONTROL, OPEN};
 use olc_node::{Card, Hello, Message, Runner};
@@ -66,38 +67,21 @@ impl FleetPort for Listening {
     fn stop_extra(&self) {}
 }
 
-const SECRET: [u8; 32] = [3; 32];
-
+/// A signature proves only that the sender holds some key, so a forger signs with its own.
 fn beacon() -> Vec<u8> {
+    let signer = Signer::new(&[3; 32]).unwrap();
     let beacon = Beacon {
         name: "not-a-board".into(),
-        address: olc_crypto::address_of(&olc_crypto::public_key(&SECRET).expect("a valid key")),
+        address: address_of(signer.public_key()),
         height: 9,
-        tip: [0; 32],
-        balance: 0,
-        hashrate: 1,
-        limit: 0,
-        peers: 0,
-        pool: 0,
-        mining: true,
-        offline: false,
-        view: "basic".into(),
-        language: "en".into(),
-        build: "x".into(),
-        slot: 0,
-        counter: 41,
-        trusts_a_key: true,
-        refused: 0,
         ..Beacon::default()
     };
-    let signer = olc_crypto::Signer::new(&SECRET).expect("a valid key");
-    let signed = olc_control::sign_beacon(&signer, &BOARD, beacon).expect("a valid key");
     Packet {
         from: BOARD,
         to: None,
         id: 1,
         hops: 0,
-        body: Body::Beacon(signed),
+        body: Body::Beacon(sign_beacon(&signer, &BOARD, beacon).unwrap()),
     }
     .encode()
 }

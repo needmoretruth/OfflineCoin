@@ -2,6 +2,7 @@
 //! a person hands over, and the coin knows nothing about them.
 use super::{Cx, Page};
 use crate::core::Command;
+use crate::discovery::Reach;
 use crate::i18n::lab_line;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, meta, number_field, section, Kind};
@@ -12,6 +13,7 @@ use olc_control::BoardId;
 
 #[derive(Default)]
 pub struct Experiments {
+    tested: Option<BoardId>,
     attacker: Option<BoardId>,
     victim: Option<BoardId>,
     amount: Option<u64>,
@@ -41,6 +43,34 @@ fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>) {
         });
 }
 
+impl Experiments {
+    fn cap_test(&mut self, ui: &mut Ui, cx: &Cx, running: bool) {
+        let t = cx.t;
+        card(ui, t, |ui| {
+            section(ui, cx.say("captest.title"));
+            meta(ui, cx.say("captest.about"), t);
+            ui.add_space(4.0);
+            let online = || cx.snap.boards.iter().filter(|board| board.seen.online);
+            let on_cable = online().find(|board| board.reach == Reach::Usb);
+            let first = on_cable.or_else(|| online().next());
+            self.tested = self.tested.or(first.map(|board| board.seen.id));
+            ui.horizontal(|ui| {
+                pick(ui, cx, cx.say("captest.board"), &mut self.tested);
+                let start = cx.say("lab.start");
+                let ready = self.tested.is_some() && !running;
+                if button_on(ui, t, start, Kind::Main, ready).clicked() {
+                    if let Some(board) = self.tested {
+                        cx.send(Command::StartCapTest(board));
+                    }
+                }
+                if running && button(ui, t, cx.say("lab.stop"), Kind::Danger).clicked() {
+                    cx.send(Command::StopExperiment);
+                }
+            });
+        });
+    }
+}
+
 impl Page for Experiments {
     fn title(&self) -> &'static str {
         "page.experiments"
@@ -59,6 +89,8 @@ impl Page for Experiments {
         widgets::title(ui, cx.say("page.experiments"));
         let online = cx.snap.boards.iter().filter(|board| board.seen.online).count();
         let running = cx.snap.experiment.running;
+        self.cap_test(ui, cx, running);
+        ui.add_space(tokens::GAP);
         card(ui, t, |ui| {
             section(ui, cx.say("lab.title"));
             meta(ui, cx.say("lab.about"), t);

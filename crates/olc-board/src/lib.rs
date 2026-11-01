@@ -4,6 +4,7 @@ mod args;
 pub mod autoupdate;
 mod board;
 pub mod carried;
+pub mod clearance;
 pub mod control_key;
 mod extra;
 pub mod fleet;
@@ -12,6 +13,7 @@ pub mod journal;
 pub mod manager;
 pub mod pins;
 pub mod remote;
+pub mod rom;
 
 pub use args::Args;
 pub use board::{on_off, Board, BoardLink, Place, Status, UsbBoard};

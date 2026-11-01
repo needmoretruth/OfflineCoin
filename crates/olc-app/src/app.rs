@@ -25,6 +25,8 @@ const REPAINT_AWAY: Duration = Duration::from_secs(3);
 pub struct Launch {
     /// False leaves every USB port alone.
     pub usb: bool,
+    /// The only USB ports to use. Empty finds every board by itself.
+    pub ports: Vec<String>,
     pub data: Option<PathBuf>,
 }
 
@@ -32,6 +34,7 @@ impl Default for Launch {
     fn default() -> Self {
         Self {
             usb: true,
+            ports: Vec::new(),
             data: None,
         }
     }
@@ -212,7 +215,7 @@ fn window_icon() -> IconData {
 fn fleet_of(launch: &Launch) -> Option<Arc<dyn FleetPort>> {
     launch
         .usb
-        .then(|| RealFleet::new().ok())
+        .then(|| RealFleet::new(launch.ports.clone()).ok())
         .flatten()
         .map(|fleet| Arc::new(fleet) as Arc<dyn FleetPort>)
 }

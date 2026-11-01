@@ -3,14 +3,34 @@ use crate::commands::opened_name;
 use crate::control::BUILD;
 use crate::node::{decode_hash, hex, Node, LINK_RADIO, LINK_USB, LINK_WIFI};
 use crate::radio;
+use crate::screen::{PAGES, WIDTH};
 use crate::views::coins;
 use alloc::format;
 use core::sync::atomic::Ordering;
+use esp_hal::peripherals::GPIO;
+use esp_println::println;
 use olc_control::bootlog;
 use olc_core::Hash;
 use olc_wallet::format_address;
 
 impl Node {
+    /// Prints what was drawn and what the panel's own memory holds, row by row.
+    pub fn print_screen(&mut self) {
+        let mut same = self.screen.is_connected();
+        println!(
+            "screen connected={same} spilled={}",
+            self.screen.take_spilled()
+        );
+        for page in 0..PAGES {
+            let mut held = [0u8; WIDTH];
+            let read = self.screen.read_row(page, &mut held).is_ok();
+            let drawn = self.screen.row(page);
+            same &= read && drawn == held;
+            println!("row {page} {} {}", hex(drawn), hex(&held));
+        }
+        println!("screen matches={same}");
+    }
+
     pub fn print_tx(&mut self, text: &str) {
         let mut id: Hash = [0; 32];
         let engine = &self.runner.engine;
@@ -41,8 +61,9 @@ impl Node {
              wifi={} pool={} hashrate={} limit={} chosen={} mining={} offline={} view={} lang={} \
              screen={} free={} router={:?} address={} reorg={}/{} sync={} build={BUILD} slot={} \
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
-             power={} rssi={} key={} name={} opened={} oldest={} held={} fits={} keep={} \
-             unspent={} miner={} merge={} needs={} assumed={} work_on={}",
+             power={} rssi={} bright={} busy={} boot_wdt={} strap={:#x} key={} name={} opened={} \
+             oldest={} held={} fits={} keep={} unspent={} miner={} merge={} needs={} assumed={} \
+             work_on={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -79,6 +100,10 @@ impl Node {
             self.frames.last_slowest_us,
             self.power_dbm,
             radio::LAST_RSSI.load(Ordering::Relaxed),
+            self.bright,
+            self.busy_percent,
+            self.boot_watchdog,
+            GPIO::regs().strap().read().bits(),
             self.control.gate.has_key(),
             self.control.identity.name,
             opened_name(chain.opened()),

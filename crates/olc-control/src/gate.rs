@@ -8,10 +8,10 @@ const DOMAIN: &[u8] = b"OfflineCoin control order 1\n";
 
 /// What a signed line may do from afar. The cable can do everything, but from afar a mistake
 /// could cut the only way to the board. `key` is never here, so no radio line reaches a secret.
-pub const REMOTE_WORDS: [&str; 24] = [
+pub const REMOTE_WORDS: [&str; 26] = [
     "status", "tx", "limit", "mine", "offline", "pay", "pool", "view", "lang", "name", "logo",
-    "boots", "smooth", "power", "ignore", "keys", "mineto", "keep", "merge", "note", "minenote",
-    "snapshot", "coin", "work",
+    "boots", "smooth", "bright", "network", "power", "ignore", "keys", "mineto", "keep", "merge",
+    "note", "minenote", "snapshot", "coin", "work",
 ];
 
 pub fn allowed_remotely(line: &str) -> bool {

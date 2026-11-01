@@ -2,6 +2,7 @@
 //! stays editable and nothing is blocked by it.
 use crate::i18n::Lang;
 use crate::local::NodeSpec;
+use olc_control::BoardId;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -100,6 +101,10 @@ pub struct Settings {
     pub scan_ports: Vec<u16>,
     /// The folder name of the coin this app runs.
     pub coin: Option<String>,
+    /// Whether picked boards follow the build this program carries. Off until someone says so.
+    pub auto_update: bool,
+    /// The boards an automatic update may touch.
+    pub auto_boards: Vec<BoardId>,
     /// The nodes this app joined, as `host:port`.
     pub peers: Vec<String>,
     /// Addresses a person added.
@@ -120,6 +125,8 @@ impl Default for Settings {
             hash_cap: defaults.hash_cap,
             board_cap: defaults.board_cap,
             mine_on_start: false,
+            auto_update: false,
+            auto_boards: Vec::new(),
             nodes: Vec::new(),
             port: NODE_PORT,
             listen_lan: defaults.listen_lan,

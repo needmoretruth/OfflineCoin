@@ -3,20 +3,23 @@
 use super::coins::{
     bring_old_blocks, coin_folder, format_coins, load_coin, parse_coins, save_coin,
 };
+use super::board_lines::{read_bright, run_line, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
-use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
+use super::host::{full_rate, Host, PayError, Plan};
 use super::pool_run::{PoolSeat, PoolStart};
 use super::rows::{
     board_entry, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
-use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
-use crate::fleet::{BoardRow, FleetPort, LineError};
+use crate::discovery::{group, Identity, Scanner, Shout};
+use crate::fleet::{BoardRow, CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Paths, Settings, PORT_TRIES};
+use olc_board::{Args, Extra};
+use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
-use olc_node::{Card, Hello};
+use olc_node::Card;
 use olc_wallet::WalletError;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +27,7 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
 
 const PUBLISH_EVERY: Duration = Duration::from_millis(400);
 
@@ -79,7 +83,9 @@ fn bind_host(settings: &Settings) -> String {
 }
 
 /// Notices from threads the service started: key, detail, and whether it went well.
-type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
+pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
+
+mod listen;
 
 struct Service {
     paths: Paths,
@@ -87,6 +93,7 @@ struct Service {
     host: Host,
     fleet: Option<Arc<dyn FleetPort>>,
     usb: bool,
+    brights: Brights,
     scanner: Scanner,
     shout: Shout,
     found: Found,
@@ -144,6 +151,7 @@ impl Service {
             host,
             fleet: launch.fleet,
             usb: launch.usb,
+            brights: Brights::default(),
             scanner: Scanner::start(),
             shout: Shout::start(),
             found: Found::default(),
@@ -255,6 +263,18 @@ impl Service {
                     .fleet
                     .as_ref()
                     .map(|fleet| fleet.start_extra(&olc_lab::Lab, &boards, args));
+                if !matches!(started, Some(Ok(()))) {
+                    self.say("notice.experiment_busy", String::new(), false);
+                }
+            }
+            Command::ReadBright(board) => self.read_bright(board),
+            Command::StartCapTest(board) => {
+                let words = [CapTest.command().to_string()];
+                let args = Args::parse(words.into_iter());
+                let started = self
+                    .fleet
+                    .as_ref()
+                    .map(|fleet| fleet.start_extra(&CapTest, &[board], args));
                 if !matches!(started, Some(Ok(()))) {
                     self.say("notice.experiment_busy", String::new(), false);
                 }
@@ -436,98 +456,16 @@ impl Service {
         self.scanner.look_now();
     }
 
-    fn board_line(&mut self, id: olc_control::BoardId, line: String) {
-        let Some(fleet) = self.fleet.clone() else {
-            return;
-        };
-        let late = self.late.clone();
-        thread::spawn(move || {
-            let (key, good) = match fleet.run_line(id, &line) {
-                Ok(()) => ("notice.board_done", true),
-                Err(LineError::Refused) => ("notice.board_refused", false),
-                Err(LineError::NoAnswer) => ("notice.board_silent", false),
-                Err(LineError::NotDone | LineError::BadRequest) => ("notice.board_failed", false),
-            };
-            if let Ok(mut late) = late.lock() {
-                late.push((key, line, good));
-            }
-        });
-    }
-
-    fn plan_scan(&self) {
-        let mut addresses = self.found.addresses();
-        addresses.extend(self.settings.added.iter().cloned());
-        addresses.extend(self.settings.book.iter().cloned());
-        addresses.extend(self.settings.peers.iter().cloned());
-        self.scanner.set_plan(ScanPlan {
-            lan: self.settings.scan_lan,
-            ports: self.settings.scan_ports.clone(),
-            addresses,
-        });
-    }
-
-    fn take_answer(&mut self, address: &str, hello: Hello) {
-        for (passed, via) in self.found.heard(address, hello) {
-            self.found.passed_on(&passed, &via);
-            self.settings.remember(&passed);
+    fn read_bright(&mut self, id: BoardId) {
+        if let Some(fleet) = self.fleet.clone() {
+            read_bright(fleet, self.brights.clone(), id);
         }
     }
 
-    /// Takes in everything heard since the last round.
-    fn listen(&mut self) {
-        let before = self.found.addresses().len();
-        for (address, hello) in self.scanner.take_found() {
-            self.take_answer(&address, hello);
+    fn board_line(&mut self, id: BoardId, line: String) {
+        if let Some(fleet) = self.fleet.clone() {
+            run_line(fleet, (self.late.clone(), self.brights.clone()), id, line);
         }
-        self.scanner.take_silent();
-        for (from, hello) in self.host.take_heard() {
-            match from {
-                HeardFrom::Network(ip) if hello.card.port != 0 => {
-                    self.take_answer(&format!("{ip}:{}", hello.card.port), hello);
-                }
-                HeardFrom::Network(_) => {}
-                HeardFrom::Board => self.found.board_said(hello),
-            }
-        }
-        for (from, hello) in self.shout.take_heard() {
-            if hello.card.port != 0 {
-                self.take_answer(&format!("{}:{}", from.ip(), hello.card.port), hello);
-            }
-        }
-        self.found.forget_old();
-        if self.found.addresses().len() != before {
-            self.plan_scan();
-        }
-        self.host.set_known(self.found.reachable());
-        let shout = self.settings.broadcast.then(|| self.own_hello()).flatten();
-        self.shout.set_me(shout);
-        let late = self.late.lock().map(|mut late| std::mem::take(&mut *late));
-        for (key, detail, good) in late.unwrap_or_default() {
-            self.say(key, detail, good);
-        }
-        for (id, answer) in self.local.take_answers() {
-            self.pool.take_node_shares(id, &answer.shares);
-            match (answer.paid, answer.error) {
-                (Some(_), _) => self.say("notice.node_paid", id.to_string(), true),
-                (_, Some(error)) => self.say("notice.pay_failed", error, false),
-                _ => {}
-            }
-        }
-        self.local.reap();
-        self.pool.step(&self.host, &mut self.local, self.fleet.as_ref());
-    }
-
-    fn own_hello(&self) -> Option<Hello> {
-        let runner = self.host.runner.try_lock().ok()?;
-        let chain = runner.engine.chain();
-        Some(Hello {
-            coin: chain.config().clone(),
-            tip: chain.tip(),
-            height: chain.height(),
-            work: chain.total_work(),
-            address: runner.engine.address(),
-            card: runner.card.clone(),
-        })
     }
 
     fn publish(&mut self) {
@@ -541,16 +479,25 @@ impl Service {
         entries.push(own_entry(&node, identity.clone()));
         let said = |row: &BoardRow| {
             let by_link = self.fleet.as_ref().and_then(|fleet| fleet.hello_of(row.seen.id));
-            by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned())
+            let hello = by_link.or_else(|| self.found.board(&row.seen.beacon.address).cloned());
+            // The beacon is signed and the answer is not, so the answer must agree with it.
+            hello.filter(|hello| hello.coin.genesis().id() == row.seen.beacon.genesis)
         };
         entries.extend(rows.iter().map(|row| board_entry(row, said(row))));
+        if let Some(fleet) = &self.fleet {
+            let auto = self.settings.auto_update;
+            let boards = self.settings.auto_boards.iter().filter(|_| auto);
+            fleet.keep_updated(boards.copied().collect());
+        }
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());
+        let brights = self.brights.lock().map(|known| known.clone()).unwrap_or_default();
         let boards = rows
             .into_iter()
             .map(|row| BoardView {
                 reach: reach_of_board(&row),
+                bright: brights.get(&row.seen.id).copied(),
                 seen: row.seen,
                 job: row.job,
             })
