@@ -189,6 +189,18 @@ pub fn field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response
     ui.add(edit)
 }
 
+/// A field whose text stays hidden, for secret keys and passwords.
+pub fn secret_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
+    let edit = TextEdit::singleline(text)
+        .password(true)
+        .hint_text(hint)
+        .desired_width(width)
+        .margin(vec2(10.0, 8.0))
+        .align(egui::Align2::LEFT_CENTER)
+        .min_size(vec2(width, tokens::CONTROL));
+    ui.add(edit)
+}
+
 /// A number typed as text and taken when it reads as one. Returns the new value once.
 pub fn number_field(ui: &mut Ui, value: &mut u64, width: f32) -> bool {
     let id = ui.next_auto_id().with("typed");

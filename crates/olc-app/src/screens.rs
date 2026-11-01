@@ -200,6 +200,62 @@ fn the_first_run_starts_real_node_processes() {
     assert!(heights.len() > 1, "the chain never moved");
 }
 
+/// The owner's scene: a note goes into a block and shows in the explorer, and a second key is made,
+/// backed up and restored, all by clicking in the window on a real node.
+#[test]
+fn a_note_and_a_key_go_through_the_window() {
+    let root = scratch("scene");
+    let mut coin = CoinConfig::olc();
+    coin.name = "Scene".into();
+    coin.ticker = "SCN".into();
+    coin.initial_difficulty = 200;
+    save_coin(&Paths { root: root.clone() }, &coin).unwrap();
+    let mut settings = quiet_settings();
+    settings.coin = Some(coin_folder(&coin));
+    settings.device = Device::ThisComputer;
+    settings.mine_on_start = true;
+    settings.port = 7330;
+    let window = app(root.clone(), settings, None, Some(node_program()));
+    let mut harness = harness(window, SIZES[0]);
+    harness.state_mut().settings_mut().language = Lang::En;
+
+    harness.state_mut().open("page.keys");
+    wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 1);
+    harness.run_steps(2);
+    harness.get_by_label("Make a new key").click();
+    wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 2);
+    harness.run_steps(2);
+    harness.get_by_label("Receive here").click();
+    wait_until(&mut harness, |app| app.snapshot().node.keys[1].receiving);
+
+    let backup = root.join("wallet.backup");
+    type_into(&mut harness, 2, backup.to_str().unwrap());
+    type_into(&mut harness, 3, "a long password");
+    harness.get_by_label("Back up").click();
+    wait_until(&mut harness, |_| backup.exists());
+    type_into(&mut harness, 3, "a long password");
+    harness.get_by_label("Restore").click();
+    wait_until(&mut harness, |app| {
+        app.snapshot().notice.as_ref().is_some_and(|notice| notice.key == "notice.restored")
+    });
+    let file = std::fs::read_to_string(&backup).unwrap();
+    assert!(!file.contains("\"keys\""), "a password hides the keys");
+
+    harness.state_mut().open("page.explorer");
+    wait_until(&mut harness, |app| app.snapshot().node.height > 2);
+    harness.run_steps(2);
+    type_into(&mut harness, 1, "written by hand");
+    harness.get_by_label("Send").click();
+    wait_until(&mut harness, |app| {
+        app.snapshot().node.notes.iter().any(|note| note.text == "written by hand")
+    });
+    harness.run_steps(SETTLE_STEPS);
+    assert!(harness.query_all_by_label_contains("written by hand").next().is_some());
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
+        shot(&mut harness, &folder, "scene-explorer");
+    }
+}
+
 /// A coin running on this computer is found, and picking it needs no file.
 #[test]
 fn a_found_coin_can_be_joined() {

@@ -13,6 +13,7 @@ pub mod network;
 mod refused;
 pub mod runner;
 mod snapshot;
+mod spend;
 mod sync;
 mod work;
 

@@ -10,7 +10,7 @@ use core::cell::Cell;
 use olc_core::{
     AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Served, Tx,
 };
-use olc_wallet::{Wallet, WalletError};
+use olc_wallet::Wallet;
 
 pub type PeerId = u32;
 
@@ -18,8 +18,6 @@ const ANNOUNCE_EVERY_MS: u64 = 2_000;
 const REFRESH_TEMPLATE_EVERY_MS: u64 = 5_000;
 const MAX_POOL: usize = 256;
 const MAX_EVENTS: usize = 32;
-/// Own payments remembered, so their change does not read as money received.
-const MAX_SENT: usize = 16;
 const PEER_TIMEOUT_MS: u64 = 10_000;
 /// A data output larger than this stays out of this node's pool. Like Bitcoin's OP_RETURN limit
 /// this is a node's policy, and a block holding a larger one is still valid.
@@ -31,7 +29,7 @@ const STATE_SECTORS_PER_TICK: usize = 1;
 
 pub struct Engine {
     pub(crate) chain: Chain,
-    wallet: Wallet,
+    pub(crate) wallet: Wallet,
     pub(crate) pool: Vec<Tx>,
     pub(crate) outbox: VecDeque<Outgoing>,
     events: VecDeque<Event>,
@@ -44,13 +42,13 @@ pub struct Engine {
     peers: BTreeMap<PeerId, u64>,
     refused: Refused,
     pub(crate) sync: Sync,
-    sent: VecDeque<Hash>,
+    pub(crate) sent: VecDeque<Hash>,
     /// Who mines here gets paid here. `None` pays the key that receives.
     miner: Option<Address>,
     /// Bytes every mined block carries in its coinbase.
     note: Vec<u8>,
     /// Merges a key's small coins into one when set.
-    merging: bool,
+    pub(crate) merging: bool,
     pub(crate) history: History,
     pub(crate) fetching: Option<Fetching>,
     /// The snapshot being handed to a peer.
@@ -326,66 +324,12 @@ impl Engine {
         true
     }
 
-    /// Signs a payment from this node's wallet and sends it to the network.
-    pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
-        let reserved = self.reserved();
-        let tx = self.wallet.pay(&self.chain, to, amount, fee, &reserved)?;
-        self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_own(tx))
-    }
-
-    /// Pays many addresses in one transaction.
-    pub fn pay_many(&mut self, payments: &[(Address, u64)], fee: u64) -> Result<Hash, WalletError> {
-        let reserved = self.reserved();
-        let tx = self.wallet.pay_many(&self.chain, payments, fee, &reserved)?;
-        let amount = payments.iter().map(|(_, amount)| *amount).sum();
-        self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_own(tx))
-    }
-
-    /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
-    pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
-        let reserved = self.reserved();
-        let fee = self.chain.rules().min_fee;
-        let tx = self.wallet.note(&self.chain, data, fee, &reserved)?;
-        Ok(self.send_own(tx))
-    }
-
-    fn reserved(&self) -> Vec<OutPoint> {
-        let inputs = self.pool.iter().flat_map(|tx| &tx.inputs);
-        inputs.map(|input| input.previous).collect()
-    }
-
-    fn send_own(&mut self, tx: Tx) -> Hash {
-        let id = tx.id();
-        self.sent.push_back(id);
-        if self.sent.len() > MAX_SENT {
-            self.sent.pop_front();
-        }
-        self.receive_tx(None, tx);
-        id
-    }
-
-    /// Merges small coins when a key has gathered many.
-    fn merge_coins(&mut self) {
-        if !self.merging {
-            return;
-        }
-        let reserved = self.reserved();
-        let fee = self.chain.rules().min_fee;
-        if let Some(tx) = self.wallet.merge(&self.chain, fee, &reserved) {
-            let inputs = tx.inputs.len();
-            self.send_own(tx);
-            self.push_event(Event::CoinsMerged { inputs });
-        }
-    }
-
     /// Hands in a transaction from outside the network, such as a forged test transaction.
     pub fn submit_tx(&mut self, tx: Tx) -> bool {
         self.receive_tx(None, tx)
     }
 
-    fn receive_tx(&mut self, from: Option<PeerId>, tx: Tx) -> bool {
+    pub(crate) fn receive_tx(&mut self, from: Option<PeerId>, tx: Tx) -> bool {
         if tx.is_coinbase() || self.pool.iter().any(|known| known == &tx) {
             return false;
         }

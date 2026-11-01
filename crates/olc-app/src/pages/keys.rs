@@ -2,7 +2,9 @@
 use super::{Cx, Page};
 use crate::core::{Command, Personal};
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, button_on, card, chip, field, meta, mono, section, Kind};
+use crate::ui::widgets::{
+    self, button, button_on, card, chip, field, meta, mono, secret_field, section, Kind,
+};
 use crate::ui::Icon;
 use egui::Ui;
 
@@ -52,7 +54,7 @@ impl Keys {
             own(cx, Personal::NewKey);
         }
         ui.horizontal(|ui| {
-            field(ui, &mut self.import, cx.say("keys.import_hint"), 380.0);
+            secret_field(ui, &mut self.import, cx.say("keys.import_hint"), 380.0);
             let ready = !self.import.trim().is_empty();
             if button_on(ui, t, cx.say("keys.import"), Kind::Plain, ready).clicked() {
                 own(cx, Personal::ImportKey(std::mem::take(&mut self.import)));
@@ -64,7 +66,7 @@ impl Keys {
         let t = cx.t;
         section(ui, cx.say("keys.backup_title"));
         field(ui, &mut self.backup_path, cx.say("keys.backup_path"), 380.0);
-        field(ui, &mut self.password, cx.say("keys.password"), 380.0);
+        secret_field(ui, &mut self.password, cx.say("keys.password"), 380.0);
         let password = (!self.password.is_empty()).then(|| self.password.clone());
         let path = self.backup_path.trim().to_string();
         ui.horizontal(|ui| {

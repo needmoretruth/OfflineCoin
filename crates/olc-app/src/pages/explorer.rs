@@ -16,6 +16,8 @@ const WEIGHTS: [f32; 4] = [0.8, 2.0, 0.7, 0.8];
 pub struct Explorer {
     search: String,
     note: String,
+    /// Results wait for a first question, so an empty page does not say "not found".
+    asked: bool,
 }
 
 fn look_up(cx: &Cx, text: String) {
@@ -91,6 +93,7 @@ impl Explorer {
             let ready = !self.search.trim().is_empty();
             if button_on(ui, t, cx.say("explorer.find"), Kind::Main, ready).clicked() {
                 look_up(cx, self.search.clone());
+                self.asked = true;
             }
         });
     }
@@ -129,6 +132,7 @@ impl Explorer {
                     if button(ui, t, cx.say("explorer.open"), Kind::Quiet).clicked() {
                         self.search = block.height.to_string();
                         look_up(cx, block.height.to_string());
+                        self.asked = true;
                     }
                 }
             });
@@ -163,7 +167,9 @@ impl Page for Explorer {
         widgets::title(ui, cx.say("page.explorer"));
         card(ui, t, |ui| {
             self.search(ui, cx);
-            result(ui, cx, &ticker);
+            if self.asked {
+                result(ui, cx, &ticker);
+            }
         });
         ui.add_space(tokens::GAP);
         card(ui, t, |ui| self.write(ui, cx));
