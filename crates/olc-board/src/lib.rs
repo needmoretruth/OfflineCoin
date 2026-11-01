@@ -8,6 +8,7 @@ pub mod control_key;
 mod extra;
 pub mod fleet;
 pub mod install;
+pub mod journal;
 pub mod manager;
 pub mod remote;
 

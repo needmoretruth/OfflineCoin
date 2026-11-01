@@ -56,12 +56,28 @@ pub struct Status {
     pub limit_chosen: bool,
     pub mining: bool,
     pub offline: bool,
+    pub view: Option<String>,
     pub address: String,
     /// The last branch change as (height, blocks replaced).
     pub reorg: (u64, u64),
 }
 
 impl Status {
+    /// The lines that bring a board back to this state.
+    pub fn restore_lines(&self) -> Vec<String> {
+        let limit = match self.limit_chosen {
+            true => self.limit.to_string(),
+            false => "default".to_string(),
+        };
+        let mut lines = vec![
+            format!("offline {}", on_off(self.offline)),
+            format!("limit {limit}"),
+            format!("mine {}", on_off(self.mining)),
+        ];
+        lines.extend(self.view.iter().map(|view| format!("view {view}")));
+        lines
+    }
+
     fn parse(line: &str) -> Option<Self> {
         let fields: BTreeMap<&str, &str> = line
             .split_whitespace()
@@ -78,6 +94,7 @@ impl Status {
             limit_chosen: fields.get("chosen").is_some_and(|word| *word == "true"),
             mining: fields.get("mining")?.parse().ok()?,
             offline: fields.get("offline")?.parse().ok()?,
+            view: fields.get("view").map(|view| view.to_string()),
             address: fields.get("address")?.to_string(),
             reorg: fields
                 .get("reorg")

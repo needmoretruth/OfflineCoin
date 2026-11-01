@@ -1,7 +1,8 @@
 //! A double spend on real boards. The attacker pays the victim, keeps its own chain out of sight
 //! and spends the same coins on itself. Once its chain is heavier it comes back and the payment
 //! is gone. Nothing stops this: the chain with the most work wins, which is the point of showing it.
-use olc_board::{on_off, Args, Board, BoardLink, Place, Say, Status, UsbBoard};
+use olc_board::journal::Journal;
+use olc_board::{Args, Board, BoardLink, Place, Say, Status, UsbBoard};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -15,6 +16,7 @@ struct Plan {
     amount: String,
     confirmations: u64,
     victim_limit: u64,
+    journal: Journal,
     timeout: Duration,
     /// Time between looks at the boards.
     poll: Duration,
@@ -30,6 +32,7 @@ impl Plan {
             amount,
             confirmations: args.number("confirmations", 2)?,
             victim_limit: args.number("victim-limit", 5_000)?,
+            journal: Journal::standard()?,
             timeout: Duration::from_secs(args.number("timeout", 1800)?),
             poll: Duration::from_secs(2),
         })
@@ -76,7 +79,13 @@ fn attack(
     say: &Say,
     stop: &AtomicBool,
 ) -> Result<(), String> {
+    put_back_leftovers(attacker, plan, say)?;
+    put_back_leftovers(victim, plan, say)?;
     let saved = (attacker.status()?, victim.status()?);
+    for board in [&saved.0, &saved.1] {
+        plan.journal
+            .remember(&board.address, board.restore_lines())?;
+    }
     let mut race = Race {
         attacker,
         victim,
@@ -91,26 +100,33 @@ fn attack(
     }
     let restored = restore(attacker, &saved.0).and(restore(victim, &saved.1));
     if restored.is_ok() {
+        plan.journal.forget(&saved.0.address);
+        plan.journal.forget(&saved.1.address);
         say("Both boards are back to their cap and network state.".to_string());
     }
     result.and(restored)
 }
 
-/// A board that never chose a cap goes back to not having chosen.
-fn limit_line(saved: &Status) -> String {
-    match saved.limit_chosen {
-        true => format!("limit {}", saved.limit),
-        false => "limit default".to_string(),
-    }
+/// A run that died left this board changed, so it starts from its true state.
+fn put_back_leftovers(board: &mut Board, plan: &Plan, say: &Say) -> Result<(), String> {
+    let address = board.status()?.address;
+    let left = plan.journal.pending();
+    let Some(entry) = left.iter().find(|entry| entry.address == address) else {
+        return Ok(());
+    };
+    entry.lines.iter().try_for_each(|line| board.send(line))?;
+    plan.journal.forget(&address);
+    say("A run that died left this board changed. It is back as it was.".to_string());
+    Ok(())
 }
 
 fn restore(board: &mut Board, saved: &Status) -> Result<(), String> {
     let mut last = Err("The board did not answer.".to_string());
     for _ in 0..RESTORE_TRIES {
-        let sent = board
-            .send(&format!("offline {}", on_off(saved.offline)))
-            .and_then(|()| board.send(&limit_line(saved)))
-            .and_then(|()| board.send(&format!("mine {}", on_off(saved.mining))));
+        let sent = saved
+            .restore_lines()
+            .iter()
+            .try_for_each(|line| board.send(line));
         last = sent.and_then(|()| {
             // Two reads: the first may have been printed before the commands ran.
             board.status()?;
@@ -430,6 +446,7 @@ impl Race<'_> {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Mutex;
 
     /// A board that answers `status` and remembers every line it was sent.
@@ -476,6 +493,8 @@ mod tests {
         }
     }
 
+    static NEXT_JOURNAL: AtomicUsize = AtomicUsize::new(0);
+
     fn quiet() -> Say {
         Arc::new(|_| {})
     }
@@ -485,6 +504,11 @@ mod tests {
             amount: "10".into(),
             confirmations: 1,
             victim_limit: 777,
+            journal: Journal::at(std::env::temp_dir().join(format!(
+                "olc-lab-journal-{}-{}",
+                std::process::id(),
+                NEXT_JOURNAL.fetch_add(1, Ordering::Relaxed),
+            ))),
             timeout,
             poll: Duration::from_millis(1),
         }

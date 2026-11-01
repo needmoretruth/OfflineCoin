@@ -1,10 +1,10 @@
 //! One message per line: `#` followed by hex. Every other line is the board's log.
 use olc_node::{Link, Target};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::thread;
 
@@ -12,9 +12,12 @@ const READ_SIZE: usize = 4096;
 /// A board that is printing can lose up to three bytes where a transfer begins, so every line
 /// starts with bytes it can spare. Empty lines mean nothing to a board.
 const LINE_START: &str = "\n\n\n\n";
+/// Writes waiting for the board. A board that is starting takes nothing for a minute, and what
+/// it missed by then is old news.
+const WRITES_WAITING: usize = 64;
 
 pub struct SerialLink {
-    writer: File,
+    writes: SyncSender<Vec<u8>>,
     incoming: Receiver<Vec<u8>>,
     closed: Arc<AtomicBool>,
 }
@@ -53,8 +56,17 @@ impl SerialLink {
                 "-F", path, "115200", "raw", "-echo", "-hupcl", "min", "0", "time", "2",
             ])
             .status()?;
-        let writer = OpenOptions::new().read(true).write(true).open(path)?;
+        let mut writer = OpenOptions::new().read(true).write(true).open(path)?;
         let reader = writer.try_clone()?;
+        // A board that takes nothing blocks the write, and a node must not wait for one board.
+        let (writes, waiting) = sync_channel::<Vec<u8>>(WRITES_WAITING);
+        thread::spawn(move || {
+            while let Ok(bytes) = waiting.recv() {
+                if writer.write_all(&bytes).is_err() {
+                    return;
+                }
+            }
+        });
         let (sender, incoming) = channel();
         let closed = Arc::new(AtomicBool::new(false));
         let reader_closed = closed.clone();
@@ -71,7 +83,7 @@ impl SerialLink {
             });
         });
         Ok(Self {
-            writer,
+            writes,
             incoming,
             closed,
         })
@@ -82,10 +94,16 @@ impl SerialLink {
         self.closed.clone()
     }
 
+    fn write(&self, bytes: Vec<u8>) -> std::io::Result<()> {
+        self.writes.try_send(bytes).map_err(|error| match error {
+            TrySendError::Full(_) => ErrorKind::WouldBlock.into(),
+            TrySendError::Disconnected(_) => ErrorKind::BrokenPipe.into(),
+        })
+    }
+
     /// Sends a typed command, as a person at a serial terminal would.
     pub fn send_line(&mut self, line: &str) -> std::io::Result<()> {
-        self.writer
-            .write_all(format!("{LINE_START}{line}\n").as_bytes())
+        self.write(format!("{LINE_START}{line}\n").into_bytes())
     }
 }
 
@@ -111,7 +129,8 @@ impl Link for SerialLink {
         }
         line.push('\n');
         if !self.closed.load(Ordering::Relaxed) {
-            let _ = self.writer.write_all(line.as_bytes());
+            // Whatever is lost here, the protocols above send again.
+            let _ = self.write(line.into_bytes());
         }
     }
 

@@ -2,11 +2,13 @@
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
 use crate::control_key::{config_folder, ControlKey};
 use crate::install::{app_image, install as install_board};
+use crate::journal::{Entry, Journal};
 use crate::remote::{command, hash_of, send_image};
 use crate::{Args, BoardLink, Connection, Extra, Fleet, RemoteBoard, Say, Seen, SharedFleet};
 use olc_control::{allowed_remotely, BoardId, Forward};
 use olc_link_serial::SerialLink;
 use olc_node::{Message, Outgoing, Runner};
+use olc_wallet::format_address;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -97,8 +99,50 @@ impl Manager {
         let manager = self.clone();
         thread::spawn(move || loop {
             manager.watch(&runner);
+            manager.put_boards_back();
             thread::sleep(WATCH_EVERY);
         });
+    }
+
+    /// Undoes what a run that died left on the boards, as soon as each one can be reached.
+    fn put_boards_back(&self) {
+        let running = self.run.lock().map_or(true, |run| run.running);
+        let Ok(journal) = Journal::standard() else {
+            return;
+        };
+        if running {
+            return;
+        }
+        for entry in journal.pending() {
+            if entry.is_held_elsewhere() {
+                continue;
+            }
+            let rows = self.board_rows();
+            let row = rows.iter().find(|row| {
+                row.seen.online && format_address(&row.seen.beacon.address) == entry.address
+            });
+            if let Some(row) = row {
+                if self.put_back(row, &entry) {
+                    journal.forget(&entry.address);
+                }
+            }
+        }
+    }
+
+    fn put_back(&self, row: &BoardRow, entry: &Entry) -> bool {
+        let done = entry
+            .lines
+            .iter()
+            .all(|line| self.run_line(row.seen.id, line).is_ok());
+        if done {
+            let line = format!(
+                "{} is back to its state before a run that died.",
+                row.seen.beacon.name
+            );
+            eprintln!("{line}");
+            push_line(&self.run, line);
+        }
+        done
     }
 
     /// Moves control packets between the links and the fleet.

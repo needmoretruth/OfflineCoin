@@ -335,6 +335,7 @@ dependencies = [
  "olc-crypto",
  "olc-link-serial",
  "olc-node",
+ "olc-wallet",
 ]
 
 [[package]]
