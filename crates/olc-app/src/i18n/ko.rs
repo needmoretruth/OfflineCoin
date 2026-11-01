@@ -221,6 +221,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.links", "연결 순서"),
     ("settings.links_note", "되는 연결 중 가장 위에 있는 것을 씁니다."),
     ("settings.link_up", "위로"),
+    ("settings.no_bluetooth", "이 컴퓨터에서는 블루투스를 쓸 수 없습니다."),
+    ("settings.bluetooth_note", "끄면 OLC Core를 다시 켤 때 적용됩니다."),
     ("settings.setup", "시작 값"),
     ("settings.setup_note", "고르면 위 숫자가 바뀝니다. 돌고 있는 노드는 그대로입니다."),
     ("settings.folder", "폴더"),

@@ -16,6 +16,7 @@ mod host;
 mod host_parts;
 mod ops;
 mod pool_run;
+pub mod radios;
 mod returning;
 mod rows;
 mod service;

@@ -94,6 +94,10 @@ pub trait Platform: Sync {
         Vec::new()
     }
 
+    /// Whether nodes here can use Bluetooth and a Wi-Fi card for ESP-NOW. Only Linux can so far.
+    fn radio_links(&self) -> bool {
+        false
+    }
     fn process_exists(&self, pid: u32) -> bool;
     fn write_private(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
     fn is_private(&self, path: &Path) -> bool;

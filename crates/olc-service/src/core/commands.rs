@@ -58,6 +58,10 @@ pub enum Personal {
     /// Sends the signed payment in this file.
     Broadcast(String),
     SetLinks(Rank),
+    /// Reaches neighbours by Bluetooth too.
+    SetBluetooth(bool),
+    /// A Wi-Fi card for ESP-NOW. Empty means none.
+    SetEspNowCard(String),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),

@@ -12,9 +12,7 @@ path = "src/main.rs"
 
 [features]
 # Bluetooth, on Linux with BlueZ and the D-Bus library.
-ble = ["dep:olc-link-ble", "olc-link-ble/bluez"]
-# ESP-NOW, on Linux with a Wi-Fi card in monitor mode.
-espnow = ["dep:olc-link-espnow", "olc-link-espnow/card"]
+ble = ["olc-service/ble"]
 
 [dependencies]
 olc-core.workspace = true
@@ -26,8 +24,6 @@ olc-node.workspace = true
 olc-platform.workspace = true
 olc-link-tcp.workspace = true
 olc-link-serial.workspace = true
-olc-link-ble = { path = "../olc-link-ble", optional = true }
-olc-link-espnow = { path = "../olc-link-espnow", optional = true }
 olc-logo.workspace = true
 olc-board.workspace = true
 olc-control.workspace = true

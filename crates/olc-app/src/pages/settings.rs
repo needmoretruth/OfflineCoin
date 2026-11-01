@@ -152,6 +152,17 @@ impl SettingsPage {
                 }
             });
         }
+        match cx.snap.node.bluetooth {
+            None => {
+                meta(ui, cx.say("settings.no_bluetooth"), t);
+            }
+            Some(mut on) => {
+                if switch_row(ui, t, &mut on, cx.say("boards.bluetooth")) {
+                    cx.send(Command::Own(Personal::SetBluetooth(on)));
+                }
+                meta(ui, cx.say("settings.bluetooth_note"), t);
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 //! What a person changes on their own node: keys, where mining pays, how much it keeps.
 use super::commands::Personal;
+use super::radios;
 use super::explorer::{explore, Explored};
 use super::host::Host;
 use olc_core::BlockHeader;
@@ -187,6 +188,15 @@ pub trait Book {
             Personal::SetRecent(recent) => {
                 self.set_recent(recent).map(|()| ("notice.saved", String::new()))
             }
+            Personal::SetBluetooth(on) if on && !radios::bluetooth_here() => {
+                Err(radios::NO_BLUETOOTH.to_string())
+            }
+            Personal::SetBluetooth(on) => self
+                .change_settings(|settings| settings.bluetooth = on)
+                .map(|()| ("notice.saved", String::new())),
+            Personal::SetEspNowCard(card) => self
+                .change_settings(|settings| settings.esp_now_card = card)
+                .map(|()| ("notice.saved", String::new())),
             Personal::SetLinks(rank) => {
                 self.set_links(rank).map(|()| ("notice.saved", String::new()))
             }

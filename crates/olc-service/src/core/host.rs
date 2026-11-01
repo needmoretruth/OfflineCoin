@@ -1,6 +1,7 @@
 //! One node on this computer: its links, its chain on disk and its mining loop.
 use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
+use super::radios::{self, Running};
 use super::host_parts::{fresh_id, listen_somewhere, plugins, stored_bytes, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
@@ -81,6 +82,7 @@ struct State {
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
     view: Mutex<NodeView>,
+    radio_notes: Mutex<Vec<String>>,
     heard: Mutex<VecDeque<(HeardFrom, Hello)>>,
     known: Mutex<Vec<String>>,
     waiting: Mutex<Vec<Waiting>>,
@@ -148,6 +150,7 @@ impl Host {
             })),
             view: Mutex::new(NodeView::default()),
             heard: Mutex::default(),
+            radio_notes: Mutex::default(),
             known: Mutex::default(),
             waiting: Mutex::default(),
             storage: plan.storage,
@@ -169,6 +172,8 @@ impl Host {
             saved_tip: [0; 32],
             saved_at: Instant::now(),
             blocks: Vec::new(),
+            radios: Running::default(),
+            wants_bluetooth: false,
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -222,6 +227,11 @@ impl Host {
             .lock()
             .map(|view| view.clone())
             .unwrap_or_default()
+    }
+
+    /// Radios the settings asked for that would not start.
+    pub fn take_radio_notes(&self) -> Vec<String> {
+        self.state.radio_notes.lock().map(|mut notes| notes.drain(..).collect()).unwrap_or_default()
     }
 
     pub fn take_heard(&self) -> Vec<(HeardFrom, Hello)> {
@@ -313,6 +323,8 @@ struct Worker {
     saved_tip: Hash,
     saved_at: Instant,
     blocks: Vec<BlockRow>,
+    radios: Running,
+    wants_bluetooth: bool,
 }
 
 impl Worker {
@@ -453,6 +465,11 @@ impl Worker {
             runner.set_rank(rank);
         }
         if let Ok(mut runner) = self.runner.lock() {
+            self.wants_bluetooth = settings.bluetooth;
+            let problems = self.radios.bring_up(&mut runner, &settings);
+            if let Ok(mut notes) = self.state.radio_notes.lock() {
+                notes.extend(problems);
+            }
             runner.set_engine(engine);
             runner.forget_addresses();
             for peer in switch.peers {
@@ -547,6 +564,7 @@ impl Worker {
             mine_note: text_of(engine.note()),
             merging: engine.merging(),
             links: runner.rank(),
+            bluetooth: radios::bluetooth_here().then_some(self.wants_bluetooth),
             oldest: held.oldest,
             recent: held.recent,
             fits: held.fits,

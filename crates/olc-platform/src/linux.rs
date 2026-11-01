@@ -87,6 +87,10 @@ fn in_address_space(limits: &Limits, program: &str, words: &[String]) -> Command
 }
 
 impl Platform for Os {
+    fn radio_links(&self) -> bool {
+        true
+    }
+
     fn data_folder(&self) -> Option<PathBuf> {
         Some(unix::home()?.join(".olc"))
     }

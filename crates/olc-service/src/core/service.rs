@@ -15,6 +15,7 @@ use olc_platform::platform;
 use super::rows::{
     board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
 };
+use super::radios::{bluetooth_here, NO_BLUETOOTH};
 use super::returning::{is_returning, Returning};
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, Scanner, Shout};
@@ -217,7 +218,11 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
-            Command::Own(Personal::SetLight(on)) => self.set_light(on),
+            Command::Own(Personal::SetLight(on)) => self.change_node(|node| node.light = on),
+            Command::Own(Personal::SetBluetooth(on)) if on && !bluetooth_here() => {
+                self.say("notice.not_done", NO_BLUETOOTH.to_string(), false);
+            }
+            Command::Own(Personal::SetBluetooth(on)) => self.change_node(|node| node.bluetooth = on),
             Command::Own(order) => {
                 let (key, detail, good) = self.host.obey(order);
                 if !key.is_empty() {
@@ -422,13 +427,14 @@ impl Service {
     }
 
     /// The node comes back as the other kind on the same coin and the same folder.
-    fn set_light(&mut self, on: bool) {
+    /// Changes how this node runs. It takes the change by starting over on the same coin.
+    fn change_node(&mut self, change: impl FnOnce(&mut NodeSettings)) {
         let Some(name) = self.settings.coin.clone() else {
             return;
         };
         let folder = self.paths.coin(&name);
         let mut settings = NodeSettings::load(&folder);
-        settings.light = on;
+        change(&mut settings);
         match settings.save(&folder) {
             Ok(()) => {
                 let coin = current_coin(&self.paths, &self.settings);

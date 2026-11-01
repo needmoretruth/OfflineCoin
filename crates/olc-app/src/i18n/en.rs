@@ -221,6 +221,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.links", "Link order"),
     ("settings.links_note", "Nodes use the highest link that works."),
     ("settings.link_up", "Up"),
+    ("settings.no_bluetooth", "This computer cannot use Bluetooth."),
+    ("settings.bluetooth_note", "Turning it off takes effect the next time OLC Core starts."),
     ("settings.setup", "Starting numbers"),
     ("settings.setup_note", "Picking one sets the numbers above. Nodes already running stay as they are."),
     ("settings.folder", "Folder"),

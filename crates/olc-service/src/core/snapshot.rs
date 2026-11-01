@@ -45,6 +45,8 @@ pub struct NodeView {
     pub mine_note: String,
     pub merging: bool,
     pub links: Rank,
+    /// Whether this node uses Bluetooth. `None` where it cannot.
+    pub bluetooth: Option<bool>,
     /// The oldest block whose body is here.
     pub oldest: u64,
     pub recent: Option<u64>,

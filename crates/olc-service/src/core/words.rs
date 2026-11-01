@@ -33,6 +33,8 @@ pub const WORDS: &[Word] = &[
     Word { name: "miner", usage: "miner ADDRESS|off    where mined coins go", run: miner },
     Word { name: "keep", usage: "keep BLOCKS|all      recent blocks to hold", run: keep },
     Word { name: "merge", usage: "merge on|off         merge small coins by itself", run: merge },
+    Word { name: "bluetooth", usage: "bluetooth on|off     reach neighbours by Bluetooth too", run: bluetooth },
+    Word { name: "espnow", usage: "espnow CARD|off      a Wi-Fi card in monitor mode for ESP-NOW", run: esp_now },
     Word { name: "light", usage: "light on|off         hold headers only, trusting peers on unspent coins", run: light },
     Word { name: "mining", usage: "mining on|off        mine from the start", run: mining },
     Word { name: "watch", usage: "watch ADDRESS        follow an address without its key", run: watch },
@@ -167,6 +169,16 @@ fn keep(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
         blocks => Some(blocks.parse().map_err(|_| "Say how many blocks, or all.")?),
     };
     own(desk, Personal::SetRecent(recent))
+}
+
+fn bluetooth(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let on = switch(args)?;
+    own(desk, Personal::SetBluetooth(on))
+}
+
+fn esp_now(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let card = first(args, "Name the card, or off.")?;
+    own(desk, Personal::SetEspNowCard(if card == "off" { String::new() } else { card.into() }))
 }
 
 fn merge(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
