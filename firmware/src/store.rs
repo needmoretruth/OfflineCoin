@@ -332,9 +332,11 @@ impl Store {
     /// Where the image of the running build starts.
     pub fn running_start(&mut self) -> Option<u32> {
         let mut buffer = [0u8; PARTITION_TABLE_MAX_LEN];
-        let table = read_partition_table(&mut self.flash, &mut buffer).ok()?;
-        let booted = table.booted_partition().ok()??;
-        Some(booted.offset())
+        flash::with(|flash| {
+            let table = read_partition_table(flash, &mut buffer).ok()?;
+            let booted = table.booted_partition().ok()??;
+            Some(booted.offset())
+        })?
     }
 
     /// 0 or 1, the app slot this build runs from.
