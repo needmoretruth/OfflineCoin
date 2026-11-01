@@ -56,11 +56,12 @@ impl View {
 
     /// The coin needs more frames than numbers do.
     pub fn redraw_ms(self) -> u64 {
-        // Each redraw takes about 10 ms from mining, so these keep the screen under 3% of it.
+        // A redraw takes about 10 ms from mining and pushes its code out of the flash cache, so
+        // these keep the screen under 3% of it. The buttons and new states redraw at once.
         if self == View::Easy {
-            500
-        } else {
             1_000
+        } else {
+            2_000
         }
     }
 }
