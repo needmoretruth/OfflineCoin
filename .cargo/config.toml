@@ -1,0 +1,4 @@
+# Whatever cargo starts stays off real boards: a test or a tool that opened every board it found
+# would take them from whoever is using them. A real-board run says so: OLC_NO_USB=0 cargo ...
+[env]
+OLC_NO_USB = "1"

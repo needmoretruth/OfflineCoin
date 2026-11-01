@@ -17,6 +17,7 @@ mod ports;
 pub mod remote;
 pub mod rom;
 
+pub use ports::board_ports;
 pub use args::Args;
 pub use board::{on_off, Board, BoardLink, Place, Status, UsbBoard};
 pub use extra::{Extra, Say};
