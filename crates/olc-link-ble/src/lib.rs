@@ -3,9 +3,9 @@
 //! computer dialling out is all that is needed and a board is what it talks to.
 #![cfg(feature = "bluez")]
 
-use bluer::l2cap::{SocketAddr, Stream};
+use bluer::l2cap::{self, SocketAddr};
 use bluer::{Adapter, AdapterEvent, Address, AddressType, DeviceEvent, DiscoveryFilter, DiscoveryTransport, Session};
-use futures::{pin_mut, StreamExt};
+use futures::{pin_mut, Stream, StreamExt};
 use olc_node::bluetooth::{node_of, COMPANY, PSM};
 use olc_node::frame::{encode, Decoder};
 use olc_node::{Link, Medium, News, Target};
@@ -24,6 +24,8 @@ const READ_SIZE: usize = 1024;
 const PIECE: usize = 240;
 /// One sign of life for each advertiser this often is plenty.
 const SEEN_EVERY: Duration = Duration::from_secs(1);
+/// How soon listening restarts after Bluetooth came back.
+const LISTEN_AGAIN: Duration = Duration::from_secs(5);
 
 type Writers = Arc<Mutex<BTreeMap<u32, UnboundedSender<Vec<u8>>>>>;
 
@@ -119,14 +121,18 @@ async fn open_adapter() -> bluer::Result<Adapter> {
     let session = Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
-    adapter
-        .set_discovery_filter(DiscoveryFilter {
-            transport: DiscoveryTransport::Le,
-            duplicate_data: true,
-            ..Default::default()
-        })
-        .await?;
     Ok(adapter)
+}
+
+/// Starts listening. A person turning Bluetooth off and on ends this, so it is repeated.
+async fn listen(adapter: &Adapter) -> bluer::Result<impl Stream<Item = AdapterEvent>> {
+    let filter = DiscoveryFilter {
+        transport: DiscoveryTransport::Le,
+        duplicate_data: true,
+        ..Default::default()
+    };
+    adapter.set_discovery_filter(filter).await?;
+    adapter.discover_devices_with_changes().await
 }
 
 async fn run(shared: Shared, mut orders: UnboundedReceiver<Order>, me: u64, ready: Sender<Result<(), String>>) {
@@ -137,30 +143,39 @@ async fn run(shared: Shared, mut orders: UnboundedReceiver<Order>, me: u64, read
             return;
         }
     };
-    let events = match adapter.discover_devices_with_changes().await {
-        Ok(events) => events,
-        Err(error) => {
-            let _ = ready.send(Err(format!("Bluetooth: {error}")));
-            return;
-        }
-    };
     let _ = ready.send(Ok(()));
-    pin_mut!(events);
     loop {
-        tokio::select! {
-            event = events.next() => match event {
-                Some(AdapterEvent::DeviceAdded(address)) => {
-                    tokio::task::spawn_local(watch(adapter.clone(), address, me, shared.news.clone()));
+        let Ok(events) = listen(&adapter).await else {
+            tokio::time::sleep(LISTEN_AGAIN).await;
+            while let Ok(order) = orders.try_recv() {
+                let Order::Dial(address) = order;
+                let _ = shared.news.send(News::Failed { address });
+            }
+            continue;
+        };
+        pin_mut!(events);
+        let mut check = tokio::time::interval(LISTEN_AGAIN);
+        loop {
+            tokio::select! {
+                event = events.next() => match event {
+                    Some(AdapterEvent::DeviceAdded(address)) => {
+                        tokio::task::spawn_local(watch(adapter.clone(), address, me, shared.news.clone()));
+                    }
+                    Some(_) => {}
+                    None => break,
+                },
+                order = orders.recv() => match order {
+                    Some(Order::Dial(address)) => {
+                        tokio::task::spawn_local(dial(shared.clone(), address));
+                    }
+                    None => return,
+                },
+                _ = check.tick() => {
+                    if !adapter.is_discovering().await.unwrap_or(false) {
+                        break;
+                    }
                 }
-                Some(_) => {}
-                None => return,
-            },
-            order = orders.recv() => match order {
-                Some(Order::Dial(address)) => {
-                    tokio::task::spawn_local(dial(shared.clone(), address));
-                }
-                None => return,
-            },
+            }
         }
     }
 }
@@ -196,7 +211,7 @@ async fn watch(adapter: Adapter, address: Address, me: u64, news: Sender<News>) 
 async fn dial(shared: Shared, address: String) {
     let target = address.parse().ok().map(|address| SocketAddr::new(address, AddressType::LeRandom, PSM));
     let stream = match target {
-        Some(target) => timeout(DIAL_TIMEOUT, Stream::connect(target)).await.ok().and_then(Result::ok),
+        Some(target) => timeout(DIAL_TIMEOUT, l2cap::Stream::connect(target)).await.ok().and_then(Result::ok),
         None => None,
     };
     let Some(stream) = stream else {
@@ -221,7 +236,7 @@ async fn dial(shared: Shared, address: String) {
 }
 
 /// Moves frames both ways until the far end goes or the node closes this one.
-async fn serve(stream: Stream, mut frames: UnboundedReceiver<Vec<u8>>, shared: &Shared, number: u32) {
+async fn serve(stream: l2cap::Stream, mut frames: UnboundedReceiver<Vec<u8>>, shared: &Shared, number: u32) {
     let (mut reader, mut writer) = stream.into_split();
     let hearing = async {
         let mut decoder = Decoder::default();
