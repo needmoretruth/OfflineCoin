@@ -160,7 +160,7 @@ impl Node {
 
     /// A board on the air alone can only tell the computer through a board on a cable.
     fn pass_hellos(&mut self, now: u64) {
-        let cabled = self.runner.peers_on(LINK_USB) > 0;
+        let cabled = crate::usb::host_spoke();
         if cabled && now >= self.control.ask_around_ms {
             self.control.ask_around_ms = now + ASK_AROUND_EVERY_MS;
             self.runner.ask_who_on(LINK_RADIO);
