@@ -128,12 +128,12 @@ impl Runner {
     }
 
     fn hello(&self) -> Hello {
-        let chain = self.engine.chain();
+        let status = self.engine.status();
         Hello {
-            coin: chain.config().clone(),
-            tip: chain.tip(),
-            height: chain.height(),
-            work: chain.total_work(),
+            coin: self.engine.chain().config().clone(),
+            tip: status.tip,
+            height: status.height,
+            work: status.work,
             address: self.engine.address(),
             card: self.card.clone(),
         }

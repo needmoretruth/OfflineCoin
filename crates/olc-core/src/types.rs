@@ -145,6 +145,14 @@ impl Block {
     }
 }
 
+/// One step up a Merkle tree.
+pub(crate) fn pair_hash(left: &Hash, right: &Hash) -> Hash {
+    let mut data = [0u8; 64];
+    data[..32].copy_from_slice(left);
+    data[32..].copy_from_slice(right);
+    hash(&data)
+}
+
 /// Bitcoin's Merkle tree: hash pairs upward and repeat the last entry of an odd level.
 pub fn merkle_root(txs: &[Tx]) -> Hash {
     let mut level: Vec<Hash> = txs.iter().map(Tx::id).collect();
@@ -155,15 +163,7 @@ pub fn merkle_root(txs: &[Tx]) -> Hash {
         if level.len() % 2 == 1 {
             level.push(level[level.len() - 1]);
         }
-        level = level
-            .chunks(2)
-            .map(|pair| {
-                let mut data = [0u8; 64];
-                data[..32].copy_from_slice(&pair[0]);
-                data[32..].copy_from_slice(&pair[1]);
-                hash(&data)
-            })
-            .collect();
+        level = level.chunks(2).map(|two| pair_hash(&two[0], &two[1])).collect();
     }
     level[0]
 }

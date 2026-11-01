@@ -77,6 +77,15 @@ impl Sync {
         self.position = connected.or(self.position);
     }
 
+    /// A page of headers arrived, ending at `position`. An empty page says nothing new, so the
+    /// next question waits for its turn.
+    pub fn answered(&mut self, count: usize, position: Option<(u64, Hash)>) {
+        if count > 0 {
+            self.expected = 0;
+        }
+        self.position = position;
+    }
+
     /// `peer` cannot give what is needed, so it is no target.
     pub fn drop_peer(&mut self, peer: PeerId) {
         if self.target.as_ref().is_some_and(|target| target.peer == peer) {
