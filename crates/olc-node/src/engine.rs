@@ -4,12 +4,12 @@ use crate::message::{Heights, Message};
 use crate::refused::Refused;
 use crate::snapshot::{Fetching, History};
 use crate::spend::Signing;
-use crate::sync::{Sync, BLOCKS_AT_ONCE};
+use crate::sync::Sync;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use olc_core::{
-    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Served, Tx,
+    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Tx,
 };
 use olc_wallet::Wallet;
 
@@ -51,6 +51,8 @@ pub struct Engine {
     /// Merges a key's small coins into one when set.
     pub(crate) merging: bool,
     pub(crate) signing: Option<Signing>,
+    /// Who asked for blocks last, from where and when.
+    pub(crate) answered: Option<(PeerId, Option<Hash>, u64)>,
     pub(crate) history: History,
     pub(crate) fetching: Option<Fetching>,
     /// The snapshot being handed to a peer.
@@ -90,6 +92,7 @@ impl Engine {
             note: Vec::new(),
             merging: true,
             signing: None,
+            answered: None,
             history: History::default(),
             fetching: None,
             serving: None,
@@ -259,27 +262,7 @@ impl Engine {
                 self.sync.heard(from, tip, height, work, self.now_ms);
                 self.ask_for_blocks();
             }
-            Message::GetBlocks(ids, heights) => {
-                let served = match heights.0.len() == ids.len() {
-                    true => {
-                        let locator: Vec<_> = heights.0.into_iter().zip(ids).collect();
-                        self.chain.blocks_after(&locator, BLOCKS_AT_ONCE)
-                    }
-                    false => self.chain.blocks_after_ids(&ids, BLOCKS_AT_ONCE),
-                };
-                match served {
-                    Served::Blocks(blocks) => {
-                        for block in blocks {
-                            let reply = Message::Block(block);
-                            self.outbox.push_back(Outgoing::To(from, reply));
-                        }
-                    }
-                    Served::Pruned { oldest } => {
-                        let reply = Message::Pruned { oldest };
-                        self.outbox.push_back(Outgoing::To(from, reply));
-                    }
-                }
-            }
+            Message::GetBlocks(ids, heights) => self.serve_blocks(from, ids, heights.0),
             Message::Pruned { oldest } => {
                 let first_time = self.history.pruned(from, oldest, self.now_ms);
                 self.sync.drop_peer(from);

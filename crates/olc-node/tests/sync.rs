@@ -2,7 +2,7 @@
 mod common;
 
 use common::{deliver, engine, mine, silence};
-use olc_node::{Engine, Message, Outgoing};
+use olc_node::{Engine, Heights, Message, Outgoing};
 
 const LONG_CHAIN: u64 = 200;
 const HEAVY_ATTEMPTS: u32 = 1_000_000;
@@ -120,6 +120,28 @@ fn a_block_damaged_on_the_way_comes_again() {
 
 /// A board takes seconds over a block with many inputs, and asking again then only sends the
 /// same blocks twice: on a real board that was five copies of every block.
+#[test]
+fn an_ask_repeated_before_the_answer_left_is_answered_once() {
+    let mut node = engine(1);
+    grown_by(&mut node, 30, 0);
+    let genesis = node.chain().id_at(0).unwrap();
+    let ask = || Message::GetBlocks(vec![genesis], Heights(vec![0]));
+    let blocks = |node: &mut Engine| {
+        std::iter::from_fn(|| node.take_outgoing())
+            .filter(|out| matches!(out, Outgoing::To(_, Message::Block(..))))
+            .count()
+    };
+    node.tick(100_000);
+    blocks(&mut node);
+    node.on_message(7, ask());
+    assert_eq!(blocks(&mut node), BLOCKS_AT_ONCE);
+    node.on_message(7, ask());
+    assert_eq!(blocks(&mut node), 0);
+    node.tick(103_000);
+    node.on_message(7, ask());
+    assert_eq!(blocks(&mut node), BLOCKS_AT_ONCE);
+}
+
 #[test]
 fn a_slow_check_is_not_taken_for_a_quiet_peer() {
     let mut nodes = [engine(1), engine(2)];

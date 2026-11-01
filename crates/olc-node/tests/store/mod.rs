@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct Nor {
     pub bytes: Vec<u8>,
+    pub reads: u64,
     pub steps: u64,
     /// The step that loses power.
     pub cut_at: Option<u64>,
@@ -24,6 +25,7 @@ pub type Flash = Arc<Mutex<Nor>>;
 pub fn flash(size: usize) -> Flash {
     Arc::new(Mutex::new(Nor {
         bytes: vec![0xFF; size],
+        reads: 0,
         steps: 0,
         cut_at: None,
         dead: false,
@@ -37,6 +39,7 @@ pub fn powered_again(flash: &Flash) -> Flash {
     let sectors = bytes.len() / SECTOR as usize;
     Arc::new(Mutex::new(Nor {
         bytes,
+        reads: 0,
         steps: 0,
         cut_at: None,
         dead: false,
@@ -77,7 +80,8 @@ impl Medium for Region {
     }
 
     fn read(&self, at: u64, bytes: &mut [u8]) -> bool {
-        let flash = self.flash.lock().unwrap();
+        let mut flash = self.flash.lock().unwrap();
+        flash.reads += 1;
         let start = self.place(at);
         let first = bytes.len().min(self.base + self.size - start);
         let (before, after) = bytes.split_at_mut(first);

@@ -108,6 +108,22 @@ fn long_chain(flash: &Flash, blocks: u64, recent: Option<u64>) -> Chain {
     chain
 }
 
+/// A read takes a board a millisecond, and every request for old blocks pays for these.
+#[test]
+fn a_request_for_old_blocks_reads_little_of_the_store() {
+    let flash = flash(1 << 21);
+    let chain = long_chain(&flash, 600, None);
+    let just_above_a_mark = 257;
+    let named = chain.id_at(just_above_a_mark).unwrap();
+    let before = flash.lock().unwrap().reads;
+    let served = chain.blocks_after(&[(just_above_a_mark, named)], 8);
+    let Served::Blocks(blocks) = served else {
+        panic!("the blocks are all here");
+    };
+    assert_eq!(blocks.len(), 8);
+    assert!(flash.lock().unwrap().reads - before < 120);
+}
+
 #[test]
 fn a_full_store_drops_its_oldest_blocks_and_keeps_going() {
     let drive = flash(STATE_SIZE * 2 + 128 * 1024);

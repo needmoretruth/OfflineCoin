@@ -4,7 +4,7 @@ use crate::chain::{AddOutcome, Chain, ChainError};
 use crate::ledger::{apply_block, spent_by, undo_block, Unspent};
 use crate::log::{block_record, read_block_record, Kind, Meta, Read, NOWHERE};
 use crate::rules::check_block_body;
-use crate::tree::{trim, Entry, Mark, MARK_EVERY};
+use crate::tree::{trim, Entry, Mark, MARK_EVERY, NEAR_MARKS_FOR, NEAR_MARK_EVERY};
 use crate::types::{merkle_root, Block};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -110,10 +110,11 @@ impl Chain {
         apply_block(block, entry.height, &mut self.unspent);
         self.found.add(block, entry.height);
         self.shelve(entry.height, &block.header);
-        if entry.height.is_multiple_of(MARK_EVERY) {
+        if entry.height.is_multiple_of(NEAR_MARK_EVERY) {
             let at = entry.at;
             let height = entry.height;
             self.marks.push(Mark { height, at, id });
+            thin_marks(&mut self.marks, height.saturating_sub(NEAR_MARKS_FOR));
         }
         self.entries.insert(id, entry);
         self.tip = id;
@@ -256,5 +257,33 @@ impl Chain {
             }
         }
         Ok(())
+    }
+}
+
+/// Lets a close mark go once it has aged.
+fn thin_marks(marks: &mut Vec<Mark>, height: u64) {
+    if height.is_multiple_of(MARK_EVERY) {
+        return;
+    }
+    if let Ok(found) = marks.binary_search_by_key(&height, |mark| mark.height) {
+        marks.remove(found);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_marks_go_with_age_and_the_far_ones_stay() {
+        let heights = (1..=64).map(|step| step * NEAR_MARK_EVERY);
+        let mut marks: Vec<Mark> = heights
+            .map(|height| Mark { height, at: 0, id: [0; 32] })
+            .collect();
+        thin_marks(&mut marks, 240);
+        thin_marks(&mut marks, 256);
+        let left: Vec<u64> = marks.iter().map(|mark| mark.height).collect();
+        assert!(!left.contains(&240) && left.contains(&256) && left.contains(&272));
+        assert_eq!(left.len(), 63);
     }
 }
