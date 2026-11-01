@@ -50,6 +50,7 @@ pub struct Fleet {
     finished: BTreeMap<BoardId, u64>,
     refusals: BTreeMap<BoardId, VecDeque<Refusal>>,
     progress: BTreeMap<u32, u32>,
+    missing: BTreeMap<u32, (u32, Vec<(u32, u32)>)>,
     outgoing: VecDeque<(Forward, Vec<u8>)>,
     pins: Pins,
 }
@@ -79,6 +80,7 @@ impl Fleet {
             finished: BTreeMap::new(),
             refusals: BTreeMap::new(),
             progress: BTreeMap::new(),
+            missing: BTreeMap::new(),
             outgoing: VecDeque::new(),
             pins: Pins::default(),
         })
@@ -181,6 +183,13 @@ impl Fleet {
             Body::Progress { session, next } => {
                 self.progress.insert(session, next);
             }
+            Body::Missing {
+                session,
+                done,
+                runs,
+            } => {
+                self.missing.insert(session, (done, runs));
+            }
             Body::Refused(reason) => {
                 self.refusals.entry(from).or_default().push_back(reason);
             }
@@ -261,6 +270,11 @@ impl Fleet {
         self.finished
             .get(&board)
             .is_some_and(|done| *done >= counter)
+    }
+
+    /// The board's last word on what it still lacks, once.
+    pub fn take_missing(&mut self, session: u32) -> Option<(u32, Vec<(u32, u32)>)> {
+        self.missing.remove(&session)
     }
 
     pub fn progress(&self, session: u32) -> Option<u32> {

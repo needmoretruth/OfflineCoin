@@ -8,6 +8,9 @@ use olc_node::network::{self, Mark};
 use olc_node::{Link, Medium, Target};
 
 const FRAME_SIZE: usize = 250;
+/// What one frame to a known board holds. Everyone runs the same radio library, whose frames
+/// reach this size, so a board of any build reads them.
+const LARGE_FRAME_SIZE: usize = 1_470;
 const MAX_PEERS: usize = 16;
 /// Boards of another coin reach this board by control traffic alone, and may hold only this many
 /// entries, so the table always has room for this network.
@@ -93,7 +96,12 @@ impl RadioLink {
 
     fn send_frames(&mut self, to: [u8; 6], message: &[u8]) {
         self.next_message = self.next_message.wrapping_add(1);
-        for frame in split(self.next_message, message, FRAME_SIZE) {
+        let size = if to == BROADCAST_ADDRESS {
+            FRAME_SIZE
+        } else {
+            LARGE_FRAME_SIZE
+        };
+        for frame in split(self.next_message, message, size) {
             if let Ok(waiter) = self.radio.send(&to, &frame) {
                 let _ = waiter.wait();
             }
