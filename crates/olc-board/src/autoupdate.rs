@@ -1,6 +1,6 @@
 //! Keeps every trusted board on the build this program carries.
 use crate::control_key::config_folder;
-use crate::fleet::{Connection, Seen};
+use crate::fleet::Seen;
 use crate::manager::Manager;
 use crate::Connection;
 use olc_control::BoardId;

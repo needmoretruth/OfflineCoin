@@ -53,6 +53,17 @@ fn connection(cx: &Cx, board: &BoardView) -> String {
     }
 }
 
+/// A job is a word from the manager, or how far an update got.
+fn job_text<'a>(cx: &Cx, job: &'a str) -> &'a str {
+    match job {
+        "preparing" => cx.say("boards.job_preparing"),
+        "restarting" => cx.say("boards.job_restarting"),
+        "installing" => cx.say("boards.job_installing"),
+        "update_failed" => cx.say("boards.job_failed"),
+        progress => progress,
+    }
+}
+
 impl Boards {
     fn select(&mut self, cx: &Cx, board: &BoardView) {
         let beacon = &board.seen.beacon;
@@ -79,7 +90,10 @@ impl Boards {
             1 => cell(ui, connection(cx, board)),
             2 => cell(ui, format::number(beacon.height.into())),
             3 => cell(ui, format::rate(beacon.hashrate.into())),
-            4 => cell(ui, format::rate(beacon.limit.into())),
+            4 => match beacon.limit {
+                0 => cell(ui, cx.say("boards.no_cap")),
+                limit => cell(ui, format::rate(limit.into())),
+            },
             5 => cell(ui, beacon.peers.to_string()),
             6 => cell(ui, beacon.build.clone()),
             _ => {
@@ -95,7 +109,7 @@ impl Boards {
             }
         });
         if let Some(job) = &board.job {
-            meta(ui, job, t);
+            meta(ui, job_text(cx, job), t);
         }
     }
 
@@ -221,7 +235,7 @@ impl Boards {
                     ui.label(port);
                     match job {
                         Some(job) => {
-                            meta(ui, job, t);
+                            meta(ui, job_text(cx, job), t);
                         }
                         None => {
                             let ready = !self.new_name.trim().is_empty();
