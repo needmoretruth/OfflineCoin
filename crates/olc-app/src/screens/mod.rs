@@ -99,7 +99,8 @@ pub(super) fn wait_until(harness: &mut Window, mut done: impl FnMut(&App) -> boo
     let snapshot = harness.state().snapshot();
     let nodes: Vec<_> =
         snapshot.local.iter().map(|view| (&view.spec.name, view.pid, view.status.is_some())).collect();
-    panic!("waited 60 s, last notice {:?}, nodes {nodes:?}", snapshot.notice);
+    let own = (snapshot.node.height, snapshot.node.peers, snapshot.node.light);
+    panic!("waited 60 s, last notice {:?}, nodes {nodes:?}, own {own:?}", snapshot.notice);
 }
 
 /// Waits for this notice, and fails at once on a notice that says something went wrong.
