@@ -57,7 +57,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coins.join_warning", "This node switches to that chain. You can switch back."),
     ("records.search", "Height, block ID, txid or address"),
     ("records.number", "Height"),
-    ("records.payments", "Hash"),
+    ("records.payments", "Transactions"),
     ("records.mining_reward", "Coinbase"),
     ("records.inputs", "{} inputs"),
     ("records.pruned", "This node pruned block {}. It starts at block {}."),
