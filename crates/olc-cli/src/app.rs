@@ -10,12 +10,13 @@ use olc_node::{Message, Outgoing, Runner};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const DEFAULT_FIRMWARE: &str = "firmware/target/xtensa-esp32s3-none-elf/release/olc-firmware";
+const FIRMWARE_NAME: &str = "olc-firmware";
+const DEFAULT_FIRMWARE: &str = "../../firmware/target/xtensa-esp32s3-none-elf/release/olc-firmware";
 const PORT_FOLDER: &str = "/dev/serial/by-id";
 const PORT_MARK: &str = "Espressif";
 const WATCH_EVERY: Duration = Duration::from_secs(2);
@@ -40,7 +41,8 @@ pub struct ExtraRun {
 pub struct App {
     pub fleet: SharedFleet,
     pub firmware: PathBuf,
-    pub web_port: u16,
+    pub web_port: AtomicU16,
+    page_seen: Mutex<Option<Instant>>,
     /// Given on the command line. Without any, the app finds boards by itself.
     fixed_ports: Vec<String>,
     ports: Mutex<BTreeMap<String, Port>>,
@@ -50,8 +52,17 @@ pub struct App {
     pub run: Arc<Mutex<ExtraRun>>,
 }
 
+/// The file next to the program when it was installed, else the one this source tree builds, so
+/// the app works from any folder.
 fn firmware_path(args: &Args) -> PathBuf {
-    PathBuf::from(args.value("firmware").unwrap_or(DEFAULT_FIRMWARE))
+    if let Some(chosen) = args.value("firmware") {
+        return PathBuf::from(chosen);
+    }
+    let beside_program = std::env::current_exe()
+        .ok()
+        .and_then(|program| Some(program.parent()?.join(FIRMWARE_NAME)));
+    let built = Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_FIRMWARE);
+    beside_program.filter(|file| file.exists()).unwrap_or(built)
 }
 
 fn control_key() -> Result<ControlKey, String> {
@@ -71,7 +82,8 @@ impl App {
         Ok(Arc::new(Self {
             fleet: Arc::new(Mutex::new(fleet)),
             firmware: firmware_path(args),
-            web_port: args.number("web", 8000)?,
+            web_port: AtomicU16::new(0),
+            page_seen: Mutex::new(None),
             fixed_ports: args.values("serial").to_vec(),
             ports: Mutex::new(BTreeMap::new()),
             busy_ports: Mutex::new(BTreeSet::new()),
@@ -81,6 +93,18 @@ impl App {
     }
 
     /// Moves control packets between the links and the fleet.
+    pub fn page_was_here(&self) {
+        if let Ok(mut seen) = self.page_seen.lock() {
+            *seen = Some(Instant::now());
+        }
+    }
+
+    /// True once a page has been open and has stayed away this long.
+    pub fn page_gone_for(&self, wait: Duration) -> bool {
+        let seen = self.page_seen.lock().ok().and_then(|seen| *seen);
+        seen.is_some_and(|seen| seen.elapsed() >= wait)
+    }
+
     pub fn pump(&self, runner: &mut Runner) {
         let Ok(mut fleet) = self.fleet.lock() else {
             return;

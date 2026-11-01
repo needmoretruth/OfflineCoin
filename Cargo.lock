@@ -340,6 +340,7 @@ dependencies = [
 name = "olc-cli"
 version = "0.1.0"
 dependencies = [
+ "ctrlc",
  "getrandom",
  "olc-board",
  "olc-control",

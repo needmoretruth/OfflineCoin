@@ -45,8 +45,8 @@ fn from_our_page(app: &App, request: &Request) -> bool {
             .map(|found| found.value.as_str().to_string())
     };
     let hosts = [
-        format!("127.0.0.1:{}", app.web_port),
-        format!("localhost:{}", app.web_port),
+        format!("127.0.0.1:{}", app.web_port.load(Ordering::Relaxed)),
+        format!("localhost:{}", app.web_port.load(Ordering::Relaxed)),
     ];
     let host_fits = value("Host").is_some_and(|host| hosts.contains(&host));
     let origin_fits = value("Origin").is_none_or(|origin| {
@@ -88,7 +88,10 @@ pub fn answer(
     }
     let request: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     Some(json_response(&match (method, path) {
-        (Method::Get, "/api/boards") => boards(app),
+        (Method::Get, "/api/boards") => {
+            app.page_was_here();
+            boards(app)
+        }
         (Method::Post, "/api/board") => run_line(app, &request),
         (Method::Post, "/api/update") => start_update(app, &request),
         (Method::Post, "/api/install") => start_install(app, &request),

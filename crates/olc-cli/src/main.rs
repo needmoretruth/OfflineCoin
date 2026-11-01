@@ -7,6 +7,7 @@ mod logo;
 mod node;
 mod store;
 mod web;
+mod window;
 
 use olc_board::{Args, Extra};
 
@@ -33,7 +34,7 @@ fn main() {
     let args = Args::parse(std::env::args().skip(1));
     let result = match args.command() {
         Some("node") => node::run(&args),
-        Some("app") => node::run_app(&args),
+        Some("app") | None => node::run_app(&args),
         Some("install") => app::install(&args),
         Some("devnet") => devnet::run(&args),
         Some("new-coin") => coinfile::create(&args),

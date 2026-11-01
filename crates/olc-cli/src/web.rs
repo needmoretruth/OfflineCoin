@@ -14,8 +14,13 @@ const PAGE: &str = include_str!("page.html");
 const BOARDS_SCRIPT: &str = include_str!("boards.js");
 const RECENT_BLOCKS: u64 = 12;
 
-pub fn serve(shared: Arc<Shared>, address: String) -> Result<(), String> {
+/// Returns the port it took.
+pub fn serve(shared: Arc<Shared>, address: String) -> Result<u16, String> {
     let server = Server::http(&address).map_err(|error| format!("{address}: {error}"))?;
+    let port = server
+        .server_addr()
+        .to_ip()
+        .map_or(0, |address| address.port());
     thread::spawn(move || {
         for request in server.incoming_requests() {
             // A command waits for its board, which must not hold up the page.
@@ -23,7 +28,7 @@ pub fn serve(shared: Arc<Shared>, address: String) -> Result<(), String> {
             thread::spawn(move || handle(&shared, request));
         }
     });
-    Ok(())
+    Ok(port)
 }
 
 pub fn header(name: &str, value: &str) -> Option<Header> {
@@ -67,6 +72,10 @@ pub fn json_response(value: &Value) -> Response<std::io::Cursor<Vec<u8>>> {
     response
 }
 
+fn coins(units: u64) -> String {
+    format!("{}.{:02}", units / COIN, units % COIN / (COIN / 100))
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -77,6 +86,8 @@ fn event_json(time_ms: u64, event: &Event) -> Value {
         Event::BlockAccepted { height } => ("accepted", *height, String::new()),
         Event::Reorganized { replaced, height } => ("reorg", *height, replaced.to_string()),
         Event::BlockRejected { reason } => ("block_rejected", 0, format!("{reason:?}")),
+        Event::PaymentReceived { amount } => ("received", 0, coins(*amount)),
+        Event::PaymentSent { amount } => ("sent", 0, coins(*amount)),
         Event::TxAccepted => ("tx", 0, String::new()),
         Event::TxRejected { reason } => ("tx_rejected", 0, format!("{reason:?}")),
         Event::TxReturned { id } => ("tx_returned", 0, hex(id)),

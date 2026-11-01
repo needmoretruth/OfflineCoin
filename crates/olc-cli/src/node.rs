@@ -1,7 +1,7 @@
 //! Runs a node: the links, the mining loop and the browser screen.
 use crate::app::App;
 use crate::store::{load_or_create_secret, Store};
-use crate::{coinfile, web};
+use crate::{coinfile, web, window};
 use olc_board::Args;
 use olc_core::Plugins;
 use olc_link_serial::SerialLink;
@@ -48,17 +48,28 @@ pub fn run_app(args: &Args) -> Result<(), String> {
     if args.has("web-public") {
         return Err("The app holds the control key, so it stays on this computer.".into());
     }
+    let folder = olc_board::control_key::config_folder()?;
+    if window::open_existing(&folder) {
+        return Ok(());
+    }
+    let _only_copy = window::claim(&folder)?;
     let directory = match args.value("data") {
         Some(data) => PathBuf::from(data),
-        None => olc_board::control_key::config_folder()?.join("node"),
+        None => folder.join("node"),
     };
     start(args, directory, Some(App::new(args)?))
 }
 
 fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), String> {
     let coin = coinfile::load(args.value("coin"))?;
-    let port: u16 = args.number("port", 7000)?;
-    let web_port: u16 = args.number("web", 8000)?;
+    // The app takes whatever is free and stays on this computer, so nobody picks a port for it.
+    let (default_port, default_web, host) = match (&app, args.has("web-public")) {
+        (Some(_), _) => (0, 0, "127.0.0.1"),
+        (None, true) => (7000, 8000, "0.0.0.0"),
+        (None, false) => (7000, 8000, "127.0.0.1"),
+    };
+    let port: u16 = args.number("port", default_port)?;
+    let web_port: u16 = args.number("web", default_web)?;
     let hash_limit: u64 = args.number("hash-limit", 0)?;
 
     let secret = load_or_create_secret(&directory)?;
@@ -75,7 +86,8 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
 
     let mut runner = Runner::new(engine);
     let tcp = TcpLink::new();
-    tcp.listen(&format!("0.0.0.0:{port}"))
+    let listen_on = if app.is_some() { host } else { "0.0.0.0" };
+    tcp.listen(&format!("{listen_on}:{port}"))
         .map_err(|error| format!("port {port}: {error}"))?;
     for address in args.values("connect") {
         tcp.connect(address);
@@ -106,13 +118,15 @@ fn start(args: &Args, directory: PathBuf, app: Option<Arc<App>>) -> Result<(), S
         app,
     });
     crate::app::watch_ports(&shared);
-    let host = if args.has("web-public") {
-        "0.0.0.0"
-    } else {
-        "127.0.0.1"
-    };
-    web::serve(shared.clone(), format!("{host}:{web_port}"))?;
-    println!("http://127.0.0.1:{web_port}");
+    let web_port = web::serve(shared.clone(), format!("{host}:{web_port}"))?;
+    match &shared.app {
+        Some(app) => {
+            app.web_port.store(web_port, Ordering::Relaxed);
+            let folder = olc_board::control_key::config_folder()?;
+            window::open_and_watch(web_port, folder, app.clone())?;
+        }
+        None => println!("http://127.0.0.1:{web_port}"),
+    }
     main_loop(&shared, &mut store, hash_limit);
     Ok(())
 }
