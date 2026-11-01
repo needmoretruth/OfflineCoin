@@ -177,7 +177,7 @@ impl Node {
             // Beacons are signed by the key behind the address they show.
             let wallet = self.runner.engine.wallet();
             if let Some(secret) = wallet.export_secret(wallet.receiving()) {
-                if let Ok(signer) = Signer::new(&secret) {
+                if let Some(signer) = Signer::new(&secret) {
                     self.control.signer = signer;
                 }
             }
