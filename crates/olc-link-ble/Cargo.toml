@@ -1,0 +1,17 @@
+[package]
+name = "olc-link-ble"
+description = "Bluetooth Low Energy transport for computers on Linux: the boards' framing over L2CAP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Needs BlueZ and the D-Bus library, which most builds of this workspace have no use for.
+bluez = ["dep:bluer", "dep:futures", "dep:tokio"]
+
+[dependencies]
+olc-node.workspace = true
+bluer = { version = "0.17", default-features = false, features = ["bluetoothd", "l2cap"], optional = true }
+futures = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"], optional = true }
