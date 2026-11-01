@@ -11,14 +11,15 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 use esp_println::println;
 use olc_control::{
-    sign_beacon, Action, Beacon, BoardId, Body, Forward, Gate, ImageSlot, Packet, Read, Refusal,
-    Router, Signed, Update,
+    sign_beacon, Action, Beacon, BoardId, Body, Forward, Gate, ImageSlot, OldBeacon, Packet, Read,
+    Refusal, Router, Signed, Update,
 };
 use olc_crypto::Signer;
 use olc_logo::{MAX_FPS, MIN_FPS};
 use olc_node::{Card, Message, Outgoing};
 
 const BEACON_EVERY_MS: u64 = 4_000;
+const FIRST_BEACON_AFTER_MS: u64 = 1_200;
 /// How often a board with a computer on its cable asks the boards around what they are.
 const ASK_AROUND_EVERY_MS: u64 = 30_000;
 const DEVICE: &str = "esp32-s3";
@@ -123,6 +124,7 @@ impl Node {
     pub fn serve_control(&mut self, now: u64) {
         while let Some((peer, bytes)) = self.runner.take_control() {
             let Some(mut packet) = Packet::decode(&bytes) else {
+                self.pass_on_old_beacon(peer, &bytes);
                 continue;
             };
             let verdict = self.control.router.incoming(peer, &packet);
@@ -237,8 +239,28 @@ impl Node {
         self.emit(self.control.router.outgoing(to), &packet);
     }
 
+    /// A build too old to read still reaches the app, which shows that it is there.
+    fn pass_on_old_beacon(&mut self, peer: u32, bytes: &[u8]) {
+        let Some(mut old) = OldBeacon::decode(bytes) else {
+            return;
+        };
+        let forward = self.control.router.incoming(peer, &old.route()).forward;
+        old.hops += 1;
+        self.send_bytes(forward, old.encode());
+    }
+
+    /// Boot time is no measure of hashing, so the first beacon waits for a window of its own.
+    pub fn first_window(&mut self, now: u64) {
+        self.window_ms = now;
+        self.control.beacon_ms = now + FIRST_BEACON_AFTER_MS;
+    }
+
     fn emit(&mut self, forward: Forward, packet: &Packet) {
-        let message = Message::Control(packet.encode());
+        self.send_bytes(forward, packet.encode());
+    }
+
+    fn send_bytes(&mut self, forward: Forward, bytes: Vec<u8>) {
+        let message = Message::Control(bytes);
         self.runner.send_now(match forward {
             Forward::Nowhere => return,
             Forward::Peer(peer) => Outgoing::To(peer, message),
