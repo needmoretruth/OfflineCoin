@@ -508,12 +508,12 @@ impl Worker {
         self.save_light(engine, &status.tip);
         let coins = engine.coins();
         let next = coins.height() + 1;
-        let spendable = own
-            .iter()
-            .flat_map(|address| coins.unspent_of(address))
-            .filter(|(_, entry)| coins.is_mature(entry, next))
-            .map(|(_, entry)| entry.output.value)
-            .sum();
+        let mine: Vec<_> = own.iter().flat_map(|address| coins.unspent_of(address)).collect();
+        let held = |mature: bool| -> u64 {
+            let ripe = mine.iter().filter(|(_, entry)| coins.is_mature(entry, next) == mature);
+            ripe.map(|(_, entry)| entry.output.value).sum()
+        };
+        let (spendable, maturing) = (held(true), held(false));
         let receiving = wallet.receiving();
         let keys = wallet.keys().enumerate().map(|(index, (address, public))| KeyView {
             address: format_address(&address),
@@ -551,6 +551,7 @@ impl Worker {
             loading: None,
             balance: status.balance,
             spendable,
+            maturing,
             address: format_address(&engine.address()),
             activity,
             blocks_mined: self.history.blocks_mined(),

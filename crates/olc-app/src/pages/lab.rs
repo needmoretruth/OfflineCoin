@@ -1,18 +1,17 @@
 //! Experiments, apart from everything else. They run with the tools outside the coin, on boards
 //! a person hands over, and the coin knows nothing about them.
-use super::{Cx, Page};
+use super::Cx;
 use crate::core::Command;
 use crate::discovery::Reach;
 use crate::i18n::lab_line;
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, button_on, card, meta, number_field, section, Kind};
+use crate::ui::widgets::{button, button_on, card, meta, number_field, pick_row, section, cell, Kind};
 use crate::fleet::Args;
-use crate::ui::Icon;
-use egui::{ComboBox, Ui};
+use egui::Ui;
 use olc_control::BoardId;
 
 #[derive(Default)]
-pub struct Experiments {
+pub struct Lab {
     tested: Option<BoardId>,
     attacker: Option<BoardId>,
     victim: Option<BoardId>,
@@ -23,27 +22,23 @@ pub struct Experiments {
 const AMOUNT: u64 = 10;
 const CONFIRMATIONS: u64 = 2;
 
+/// One board out of those online, as rows.
 fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>) {
-    let online = cx.snap.boards.iter().filter(|board| board.seen.online);
-    let name_of = |id| {
-        cx.snap
-            .boards
-            .iter()
-            .find(|board| Some(board.seen.id) == id)
-            .map_or(String::new(), |board| board.seen.beacon.name.clone())
-    };
-    ui.label(label);
-    ComboBox::from_id_salt(label)
-        .selected_text(name_of(*slot))
-        .show_ui(ui, |ui| {
-            for board in online {
-                let id = board.seen.id;
-                ui.selectable_value(slot, Some(id), board.seen.beacon.name.clone());
+    ui.vertical(|ui| {
+        ui.set_max_width(200.0);
+        meta(ui, label, cx.t);
+        for board in cx.snap.boards.iter().filter(|board| board.seen.online) {
+            let id = board.seen.id;
+            let name = &board.seen.beacon.name;
+            let row = pick_row(ui, cx.t, 30.0, *slot == Some(id), name, |ui| cell(ui, name.as_str()));
+            if row.clicked() {
+                *slot = Some(id);
             }
-        });
+        }
+    });
 }
 
-impl Experiments {
+impl Lab {
     fn cap_test(&mut self, ui: &mut Ui, cx: &Cx, running: bool) {
         let t = cx.t;
         card(ui, t, |ui| {
@@ -71,22 +66,9 @@ impl Experiments {
     }
 }
 
-impl Page for Experiments {
-    fn title(&self) -> &'static str {
-        "page.experiments"
-    }
-
-    fn icon(&self) -> Icon {
-        Icon::Experiments
-    }
-
-    fn apart(&self) -> bool {
-        true
-    }
-
-    fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
+impl Lab {
+    pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
-        widgets::title(ui, cx.say("page.experiments"));
         let online = cx.snap.boards.iter().filter(|board| board.seen.online).count();
         let running = cx.snap.experiment.running;
         self.cap_test(ui, cx, running);
@@ -109,11 +91,11 @@ impl Page for Experiments {
                 pick(ui, cx, cx.say("lab.victim"), &mut self.victim);
                 let mut amount = self.amount.unwrap_or(AMOUNT);
                 ui.label(cx.say("lab.amount"));
-                number_field(ui, &mut amount, 70.0);
+                number_field(ui, &mut amount, cx.say("lab.amount"), 70.0);
                 self.amount = Some(amount);
                 let mut confirmations = self.confirmations.unwrap_or(CONFIRMATIONS);
                 ui.label(cx.say("lab.confirmations"));
-                number_field(ui, &mut confirmations, 60.0);
+                number_field(ui, &mut confirmations, cx.say("lab.confirmations"), 60.0);
                 self.confirmations = Some(confirmations);
             });
             ui.horizontal(|ui| {

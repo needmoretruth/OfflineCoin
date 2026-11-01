@@ -2,6 +2,7 @@
 use super::{NodeSpec, PROCESS_OVERHEAD_MIB};
 pub use olc_platform::Enforcement;
 use olc_platform::Limits;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const MIB: u64 = 1024 * 1024;
 
@@ -12,8 +13,12 @@ pub fn memory_limit_bytes(spec: &NodeSpec) -> u64 {
 
 /// The limits of the node `spec`, under a name no other node on this computer has.
 pub fn limits_of(spec: &NodeSpec) -> Limits {
+    // The system refuses a second group of one name, and the old one outlives its process for a
+    // moment, so a node started again needs a name of its own.
+    static STARTS: AtomicU32 = AtomicU32::new(0);
+    let start = STARTS.fetch_add(1, Ordering::Relaxed);
     Limits {
-        name: format!("{}-{}", spec.id, std::process::id()),
+        name: format!("{}-{}-{start}", spec.id, std::process::id()),
         memory_bytes: memory_limit_bytes(spec),
         cpu_percent: spec.cpu_percent,
     }
@@ -23,6 +28,12 @@ pub fn limits_of(spec: &NodeSpec) -> Limits {
 mod tests {
     use super::super::Preset;
     use super::*;
+
+    #[test]
+    fn a_node_started_again_gets_a_new_group_name() {
+        let spec = Preset::Esp32S3.spec(3);
+        assert_ne!(limits_of(&spec).name, limits_of(&spec).name);
+    }
 
     #[test]
     fn an_esp32_node_gets_its_memory_and_no_cpu_share() {

@@ -1,5 +1,5 @@
 //! Linux: control groups through systemd, and `/proc` and `/sys` for everything else.
-use crate::{unix, Enforcement, Limits, Platform, Usage, UsbPort};
+use crate::{unix, Enforcement, Limits, Place, PlaceKind, Platform, Usage, UsbPort};
 use olc_node::network::Mark;
 use olc_node::Link;
 use std::fs;
@@ -27,6 +27,16 @@ fn desktop_setting(key: &str) -> String {
     let words = ["get", "org.gnome.desktop.interface", key];
     let output = Command::new("gsettings").args(words).output();
     String::from_utf8_lossy(&output.map(|out| out.stdout).unwrap_or_default()).to_string()
+}
+
+/// A folder from `user-dirs.dirs`, which names them in the desktop's language.
+fn user_folder(home: &Path, listing: &str, key: &str, fallback: &str) -> PathBuf {
+    let line = listing.lines().find_map(|line| line.trim().strip_prefix(key));
+    let value = line.and_then(|rest| rest.strip_prefix('=')).map(|value| value.trim_matches('"'));
+    match value.and_then(|value| value.strip_prefix("$HOME/")) {
+        Some(name) => home.join(name),
+        None => home.join(fallback),
+    }
 }
 
 fn word_of(folder: &Path, name: &str) -> String {
@@ -205,6 +215,27 @@ impl Platform for Os {
             group_bytes: group_bytes(pid),
             cpu_ms: cpu_ms(pid)?,
         })
+    }
+
+    fn places(&self) -> Vec<Place> {
+        let Some(home) = unix::home() else {
+            return Vec::new();
+        };
+        let listing = fs::read_to_string(home.join(".config/user-dirs.dirs")).unwrap_or_default();
+        let folder = |key, fallback| user_folder(&home, &listing, key, fallback);
+        let mut places = crate::usual_places(
+            &home,
+            [
+                (PlaceKind::Desktop, folder("XDG_DESKTOP_DIR", "Desktop")),
+                (PlaceKind::Documents, folder("XDG_DOCUMENTS_DIR", "Documents")),
+                (PlaceKind::Downloads, folder("XDG_DOWNLOAD_DIR", "Downloads")),
+            ],
+        );
+        let user = home.file_name().map(PathBuf::from).unwrap_or_default();
+        for root in [Path::new("/run/media").join(&user), Path::new("/media").join(&user)] {
+            places.extend(crate::drives_in(&root));
+        }
+        places
     }
 
     fn open_folder(&self, path: &Path) -> std::io::Result<()> {

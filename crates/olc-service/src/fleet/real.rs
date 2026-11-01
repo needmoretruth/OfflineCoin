@@ -1,5 +1,5 @@
 //! The real boards, through the manager in `olc-board`.
-use super::{read_log, BoardRow, FleetPort, LineError, StartError};
+use super::{read_log, BoardRow, BoardState, FleetPort, LineError, StartError};
 use olc_board::autoupdate::{self, Picked};
 use olc_board::{carried, Args, Board, Extra, Manager, RemoteBoard};
 use olc_control::BoardId;
@@ -37,9 +37,9 @@ impl FleetPort for RealFleet {
         self.manager.board_rows()
     }
 
-    fn bright_of(&self, board: BoardId) -> Option<u8> {
+    fn state_of(&self, board: BoardId) -> Option<BoardState> {
         let link = RemoteBoard::new(self.manager.fleet.clone(), board);
-        Board::new("asked", Box::new(link)).status().ok()?.bright
+        Board::new("asked", Box::new(link)).status().ok().map(|status| status.state)
     }
 
     fn keep_updated(&self, boards: BTreeSet<BoardId>) {

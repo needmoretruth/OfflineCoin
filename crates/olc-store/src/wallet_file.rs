@@ -110,6 +110,10 @@ pub fn save_wallet(directory: &Path, wallet: &Wallet) -> Result<(), String> {
     write_private(&directory.join(WALLET_FILE), &text)
 }
 
+pub const WRONG_PASSWORD: &str = "Wrong password, or the backup is damaged.";
+pub const NEEDS_PASSWORD: &str = "This backup needs its password.";
+pub const NOT_A_BACKUP: &str = "This is not a wallet backup.";
+
 fn password_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     let mut key = [0u8; 32];
     Argon2::default()
@@ -150,23 +154,23 @@ pub fn back_up(wallet: &Wallet, path: &Path, password: Option<&str>) -> Result<(
 /// Reads the keys of a backup. A wrong password fails here and never gives wrong keys.
 pub fn restore(path: &Path, password: Option<&str>) -> Result<Wallet, String> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let backup: Backup = serde_json::from_str(&text).map_err(|_| "This is not a wallet backup.")?;
+    let backup: Backup = serde_json::from_str(&text).map_err(|_| NOT_A_BACKUP)?;
     if let Some(keys) = &backup.keys {
         return wallet_of(keys);
     }
     let fields = (&backup.salt, &backup.nonce, &backup.sealed);
     let (Some(salt), Some(nonce), Some(sealed)) = fields else {
-        return Err("This is not a wallet backup.".to_string());
+        return Err(NOT_A_BACKUP.to_string());
     };
     let damaged = || "The backup is damaged.".to_string();
     let salt = unhex(salt).ok_or_else(damaged)?;
     let nonce = unhex(nonce).and_then(|nonce| <[u8; 12]>::try_from(nonce).ok());
     let nonce = nonce.ok_or_else(damaged)?;
     let sealed = unhex(sealed).ok_or_else(damaged)?;
-    let key = password_key(password.ok_or("This backup needs its password.")?, &salt)?;
+    let key = password_key(password.ok_or(NEEDS_PASSWORD)?, &salt)?;
     let plain = ChaCha20Poly1305::new(&Key::from(key))
         .decrypt(&Nonce::from(nonce), sealed.as_slice())
-        .map_err(|_| "Wrong password, or the backup is damaged.")?;
+        .map_err(|_| WRONG_PASSWORD)?;
     let keys: Keys = serde_json::from_slice(&plain).map_err(|_| damaged())?;
     wallet_of(&keys)
 }

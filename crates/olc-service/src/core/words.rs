@@ -223,12 +223,12 @@ fn prepare(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let to = first(args, "Name the address: olc prepare ADDRESS UNITS")?.to_string();
     let units = number(args.word(2))?;
     let fee = args.value("fee").map_or(Ok(0), |word| number(Some(word)))?;
-    own(desk, Personal::Prepare { to, units, fee })
+    own(desk, Personal::Prepare { to, units, fee, save: None })
 }
 
 fn sign(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let path = first(args, "Name the file: olc sign unsigned.json")?;
-    own(desk, Personal::Sign(path.to_string()))
+    own(desk, Personal::Sign { path: path.to_string(), save: None })
 }
 
 fn broadcast(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {

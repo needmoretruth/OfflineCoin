@@ -1,9 +1,20 @@
-//! The surfaces: lit from above, with a soft shadow and a thin bright edge.
+//! The surfaces: light from above on the background, gradient faces, a thin bright edge, and a
+//! soft shadow only on what floats.
+use super::tokens::Tokens;
 use egui::epaint::{Mesh, Shadow, Vertex, WHITE_UV};
-use egui::{pos2, Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
+use egui::{pos2, vec2, Color32, CornerRadius, Galley, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::sync::Arc;
 
 const CORNER_STEPS: usize = 6;
+/// Enough squares that the light has no visible steps at the largest window.
+const BACK_COLUMNS: u32 = 32;
+const BACK_ROWS: u32 = 24;
+/// Where the light on the background sits and how far it reaches, in parts of the window.
+const LIGHT_AT: f32 = -0.1;
+const LIGHT_WIDTH: f32 = 1.2;
+const LIGHT_HEIGHT: f32 = 0.8;
+const LIGHT_MIDDLE: f32 = 0.55;
 
 fn mix(top: Color32, bottom: Color32, part: f32) -> Color32 {
     let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * part) as u8;
@@ -49,6 +60,67 @@ pub fn gradient(rect: Rect, radius: f32, top: Color32, bottom: Color32) -> Shape
         mesh.add_triangle(0, index + 1, (index + 1) % count + 1);
     }
     Shape::mesh(mesh)
+}
+
+/// The window's background: one light from above the top edge.
+pub fn lit_back(rect: Rect, t: &Tokens) -> Shape {
+    let shade = |x: f32, y: f32| {
+        let across = (x - 0.5) / LIGHT_WIDTH;
+        let down = (y - LIGHT_AT) / LIGHT_HEIGHT;
+        let reach = (across * across + down * down).sqrt();
+        if reach < LIGHT_MIDDLE {
+            mix(t.back_glow, t.back_mid, reach / LIGHT_MIDDLE)
+        } else {
+            mix(t.back_mid, t.back_floor, ((reach - LIGHT_MIDDLE) / (1.0 - LIGHT_MIDDLE)).min(1.0))
+        }
+    };
+    let mut mesh = Mesh::default();
+    for row in 0..=BACK_ROWS {
+        for column in 0..=BACK_COLUMNS {
+            let (x, y) = (column as f32 / BACK_COLUMNS as f32, row as f32 / BACK_ROWS as f32);
+            let pos = rect.min + vec2(x * rect.width(), y * rect.height());
+            mesh.vertices.push(Vertex { pos, uv: WHITE_UV, color: shade(x, y) });
+        }
+    }
+    let at = |column: u32, row: u32| row * (BACK_COLUMNS + 1) + column;
+    for row in 0..BACK_ROWS {
+        for column in 0..BACK_COLUMNS {
+            mesh.add_triangle(at(column, row), at(column + 1, row), at(column, row + 1));
+            mesh.add_triangle(at(column + 1, row), at(column + 1, row + 1), at(column, row + 1));
+        }
+    }
+    Shape::mesh(mesh)
+}
+
+/// Text whose ink fades from `top` to `bottom`, for the largest figure on a screen.
+pub fn ink(galley: &Galley, top: Color32, bottom: Color32) -> Arc<Galley> {
+    let mut lit = galley.clone();
+    let height = galley.size().y.max(1.0);
+    for row in &mut lit.rows {
+        let offset = row.pos.y;
+        let placed = Arc::make_mut(&mut row.row);
+        for vertex in &mut placed.visuals.mesh.vertices {
+            vertex.color = mix(top, bottom, ((vertex.pos.y + offset) / height).clamp(0.0, 1.0));
+        }
+    }
+    Arc::new(lit)
+}
+
+/// A thin line that fades out at both ends.
+pub fn fading_line(painter: &Painter, left: f32, right: f32, y: f32, colour: Color32) {
+    let fade = ((right - left) * 0.06).min(48.0);
+    let clear = Color32::TRANSPARENT;
+    let stops = [(left, clear), (left + fade, colour), (right - fade, colour), (right, clear)];
+    let mut mesh = Mesh::default();
+    for (x, color) in stops {
+        mesh.vertices.push(Vertex { pos: pos2(x, y - 0.5), uv: WHITE_UV, color });
+        mesh.vertices.push(Vertex { pos: pos2(x, y + 0.5), uv: WHITE_UV, color });
+    }
+    for step in 0..3 {
+        mesh.add_triangle(step * 2, step * 2 + 1, step * 2 + 2);
+        mesh.add_triangle(step * 2 + 1, step * 2 + 3, step * 2 + 2);
+    }
+    painter.add(Shape::mesh(mesh));
 }
 
 pub struct Surface {

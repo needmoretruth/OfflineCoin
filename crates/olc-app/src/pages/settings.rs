@@ -1,18 +1,17 @@
-//! Every number and choice the app starts from.
-use super::network::medium_text;
+//! The register: every choice with its value and what it means, in three columns.
+use super::settings_more::{Extras, ExtraValues};
+use super::wallet_tools::{Tool, WalletTools};
 use super::{Cx, Page};
-use crate::core::{Command, Personal};
-use crate::i18n::Lang;
-use crate::local::Holding;
-use crate::settings::{Device, Theme};
+use crate::core::Command;
+use crate::i18n::{Lang, Mode};
+use crate::settings::{Device, Theme, RELAXED_CAP};
 use crate::ui::format;
-use crate::ui::tokens;
-use crate::ui::widgets::{
-    self, button, card, field, meta, mono, number_field, section, segments, switch_row, Kind,
-};
-use crate::ui::Icon;
+use crate::ui::register::{group, row};
+use crate::ui::widgets::{self, button, meta, number_field, segments, switch, Kind};
+use crate::ui::{Icon, Tokens};
 use egui::Ui;
-use olc_core::FEWEST_RECENT;
+
+const TEXT_SIZES: [u16; 3] = [100, 125, 150];
 
 pub fn device_name(device: Device) -> &'static str {
     match device {
@@ -25,199 +24,147 @@ pub fn device_name(device: Device) -> &'static str {
 
 #[derive(Default)]
 pub struct SettingsPage {
-    ports: String,
-    recent: u64,
+    tools: WalletTools,
+    extras: ExtraValues,
 }
 
-fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
-    ui.horizontal(|ui| {
-        let area = egui::vec2(180.0, tokens::CONTROL);
-        let left = egui::Layout::left_to_right(egui::Align::Center);
-        ui.allocate_ui_with_layout(area, left, |ui| {
-            ui.set_width(area.x);
-            ui.add(egui::Label::new(label).wrap());
-        });
-        add(ui);
+/// A row with a switch for one setting.
+pub fn switch_setting(ui: &mut Ui, cx: &mut Cx, keys: (&str, &str), read: fn(&mut crate::settings::Settings) -> &mut bool) {
+    let t = cx.t;
+    let name = cx.say(keys.0);
+    row(ui, t, name, cx.say(keys.1), |ui| {
+        if switch(ui, t, read(cx.settings), name).clicked() {
+            cx.save();
+        }
     });
 }
 
+fn opening_row(ui: &mut Ui, t: &Tokens, cx: &Cx, keys: (&str, &str, &str)) -> bool {
+    let mut open = false;
+    row(ui, t, cx.say(keys.0), cx.say(keys.1), |ui| {
+        open = button(ui, t, cx.say(keys.2), Kind::Plain).clicked();
+    });
+    open
+}
+
+fn general(ui: &mut Ui, cx: &mut Cx) {
+    let t = cx.t;
+    group(ui, cx.say("settings.general"));
+    row(ui, t, cx.say("settings.language"), cx.say("settings.language_about"), |ui| {
+        let items = [(Lang::En, "English".to_string()), (Lang::Ko, "한국어".to_string())];
+        if let Some(language) = segments(ui, t, &items, Some(cx.settings.language)) {
+            cx.settings.language = language;
+            cx.save();
+        }
+    });
+    row(ui, t, cx.say("settings.theme"), cx.say("settings.theme_about"), |ui| {
+        let items = [
+            (Theme::System, cx.say("settings.theme_system").to_string()),
+            (Theme::Light, cx.say("settings.theme_light").to_string()),
+            (Theme::Dark, cx.say("settings.theme_dark").to_string()),
+        ];
+        if let Some(theme) = segments(ui, t, &items, Some(cx.settings.theme)) {
+            cx.settings.theme = theme;
+            cx.save();
+        }
+    });
+    row(ui, t, cx.say("settings.text"), cx.say("settings.text_about"), |ui| {
+        let items = TEXT_SIZES.map(|percent| (percent, format!("{percent}%")));
+        if let Some(percent) = segments(ui, t, &items, Some(cx.settings.text_percent)) {
+            cx.settings.text_percent = percent;
+            cx.save();
+        }
+    });
+    row(ui, t, cx.say("settings.mode"), cx.say("settings.mode_about"), |ui| {
+        let items = [
+            (Mode::Basic, cx.say("settings.mode_basic").to_string()),
+            (Mode::Expert, cx.say("settings.mode_expert").to_string()),
+        ];
+        if let Some(mode) = segments(ui, t, &items, Some(cx.settings.mode)) {
+            cx.settings.mode = mode;
+            cx.save();
+        }
+    });
+    let keys = ("settings.reduce_motion", "settings.reduce_motion_about");
+    switch_setting(ui, cx, keys, |settings| &mut settings.reduce_motion);
+}
+
 impl SettingsPage {
-    fn look(cx: &mut Cx, ui: &mut Ui) {
+    fn wallet(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
-        section(ui, cx.say("settings.look"));
-        labelled(ui, cx.say("settings.language"), |ui| {
-            let items = [(Lang::En, "English".to_string()), (Lang::Ko, "한국어".to_string())];
-            if let Some(language) = segments(ui, t, &items, Some(cx.settings.language)) {
-                cx.settings.language = language;
-                cx.save();
-            }
-        });
-        labelled(ui, cx.say("settings.theme"), |ui| {
-            let items = [
-                (Theme::System, cx.say("settings.theme_system").to_string()),
-                (Theme::Light, cx.say("settings.theme_light").to_string()),
-                (Theme::Dark, cx.say("settings.theme_dark").to_string()),
-            ];
-            if let Some(theme) = segments(ui, t, &items, Some(cx.settings.theme)) {
-                cx.settings.theme = theme;
-                cx.save();
-            }
-        });
-        let label = cx.say("settings.reduce_motion");
-        if switch_row(ui, t, &mut cx.settings.reduce_motion, label) {
-            cx.save();
-        }
-    }
-
-    fn mining(cx: &mut Cx, ui: &mut Ui) {
-        let t = cx.t;
-        section(ui, cx.say("settings.mining"));
-        labelled(ui, cx.say("settings.hash_cap"), |ui| {
-            if number_field(ui, &mut cx.settings.hash_cap, 120.0) {
-                cx.save();
-            }
-            ui.label("H/s");
-        });
-        labelled(ui, cx.say("settings.board_cap"), |ui| {
-            if number_field(ui, &mut cx.settings.board_cap, 120.0) {
-                cx.settings.board_cap_chosen = true;
-                cx.save();
-            }
-            ui.label("H/s");
-        });
-        let label = cx.say("settings.mine_on_start");
-        if switch_row(ui, t, &mut cx.settings.mine_on_start, label) {
-            cx.save();
-        }
-        let label = cx.say("settings.auto_update");
-        if switch_row(ui, t, &mut cx.settings.auto_update, label) {
-            cx.save();
-        }
-        meta(ui, cx.say("settings.auto_update_note"), t);
-    }
-
-    fn data(cx: &mut Cx, ui: &mut Ui) {
-        section(ui, cx.say("settings.data"));
-        if button(ui, cx.t, cx.say("settings.open_data"), Kind::Plain).clicked() {
-            cx.send(Command::OpenDataFolder);
-        }
-    }
-
-    fn network(&mut self, cx: &mut Cx, ui: &mut Ui) {
-        let t = cx.t;
-        section(ui, cx.say("settings.network"));
-        labelled(ui, cx.say("settings.port"), |ui| {
-            let mut port = u64::from(cx.settings.port);
-            if number_field(ui, &mut port, 90.0) {
-                cx.settings.port = port.min(u64::from(u16::MAX)) as u16;
-                cx.save();
-            }
-        });
-        let label = cx.say("settings.listen_lan");
-        let lan = switch_row(ui, t, &mut cx.settings.listen_lan, label);
-        let label = cx.say("settings.scan_lan");
-        let scan = switch_row(ui, t, &mut cx.settings.scan_lan, label);
-        let label = cx.say("settings.broadcast");
-        if switch_row(ui, t, &mut cx.settings.broadcast, label) || lan || scan {
-            cx.save();
-        }
-        labelled(ui, cx.say("settings.scan_ports"), |ui| {
-            if self.ports.is_empty() {
-                let ports: Vec<String> =
-                    cx.settings.scan_ports.iter().map(u16::to_string).collect();
-                self.ports = ports.join(", ");
-            }
-            if field(ui, &mut self.ports, "7000", 200.0).lost_focus() {
-                let read = self.ports.split(',').filter_map(|word| word.trim().parse().ok());
-                cx.settings.scan_ports = read.collect();
-                cx.save();
-            }
-        });
-        Self::link_order(cx, ui);
-    }
-
-    fn link_order(cx: &Cx, ui: &mut Ui) {
-        let t = cx.t;
-        let rank = cx.snap.node.links;
-        ui.add_space(tokens::GAP);
-        section(ui, cx.say("settings.links"));
-        meta(ui, cx.say("settings.links_note"), t);
-        for (place, medium) in rank.0.into_iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.label(format!("{}. {}", place + 1, medium_text(cx, medium)));
-                if place > 0 && button(ui, t, cx.say("settings.link_up"), Kind::Plain).clicked() {
-                    let mut order = rank;
-                    order.0.swap(place, place - 1);
-                    cx.send(Command::SetLinks(order));
-                }
-            });
-        }
-        match cx.snap.node.bluetooth {
-            None => {
-                meta(ui, cx.say("settings.no_bluetooth"), t);
-            }
-            Some(mut on) => {
-                if switch_row(ui, t, &mut on, cx.say("boards.bluetooth")) {
-                    cx.send(Command::Own(Personal::SetBluetooth(on)));
-                }
-                meta(ui, cx.say("settings.bluetooth_note"), t);
+        group(ui, cx.say("settings.wallet"));
+        let rows = [
+            (("settings.backup", "settings.backup_about", "settings.backup_go"), Tool::Backup),
+            (("settings.restore", "settings.restore_about", "settings.restore_go"), Tool::Restore),
+            (("settings.addresses", "settings.addresses_about", "common.open"), Tool::Addresses),
+            (("settings.watch", "settings.watch_about", "common.open"), Tool::Watch),
+            (("settings.offline", "settings.offline_about", "common.open"), Tool::Offline),
+        ];
+        for (keys, tool) in rows {
+            if opening_row(ui, t, cx, keys) {
+                self.tools.open(tool);
             }
         }
     }
 }
 
-impl SettingsPage {
-    /// How much of the chain this node keeps. Nothing about it changes the coin.
-    fn storage(&mut self, cx: &Cx, ui: &mut Ui) {
-        let t = cx.t;
-        let node = &cx.snap.node;
-        section(ui, cx.say("storage.title"));
-        let held = format::number(node.oldest.into());
-        if node.light.is_none() {
-            meta(ui, &cx.fill("storage.held", &[&held, &format::mebibytes(node.stored_bytes)]), t);
-            if let Some(fits) = node.fits {
-                meta(ui, &cx.fill("storage.fits", &[&format::number(fits.into())]), t);
+fn speed_row(ui: &mut Ui, cx: &mut Cx) {
+    let t = cx.t;
+    let node = &cx.snap.node;
+    let voice = cx.voice();
+    let full = cx.snap.full_rate;
+    let about = cx.fill("settings.speed_about", &[&format::rate(voice, full)]);
+    row(ui, t, cx.say("settings.speed"), &about, |ui| {
+        let items = [
+            (RELAXED_CAP, cx.say("settings.speed_gentle").to_string()),
+            (full / 2, cx.say("settings.speed_half").to_string()),
+            (0, cx.say("settings.speed_full").to_string()),
+        ];
+        if let Some(cap) = segments(ui, t, &items, Some(node.cap)) {
+            cx.settings.hash_cap = cap;
+            cx.send(Command::SetCap(cap));
+            cx.save();
+        }
+    });
+    if cx.expert() {
+        row(ui, t, cx.say("pro.cap"), cx.say("pro.cap_about"), |ui| {
+            let name = cx.say("pro.cap");
+            if number_field(ui, &mut cx.settings.hash_cap, name, 120.0) {
+                cx.save();
             }
-            if node.recent.is_some() {
-                meta(ui, cx.say("storage.headers"), t);
+            if button(ui, t, cx.say("common.apply"), Kind::Plain).clicked() {
+                cx.send(Command::SetCap(cx.settings.hash_cap));
             }
-        }
-        let holding = match (&node.light, node.recent) {
-            (Some(_), _) => Holding::Headers,
-            (None, Some(_)) => Holding::Recent,
-            (None, None) => Holding::Everything,
-        };
-        let items = [Holding::Everything, Holding::Recent, Holding::Headers]
-            .map(|holding| (holding, cx.say(holding.key()).to_string()));
-        if let Some(chosen) = segments(ui, t, &items, Some(holding)).filter(|c| *c != holding) {
-            if chosen != Holding::Headers {
-                let recent = (chosen == Holding::Recent).then_some(self.recent.max(FEWEST_RECENT));
-                cx.send(Command::Own(Personal::SetRecent(recent)));
+        });
+        row(ui, t, cx.say("pro.board_cap"), cx.say("pro.board_cap_about"), |ui| {
+            let name = cx.say("pro.board_cap");
+            if number_field(ui, &mut cx.settings.board_cap, name, 120.0) {
+                cx.settings.board_cap_chosen = true;
+                cx.save();
             }
-            cx.send(Command::Own(Personal::SetLight(chosen == Holding::Headers)));
-        }
-        if holding == Holding::Headers {
-            meta(ui, cx.say("local.light_trust"), t);
-        }
-        if holding == Holding::Recent {
-            if self.recent == 0 {
-                self.recent = node.recent.unwrap_or(FEWEST_RECENT);
-            }
-            labelled(ui, cx.say("storage.blocks"), |ui| {
-                number_field(ui, &mut self.recent, 120.0);
-                if button(ui, t, cx.say("mining.set"), Kind::Plain).clicked() {
-                    cx.send(Command::Own(Personal::SetRecent(Some(self.recent))));
-                }
-            });
-        }
-        let mut merging = node.merging;
-        if switch_row(ui, t, &mut merging, cx.say("storage.merge")) {
-            cx.send(Command::Own(Personal::SetMerging(merging)));
-        }
-        if node.rebuilt {
-            meta(ui, cx.say("storage.rebuilt"), t);
-        }
+        });
     }
+}
+
+fn this_computer(ui: &mut Ui, cx: &mut Cx) {
+    let t = cx.t;
+    group(ui, cx.say("settings.computer"));
+    let about = cx.say("settings.device_about");
+    row(ui, t, cx.say("settings.device"), about, |ui| {
+        let items: Vec<(Device, String)> = Device::ALL
+            .iter()
+            .map(|device| (*device, cx.say(device_name(*device)).to_string()))
+            .collect();
+        if let Some(device) = segments(ui, t, &items, Some(cx.settings.device)) {
+            cx.settings.apply_device(device);
+            cx.save();
+        }
+    });
+    row(ui, t, cx.say("settings.data"), &cx.snap.folder.clone(), |ui| {
+        if button(ui, t, cx.say("settings.open_data"), Kind::Plain).clicked() {
+            cx.send(Command::OpenDataFolder);
+        }
+    });
 }
 
 impl Page for SettingsPage {
@@ -236,31 +183,16 @@ impl Page for SettingsPage {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         widgets::title(ui, cx.say("page.settings"));
-        card(ui, t, |ui| Self::look(cx, ui));
-        ui.add_space(tokens::GAP);
-        card(ui, t, |ui| Self::mining(cx, ui));
-        card(ui, t, |ui| Self::data(cx, ui));
-        ui.add_space(tokens::GAP);
-        card(ui, t, |ui| self.network(cx, ui));
-        ui.add_space(tokens::GAP);
-        card(ui, t, |ui| self.storage(cx, ui));
-        ui.add_space(tokens::GAP);
-        card(ui, t, |ui| {
-            section(ui, cx.say("settings.setup"));
-            let items: Vec<(Device, String)> = Device::ALL
-                .iter()
-                .map(|device| (*device, cx.say(device_name(*device)).to_string()))
-                .collect();
-            ui.horizontal_wrapped(|ui| {
-                if let Some(device) = segments(ui, t, &items, Some(cx.settings.device)) {
-                    cx.settings.apply_device(device);
-                    cx.save();
-                }
-            });
-            meta(ui, cx.say("settings.setup_note"), t);
-            ui.add_space(4.0);
-            meta(ui, cx.say("settings.folder"), t);
-            ui.label(mono(cx.snap.folder.clone()));
-        });
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if cx.expert() {
+            meta(ui, cx.say("pro.settings_note"), t);
+        }
+        general(ui, cx);
+        self.wallet(ui, cx);
+        group(ui, cx.say("settings.mining"));
+        speed_row(ui, cx);
+        Extras { values: &mut self.extras }.show(ui, cx);
+        this_computer(ui, cx);
+        self.tools.show(ui, cx);
     }
 }

@@ -63,7 +63,8 @@ impl Node {
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
              power={} rssi={} bright={} busy={} clock={} network={} boot_wdt={} strap={:#x} key={} \
              name={} opened={} oldest={} held={} fits={} keep={} unspent={} miner={} merge={} \
-             needs={} assumed={} work_on={} near={} dials={} moves={} links={} light={}",
+             needs={} assumed={} work_on={} near={} dials={} moves={} links={} light={} nearby={} \
+             bluetooth={} headers_only={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -128,6 +129,9 @@ impl Node {
             self.runner.neighbours().iter().map(|near| near.moves).sum::<u32>(),
             self.runner.rank().text(),
             self.runner.engine.light().map_or(0, |light| light.headers().held()),
+            radio::ENABLED.load(Ordering::Relaxed),
+            self.bluetooth,
+            self.runner.engine.light().is_some(),
         );
         self.say(line);
     }

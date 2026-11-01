@@ -38,8 +38,8 @@ fn set_text(style: &mut Style) {
     let regular = FontFamily::Proportional;
     style.text_styles = [
         (Small, FontId::new(tokens::META, regular.clone())),
-        (Body, FontId::new(tokens::TEXT, regular.clone())),
-        (Button, FontId::new(tokens::TEXT, regular)),
+        (Body, FontId::new(tokens::TEXT, regular)),
+        (Button, FontId::new(tokens::TEXT, super::fonts::medium())),
         (Heading, FontId::new(tokens::TITLE, super::fonts::strong())),
         (Monospace, FontId::new(tokens::META, FontFamily::Monospace)),
     ]
@@ -50,12 +50,17 @@ pub fn apply(ctx: &Context, t: &Tokens) {
     ctx.global_style_mut(|style| {
         set_text(style);
         style.spacing.item_spacing = egui::vec2(tokens::GAP, tokens::GAP);
-        style.spacing.button_padding = egui::vec2(12.0, 7.0);
+        style.spacing.button_padding = egui::vec2(14.0, 7.0);
         style.spacing.interact_size.y = tokens::CONTROL;
         style.spacing.text_edit_width = tokens::FIELD;
+        style.spacing.slider_width = 200.0;
         style.spacing.scroll.bar_width = 8.0;
         style.spacing.scroll.floating = true;
-        style.animation_time = 0.12;
+        style.spacing.scroll.floating_width = 3.0;
+        style.spacing.scroll.dormant_handle_opacity = 0.16;
+        style.spacing.scroll.active_handle_opacity = 0.32;
+        style.spacing.scroll.interact_handle_opacity = 0.6;
+        style.animation_time = tokens::PRESS_SECONDS;
 
         let visuals = &mut style.visuals;
         *visuals = if t.dark {
@@ -63,29 +68,30 @@ pub fn apply(ctx: &Context, t: &Tokens) {
         } else {
             egui::Visuals::light()
         };
-        visuals.panel_fill = t.back_bottom;
-        visuals.window_fill = t.card_top;
-        visuals.extreme_bg_color = t.card_bottom;
+        visuals.panel_fill = Color32::TRANSPARENT;
+        visuals.window_fill = t.float_top;
+        visuals.extreme_bg_color = if t.dark { t.back_floor } else { t.card_top };
         visuals.faint_bg_color = t.card_bottom;
         visuals.override_text_color = Some(t.text);
         visuals.hyperlink_color = t.info;
-        visuals.selection.bg_fill = t.line_strong.gamma_multiply(0.6);
+        visuals.weak_text_color = Some(t.muted);
+        visuals.selection.bg_fill = t.line_strong;
         visuals.selection.stroke = Stroke::new(1.0, t.text);
         visuals.text_cursor.stroke = Stroke::new(1.5, t.text);
         visuals.window_stroke = Stroke::new(1.0, t.line);
-        visuals.window_corner_radius = CornerRadius::same(tokens::RADIUS_CARD);
-        visuals.menu_corner_radius = CornerRadius::same(tokens::RADIUS_CONTROL);
+        visuals.window_corner_radius = CornerRadius::same(tokens::RADIUS_SHEET);
+        visuals.menu_corner_radius = CornerRadius::same(tokens::RADIUS_CARD);
         visuals.popup_shadow = Shadow {
-            offset: [0, 6],
-            blur: 18,
+            offset: [0, 12],
+            blur: 32,
             spread: 0,
             color: t.shadow,
         };
         visuals.window_shadow = visuals.popup_shadow;
-        let round = CornerRadius::same(tokens::RADIUS_CONTROL);
+        let round = CornerRadius::same(tokens::RADIUS_BUTTON);
         let sets = [
             (&mut visuals.widgets.noninteractive, Color32::TRANSPARENT, t.line),
-            (&mut visuals.widgets.inactive, t.raised, t.line),
+            (&mut visuals.widgets.inactive, t.hover, t.line),
             (&mut visuals.widgets.hovered, t.hover, t.line_strong),
             (&mut visuals.widgets.active, t.hover, t.line_strong),
             (&mut visuals.widgets.open, t.hover, t.line_strong),

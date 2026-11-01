@@ -1,7 +1,7 @@
 //! What the service tells boards, and addresses a person adds.
 use super::Service;
 use crate::core::board_action::BoardAction;
-use crate::core::board_lines::{read_bright, run_action};
+use crate::core::board_lines::{read_state, run_action};
 use crate::core::commands::Personal;
 use olc_control::BoardId;
 use olc_node::Rank;
@@ -25,9 +25,9 @@ impl Service {
         self.scanner.look_now();
     }
 
-    pub(super) fn read_bright(&mut self, id: BoardId) {
+    pub(super) fn read_state(&mut self, id: BoardId) {
         if let Some(fleet) = self.fleet.clone() {
-            read_bright(fleet, self.brights.clone(), id);
+            read_state(fleet, self.told.clone(), id);
         }
     }
 
@@ -44,7 +44,7 @@ impl Service {
     pub(super) fn board_action(&mut self, id: BoardId, action: BoardAction) {
         self.returning.note_line(id, &action.line().unwrap_or_default());
         if let Some(fleet) = self.fleet.clone() {
-            run_action(fleet, (self.late.clone(), self.brights.clone()), id, action);
+            run_action(fleet, (self.late.clone(), self.told.clone()), id, action);
         }
     }
 }
