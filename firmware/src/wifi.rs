@@ -220,8 +220,13 @@ pub fn start(
     let access_point = AccessPointConfig::default()
         .with_ssid(name)
         .with_channel(CHANNEL);
+    let config = if settings.own_network == "off" {
+        Config::Station(station)
+    } else {
+        Config::AccessPointStation(station, access_point)
+    };
     controller
-        .set_config(&Config::AccessPointStation(station, access_point))
+        .set_config(&config)
         .expect("the Wi-Fi settings are valid");
     // In quarters of a dBm, and only possible once Wi-Fi runs.
     let _ = controller.set_max_tx_power(power_dbm.saturating_mul(4));

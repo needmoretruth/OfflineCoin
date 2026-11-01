@@ -115,6 +115,13 @@ pub struct Node {
     /// Coin frames sent and the slowest send, over the last second and the one before.
     pub frames: FrameCount,
     pub power_dbm: i8,
+    /// The panel's contrast.
+    pub bright: u8,
+    /// Whether the watchdog was running when this program got the chip.
+    pub boot_watchdog: bool,
+    /// Time spent working in this second, and how much of the last second that was.
+    pub busy_us: u64,
+    pub busy_percent: u64,
     /// The BOOT button: a press changes the view, a long press changes the language.
     pub button: Input<'static>,
     pub view: View,
@@ -162,6 +169,8 @@ impl Node {
         let window = now.saturating_sub(self.window_ms);
         if window >= 1_000 {
             self.rate = (u64::from(self.attempts) * 1_000 / window) as u32;
+            self.busy_percent = self.busy_us / 10 / window;
+            self.busy_us = 0;
             self.attempts = 0;
             self.window_ms = now;
             self.frames.roll();
@@ -352,7 +361,7 @@ impl Node {
             (Some("status"), _, _) => self.print_status(),
             (Some("screen"), _, _) => self.print_screen(),
             (Some("boots"), _, _) => {
-                let words = self.store.boot_words();
+                let words = self.store.boot_words(BOOTS_SHOWN);
                 let recent = bootlog::recent(&words, BOOTS_SHOWN);
                 self.say(format!("boots {}", recent.join(" ")));
             }
@@ -384,6 +393,14 @@ impl Node {
                 }
                 _ => self.say("error power 2 to 20".into()),
             },
+            (Some("bright"), Some(value), _) => match value.parse() {
+                Ok(bright) => {
+                    self.screen.set_bright(bright);
+                    self.bright = bright;
+                    self.save(|settings| settings.bright = format!("{bright}"));
+                }
+                _ => self.say("error bright 0 to 255".into()),
+            },
             (Some("ignore"), Some("none"), _) => radio::hear_everyone(),
             (Some("ignore"), Some(peer), _) => {
                 match u32::from_str_radix(peer, 16).map(radio::ignore) {
@@ -409,6 +426,9 @@ impl Node {
                 self.rename(line["name".len()..].trim());
                 self.say("named".into());
             }
+            (Some("network"), Some(state @ ("on" | "off")), _) => {
+                self.restart_with(|settings| settings.own_network = state.into());
+            }
             (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
                 settings.ssid.clear();
                 settings.password.clear();
@@ -423,7 +443,7 @@ impl Node {
             }
             _ => println!(
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
-                 smooth FPS, power DBM, ignore MAC-END|none, \
+                 smooth FPS, bright 0-255, network on|off, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
                  offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY"
