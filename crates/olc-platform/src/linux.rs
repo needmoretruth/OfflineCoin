@@ -1,5 +1,7 @@
 //! Linux: control groups through systemd, and `/proc` and `/sys` for everything else.
 use crate::{unix, Enforcement, Limits, Platform, Usage, UsbPort};
+use olc_node::network::Mark;
+use olc_node::Link;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -87,8 +89,17 @@ fn in_address_space(limits: &Limits, program: &str, words: &[String]) -> Command
 }
 
 impl Platform for Os {
-    fn radio_links(&self) -> bool {
-        true
+    fn has_bluetooth(&self) -> bool {
+        cfg!(feature = "ble")
+    }
+
+    #[cfg(feature = "ble")]
+    fn bluetooth_link(&self, me: u64) -> Result<Box<dyn Link>, String> {
+        Ok(Box::new(olc_link_ble::BleLink::start(me)?))
+    }
+
+    fn esp_now_link(&self, card: &str, mark: Mark) -> Result<Box<dyn Link>, String> {
+        Ok(Box::new(olc_link_espnow::EspNowCard::open(card, mark)?))
     }
 
     fn data_folder(&self) -> Option<PathBuf> {

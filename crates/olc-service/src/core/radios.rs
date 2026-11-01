@@ -2,36 +2,23 @@
 //! do is said in plain words and costs nothing else.
 use olc_node::Runner;
 use olc_platform::platform;
+pub use olc_platform::{NO_BLUETOOTH, NO_ESP_NOW};
 use olc_store::NodeSettings;
 
-pub const NO_BLUETOOTH: &str = "This computer cannot use Bluetooth.";
-pub const NO_ESP_NOW: &str = "This computer cannot use ESP-NOW.";
 
 /// Whether this build on this system can use Bluetooth.
 pub fn bluetooth_here() -> bool {
-    cfg!(feature = "ble") && platform().radio_links()
+    platform().has_bluetooth()
 }
 
-#[cfg(all(feature = "ble", target_os = "linux"))]
-pub fn add_bluetooth(runner: &mut Runner) -> Result<(), String> {
-    runner.add_link(Box::new(olc_link_ble::BleLink::start(runner.id())?));
+fn add_bluetooth(runner: &mut Runner) -> Result<(), String> {
+    runner.add_link(platform().bluetooth_link(runner.id())?);
     Ok(())
 }
 
-#[cfg(not(all(feature = "ble", target_os = "linux")))]
-pub fn add_bluetooth(_runner: &mut Runner) -> Result<(), String> {
-    Err(NO_BLUETOOTH.into())
-}
-
-#[cfg(target_os = "linux")]
-pub fn add_esp_now(runner: &mut Runner, card: &str) -> Result<(), String> {
-    runner.add_link(Box::new(olc_link_espnow::EspNowCard::open(card, runner.mark())?));
+fn add_esp_now(runner: &mut Runner, card: &str) -> Result<(), String> {
+    runner.add_link(platform().esp_now_link(card, runner.mark())?);
     Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn add_esp_now(_runner: &mut Runner, _card: &str) -> Result<(), String> {
-    Err(NO_ESP_NOW.into())
 }
 
 /// Which radios a node has running, so that a change of coin does not start them twice.

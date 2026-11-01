@@ -8,11 +8,7 @@ repository.workspace = true
 
 [features]
 # Bluetooth on Linux, through BlueZ and the D-Bus library, which a build needs to have.
-ble = ["dep:olc-link-ble", "olc-link-ble/bluez"]
-
-[target.'cfg(target_os = "linux")'.dependencies]
-olc-link-ble = { path = "../olc-link-ble", optional = true }
-olc-link-espnow = { path = "../olc-link-espnow", features = ["card"] }
+ble = ["olc-platform/ble"]
 
 [dependencies]
 getrandom = "0.3"

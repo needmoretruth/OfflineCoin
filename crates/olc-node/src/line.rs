@@ -2,7 +2,7 @@
 //! as `#hex` lines like the ones on the USB cable, so noise costs one line and never the framing.
 //! Each ends in a two-byte check, because a wire loses bits and a cable does not.
 use crate::medium::Medium;
-use crate::neighbours::SILENT_MS;
+use crate::neighbours::CLOSE_MS;
 use crate::runner::{Link, Target};
 use alloc::vec::Vec;
 
@@ -22,7 +22,8 @@ pub trait Pipe: Send {
 
 /// Wires can run straight or crossed, and nothing tells which, so each end does what Ethernet's
 /// Auto MDI-X does: it talks on one wire, listens on the other, and swaps after a random stay
-/// until it hears a line. Then it stays, so a link that works is never tried again.
+/// until it hears a line. Then it stays, so a link that works is never tried again, and a far end
+/// busy for some seconds finds it where it was.
 #[derive(Clone, Copy, Debug)]
 pub struct Hunt {
     /// Which of the two ways this end is using.
@@ -46,7 +47,7 @@ impl Hunt {
     }
 
     pub fn linked(&self, now: u64) -> bool {
-        self.heard_ms.is_some_and(|heard| now.saturating_sub(heard) < SILENT_MS)
+        self.heard_ms.is_some_and(|heard| now.saturating_sub(heard) < CLOSE_MS)
     }
 
     /// Says whether to swap now. Called often, with a fresh random number.
@@ -294,8 +295,9 @@ mod tests {
         hunt.heard(1_000);
         assert!(!hunt.turn(2_000, 0));
         assert!(hunt.linked(4_000));
-        assert!(!hunt.linked(5_000));
-        assert!(hunt.turn(5_000, 0));
+        assert!(hunt.linked(1_000 + CLOSE_MS - 1));
+        assert!(!hunt.linked(1_000 + CLOSE_MS));
+        assert!(hunt.turn(1_000 + CLOSE_MS, 0));
     }
 
     fn all_of(link: &mut LineLink<Crossed>) -> Vec<Vec<u8>> {

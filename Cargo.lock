@@ -2920,6 +2920,9 @@ name = "olc-platform"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "olc-link-ble",
+ "olc-link-espnow",
+ "olc-node",
  "serial2",
  "sysinfo",
  "win32job",
@@ -2956,8 +2959,6 @@ dependencies = [
  "olc-crypto",
  "olc-lab",
  "olc-lang",
- "olc-link-ble",
- "olc-link-espnow",
  "olc-link-serial",
  "olc-link-tcp",
  "olc-node",
