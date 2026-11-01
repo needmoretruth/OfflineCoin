@@ -44,6 +44,8 @@ pub struct BoardView {
     pub seen: Seen,
     pub reach: Reach,
     pub job: Option<String>,
+    /// The panel's stored brightness, once the board has said it.
+    pub bright: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default)]

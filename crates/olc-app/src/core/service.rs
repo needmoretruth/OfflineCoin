@@ -3,6 +3,7 @@
 use super::coins::{
     bring_old_blocks, coin_folder, format_coins, load_coin, parse_coins, save_coin,
 };
+use super::board_lines::{read_bright, run_line, Brights};
 use super::commands::{Command, StartCoin};
 use super::found::Found;
 use super::host::{full_rate, HeardFrom, Host, PayError, Plan};
@@ -11,10 +12,11 @@ use super::rows::{
 };
 use super::snapshot::{BoardView, ExperimentView, Notice, ScanView, Snapshot};
 use crate::discovery::{group, Identity, ScanPlan, Scanner, Shout};
-use crate::fleet::{BoardRow, CapTest, FleetPort, LineError};
+use crate::fleet::{BoardRow, CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
 use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
+use olc_control::BoardId;
 use olc_core::{CoinConfig, Hash};
 use olc_node::{Card, Hello};
 use olc_wallet::WalletError;
@@ -24,6 +26,7 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
 
 const PUBLISH_EVERY: Duration = Duration::from_millis(400);
 
@@ -79,7 +82,7 @@ fn bind_host(settings: &Settings) -> String {
 }
 
 /// Notices from threads the service started: key, detail, and whether it went well.
-type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
+pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
 struct Service {
     paths: Paths,
@@ -87,6 +90,7 @@ struct Service {
     host: Host,
     fleet: Option<Arc<dyn FleetPort>>,
     usb: bool,
+    brights: Brights,
     scanner: Scanner,
     shout: Shout,
     found: Found,
@@ -143,6 +147,7 @@ impl Service {
             host,
             fleet: launch.fleet,
             usb: launch.usb,
+            brights: Brights::default(),
             scanner: Scanner::start(),
             shout: Shout::start(),
             found: Found::default(),
@@ -244,6 +249,7 @@ impl Service {
                     self.say("notice.experiment_busy", String::new(), false);
                 }
             }
+            Command::ReadBright(board) => self.read_bright(board),
             Command::StartCapTest(board) => {
                 let words = [CapTest.command().to_string()];
                 let args = Args::parse(words.into_iter());
@@ -413,22 +419,16 @@ impl Service {
         self.scanner.look_now();
     }
 
-    fn board_line(&mut self, id: olc_control::BoardId, line: String) {
-        let Some(fleet) = self.fleet.clone() else {
-            return;
-        };
-        let late = self.late.clone();
-        thread::spawn(move || {
-            let (key, good) = match fleet.run_line(id, &line) {
-                Ok(()) => ("notice.board_done", true),
-                Err(LineError::Refused) => ("notice.board_refused", false),
-                Err(LineError::NoAnswer) => ("notice.board_silent", false),
-                Err(LineError::NotDone | LineError::BadRequest) => ("notice.board_failed", false),
-            };
-            if let Ok(mut late) = late.lock() {
-                late.push((key, line, good));
-            }
-        });
+    fn read_bright(&mut self, id: BoardId) {
+        if let Some(fleet) = self.fleet.clone() {
+            read_bright(fleet, self.brights.clone(), id);
+        }
+    }
+
+    fn board_line(&mut self, id: BoardId, line: String) {
+        if let Some(fleet) = self.fleet.clone() {
+            run_line(fleet, (self.late.clone(), self.brights.clone()), id, line);
+        }
     }
 
     fn plan_scan(&self) {
@@ -529,10 +529,12 @@ impl Service {
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());
+        let brights = self.brights.lock().map(|known| known.clone()).unwrap_or_default();
         let boards = rows
             .into_iter()
             .map(|row| BoardView {
                 reach: reach_of_board(&row),
+                bright: brights.get(&row.seen.id).copied(),
                 seen: row.seen,
                 job: row.job,
             })

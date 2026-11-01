@@ -108,6 +108,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.view_easy", "Easy"),
     ("boards.smooth", "Logo smoothness"),
     ("boards.frames_per_second", "frames per second, {} to {}"),
+    ("boards.bright", "Screen brightness"),
+    ("boards.bright_range", "0 to {}"),
     ("boards.name", "Board name"),
     ("boards.rename", "Rename"),
     ("boards.pay", "Pay from this board"),

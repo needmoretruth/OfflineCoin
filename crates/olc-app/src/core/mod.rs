@@ -1,5 +1,6 @@
 //! The work behind the window. The screen reads one [`Snapshot`] and sends [`Command`]s, so a slow
 //! board or a busy miner can never freeze it.
+mod board_lines;
 mod coins;
 mod commands;
 #[cfg(test)]

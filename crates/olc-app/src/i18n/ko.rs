@@ -108,6 +108,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.view_easy", "쉬운 말"),
     ("boards.smooth", "로고 부드러움"),
     ("boards.frames_per_second", "초당 프레임, {}에서 {}까지"),
+    ("boards.bright", "화면 밝기"),
+    ("boards.bright_range", "0에서 {}까지"),
     ("boards.name", "보드 이름"),
     ("boards.rename", "이름 바꾸기"),
     ("boards.pay", "이 보드에서 보내기"),

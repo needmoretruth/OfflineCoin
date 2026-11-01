@@ -38,6 +38,7 @@ pub enum Command {
     },
     UpdateBoard(BoardId),
     StartCapTest(BoardId),
+    ReadBright(BoardId),
     InstallBoard {
         path: String,
         name: String,

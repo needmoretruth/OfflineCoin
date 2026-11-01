@@ -23,6 +23,10 @@ pub trait FleetPort: Send + Sync {
     fn hello_of(&self, _board: BoardId) -> Option<Hello> {
         None
     }
+    /// The panel's stored brightness, as the board says. Blocks for up to a few seconds.
+    fn bright_of(&self, _board: BoardId) -> Option<u8> {
+        None
+    }
     /// The only boards an automatic update may touch.
     fn keep_updated(&self, _boards: BTreeSet<BoardId>) {}
     fn new_boards(&self) -> Vec<String>;
