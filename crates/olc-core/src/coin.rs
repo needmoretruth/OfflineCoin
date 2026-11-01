@@ -69,6 +69,10 @@ pub struct CoinConfig {
     /// Coins that exist from the start, as (address, base units).
     pub premine: Vec<(Address, u64)>,
     pub rules: Rules,
+    /// Also keeps the message as data in the genesis block, where anyone can read it. The default
+    /// coin's genesis came first, so it only hashes the message.
+    #[serde(default)]
+    pub message_in_block: bool,
 }
 
 impl CoinConfig {
@@ -83,11 +87,12 @@ impl CoinConfig {
             initial_difficulty: 900_000,
             premine: Vec::new(),
             rules: Rules::default(),
+            message_in_block: false,
         }
     }
 
     pub fn genesis(&self) -> Block {
-        let outputs: Vec<TxOut> = self
+        let mut outputs: Vec<TxOut> = self
             .premine
             .iter()
             .map(|(address, value)| TxOut {
@@ -96,6 +101,9 @@ impl CoinConfig {
                 lock: address.to_vec(),
             })
             .collect();
+        if self.message_in_block {
+            outputs.push(TxOut::data(self.message.as_bytes().to_vec()));
+        }
         let tx = Tx {
             version: 1,
             inputs: Vec::new(),

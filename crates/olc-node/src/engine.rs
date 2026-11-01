@@ -2,12 +2,13 @@
 use crate::event::{Event, Outgoing, Status};
 use crate::message::Message;
 use crate::refused::Refused;
+use crate::snapshot::{Fetching, History};
 use crate::sync::{Sync, BLOCKS_AT_ONCE};
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use olc_core::{
-    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Tx,
+    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Served, Tx,
 };
 use olc_wallet::{Wallet, WalletError};
 
@@ -20,25 +21,40 @@ const MAX_EVENTS: usize = 32;
 /// Own payments remembered, so their change does not read as money received.
 const MAX_SENT: usize = 16;
 const PEER_TIMEOUT_MS: u64 = 10_000;
+/// A data output larger than this stays out of this node's pool. Like Bitcoin's OP_RETURN limit
+/// this is a node's policy, and a block holding a larger one is still valid.
+pub const MOST_DATA: usize = 256;
+/// A coinbase note of up to this many bytes.
+pub const MOST_NOTE: usize = 64;
+/// Sectors of the saved state written per tick, so a save never stalls mining.
+const STATE_SECTORS_PER_TICK: usize = 1;
 
 pub struct Engine {
-    chain: Chain,
+    pub(crate) chain: Chain,
     wallet: Wallet,
-    pool: Vec<Tx>,
-    outbox: VecDeque<Outgoing>,
+    pub(crate) pool: Vec<Tx>,
+    pub(crate) outbox: VecDeque<Outgoing>,
     events: VecDeque<Event>,
-    candidate: Option<Block>,
+    pub(crate) candidate: Option<Block>,
     candidate_built_ms: u64,
     last_announce_ms: u64,
     /// Added to the device clock. Boards have no real-time clock, so they follow the chain.
     clock_offset_ms: u64,
-    now_ms: u64,
+    pub(crate) now_ms: u64,
     peers: BTreeMap<PeerId, u64>,
     refused: Refused,
-    sync: Sync,
+    pub(crate) sync: Sync,
     sent: VecDeque<Hash>,
-    /// Blocks accepted since the last `take_fresh_block`, for saving.
-    fresh: VecDeque<Block>,
+    /// Who mines here gets paid here. `None` pays the key that receives.
+    miner: Option<Address>,
+    /// Bytes every mined block carries in its coinbase.
+    note: Vec<u8>,
+    /// Merges a key's small coins into one when set.
+    merging: bool,
+    pub(crate) history: History,
+    pub(crate) fetching: Option<Fetching>,
+    /// The snapshot being handed to a peer.
+    pub(crate) serving: Option<(Vec<u8>, Hash)>,
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
     /// and boards ask for the status many times a second, so it runs once per tip.
     balance: Cell<Option<(Hash, u64)>>,
@@ -46,8 +62,13 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: CoinConfig, plugins: Plugins, wallet: Wallet) -> Self {
+        Self::on_chain(Chain::new(config, plugins), wallet)
+    }
+
+    /// A node on a chain that is already open, such as one with a store behind it.
+    pub fn on_chain(chain: Chain, wallet: Wallet) -> Self {
         Self {
-            chain: Chain::new(config, plugins),
+            chain,
             wallet,
             pool: Vec::new(),
             outbox: VecDeque::new(),
@@ -61,13 +82,66 @@ impl Engine {
             refused: Refused::default(),
             sync: Sync::default(),
             sent: VecDeque::new(),
-            fresh: VecDeque::new(),
+            miner: None,
+            note: Vec::new(),
+            merging: true,
+            history: History::default(),
+            fetching: None,
+            serving: None,
             balance: Cell::new(None),
         }
     }
 
     pub fn chain(&self) -> &Chain {
         &self.chain
+    }
+
+    pub fn chain_mut(&mut self) -> &mut Chain {
+        &mut self.chain
+    }
+
+    pub fn wallet(&self) -> &Wallet {
+        &self.wallet
+    }
+
+    /// Changes the wallet. The balance is counted again.
+    pub fn wallet_mut(&mut self) -> &mut Wallet {
+        self.balance.set(None);
+        self.candidate = None;
+        &mut self.wallet
+    }
+
+    /// Where mined coins go. `None` is the key that receives.
+    pub fn set_miner(&mut self, miner: Option<Address>) {
+        self.miner = miner;
+        self.candidate = None;
+    }
+
+    pub fn miner(&self) -> Address {
+        self.miner.unwrap_or_else(|| self.wallet.address())
+    }
+
+    /// True when mined coins go to an address chosen for this node.
+    pub fn miner_is_chosen(&self) -> bool {
+        self.miner.is_some()
+    }
+
+    /// Sets the bytes each mined block carries. Longer notes are cut to [`MOST_NOTE`].
+    pub fn set_note(&mut self, note: &[u8]) {
+        self.note = note[..note.len().min(MOST_NOTE)].to_vec();
+        self.candidate = None;
+    }
+
+    pub fn note(&self) -> &[u8] {
+        &self.note
+    }
+
+    pub fn set_merging(&mut self, merging: bool) {
+        self.merging = merging;
+    }
+
+    pub fn merging(&self) -> bool {
+        self.merging
     }
 
     pub fn peer_ids(&self) -> impl Iterator<Item = PeerId> + '_ {
@@ -88,6 +162,9 @@ impl Engine {
             pool: self.pool.len(),
             peers: self.peers.len(),
             syncing_to: self.syncing_to(),
+            needs_history: self.history.stuck(),
+            assumed_from: self.chain.assumed_from(),
+            fetching: self.fetching.as_ref().map(Fetching::progress),
         }
     }
 
@@ -114,24 +191,6 @@ impl Engine {
         self.candidate = None;
     }
 
-    /// Puts a block saved by an earlier run back. Call [`Engine::finish_restoring`] after the last.
-    pub fn restore_block(&mut self, block: Block) {
-        let _ = self.chain.add_block(block);
-    }
-
-    pub fn begin_restoring(&mut self) {
-        self.chain.begin_restoring();
-    }
-
-    pub fn finish_restoring(&mut self, tick: impl FnMut(usize, usize)) {
-        self.chain.finish_restoring(tick);
-    }
-
-    /// The next block to save. Call this regularly: the queue holds every new block.
-    pub fn take_fresh_block(&mut self) -> Option<Block> {
-        self.fresh.pop_front()
-    }
-
     pub fn take_outgoing(&mut self) -> Option<Outgoing> {
         self.outbox.pop_front()
     }
@@ -151,7 +210,10 @@ impl Engine {
             self.last_announce_ms = device_ms;
             self.announce(None);
         }
+        self.history.tick(self.chain.height(), device_ms);
+        self.keep_fetching();
         self.ask_for_blocks();
+        self.chain.keep_up(STATE_SECTORS_PER_TICK);
     }
 
     pub fn on_message(&mut self, from: PeerId, message: Message) {
@@ -171,15 +233,41 @@ impl Engine {
                     self.refused.add(tip);
                     return;
                 }
+                if self.history.lacks(from, self.chain.height(), height, self.now_ms) {
+                    return;
+                }
                 self.sync.heard(from, tip, height, work, self.now_ms);
                 self.ask_for_blocks();
             }
             Message::GetBlocks(locator) => {
-                for block in self.chain.blocks_after(&locator, BLOCKS_AT_ONCE) {
-                    let reply = Message::Block(block.clone());
-                    self.outbox.push_back(Outgoing::To(from, reply));
+                match self.chain.blocks_after(&locator, BLOCKS_AT_ONCE) {
+                    Served::Blocks(blocks) => {
+                        for block in blocks {
+                            let reply = Message::Block(block);
+                            self.outbox.push_back(Outgoing::To(from, reply));
+                        }
+                    }
+                    Served::Pruned { oldest } => {
+                        let reply = Message::Pruned { oldest };
+                        self.outbox.push_back(Outgoing::To(from, reply));
+                    }
                 }
             }
+            Message::Pruned { oldest } => {
+                let first_time = self.history.pruned(from, oldest, self.now_ms);
+                self.sync.drop_peer(from);
+                if first_time {
+                    self.push_event(Event::NeedsHistory { peer: from });
+                }
+            }
+            Message::GetSnapshot { part } => self.serve_snapshot(from, part),
+            Message::SnapshotPart {
+                sum,
+                part,
+                parts,
+                bytes,
+                ..
+            } => self.snapshot_part(from, sum, part, parts, bytes),
             Message::Block(block) => self.receive_block(from, block),
             Message::Control(_) | Message::Who | Message::Hello(_) => {}
             Message::Tx(tx) => {
@@ -202,6 +290,7 @@ impl Engine {
         if let Some(position) = self.sync.position() {
             locator.insert(0, position);
         }
+
         self.outbox
             .push_back(Outgoing::To(peer, Message::GetBlocks(locator)));
     }
@@ -228,10 +317,9 @@ impl Engine {
         };
         let height = self.chain.height() + 1;
         let old_tip = self.chain.tip();
-        if self.chain.add_block(block.clone()).is_err() {
+        if self.chain.add_block(block).is_err() {
             return false;
         }
-        self.fresh.push_back(block);
         self.push_event(Event::Mined { height });
         self.after_tip_change(old_tip);
         self.announce(None);
@@ -240,20 +328,56 @@ impl Engine {
 
     /// Signs a payment from this node's wallet and sends it to the network.
     pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
-        let reserved: Vec<OutPoint> = self
-            .pool
-            .iter()
-            .flat_map(|tx| tx.inputs.iter().map(|input| input.previous))
-            .collect();
+        let reserved = self.reserved();
         let tx = self.wallet.pay(&self.chain, to, amount, fee, &reserved)?;
+        self.push_event(Event::PaymentSent { amount });
+        Ok(self.send_own(tx))
+    }
+
+    /// Pays many addresses in one transaction.
+    pub fn pay_many(&mut self, payments: &[(Address, u64)], fee: u64) -> Result<Hash, WalletError> {
+        let reserved = self.reserved();
+        let tx = self.wallet.pay_many(&self.chain, payments, fee, &reserved)?;
+        let amount = payments.iter().map(|(_, amount)| *amount).sum();
+        self.push_event(Event::PaymentSent { amount });
+        Ok(self.send_own(tx))
+    }
+
+    /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
+    pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
+        let reserved = self.reserved();
+        let fee = self.chain.rules().min_fee;
+        let tx = self.wallet.note(&self.chain, data, fee, &reserved)?;
+        Ok(self.send_own(tx))
+    }
+
+    fn reserved(&self) -> Vec<OutPoint> {
+        let inputs = self.pool.iter().flat_map(|tx| &tx.inputs);
+        inputs.map(|input| input.previous).collect()
+    }
+
+    fn send_own(&mut self, tx: Tx) -> Hash {
         let id = tx.id();
         self.sent.push_back(id);
         if self.sent.len() > MAX_SENT {
             self.sent.pop_front();
         }
-        self.push_event(Event::PaymentSent { amount });
         self.receive_tx(None, tx);
-        Ok(id)
+        id
+    }
+
+    /// Merges small coins when a key has gathered many.
+    fn merge_coins(&mut self) {
+        if !self.merging {
+            return;
+        }
+        let reserved = self.reserved();
+        let fee = self.chain.rules().min_fee;
+        if let Some(tx) = self.wallet.merge(&self.chain, fee, &reserved) {
+            let inputs = tx.inputs.len();
+            self.send_own(tx);
+            self.push_event(Event::CoinsMerged { inputs });
+        }
     }
 
     /// Hands in a transaction from outside the network, such as a forged test transaction.
@@ -266,6 +390,10 @@ impl Engine {
             return false;
         }
         if self.pool.len() >= MAX_POOL {
+            return false;
+        }
+        if tx.outputs.iter().any(|out| out.is_data() && out.lock.len() > MOST_DATA) {
+            self.push_event(Event::DataRefused);
             return false;
         }
         match self.chain.check_tx(&tx, self.chain.height() + 1) {
@@ -314,19 +442,13 @@ impl Engine {
             self.stop_following(from);
             return;
         }
-        let copy = block.clone();
+        let height = block.txs.first().and_then(|tx| tx.coinbase_height);
         let outcome = self.chain.add_block(block);
         let connected = match outcome {
             Ok(AddOutcome::Orphan { .. }) => None,
-            _ => Some(id),
+            _ => height.map(|height| (height, id)),
         };
         self.sync.arrived(connected);
-        if matches!(
-            outcome,
-            Ok(AddOutcome::NewTip | AddOutcome::Reorganized { .. } | AddOutcome::SideBranch)
-        ) {
-            self.fresh.push_back(copy);
-        }
         match outcome {
             Ok(AddOutcome::NewTip) => {
                 let height = self.chain.height();
@@ -337,7 +459,12 @@ impl Engine {
                 self.push_event(Event::Reorganized { replaced, height });
             }
             Ok(AddOutcome::SideBranch) | Ok(AddOutcome::Orphan { .. }) => {}
-            Err(ChainError::AlreadyKnown) => {}
+            Err(ChainError::AlreadyKnown | ChainError::StoreFailed) => {}
+            Err(ChainError::ReorgTooDeep) => {
+                self.stop_following(from);
+                self.push_event(Event::ReorgRefused);
+                self.history.pruned(from, self.chain.height() + 2, self.now_ms);
+            }
             Err(reason) => {
                 self.refused.add_invalid(id, reason);
                 self.stop_following(from);
@@ -356,14 +483,13 @@ impl Engine {
     /// What the blocks that joined the best chain paid this wallet, leaving out mining rewards and
     /// the change of its own payments.
     fn received_since(&self, old_tip: &Hash) -> u64 {
-        let address = self.wallet.address();
         let (_, joined) = self.chain.branches_from(old_tip);
         joined
             .iter()
             .flat_map(|block| &block.txs)
             .filter(|tx| !tx.is_coinbase() && !self.sent.contains(&tx.id()))
             .flat_map(|tx| &tx.outputs)
-            .filter(|output| output.lock.as_slice() == address.as_slice())
+            .filter(|output| self.wallet.owns(&output.lock))
             .map(|output| output.value)
             .sum()
     }
@@ -377,6 +503,7 @@ impl Engine {
         let (left, joined) = self.chain.branches_from(&old_tip);
         if left.is_empty() {
             self.drop_spent();
+            self.merge_coins();
             return;
         }
         let confirmed: BTreeSet<Hash> = joined.iter().flat_map(|b| &b.txs).map(Tx::id).collect();
@@ -452,9 +579,10 @@ impl Engine {
         let now = device_ms + self.clock_offset_ms;
         match self.candidate.as_mut() {
             None => {
+                let miner = self.miner();
                 let block = self
                     .chain
-                    .block_template(&self.wallet.address(), &self.pool, now);
+                    .block_template_with(&miner, &self.pool, now, &self.note);
                 self.candidate = Some(block);
                 self.candidate_built_ms = device_ms;
             }
@@ -469,7 +597,7 @@ impl Engine {
         }
     }
 
-    fn push_event(&mut self, event: Event) {
+    pub(crate) fn push_event(&mut self, event: Event) {
         if self.events.len() >= MAX_EVENTS {
             self.events.pop_front();
         }

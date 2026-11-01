@@ -38,9 +38,13 @@ impl Consensus for ProofOfWork {
         scaled.clamp(1, u128::from(u64::MAX)) as u64
     }
 
-    fn try_seal(&self, header: &mut BlockHeader, attempts: u32) -> bool {
+    fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool {
+        Self::meets_target(&header.id(), difficulty)
+    }
+
+    fn try_meet(&self, header: &mut BlockHeader, difficulty: u64, attempts: u32) -> bool {
         for _ in 0..attempts {
-            if self.check_seal(header) {
+            if self.meets(header, difficulty) {
                 return true;
             }
             header.nonce = header.nonce.wrapping_add(1);

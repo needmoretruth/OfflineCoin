@@ -4,7 +4,7 @@ mod common;
 
 use common::{deliver, engine, engine_with_maturity, mine, silence};
 use olc_core::{ChainError, Hash};
-use olc_node::{Engine, Event};
+use olc_node::{Engine, Event, Message};
 
 const AMOUNT: u64 = 1_000;
 
@@ -188,7 +188,7 @@ fn a_reward_too_young_for_the_new_height_is_refused() {
         mine(&mut rich, block * 1_000);
     }
     let block = rich.chain().best_chain_from(1)[0].clone();
-    short.restore_block(block);
+    short.on_message(1, Message::Block(block));
     let to = engine(2).address();
     rich.pay(to, AMOUNT, 0).unwrap();
     mine(&mut rich, 5_000);

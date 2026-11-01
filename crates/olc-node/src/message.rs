@@ -16,7 +16,7 @@ pub enum Message {
         work: u128,
     },
     /// Asks for the blocks after the newest of these the peer also has.
-    GetBlocks(Vec<Hash>),
+    GetBlocks(Vec<(u64, Hash)>),
     Block(Block),
     Tx(Tx),
     /// Running boards from afar. Carried for whoever reads it; the chain ignores it.
@@ -25,6 +25,19 @@ pub enum Message {
     Who,
     /// The answer to [`Message::Who`].
     Hello(alloc::boxed::Box<Hello>),
+    /// This peer no longer holds the blocks that were asked for. `oldest` is its first one.
+    Pruned { oldest: u64 },
+    /// Asks for part of a peer's unspent set. Only ever sent because a person chose to.
+    GetSnapshot { part: u32 },
+    /// One part of a snapshot, about a kilobyte, whatever the transport.
+    SnapshotPart {
+        height: u64,
+        /// Hash of the whole snapshot.
+        sum: Hash,
+        part: u32,
+        parts: u32,
+        bytes: Vec<u8>,
+    },
 }
 
 impl Message {

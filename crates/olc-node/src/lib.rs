@@ -12,9 +12,11 @@ pub mod message;
 pub mod network;
 mod refused;
 pub mod runner;
+mod snapshot;
 mod sync;
+mod work;
 
-pub use engine::{Engine, PeerId};
+pub use engine::{Engine, PeerId, MOST_DATA, MOST_NOTE};
 pub use event::{Event, Outgoing, Status};
 pub use hello::{Card, Hello};
 pub use message::Message;

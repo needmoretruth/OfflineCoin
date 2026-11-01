@@ -29,7 +29,9 @@ pub fn engine_of(seed: u8, config: CoinConfig) -> Engine {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),
     };
-    Engine::new(config, plugins, Wallet::from_secret([seed; 32]).unwrap())
+    let mut engine = Engine::new(config, plugins, Wallet::from_secret([seed; 32]).unwrap());
+    engine.set_merging(false);
+    engine
 }
 
 /// Carries messages between `nodes` until all are quiet. A node's peer id is its index.

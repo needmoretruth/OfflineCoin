@@ -9,7 +9,7 @@ use olc_app::settings::Paths;
 use olc_core::coin::COIN;
 use olc_core::{Address, Block, Chain, CoinConfig, Plugins};
 use olc_pow::ProofOfWork;
-use olc_store::{load_or_create_secret, Store};
+use olc_store::{load_wallet, open_chain};
 use olc_wallet::{format_address, Wallet};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -184,18 +184,18 @@ impl Run {
 
 /// Checks a node's saved blocks from nothing, as a new node would, and counts who mined them.
 fn replay(coin: &CoinConfig, folder: &Path, paid: Option<&str>) -> (u64, u128, BTreeMap<String, u64>, Option<u64>) {
-    let (_, blocks) = Store::open(folder).expect("store");
-    let plugins = Plugins {
+    let plugins = || Plugins {
         consensus: Box::new(ProofOfWork),
         languages: olc_lang::all(),
     };
-    let mut chain = Chain::new(coin.clone(), plugins);
-    for block in blocks {
+    let saved = open_chain(folder, coin.clone(), plugins(), None).expect("store");
+    let mut chain = Chain::new(coin.clone(), plugins());
+    for block in saved.best_chain_from(1) {
         chain.add_block(block).expect("every saved block is valid");
     }
     let mut miners: BTreeMap<String, u64> = BTreeMap::new();
     let mut found = None;
-    let best: Vec<Block> = chain.best_chain_from(1).into_iter().cloned().collect();
+    let best: Vec<Block> = chain.best_chain_from(1);
     for (index, block) in best.iter().enumerate() {
         let lock: Address = block.txs[0].outputs[0].lock.as_slice().try_into().expect("address");
         *miners.entry(format_address(&lock)).or_default() += 1;
@@ -317,8 +317,7 @@ fn share_run(root: &Path, program: &Path) {
     let paths = Paths { root: root.to_path_buf() };
     let coin = new_coin("Share");
     let file = save_coin(&paths, &coin).expect("coin");
-    let shared_key = load_or_create_secret(&paths.wallet()).expect("wallet");
-    let shared = format_address(&Wallet::from_secret(shared_key).expect("key").address());
+    let shared = format_address(&load_wallet(&paths.wallet()).expect("wallet").address());
     let specs: Vec<NodeSpec> = (10..14)
         .map(|id| NodeSpec {
             wallet: if id < 12 { WalletChoice::Shared } else { WalletChoice::Own },

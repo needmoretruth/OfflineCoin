@@ -132,7 +132,6 @@ impl SimBoard {
                 self.dropped.insert(id, reason);
             }
         }
-        while self.runner.engine.take_fresh_block().is_some() {}
         self.runner.card.mining = self.mining;
         self.runner.card.hashrate = self.rate;
     }

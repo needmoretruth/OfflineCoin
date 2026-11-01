@@ -1,16 +1,26 @@
-//! Stores blocks, follows the chain with the most work and tracks unspent outputs.
+//! Follows the chain with the most work and tracks unspent outputs.
 //!
-//! The rule for simplicity: after any reorganisation the unspent set is rebuilt from genesis.
-//! That is slow on a chain with millions of blocks and instant on the chains this coin is for.
+//! Memory holds the unspent set and the headers near the tip. Block bodies live in the [`Log`],
+//! with what undoing each one takes, so a reorganisation walks back instead of starting over and a
+//! node can drop its oldest bodies without changing what it validates or mines.
 use crate::coin::{CoinConfig, Rules};
-use crate::ledger::{apply_block, spend_and_create, TxHeights};
+pub use crate::ledger::Unspent;
+use crate::ledger::{Found, Overlay, UnspentSet};
+use crate::log::{read_block_record, Kind, Log, NOWHERE};
+use crate::medium::{Keep, Medium, SECTOR};
 use crate::orphans::Orphans;
-use crate::plugin::{Plugins, RetargetInput, SpendContext};
+use crate::plugin::{Plugins, RetargetInput};
+use crate::rules;
+use crate::state::{Opened, Saving};
+use crate::tree::{window, Entries, Entry, Mark};
 use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
+
+/// A node keeps at least this many recent blocks, as Bitcoin Core's `-prune` does.
+pub const FEWEST_RECENT: u64 = 288;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChainError {
@@ -29,6 +39,10 @@ pub enum ChainError {
     UnknownLanguage,
     Overspend,
     FeeTooLow,
+    /// The other branch parts from this one below the blocks still held here.
+    ReorgTooDeep,
+    /// The block could not be written, so the node did not take it.
+    StoreFailed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,62 +57,51 @@ pub enum AddOutcome {
     Orphan { missing: Hash },
 }
 
-pub(crate) struct Entry {
-    pub(crate) block: Block,
-    pub(crate) height: u64,
-    total_work: u128,
-    /// Set once the transactions have been checked against this block's history.
-    validated: bool,
+/// How much of the chain a node holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    /// The oldest block of the best chain whose body is still here.
+    pub oldest: u64,
+    pub bytes: u64,
+    /// Bytes the store can hold, when it has a limit.
+    pub capacity: Option<u64>,
+    /// How many recent blocks are kept. `None` keeps all that fit.
+    pub recent: Option<u64>,
+    /// Blocks that fit, from the size of those held now.
+    pub fits: Option<u64>,
 }
-
-#[derive(Clone, Debug)]
-pub struct Unspent {
-    pub output: TxOut,
-    pub height: u64,
-    pub coinbase: bool,
-}
-
-pub(crate) type UnspentSet = BTreeMap<OutPoint, Unspent>;
 
 pub struct Chain {
-    config: CoinConfig,
-    plugins: Plugins,
-    genesis: Hash,
-    pub(crate) entries: BTreeMap<Hash, Entry>,
-    orphans: Orphans,
+    pub(crate) config: CoinConfig,
+    pub(crate) plugins: Plugins,
+    pub(crate) genesis: Hash,
+    pub(crate) genesis_block: Block,
+    pub(crate) entries: Entries,
+    /// A block of the best chain every so many heights, lowest first.
+    pub(crate) marks: Vec<Mark>,
+    pub(crate) orphans: Orphans,
     pub(crate) tip: Hash,
-    unspent: UnspentSet,
-    tx_heights: TxHeights,
-    /// While saved blocks come back: the heaviest seen so far, first come first.
-    restoring: Option<(Hash, u128)>,
+    pub(crate) unspent: UnspentSet,
+    pub(crate) found: Found,
+    pub(crate) log: Log,
+    /// The two places for the saved state.
+    pub(crate) places: [Box<dyn Medium>; 2],
+    pub(crate) recent: Option<u64>,
+    /// The peer whose unspent set this chain started from, if any.
+    pub(crate) assumed_from: Option<u32>,
+    pub(crate) opened: Opened,
+    /// Where the last whole saved state stops. Records after it are all a boot has to read.
+    pub(crate) saved_head: u64,
+    pub(crate) saved_seq: u64,
+    pub(crate) saved_height: u64,
+    pub(crate) saving: Option<Saving>,
+    pub(crate) state_too_big: bool,
 }
 
 impl Chain {
+    /// A chain held in memory only.
     pub fn new(config: CoinConfig, plugins: Plugins) -> Self {
-        let block = config.genesis();
-        let id = block.id();
-        let mut unspent = UnspentSet::new();
-        let mut tx_heights = TxHeights::new();
-        apply_block(&block, 0, &mut unspent, &mut tx_heights);
-        let entry = Entry {
-            block,
-            height: 0,
-            total_work: 0,
-            validated: true,
-        };
-        let mut entries = BTreeMap::new();
-        entries.insert(id, entry);
-        Self {
-            config,
-            plugins,
-            genesis: id,
-            entries,
-            orphans: Orphans::default(),
-            tip: id,
-            unspent,
-            tx_heights,
-            restoring: None,
-        }
+        Self::open(config, plugins, Keep::in_memory())
     }
 
     pub fn config(&self) -> &CoinConfig {
@@ -121,45 +124,230 @@ impl Chain {
         self.tip
     }
 
-    pub fn tip_header(&self) -> &BlockHeader {
-        &self.entries[&self.tip].block.header
+    pub(crate) fn tip_entry(&self) -> Entry {
+        self.entries[&self.tip]
+    }
+
+    pub fn tip_header(&self) -> BlockHeader {
+        self.tip_entry().header
     }
 
     pub fn height(&self) -> u64 {
-        self.entries[&self.tip].height
+        self.tip_entry().height
     }
 
     pub fn total_work(&self) -> u128 {
-        self.entries[&self.tip].total_work
+        self.tip_entry().total_work
     }
 
     pub fn contains(&self, id: &Hash) -> bool {
         self.entries.contains_key(id) || self.orphans.contains(id)
     }
 
-    pub fn block(&self, id: &Hash) -> Option<&Block> {
-        self.entries
-            .get(id)
-            .map(|entry| &entry.block)
-            .or_else(|| self.orphans.get(id))
+    /// The peer this chain's unspent set came from, when it did not come from blocks.
+    pub fn assumed_from(&self) -> Option<u32> {
+        self.assumed_from
     }
 
-    /// The best chain from `first` upward, in order.
-    pub fn best_chain_from(&self, first: u64) -> Vec<&Block> {
-        let mut blocks = Vec::new();
-        let mut cursor = self.tip;
-        while let Some(entry) = self.entries.get(&cursor) {
-            if entry.height < first {
-                break;
-            }
-            blocks.push(&entry.block);
-            if entry.height == 0 {
-                break;
-            }
-            cursor = entry.block.header.previous;
+    /// What happened when this chain opened its store.
+    pub fn opened(&self) -> Opened {
+        self.opened
+    }
+
+    /// True when the state has grown too big for its place, so boots take longer.
+    pub fn state_too_big(&self) -> bool {
+        self.state_too_big
+    }
+
+    pub(crate) fn window(&self) -> u64 {
+        window(self.config.rules.retarget_interval)
+    }
+
+    /// The block before `entry`, from memory or else from the log.
+    pub(crate) fn parent_of(&self, entry: &Entry) -> Option<Entry> {
+        if let Some(parent) = self.entries.get(&entry.header.previous) {
+            return Some(*parent);
         }
-        blocks.reverse();
-        blocks
+        if entry.parent_at == NOWHERE {
+            return None;
+        }
+        let meta = self.log.meta(entry.parent_at)?;
+        Some(Entry {
+            header: meta.header,
+            height: meta.height,
+            total_work: meta.total_work,
+            at: entry.parent_at,
+            parent_at: meta.parent_at,
+            validated: true,
+        })
+    }
+
+    /// The best chain's block at `height`, when the walk to it stays on held blocks.
+    pub(crate) fn best_entry_at(&self, height: u64) -> Option<Entry> {
+        let tip = self.tip_entry();
+        if height > tip.height {
+            return None;
+        }
+        let next = self.marks.partition_point(|mark| mark.height < height);
+        let start = self.marks.get(next).and_then(|mark| {
+            let known = self.entries.get(&mark.id).copied();
+            known.or_else(|| {
+                let meta = self.log.meta(mark.at)?;
+                Some(Entry {
+                    header: meta.header,
+                    height: meta.height,
+                    total_work: meta.total_work,
+                    at: mark.at,
+                    parent_at: meta.parent_at,
+                    validated: true,
+                })
+            })
+        });
+        let mut cursor = start.unwrap_or(tip);
+        while cursor.height > height {
+            cursor = self.parent_of(&cursor)?;
+        }
+        Some(cursor)
+    }
+
+    /// The id of the best chain's block at `height`. Very old blocks may have gone.
+    pub fn id_at(&self, height: u64) -> Option<Hash> {
+        if height == 0 {
+            return Some(self.genesis);
+        }
+        let next = self.marks.partition_point(|mark| mark.height < height);
+        match self.marks.get(next) {
+            Some(mark) if mark.height == height => Some(mark.id),
+            _ => self.best_entry_at(height).map(|entry| entry.header.id()),
+        }
+    }
+
+    pub(crate) fn body_of(&self, entry: &Entry) -> Option<Block> {
+        if entry.height == 0 {
+            return Some(self.genesis_block.clone());
+        }
+        let (kind, bytes) = self.log.record(entry.at)?;
+        (kind != Kind::Rewind).then(|| read_block_record(&bytes).map(|read| read.block))?
+    }
+
+    /// A block held here, by id. Only recent blocks can be found this way: use
+    /// [`Chain::blocks_from`] for the rest of the best chain.
+    pub fn block(&self, id: &Hash) -> Option<Block> {
+        let entry = self.entries.get(id);
+        entry
+            .and_then(|entry| self.body_of(entry))
+            .or_else(|| self.orphans.get(id).cloned())
+    }
+
+    /// Up to `most` blocks of the best chain from `first` upward, in order, stopping where the
+    /// held blocks stop.
+    pub fn blocks_from(&self, first: u64, most: usize) -> Vec<Block> {
+        let height = self.height();
+        if most == 0 || first > height {
+            return Vec::new();
+        }
+        let last = height.min(first.saturating_add(most as u64 - 1));
+        let mut path = Vec::new();
+        let mut cursor = self.best_entry_at(last);
+        while let Some(entry) = cursor {
+            path.push(entry);
+            if entry.height <= first {
+                break;
+            }
+            cursor = self.parent_of(&entry);
+        }
+        path.iter().rev().map_while(|entry| self.body_of(entry)).collect()
+    }
+
+    /// The best chain from `first` upward, as far as this node holds it. Reads every block, so a
+    /// long walk should go through [`Chain::blocks_from`] in pieces.
+    pub fn best_chain_from(&self, first: u64) -> Vec<Block> {
+        let mut blocks = Vec::new();
+        let mut next = first;
+        loop {
+            let part = self.blocks_from(next, 256);
+            let Some(last) = part.len().checked_sub(1) else {
+                return blocks;
+            };
+            next += last as u64 + 1;
+            blocks.extend(part);
+        }
+    }
+
+    /// The oldest block of the best chain whose body is still here.
+    pub fn oldest_held(&self) -> u64 {
+        let tail = self.log.tail();
+        let tip = self.tip_entry();
+        let next = self
+            .marks
+            .iter()
+            .find(|mark| mark.at != NOWHERE && mark.at >= tail)
+            .and_then(|mark| self.log.meta(mark.at).map(|meta| (mark, meta)));
+        let start = next.map(|(mark, meta)| Entry {
+            header: meta.header,
+            height: meta.height,
+            total_work: meta.total_work,
+            at: mark.at,
+            parent_at: meta.parent_at,
+            validated: true,
+        });
+        let mut cursor = start.unwrap_or(tip);
+        if cursor.at == NOWHERE {
+            return if cursor.height == 0 { 0 } else { cursor.height + 1 };
+        }
+        loop {
+            let Some(parent) = self.parent_of(&cursor) else {
+                return cursor.height;
+            };
+            if parent.height == 0 {
+                return 0;
+            }
+            if parent.at == NOWHERE || parent.at < tail {
+                return cursor.height;
+            }
+            cursor = parent;
+        }
+    }
+
+    /// How much of the chain this node holds, for showing.
+    pub fn held(&self) -> Held {
+        let oldest = self.oldest_held();
+        let blocks = (self.height() + 1).saturating_sub(oldest).max(1);
+        let bytes = self.log.held();
+        let capacity = Some(self.log.capacity()).filter(|size| *size != u64::MAX);
+        Held {
+            oldest,
+            bytes,
+            capacity,
+            recent: self.recent,
+            fits: capacity.map(|size| {
+                let each = (bytes / blocks).max(1);
+                (size.saturating_sub(SECTOR) / each).max(FEWEST_RECENT)
+            }),
+        }
+    }
+
+    /// Changes how many recent blocks are kept. `None` keeps all that fit.
+    pub fn set_recent(&mut self, recent: Option<u64>) {
+        self.recent = recent.map(|blocks| blocks.max(FEWEST_RECENT));
+        self.prune();
+    }
+
+    /// Lets go of bodies below the kept range, and never of what a boot still has to read.
+    pub(crate) fn prune(&mut self) {
+        let Some(recent) = self.recent else {
+            return;
+        };
+        let Some(cutoff) = self.height().checked_sub(recent) else {
+            return;
+        };
+        let next = self.marks.partition_point(|mark| mark.height <= cutoff);
+        let Some(mark) = next.checked_sub(1).and_then(|last| self.marks.get(last)) else {
+            return;
+        };
+        if mark.at != NOWHERE {
+            self.log.forget(mark.at.min(self.saved_head));
+        }
     }
 
     pub fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
@@ -168,6 +356,16 @@ impl Chain {
             .filter(|(_, entry)| entry.output.lock.as_slice() == address.as_slice())
             .map(|(point, entry)| (*point, entry.clone()))
             .collect()
+    }
+
+    /// A hash of the whole unspent set. Two nodes with the same one agree on every coin.
+    pub fn unspent_hash(&self) -> Hash {
+        olc_crypto::hash(&postcard::to_allocvec(&self.unspent).unwrap_or_default())
+    }
+
+    /// How many outputs the whole coin holds unspent.
+    pub fn unspent_count(&self) -> usize {
+        self.unspent.len()
     }
 
     /// Spendable balance: coinbase outputs count once they have matured.
@@ -188,29 +386,29 @@ impl Chain {
 
     /// The difficulty a block on top of `parent` must carry.
     pub fn next_difficulty(&self, parent: &Hash) -> u64 {
-        let Some(entry) = self.entries.get(parent) else {
-            return self.config.initial_difficulty;
-        };
+        match self.entries.get(parent) {
+            Some(entry) => self.difficulty_after(entry),
+            None => self.config.initial_difficulty,
+        }
+    }
+
+    pub(crate) fn difficulty_after(&self, entry: &Entry) -> u64 {
         let rules = &self.config.rules;
         let interval = rules.retarget_interval;
         let next_height = entry.height + 1;
         if interval == 0 || next_height % interval != 0 || next_height < interval {
-            return entry.block.header.difficulty;
+            return entry.header.difficulty;
         }
-        let mut first = entry;
+        let mut first = *entry;
         for _ in 1..interval {
-            match self.entries.get(&first.block.header.previous) {
+            match self.parent_of(&first) {
                 Some(previous) => first = previous,
                 None => break,
             }
         }
         let input = RetargetInput {
-            parent_difficulty: entry.block.header.difficulty,
-            actual_ms: entry
-                .block
-                .header
-                .time_ms
-                .saturating_sub(first.block.header.time_ms),
+            parent_difficulty: entry.header.difficulty,
+            actual_ms: entry.header.time_ms.saturating_sub(first.header.time_ms),
             expected_ms: rules.block_time_ms * (interval - 1),
         };
         self.plugins.consensus.next_difficulty(&input)
@@ -218,118 +416,8 @@ impl Chain {
 
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
     pub fn check_tx(&self, tx: &Tx, height: u64) -> Result<u64, ChainError> {
-        check_tx(tx, height, &self.unspent, &self.config.rules, &self.plugins)
-    }
-
-    /// Puts saved blocks back without following them yet, however often they changed branch in
-    /// the past. [`Chain::finish_restoring`] then checks the winning branch once.
-    pub fn begin_restoring(&mut self) {
-        self.restoring = Some((self.tip, self.total_work()));
-    }
-
-    /// Follows the heaviest branch that passes every check. `tick` hears how far that got.
-    pub fn finish_restoring(&mut self, mut tick: impl FnMut(usize, usize)) {
-        let Some((mut best, _)) = self.restoring.take() else {
-            return;
-        };
-        while best != self.genesis && self.replay(&best, &mut tick).is_err() {
-            self.entries.remove(&best);
-            let heaviest = self
-                .entries
-                .iter()
-                .max_by_key(|(_, entry)| entry.total_work);
-            best = heaviest.map_or(self.genesis, |(id, _)| *id);
-        }
-    }
-
-    /// Adds a block and follows it if its branch now has the most work.
-    pub fn add_block(&mut self, block: Block) -> Result<AddOutcome, ChainError> {
-        let id = block.id();
-        if self.entries.contains_key(&id) {
-            return Err(ChainError::AlreadyKnown);
-        }
-        if !self.plugins.consensus.check_seal(&block.header) {
-            return Err(ChainError::BadSeal);
-        }
-        if block.header.merkle_root != merkle_root(&block.txs) {
-            return Err(ChainError::BadMerkleRoot);
-        }
-        if block.size() as u64 > self.config.rules.max_block_bytes {
-            return Err(ChainError::TooLarge);
-        }
-        let previous = block.header.previous;
-        let Some(parent) = self.entries.get(&previous) else {
-            self.orphans.insert(id, block);
-            return Ok(AddOutcome::Orphan { missing: previous });
-        };
-        if block.header.time_ms <= parent.block.header.time_ms {
-            return Err(ChainError::BadTime);
-        }
-        if block.header.difficulty != self.next_difficulty(&previous) {
-            return Err(ChainError::BadDifficulty);
-        }
-        let height = parent.height + 1;
-        let total_work = parent.total_work + self.plugins.consensus.work(&block.header);
-        let extends_tip = previous == self.tip;
-
-        if let Some((best, best_work)) = &mut self.restoring {
-            if total_work > *best_work {
-                (*best, *best_work) = (id, total_work);
-            }
-            let entry = Entry {
-                block,
-                height,
-                total_work,
-                validated: false,
-            };
-            self.entries.insert(id, entry);
-            return Ok(AddOutcome::SideBranch);
-        }
-        if extends_tip {
-            check_block_body(
-                &block,
-                height,
-                &self.unspent,
-                &self.config.rules,
-                &self.plugins,
-            )?;
-            apply_block(&block, height, &mut self.unspent, &mut self.tx_heights);
-            self.entries.insert(
-                id,
-                Entry {
-                    block,
-                    height,
-                    total_work,
-                    validated: true,
-                },
-            );
-            self.tip = id;
-            return Ok(AddOutcome::NewTip);
-        }
-
-        self.entries.insert(
-            id,
-            Entry {
-                block,
-                height,
-                total_work,
-                validated: false,
-            },
-        );
-        if total_work <= self.total_work() {
-            return Ok(AddOutcome::SideBranch);
-        }
-        let old_height = self.height();
-        let fork_height = self.fork_height(&id);
-        match self.replay(&id, &mut |_, _| {}) {
-            Ok(()) => Ok(AddOutcome::Reorganized {
-                replaced: old_height - fork_height,
-            }),
-            Err(error) => {
-                self.entries.remove(&id);
-                Err(error)
-            }
-        }
+        let view = Overlay::new(&self.unspent);
+        rules::check_tx(tx, height, &view, &self.config.rules, &self.plugins)
     }
 
     /// False once `point` has been spent or was never made. Costs no signature checks.
@@ -339,20 +427,19 @@ impl Chain {
 
     /// The two sides of a move from `old_tip` to the best chain, each oldest block first: the
     /// blocks that left the best chain and the ones that joined it.
-    pub fn branches_from(&self, old_tip: &Hash) -> (Vec<&Block>, Vec<&Block>) {
+    pub fn branches_from(&self, old_tip: &Hash) -> (Vec<Block>, Vec<Block>) {
         let (mut left, mut joined) = (Vec::new(), Vec::new());
-        let (mut old, mut new) = (self.entries.get(old_tip), self.entries.get(&self.tip));
+        let (mut old, mut new) = (self.entries.get(old_tip).copied(), Some(self.tip_entry()));
         while let (Some(from), Some(to)) = (old, new) {
-            if from.block.id() == to.block.id() {
+            if from.header == to.header {
                 break;
             }
             if from.height >= to.height {
-                left.push(&from.block);
-                old = self.entries.get(&from.block.header.previous);
-            }
-            if to.height >= from.height {
-                joined.push(&to.block);
-                new = self.entries.get(&to.block.header.previous);
+                left.extend(self.body_of(&from));
+                old = self.parent_of(&from);
+            } else {
+                joined.extend(self.body_of(&to));
+                new = self.parent_of(&to);
             }
         }
         left.reverse();
@@ -365,12 +452,12 @@ impl Chain {
     pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
         let height = self.height() + 1;
         let rules = &self.config.rules;
-        let mut unspent = self.unspent.clone();
+        let mut view = Overlay::new(&self.unspent);
         let (mut kept, mut refused) = (Vec::new(), Vec::new());
         for tx in txs {
-            match check_tx(&tx, height, &unspent, rules, &self.plugins) {
+            match rules::check_tx(&tx, height, &view, rules, &self.plugins) {
                 Ok(_) => {
-                    spend_and_create(&tx, height, &mut unspent);
+                    view.apply(&tx, height, None);
                     kept.push(tx);
                 }
                 Err(reason) => refused.push((tx, reason)),
@@ -384,44 +471,55 @@ impl Chain {
         self.orphans.take_children(parent)
     }
 
-    /// The height of a transaction on the best chain.
+    /// The height of a recent transaction on the best chain.
     pub fn find_tx(&self, id: &Hash) -> Option<u64> {
-        self.tx_heights.get(id).copied()
+        self.found.height_of(id)
     }
 
     /// Selects transactions and builds an unsealed block on the tip.
     pub fn block_template(&self, miner: &Address, pool: &[Tx], time_ms: u64) -> Block {
+        self.block_template_with(miner, pool, time_ms, &[])
+    }
+
+    /// As [`Chain::block_template`], with `note` in a data output of the coinbase when it is not
+    /// empty.
+    pub fn block_template_with(
+        &self,
+        miner: &Address,
+        pool: &[Tx],
+        time_ms: u64,
+        note: &[u8],
+    ) -> Block {
         let height = self.height() + 1;
         let rules = &self.config.rules;
-        // Copying the unspent set is only worth it when there is something to check.
-        let mut unspent = if pool.is_empty() {
-            UnspentSet::new()
-        } else {
-            self.unspent.clone()
-        };
+        let mut view = Overlay::new(&self.unspent);
         let mut chosen = Vec::new();
         let mut fees = 0u64;
-        let mut bytes = 256u64;
+        let mut bytes = 256 + note.len() as u64;
         for tx in pool {
             let size = tx.encode().len() as u64;
             if bytes + size > rules.max_block_bytes {
                 continue;
             }
-            if let Ok(fee) = check_tx(tx, height, &unspent, rules, &self.plugins) {
-                spend_and_create(tx, height, &mut unspent);
+            if let Ok(fee) = rules::check_tx(tx, height, &view, rules, &self.plugins) {
+                view.apply(tx, height, None);
                 fees = fees.saturating_add(fee);
                 bytes += size;
                 chosen.push(tx.clone());
             }
         }
+        let mut outputs = vec![TxOut {
+            value: rules.reward_at(height).saturating_add(fees),
+            language: 0,
+            lock: miner.to_vec(),
+        }];
+        if !note.is_empty() {
+            outputs.push(TxOut::data(note.to_vec()));
+        }
         let coinbase = Tx {
             version: 1,
             inputs: Vec::new(),
-            outputs: vec![TxOut {
-                value: rules.reward_at(height).saturating_add(fees),
-                language: 0,
-                lock: miner.to_vec(),
-            }],
+            outputs,
             coinbase_height: Some(height),
         };
         let mut txs = vec![coinbase];
@@ -436,145 +534,4 @@ impl Chain {
         };
         Block { header, txs }
     }
-
-    fn fork_height(&self, new_tip: &Hash) -> u64 {
-        let mut on_best = BTreeSet::new();
-        let mut cursor = self.tip;
-        while let Some(entry) = self.entries.get(&cursor) {
-            on_best.insert(cursor);
-            if entry.height == 0 {
-                break;
-            }
-            cursor = entry.block.header.previous;
-        }
-        let mut cursor = *new_tip;
-        while let Some(entry) = self.entries.get(&cursor) {
-            if on_best.contains(&cursor) {
-                return entry.height;
-            }
-            cursor = entry.block.header.previous;
-        }
-        0
-    }
-
-    /// Replays the branch ending at `new_tip` from genesis and makes it the best chain.
-    /// Leaves the current state untouched when a block on the branch is invalid.
-    fn replay(
-        &mut self,
-        new_tip: &Hash,
-        tick: &mut dyn FnMut(usize, usize),
-    ) -> Result<(), ChainError> {
-        let mut path = Vec::new();
-        let mut cursor = *new_tip;
-        while let Some(entry) = self.entries.get(&cursor) {
-            path.push(cursor);
-            if entry.height == 0 {
-                break;
-            }
-            cursor = entry.block.header.previous;
-        }
-        path.reverse();
-        let mut unspent = UnspentSet::new();
-        let mut tx_heights = TxHeights::new();
-        for (done, id) in path.iter().enumerate() {
-            tick(done, path.len());
-            let entry = &self.entries[id];
-            if !entry.validated {
-                check_block_body(
-                    &entry.block,
-                    entry.height,
-                    &unspent,
-                    &self.config.rules,
-                    &self.plugins,
-                )?;
-            }
-            apply_block(&entry.block, entry.height, &mut unspent, &mut tx_heights);
-        }
-        for id in &path {
-            if let Some(entry) = self.entries.get_mut(id) {
-                entry.validated = true;
-            }
-        }
-        self.unspent = unspent;
-        self.tx_heights = tx_heights;
-        self.tip = *new_tip;
-        Ok(())
-    }
-}
-
-fn check_tx(
-    tx: &Tx,
-    height: u64,
-    unspent: &UnspentSet,
-    rules: &Rules,
-    plugins: &Plugins,
-) -> Result<u64, ChainError> {
-    let mut seen = BTreeSet::new();
-    let mut total_in = 0u64;
-    for (index, input) in tx.inputs.iter().enumerate() {
-        if !seen.insert(input.previous) {
-            return Err(ChainError::DuplicateInput);
-        }
-        let spent = unspent
-            .get(&input.previous)
-            .ok_or(ChainError::MissingInput)?;
-        if spent.coinbase && height < spent.height + rules.coinbase_maturity {
-            return Err(ChainError::ImmatureCoinbase);
-        }
-        let language = plugins
-            .language(spent.output.language)
-            .ok_or(ChainError::UnknownLanguage)?;
-        let context = SpendContext {
-            signature_hash: tx.signature_hash(index, &spent.output.lock),
-            height,
-        };
-        if !language.check(&spent.output.lock, &input.unlock, &context) {
-            return Err(ChainError::BadLock);
-        }
-        total_in = total_in.saturating_add(spent.output.value);
-    }
-    let total_out = tx
-        .outputs
-        .iter()
-        .fold(0u64, |sum, out| sum.saturating_add(out.value));
-    let fee = total_in
-        .checked_sub(total_out)
-        .ok_or(ChainError::Overspend)?;
-    if fee < rules.min_fee {
-        return Err(ChainError::FeeTooLow);
-    }
-    Ok(fee)
-}
-
-fn check_block_body(
-    block: &Block,
-    height: u64,
-    unspent: &UnspentSet,
-    rules: &Rules,
-    plugins: &Plugins,
-) -> Result<(), ChainError> {
-    let (coinbase, rest) = block.txs.split_first().ok_or(ChainError::NoCoinbase)?;
-    if !coinbase.is_coinbase() || coinbase.coinbase_height != Some(height) {
-        return Err(ChainError::BadCoinbase);
-    }
-    let mut fees = 0u64;
-    if !rest.is_empty() {
-        let mut working = unspent.clone();
-        for tx in rest {
-            if tx.is_coinbase() {
-                return Err(ChainError::BadCoinbase);
-            }
-            let fee = check_tx(tx, height, &working, rules, plugins)?;
-            fees = fees.saturating_add(fee);
-            spend_and_create(tx, height, &mut working);
-        }
-    }
-    let claimed = coinbase
-        .outputs
-        .iter()
-        .fold(0u64, |sum, out| sum.saturating_add(out.value));
-    if claimed > rules.reward_at(height).saturating_add(fees) {
-        return Err(ChainError::BadCoinbase);
-    }
-    Ok(())
 }

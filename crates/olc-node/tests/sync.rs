@@ -42,7 +42,7 @@ fn a_new_node_walks_forward_and_never_waits_on_a_parent() {
     let mut out_of_order = false;
     let mut last_height = 0;
     let asked = carry(&mut nodes, |_| false);
-    while let Some(block) = nodes[1].take_fresh_block() {
+    for block in nodes[1].chain().best_chain_from(1) {
         let height = block.txs[0].coinbase_height.unwrap();
         out_of_order |= height != last_height + 1;
         last_height = height;

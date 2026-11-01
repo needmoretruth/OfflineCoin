@@ -26,7 +26,7 @@ pub struct Sync {
     expected: usize,
     /// The newest block that came from the target, which may be on a branch the node has not
     /// moved to yet.
-    position: Option<Hash>,
+    position: Option<(u64, Hash)>,
 }
 
 impl Sync {
@@ -63,7 +63,7 @@ impl Sync {
         })
     }
 
-    pub fn position(&self) -> Option<Hash> {
+    pub fn position(&self) -> Option<(u64, Hash)> {
         self.position
     }
 
@@ -72,9 +72,16 @@ impl Sync {
     }
 
     /// A requested block arrived. Only one that connected moves the position.
-    pub fn arrived(&mut self, connected: Option<Hash>) {
+    pub fn arrived(&mut self, connected: Option<(u64, Hash)>) {
         self.expected = self.expected.saturating_sub(1);
         self.position = connected.or(self.position);
+    }
+
+    /// `peer` cannot give what is needed, so it is no target.
+    pub fn drop_peer(&mut self, peer: PeerId) {
+        if self.target.as_ref().is_some_and(|target| target.peer == peer) {
+            *self = Self::default();
+        }
     }
 
     /// `peer` sent something invalid. Returns its tip, which descends from it.

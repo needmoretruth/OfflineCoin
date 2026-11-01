@@ -18,6 +18,8 @@ struct CoinFile {
     initial_difficulty: u64,
     premine: Vec<Premine>,
     rules: Rules,
+    #[serde(default)]
+    message_in_block: bool,
 }
 
 impl From<&CoinConfig> for CoinFile {
@@ -38,6 +40,7 @@ impl From<&CoinConfig> for CoinFile {
             initial_difficulty: coin.initial_difficulty,
             premine,
             rules: coin.rules.clone(),
+            message_in_block: coin.message_in_block,
         }
     }
 }
@@ -58,6 +61,7 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
         initial_difficulty: file.initial_difficulty,
         premine,
         rules: file.rules,
+        message_in_block: file.message_in_block,
     })
 }
 
