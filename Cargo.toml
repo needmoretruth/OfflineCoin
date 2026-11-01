@@ -10,6 +10,8 @@ members = [
     "crates/olc-control",
     "crates/olc-link-tcp",
     "crates/olc-link-serial",
+    "crates/olc-link-ble",
+    "crates/olc-link-espnow",
     "crates/olc-logo",
     "crates/olc-board",
     "crates/olc-lab",

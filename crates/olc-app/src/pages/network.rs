@@ -10,6 +10,7 @@ use crate::ui::widgets::{
 };
 use crate::ui::Icon;
 use egui::{Align, Layout, Ui};
+use olc_node::Medium;
 
 const WEIGHTS: [f32; 7] = [1.5, 2.3, 0.9, 1.4, 0.8, 1.8, 0.8];
 
@@ -42,13 +43,24 @@ fn history_card(ui: &mut Ui, cx: &Cx) {
     ui.add_space(tokens::GAP);
 }
 
-fn reach_text(cx: &Cx, reach: &Reach) -> String {
+pub fn medium_text(cx: &Cx, medium: Medium) -> &'static str {
+    cx.say(match medium {
+        Medium::Wire => "reach.wired",
+        Medium::EspNow => "reach.espnow",
+        Medium::Bluetooth => "reach.bluetooth",
+        Medium::Wifi => "reach.wifi",
+    })
+}
+
+pub fn reach_text(cx: &Cx, reach: &Reach) -> String {
     match reach {
         Reach::ThisApp => cx.say("reach.this_app").into(),
         Reach::ThisComputer => cx.say("reach.this_computer").into(),
         Reach::Usb => cx.say("reach.usb").into(),
         Reach::Radio(Some(board)) => cx.fill("reach.radio_through", &[board]),
         Reach::Radio(None) => cx.say("reach.radio").into(),
+        Reach::Link(medium, Some(board)) => cx.fill("reach.link_through", &[board, medium_text(cx, *medium)]),
+        Reach::Link(medium, None) => medium_text(cx, *medium).into(),
         Reach::Lan => cx.say("reach.lan").into(),
         Reach::Internet => cx.say("reach.internet").into(),
     }

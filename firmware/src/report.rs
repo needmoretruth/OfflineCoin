@@ -63,7 +63,7 @@ impl Node {
              temp={:.1} reset={} panel_ms={} read_ms={} placed_ms={} loaded_ms={} smooth={} fps={} frame_us={} \
              power={} rssi={} bright={} busy={} clock={} network={} boot_wdt={} strap={:#x} key={} \
              name={} opened={} oldest={} held={} fits={} keep={} unspent={} miner={} merge={} \
-             needs={} assumed={} work_on={} light={}",
+             needs={} assumed={} work_on={} near={} dials={} moves={} links={} light={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -123,6 +123,10 @@ impl Node {
             status.needs_history.map_or(0, |(_, height)| height),
             status.assumed_from.map_or(-1, i64::from),
             self.work.is_some(),
+            self.runner.neighbour_count(),
+            self.runner.dials(),
+            self.runner.neighbours().iter().map(|near| near.moves).sum::<u32>(),
+            self.runner.rank().text(),
             self.runner.engine.light().map_or(0, |light| light.headers().held()),
         );
         self.say(line);

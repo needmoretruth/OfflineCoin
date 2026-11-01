@@ -152,6 +152,11 @@ impl Engine {
         self.peers.keys().copied()
     }
 
+    /// A peer turned out to be one already known by another id.
+    pub fn forget_peer(&mut self, peer: PeerId) {
+        self.peers.remove(&peer);
+    }
+
     pub fn address(&self) -> Address {
         self.wallet.address()
     }
@@ -291,6 +296,7 @@ impl Engine {
             Message::Control(_)
             | Message::Who
             | Message::Hello(_)
+            | Message::Here(_)
             | Message::Headers(_)
             | Message::Coin(_)
             | Message::CoinsEnd { .. } => {}

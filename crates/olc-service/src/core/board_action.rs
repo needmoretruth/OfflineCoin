@@ -23,6 +23,9 @@ pub enum BoardAction {
     Dial(String),
     DialOff,
     EspNow(bool),
+    Bluetooth(bool),
+    /// The order links are preferred in.
+    Links(String),
     RadioPower(i32),
     Ignore(String),
     HearEveryone,
@@ -98,6 +101,8 @@ impl BoardAction {
             Self::Dial(target) => format!("dial {}", word(target)?),
             Self::DialOff => "dial off".into(),
             Self::EspNow(on) => format!("espnow {}", on_off(*on)),
+            Self::Bluetooth(on) => format!("bluetooth {}", on_off(*on)),
+            Self::Links(order) => format!("links {}", word(order)?),
             Self::RadioPower(dbm) => format!("power {dbm}"),
             Self::Ignore(peer) => format!("ignore {}", word(peer)?),
             Self::HearEveryone => "ignore none".into(),

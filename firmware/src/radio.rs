@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use esp_radio::esp_now::{EspNow, EspNowWifiInterface, PeerInfo, BROADCAST_ADDRESS};
 use olc_node::fragment::{split, Reassembler};
 use olc_node::network::{self, Mark};
-use olc_node::{Link, Target};
+use olc_node::{Link, Medium, Target};
 
 const FRAME_SIZE: usize = 250;
 /// What one frame to a known board holds. Everyone runs the same radio library, whose frames
@@ -110,6 +110,10 @@ impl RadioLink {
 }
 
 impl Link for RadioLink {
+    fn medium(&self) -> Medium {
+        Medium::EspNow
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         if !ENABLED.load(Ordering::Relaxed) {
             return;

@@ -11,7 +11,6 @@ use crate::wifi::Network;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
-use core::sync::atomic::Ordering;
 use esp_hal::gpio::Input;
 use esp_hal::time::Instant;
 use esp_println::println;
@@ -172,6 +171,7 @@ impl Node {
         }
         let now = device_ms();
         self.runner.step(now);
+        self.report_moves();
         self.serve_control(now);
         while let Some(line) = self.next_command() {
             self.run_command(&line);
@@ -443,9 +443,7 @@ impl Node {
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
-            (Some("espnow"), Some(state), _) => {
-                radio::ENABLED.store(state == "on", Ordering::Relaxed);
-            }
+            (Some("espnow" | "bluetooth" | "links" | "near" | "wires"), _, _) => self.run_links_command(line),
             (Some("pay"), Some(address), Some(amount)) => self.pay(address, amount),
             (Some("pool"), Some("clear"), _) => self.runner.engine.clear_pool(),
             (Some("tx"), Some(id), _) => self.print_tx(id),

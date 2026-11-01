@@ -1,7 +1,7 @@
 //! The board's side of `olc-control`: hears packets on any link, passes on what is not for it,
 //! and obeys what the gate lets through.
 use crate::node::{hex, Node};
-use crate::node::{LINK_RADIO, LINK_USB};
+use crate::node::LINK_USB;
 use crate::store::{Identity, Store};
 use crate::views::Note;
 use crate::wifi;
@@ -171,6 +171,7 @@ impl Node {
             mining: self.mining,
             hashrate: u64::from(self.rate),
             known: Vec::new(),
+            via: Default::default(),
         }
     }
 
@@ -179,11 +180,11 @@ impl Node {
         let cabled = crate::usb::host_spoke();
         if cabled && now >= self.control.ask_around_ms {
             self.control.ask_around_ms = now + ASK_AROUND_EVERY_MS;
-            self.runner.ask_who_on(LINK_RADIO);
+            self.runner.ask_who();
         }
-        while let Some((_, hello)) = self.runner.take_hello() {
+        while let Some((peer, hello)) = self.runner.take_hello() {
             if cabled {
-                self.runner.pass_hello(LINK_USB, hello);
+                self.runner.pass_hello(LINK_USB, peer, hello);
             }
         }
     }

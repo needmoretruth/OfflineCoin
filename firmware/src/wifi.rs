@@ -23,7 +23,7 @@ use esp_radio::wifi::ap::AccessPointConfig;
 use esp_radio::wifi::sta::StationConfig;
 use esp_radio::wifi::{AuthenticationMethodConfig, Config, Interface, WifiController};
 use olc_node::frame::{encode, Decoder};
-use olc_node::{Link, Target};
+use olc_node::{Link, Medium, News, Target};
 use static_cell::StaticCell;
 
 pub const CHANNEL: u8 = 1;
@@ -35,6 +35,9 @@ const SOCKET_BUFFER: usize = 2_048;
 const QUEUE_LIMIT: usize = 32;
 const SEND_CHECK: Duration = Duration::from_millis(20);
 const RETRY: Duration = Duration::from_secs(3);
+/// The router is looked for less often the longer it stays away.
+const LONGEST_RETRY: Duration = Duration::from_secs(60);
+const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What the connection tasks share with the node.
 #[derive(Default)]
@@ -42,6 +45,11 @@ struct Hub {
     received: VecDeque<(u32, Vec<u8>)>,
     outgoing: [VecDeque<Vec<u8>>; SLOTS],
     open: [bool; SLOTS],
+    /// Set to end a connection from the node's side.
+    closing: [bool; SLOTS],
+    news: VecDeque<News>,
+    /// The node asked for the one address this board dials.
+    dial_ordered: bool,
 }
 
 type SharedHub = Rc<RefCell<Hub>>;
@@ -53,6 +61,10 @@ pub struct WifiLink(SharedHub);
 unsafe impl Send for WifiLink {}
 
 impl Link for WifiLink {
+    fn medium(&self) -> Medium {
+        Medium::Wifi
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         let mut hub = self.0.borrow_mut();
         let frame = encode(message);
@@ -70,6 +82,24 @@ impl Link for WifiLink {
 
     fn receive(&mut self) -> Option<(u32, Vec<u8>)> {
         self.0.borrow_mut().received.pop_front()
+    }
+
+    fn dial(&mut self, _address: &str) {
+        self.0.borrow_mut().dial_ordered = true;
+    }
+
+    fn cancel(&mut self, _address: &str) {
+        self.0.borrow_mut().dial_ordered = false;
+    }
+
+    fn close(&mut self, number: u32) {
+        if let Some(slot) = self.0.borrow_mut().closing.get_mut(number as usize) {
+            *slot = true;
+        }
+    }
+
+    fn news(&mut self) -> Option<News> {
+        self.0.borrow_mut().news.pop_front()
     }
 }
 
@@ -95,11 +125,14 @@ async fn run_stack(mut runner: NetRunner<'static, Interface>) {
 
 #[embassy_executor::task]
 async fn stay_on_router(mut controller: WifiController<'static>) {
+    let mut wait = RETRY;
     loop {
         if controller.connect_async().await.is_ok() {
+            wait = RETRY;
             let _ = controller.wait_for_disconnect_async().await;
         }
-        Timer::after(RETRY).await;
+        Timer::after(wait).await;
+        wait = (wait + wait).min(LONGEST_RETRY);
     }
 }
 
@@ -126,6 +159,23 @@ async fn hand_out_addresses(stack: Stack<'static>) {
     }
 }
 
+/// Dials once, when the node asks. Says how it went.
+async fn dial_once(socket: &mut TcpSocket<'_>, stack: Stack<'static>, hub: &SharedHub, target: SocketAddrV4) -> bool {
+    while !core::mem::take(&mut hub.borrow_mut().dial_ordered) {
+        Timer::after(SEND_CHECK).await;
+    }
+    let reached = with_timeout(DIAL_TIMEOUT, async {
+        stack.wait_config_up().await;
+        socket.connect((*target.ip(), target.port())).await.is_ok()
+    });
+    let connected = reached.await.unwrap_or(false);
+    if !connected {
+        let address = alloc::format!("{target}");
+        hub.borrow_mut().news.push_back(News::Failed { address });
+    }
+    connected
+}
+
 /// One TCP connection, accepted on `PORT` or dialled when `dial` is set.
 #[embassy_executor::task(pool_size = SLOTS)]
 async fn connection(
@@ -141,21 +191,27 @@ async fn connection(
         socket.set_timeout(Some(Duration::from_secs(30)));
         socket.set_keep_alive(Some(Duration::from_secs(10)));
         let connected = match dial {
-            Some(target) => {
-                stack.wait_config_up().await;
-                socket.connect((*target.ip(), target.port())).await.is_ok()
-            }
+            Some(target) => dial_once(&mut socket, stack, &hub, target).await,
             None => socket.accept(PORT).await.is_ok(),
         };
         if connected {
-            hub.borrow_mut().open[slot] = true;
+            {
+                let mut hub = hub.borrow_mut();
+                hub.open[slot] = true;
+                hub.closing[slot] = false;
+                let address = dial.map(|target| alloc::format!("{target}"));
+                hub.news.push_back(News::Opened { number: slot as u32, address });
+            }
             serve(&mut socket, &hub, slot).await;
             let mut hub = hub.borrow_mut();
             hub.open[slot] = false;
             hub.outgoing[slot].clear();
+            hub.news.push_back(News::Closed { number: slot as u32 });
         }
         socket.abort();
-        Timer::after(RETRY).await;
+        if dial.is_none() {
+            Timer::after(RETRY).await;
+        }
     }
 }
 
@@ -163,6 +219,9 @@ async fn serve(socket: &mut TcpSocket<'_>, hub: &SharedHub, slot: usize) {
     let mut decoder = Decoder::default();
     let mut bytes = [0u8; 512];
     loop {
+        if hub.borrow().closing[slot] {
+            return;
+        }
         loop {
             let frame = hub.borrow_mut().outgoing[slot].pop_front();
             let Some(frame) = frame else { break };

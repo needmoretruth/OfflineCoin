@@ -85,6 +85,12 @@ pub struct Settings {
     pub bright: String,
     /// `on` brings up the board's own network. Empty means down.
     pub own_network: String,
+    /// Processor speed in MHz. Empty means the default.
+    pub clock: String,
+    /// `on` starts Bluetooth. Empty means off.
+    pub bluetooth: String,
+    /// The order links are preferred in. Empty means the usual one.
+    pub links: String,
     /// Where mined coins go. Empty means this board's own key.
     pub miner: String,
     /// Words to put in each mined block, as hex.
@@ -95,8 +101,6 @@ pub struct Settings {
     pub merge: String,
     /// "on" holds headers only, and asks full nodes for its coins.
     pub light: String,
-    /// Processor speed in MHz. Empty means the default.
-    pub clock: String,
 }
 
 /// Who may command this board, and what it is called.
@@ -228,18 +232,20 @@ impl Store {
             power: lines.next().unwrap_or_default(),
             bright: lines.next().unwrap_or_default(),
             own_network: lines.next().unwrap_or_default(),
+            clock: lines.next().unwrap_or_default(),
+            bluetooth: lines.next().unwrap_or_default(),
+            links: lines.next().unwrap_or_default(),
             miner: choice.next().unwrap_or_default(),
             note: choice.next().unwrap_or_default(),
             recent: choice.next().unwrap_or_default(),
             merge: choice.next().unwrap_or_default(),
-            clock: lines.next().unwrap_or_default(),
             light: choice.next().unwrap_or_default(),
         }
     }
 
     pub fn save_settings(&mut self, settings: &Settings) {
         let text = alloc::format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             settings.ssid,
             settings.password,
             settings.dial,
@@ -252,6 +258,8 @@ impl Store {
             settings.bright,
             settings.own_network,
             settings.clock,
+            settings.bluetooth,
+            settings.links,
         );
         write_text(&SETTINGS, &text);
         let choices = alloc::format!(

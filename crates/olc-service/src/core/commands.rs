@@ -5,6 +5,7 @@ use crate::settings::Settings;
 use olc_board::Args;
 use olc_control::BoardId;
 use olc_core::CoinConfig;
+use olc_node::Rank;
 use olc_store::coin_file::NewCoin;
 
 /// Which coin the first screen settled on.
@@ -56,6 +57,7 @@ pub enum Personal {
     Sign(String),
     /// Sends the signed payment in this file.
     Broadcast(String),
+    SetLinks(Rank),
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),
@@ -77,6 +79,8 @@ pub enum Command {
         amount: String,
     },
     AddAddress(String),
+    /// The order links are preferred in, here and on the boards.
+    SetLinks(Rank),
     Rescan,
     OpenDataFolder,
     Board {

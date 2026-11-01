@@ -10,6 +10,12 @@ repository.workspace = true
 name = "olc"
 path = "src/main.rs"
 
+[features]
+# Bluetooth, on Linux with BlueZ and the D-Bus library.
+ble = ["dep:olc-link-ble", "olc-link-ble/bluez"]
+# ESP-NOW, on Linux with a Wi-Fi card in monitor mode.
+espnow = ["dep:olc-link-espnow", "olc-link-espnow/card"]
+
 [dependencies]
 olc-core.workspace = true
 olc-crypto.workspace = true
@@ -20,6 +26,8 @@ olc-node.workspace = true
 olc-platform.workspace = true
 olc-link-tcp.workspace = true
 olc-link-serial.workspace = true
+olc-link-ble = { path = "../olc-link-ble", optional = true }
+olc-link-espnow = { path = "../olc-link-espnow", optional = true }
 olc-logo.workspace = true
 olc-board.workspace = true
 olc-control.workspace = true
@@ -27,5 +35,6 @@ olc-service.workspace = true
 olc-lab.workspace = true
 olc-store.workspace = true
 serde_json.workspace = true
+getrandom = "0.3"
 ctrlc = { version = "3.5", features = ["termination"] }
 tiny_http = "0.12"

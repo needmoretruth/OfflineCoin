@@ -1,0 +1,15 @@
+[package]
+name = "olc-link-espnow"
+description = "ESP-NOW for a Linux computer whose Wi-Fi card can listen and send in monitor mode."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Opens the card itself. The frame format below needs no system at all.
+card = ["dep:pnet_datalink"]
+
+[dependencies]
+olc-node.workspace = true
+pnet_datalink = { version = "0.35", optional = true }

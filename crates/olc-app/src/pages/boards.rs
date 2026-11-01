@@ -1,7 +1,6 @@
 //! Every board this app can reach, and what can be done to one.
 use super::{Cx, Page};
 use crate::core::{BoardAction, BoardView, Command};
-use crate::discovery::Reach;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
@@ -48,11 +47,7 @@ fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
 }
 
 fn connection(cx: &Cx, board: &BoardView) -> String {
-    match &board.reach {
-        Reach::Usb => cx.say("reach.usb").into(),
-        Reach::Radio(Some(through)) => cx.fill("reach.radio_through", &[through]),
-        _ => cx.say("reach.radio").into(),
-    }
+    super::network::reach_text(cx, &board.reach)
 }
 
 /// A job is a word from the manager, or how far an update got.
@@ -222,6 +217,14 @@ impl Boards {
                 }
             }
             meta(ui, cx.say("boards.wifi_note"), t);
+        });
+        labelled(ui, cx.say("boards.bluetooth"), |ui| {
+            for (key, on) in [("boards.wifi_on", true), ("boards.wifi_off", false)] {
+                if button(ui, t, cx.say(key), Kind::Plain).clicked() {
+                    Self::tell(cx, id, BoardAction::Bluetooth(on));
+                }
+            }
+            meta(ui, cx.say("boards.bluetooth_note"), t);
         });
         labelled(ui, cx.say("boards.name"), |ui| {
             field(ui, &mut self.name, cx.say("boards.name"), 200.0);
@@ -409,7 +412,11 @@ mod tests {
 
     fn drawn(state: Scene) -> Harness<'static, Scene> {
         let mut fonts_set = false;
-        let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 900.0)).build_ui_state(
+        // The number fields have no names yet. The screens pass gives them theirs.
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1280.0, 900.0))
+            .with_accessibility_check(false)
+            .build_ui_state(
             move |ui, (page, snap, settings, core): &mut Scene| {
                 // New fonts apply from the next frame, and the first has none to draw with.
                 if !fonts_set {

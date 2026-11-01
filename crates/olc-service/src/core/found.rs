@@ -1,8 +1,9 @@
 //! What the look around has found so far, remembered between looks.
+use super::rows::BOARD_KIND;
 use crate::discovery::{reach_of, Entry, Identity, Reach, Work};
 use olc_core::Address;
 use olc_node::hello::MAX_KNOWN;
-use olc_node::Hello;
+use olc_node::{Hello, Medium};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -26,6 +27,13 @@ pub struct Found {
     known: BTreeMap<String, Known>,
     /// What boards said over their links, by the address they mine to.
     boards: BTreeMap<Address, Hello>,
+    /// Computers a board hears, which have no address on this network either.
+    computers: BTreeMap<Address, (Hello, Instant)>,
+}
+
+/// The link the board that passed this on hears it over.
+pub fn link_of(hello: &Hello) -> Option<Medium> {
+    Medium::from_name(&hello.card.via.0)
 }
 
 fn device_ip(address: &str) -> Option<std::net::IpAddr> {
@@ -70,7 +78,10 @@ impl Found {
     }
 
     pub fn board_said(&mut self, hello: Hello) {
-        self.boards.insert(hello.address, hello);
+        match hello.card.device == BOARD_KIND {
+            true => self.boards.insert(hello.address, hello),
+            false => self.computers.insert(hello.address, (hello, Instant::now())).map(|(old, _)| old),
+        };
     }
 
     pub fn board(&self, address: &Address) -> Option<&Hello> {
@@ -90,6 +101,7 @@ impl Found {
     pub fn forget_old(&mut self) {
         self.known
             .retain(|_, known| known.added || known.heard.elapsed() < FORGET_AFTER);
+        self.computers.retain(|_, (_, heard)| heard.elapsed() < FORGET_AFTER);
     }
 
     /// Addresses others can use: this computer's own mean nothing to them.
@@ -121,8 +133,15 @@ impl Found {
             })
             .filter(|(_, known)| known.hello.is_some() || known.added)
             .map(|(address, known)| entry_of(address, known))
+            .chain(self.computers.values().filter(|(hello, _)| hello.address != own.0).map(entry_through_board))
             .collect()
     }
+}
+
+fn entry_through_board((hello, heard): &(Hello, Instant)) -> Entry {
+    let known = Known { hello: Some(hello.clone()), via: None, heard: *heard, added: false };
+    let reach = link_of(hello).map_or(Reach::Radio(None), |medium| Reach::Link(medium, None));
+    Entry { reach, address: None, ..entry_of("", &known) }
 }
 
 fn entry_of(address: &str, known: &Known) -> Entry {
@@ -186,6 +205,20 @@ mod tests {
             heard,
             added: false,
         }
+    }
+
+    #[test]
+    fn a_computer_a_board_hears_gets_a_row_naming_its_link() {
+        let mut found = Found::default();
+        let mut hello = known(Instant::now()).hello.unwrap();
+        hello.address = [7; 20];
+        hello.card.device = "computer".into();
+        hello.card.via = "bluetooth".into();
+        found.board_said(hello);
+        let rows = found.entries(([0; 20], 0));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reach, Reach::Link(Medium::Bluetooth, None));
+        assert!(found.entries(([7; 20], 0)).is_empty(), "this app's own node needs no second row");
     }
 
     #[test]
