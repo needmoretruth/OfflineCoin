@@ -49,6 +49,10 @@ impl BoardLink for Fake {
 
 static NEXT_JOURNAL: AtomicUsize = AtomicUsize::new(0);
 
+/// For runs whose tips never agree: long enough for a slow machine to reach `line_up`, where the
+/// run waits out the rest.
+const UNTIL_LINE_UP: Duration = Duration::from_secs(1);
+
 fn quiet() -> Say {
     Arc::new(|_| {})
 }
@@ -91,7 +95,7 @@ fn a_failed_run_puts_both_boards_back() {
         &mut a,
         &mut v,
         None,
-        &plan(Duration::from_millis(40)),
+        &plan(UNTIL_LINE_UP),
         &quiet(),
         &stop,
     );
@@ -143,7 +147,7 @@ fn a_helper_leaves_every_cap_alone_and_is_put_back() {
         &mut a,
         &mut v,
         Some(&mut h),
-        &plan(Duration::from_millis(40)),
+        &plan(UNTIL_LINE_UP),
         &quiet(),
         &stop,
     );
