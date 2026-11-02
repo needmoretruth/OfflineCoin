@@ -3,7 +3,7 @@
 //!
 //! A proof shows a coin is in a block. It cannot show the coin is still unspent or that no coin
 //! is missing, so those two rest on the peer that answered.
-use crate::engine::PeerId;
+use crate::engine::{hear_peer, PeerId};
 use crate::event::Outgoing;
 use crate::message::Message;
 use crate::sync::Sync;
@@ -74,8 +74,8 @@ impl Coins for Light {
     }
 
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
-        let maturity = self.coin.rules_at(spend_height).coinbase_maturity;
-        !entry.coinbase || spend_height >= entry.height.saturating_add(maturity)
+        let rules = self.coin.rules_at(spend_height);
+        !entry.coinbase || spend_height >= rules.matures_at(entry.height)
     }
 }
 
@@ -196,10 +196,10 @@ impl Light {
     }
 
     pub fn on_message(&mut self, from: PeerId, message: Message, chain: &Chain) {
-        self.peers.insert(from, self.now_ms);
+        hear_peer(&mut self.peers, from, self.now_ms);
         match message {
-            Message::Tip { genesis, tip, height, work, .. } if genesis == chain.genesis_id() => {
-                self.sync.heard(from, tip, height, work, self.now_ms);
+            Message::Tip { genesis, height, work, .. } if genesis == chain.genesis_id() => {
+                self.sync.heard(from, height, work, self.now_ms);
                 if work >= self.headers.work() {
                     self.newest_peer = Some(from);
                 }
@@ -212,7 +212,7 @@ impl Light {
                 if self.take_headers(&batch, chain) {
                     self.sync.answered(batch.len(), self.headers.position(), self.now_ms);
                 } else {
-                    self.sync.give_up_on(from);
+                    self.sync.give_up_on(from, self.now_ms);
                 }
             }
             Message::Pruned { oldest } => {

@@ -19,6 +19,7 @@ members = [
     "crates/olc-pool",
     "crates/olc-store",
     "crates/olc-app",
+    "crates/olc-fuzz",
 ]
 # The firmware targets Xtensa and has its own workspace.
 exclude = ["firmware", "crates/olc-compat"]

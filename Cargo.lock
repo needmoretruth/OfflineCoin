@@ -231,12 +231,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 
 [[package]]
-name = "ascii"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
-
-[[package]]
 name = "ash"
 version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,12 +680,6 @@ dependencies = [
  "poly1305",
  "zeroize",
 ]
-
-[[package]]
-name = "chunked_transfer"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
 name = "cipher"
@@ -1886,12 +1874,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "httpdate"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
-
-[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2798,25 +2780,19 @@ dependencies = [
 name = "olc-cli"
 version = "0.1.0"
 dependencies = [
- "ctrlc",
- "getrandom 0.3.4",
  "olc-board",
  "olc-control",
  "olc-core",
- "olc-crypto",
  "olc-lab",
  "olc-lang",
  "olc-link-serial",
- "olc-link-tcp",
  "olc-logo",
  "olc-node",
- "olc-platform",
  "olc-pow",
  "olc-service",
  "olc-store",
  "olc-wallet",
- "serde_json",
- "tiny_http",
+ "rpassword",
 ]
 
 [[package]]
@@ -2843,6 +2819,26 @@ version = "0.1.0"
 dependencies = [
  "k256",
  "sha2",
+]
+
+[[package]]
+name = "olc-fuzz"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "olc-board",
+ "olc-control",
+ "olc-core",
+ "olc-crypto",
+ "olc-lang",
+ "olc-link-espnow",
+ "olc-link-tcp",
+ "olc-node",
+ "olc-pool",
+ "olc-pow",
+ "olc-store",
+ "olc-wallet",
+ "postcard",
 ]
 
 [[package]]
@@ -3527,6 +3523,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a1efe12a1469752d0e6ff5ebec0b6ef4924cc5c4c71046b0ec730040535819d"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4064,18 +4081,6 @@ dependencies = [
  "quick-error",
  "weezl",
  "zune-jpeg",
-]
-
-[[package]]
-name = "tiny_http"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
-dependencies = [
- "ascii",
- "chunked_transfer",
- "httpdate",
- "log",
 ]
 
 [[package]]

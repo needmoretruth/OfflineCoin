@@ -163,15 +163,24 @@ pub(crate) fn pair_hash(left: &Hash, right: &Hash) -> Hash {
 
 /// Bitcoin's Merkle tree: hash pairs upward and repeat the last entry of an odd level.
 pub fn merkle_root(txs: &[Tx]) -> Hash {
+    merkle_tree(txs).0
+}
+
+/// The Merkle root, and whether two equal entries sat side by side on the way up. Repeating the
+/// last entry means [a, b, c] and [a, b, c, c] share one root and so one block id. A valid block
+/// never holds a payment twice, so such a list is a copy made to pass for the real block.
+pub fn merkle_tree(txs: &[Tx]) -> (Hash, bool) {
     let mut level: Vec<Hash> = txs.iter().map(Tx::id).collect();
     if level.is_empty() {
-        return [0; 32];
+        return ([0; 32], false);
     }
+    let mut repeated = false;
     while level.len() > 1 {
+        repeated |= level.as_chunks::<2>().0.iter().any(|[left, right]| left == right);
         if level.len() % 2 == 1 {
             level.push(level[level.len() - 1]);
         }
         level = level.chunks(2).map(|two| pair_hash(&two[0], &two[1])).collect();
     }
-    level[0]
+    (level[0], repeated)
 }

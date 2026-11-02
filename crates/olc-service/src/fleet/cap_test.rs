@@ -77,10 +77,6 @@ impl Extra for CapTest {
         Err("This runs from the app.".into())
     }
 
-    fn script(&self) -> &'static str {
-        ""
-    }
-
     fn run_on(
         &self,
         boards: Vec<Box<dyn BoardLink>>,

@@ -103,7 +103,8 @@ pub trait Coins {
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool;
 
     fn balance(&self, address: &Address) -> u64 {
-        self.unspent_of(address).iter().map(|(_, coin)| coin.output.value).sum()
+        let coins = self.unspent_of(address);
+        coins.iter().map(|(_, coin)| coin.output.value).fold(0, u64::saturating_add)
     }
 }
 

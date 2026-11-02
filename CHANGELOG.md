@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes for each version. How the numbers were taken is in [MEASUREMENTS.md](MEASUREMENTS.md).
+Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
 ## [Unreleased]
 
@@ -14,13 +14,13 @@ Notable changes for each version. How the numbers were taken is in [MEASUREMENTS
 - One link for each neighbour, chosen from the links that are alive, in an order you can change.
 - A pool and a 51% attack lab, both outside the coin and built from ordinary node operations.
 - Radio updates that reach boards with no data cable, once a board on a cable has proved the build.
-- Scripts in `tools/measure` that repeat the board experiments in MEASUREMENTS.md.
+- Scripts in `tools/measure` that repeat the board experiments in docs/measurements.md.
 
 ### Changed
 
 - A board starts in 2.8 s at height 30,159. It took 239 s at height 2,446.
 - A radio update takes 67 s for a 1.94 MB image. It took 687 s for a 1.38 MB image.
-- A node holds 3.42 bytes of memory for each block. It held 484.
+- A node holds 3.63 bytes of memory for each block. It held 484.
 - Boards default to 80 MHz, a cap of 1,000 hashes a second, the coin screen at 10 frames a second, low brightness and their own Wi-Fi off.
 - Blocks come every 30 seconds. On OLC the lowest difficulty applies from height 20,000.
 
@@ -30,6 +30,9 @@ Notable changes for each version. How the numbers were taken is in [MEASUREMENTS
 
 ### Fixed
 
+- Random or damaged bytes from any link could crash a node or a board. Thirty million such inputs across 30 parsers now cause no panic.
+- A stranger could fill a node's memory or its connections. Each now has a limit.
+- A read error on the wallet file could lead to a new key being written over it.
 - A peer that claimed more work and then went quiet could stop a node from mining.
 - A connected node kept redialing: over 700 tries in four minutes, now none in 30 minutes.
 - Printing took one byte out of the USB receive buffer each time, which corrupted command bursts.

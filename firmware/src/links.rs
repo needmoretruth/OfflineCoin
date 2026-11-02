@@ -4,8 +4,24 @@ use crate::radio;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use olc_node::frame::MOST_ON_A_BOARD;
 use olc_node::{Medium, Rank};
+
+/// What a block's message carries beside the block.
+const AROUND_A_BLOCK: u64 = 256;
+static MOST_MESSAGE: AtomicUsize = AtomicUsize::new(MOST_ON_A_BOARD);
+
+/// The longest message taken on a connection. Past this the connection ends.
+pub fn most_message() -> usize {
+    MOST_MESSAGE.load(Ordering::Relaxed)
+}
+
+/// A coin with blocks larger than the usual limit needs them to fit.
+pub fn take_blocks_of(bytes: u64) {
+    let bytes = usize::try_from(bytes.saturating_add(AROUND_A_BLOCK)).unwrap_or(usize::MAX);
+    MOST_MESSAGE.store(bytes.max(MOST_ON_A_BOARD), Ordering::Relaxed);
+}
 
 impl Node {
     /// Turns a link on or off, or changes which is preferred.

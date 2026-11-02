@@ -7,6 +7,7 @@ import boards
 
 
 def main():
+    boards.needs(1, __doc__)
     minutes = float(sys.argv[1])
     ids = [board["id"] for board in boards.boards()]
     if len(sys.argv) > 2:

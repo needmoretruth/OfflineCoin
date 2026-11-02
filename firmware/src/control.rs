@@ -262,7 +262,7 @@ impl Node {
             return;
         };
         let forward = self.control.router.incoming(peer, &old.route()).forward;
-        old.hops += 1;
+        old.hops = old.hops.saturating_add(1);
         self.send_bytes(forward, old.encode());
     }
 
@@ -308,12 +308,12 @@ impl Node {
                 index,
                 data,
             } => {
-                self.control.chunk_ms = now;
-                match &mut self.control.update {
-                    Some(arrival) if arrival.update.session() == session => {
+                // A piece of nothing that runs must not keep a forgotten image in memory.
+                if let Some(arrival) = &mut self.control.update {
+                    if arrival.update.session() == session {
+                        self.control.chunk_ms = now;
                         arrival.update.piece(index, &data);
                     }
-                    _ => {}
                 }
             }
             Body::AskMissing { session } => self.say_missing(from, session),
@@ -341,7 +341,7 @@ impl Node {
                         }
                         self.run_command(&line);
                         self.say(format!("done {}", signed.order.counter));
-                        // The page shows the change at once instead of at the next beacon.
+                        // The app shows the change at once instead of at the next beacon.
                         self.control.beacon_ms = 0;
                     }
                     Action::Burst {

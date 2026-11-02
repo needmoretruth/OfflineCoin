@@ -14,6 +14,15 @@ const ANSWER_WAIT: Duration = Duration::from_secs(12);
 /// Long enough for the slowest own order, a password's hash on a busy computer.
 const ORDER_WAIT: Duration = Duration::from_secs(20);
 const LOOK_EVERY: Duration = Duration::from_millis(100);
+/// Time for a lookup to reach the snapshot. It gives no notice to wait for.
+const LOOKUP_SHOWS: Duration = Duration::from_millis(900);
+
+/// Looks `text` up and gives what came back.
+pub(super) fn looked_up(core: &Core, text: String) -> String {
+    core.send(Command::Own(Personal::Explore(text)));
+    thread::sleep(LOOKUP_SHOWS);
+    format!("{:#?}", core.snapshot().node.explored)
+}
 
 /// Sends `command` and waits for the notice it causes. No notice in time is an empty answer.
 pub(super) fn answer_to(
@@ -52,13 +61,11 @@ struct ConsoleDesk {
 
 impl Desk for ConsoleDesk {
     fn command(&mut self, command: Command) -> Result<String, String> {
-        let looked_up = matches!(command, Command::Own(Personal::Explore(_)));
         let core = &self.core;
-        let answer = answer_to(&|| core.snapshot(), &|one| core.send(one), command);
-        if looked_up {
-            return Ok(format!("{:#?}", core.snapshot().node.explored));
+        match command {
+            Command::Own(Personal::Explore(text)) => Ok(looked_up(core, text)),
+            command => answer_to(&|| core.snapshot(), &|one| core.send(one), command),
         }
-        answer
     }
 
     fn boards(&mut self) -> Result<Vec<BoardView>, String> {

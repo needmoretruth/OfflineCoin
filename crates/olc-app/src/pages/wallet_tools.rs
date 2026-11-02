@@ -185,7 +185,7 @@ impl WalletTools {
             field(ui, &mut self.fee, cx.say("offline.fee_hint"), 130.0);
             let units = parse_coins(self.amount.trim());
             let fee = match self.fee.trim() {
-                "" => cx.snap.node.coin.as_ref().map(|coin| coin.rules.min_fee),
+                "" => cx.snap.node.coin.as_ref().map(|coin| coin.rules_at(cx.snap.node.height + 1).min_fee),
                 text => parse_coins(text),
             };
             let ready = units.zip(fee).filter(|_| !self.to.trim().is_empty());

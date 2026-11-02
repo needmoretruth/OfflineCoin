@@ -153,7 +153,8 @@ impl Pool {
         let mut block = handed.block.clone();
         block.header.nonce = header.nonce;
         let id = block.id();
-        let value = block.txs[0].outputs.iter().map(|output| output.value).sum();
+        let values = block.txs[0].outputs.iter().map(|output| output.value);
+        let value = values.fold(0, u64::saturating_add);
         let height = engine.chain().height() + 1;
         if !engine.submit_block(block) {
             return Verdict::Share;
@@ -171,9 +172,9 @@ impl Pool {
     /// Pays every round whose reward has matured. Returns the payment ids.
     pub fn pay(&mut self, engine: &mut Engine) -> Vec<Hash> {
         let chain = engine.chain();
-        let maturity = chain.rules().coinbase_maturity;
+        let rules = chain.rules();
         let height = chain.height();
-        let ripe = |found: &Found| found.height + maturity <= height;
+        let ripe = |found: &Found| rules.matures_at(found.height) <= height;
         let (due, waiting): (Vec<Found>, Vec<Found>) =
             std::mem::take(&mut self.found).into_iter().partition(ripe);
         self.found = waiting;
@@ -193,7 +194,7 @@ impl Pool {
     }
 
     fn pay_round(&mut self, engine: &mut Engine, found: &Found) -> Option<Hash> {
-        let total: u64 = found.round.values().sum();
+        let total = found.round.values().copied().fold(0, u64::saturating_add);
         let share = |count: u64| u128::from(found.value) * u128::from(count) / u128::from(total);
         let payments: Vec<(Address, u64)> = found
             .round
@@ -202,11 +203,12 @@ impl Pool {
             .filter(|(_, amount)| *amount > 0)
             .collect();
         let fee = engine.chain().rules().min_fee;
-        let spend: u64 = payments.iter().map(|(_, amount)| amount).sum();
+        let spend = payments.iter().map(|(_, amount)| *amount).fold(0, u64::saturating_add);
         // Whatever the fee takes comes out of the pool's rounding, or waits for coins that cover it.
         let id = engine.pay_many(&payments, fee).ok().filter(|_| spend > 0)?;
         for (worker, amount) in payments {
-            self.tally.entry(worker).or_default().paid += amount;
+            let tally = self.tally.entry(worker).or_default();
+            tally.paid = tally.paid.saturating_add(amount);
         }
         Some(id)
     }

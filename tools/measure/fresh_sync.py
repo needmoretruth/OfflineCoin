@@ -13,6 +13,7 @@ LIMIT_SECONDS = 3600
 
 
 def main():
+    boards.needs(2, __doc__)
     port, target = sys.argv[1], int(sys.argv[2])
     subprocess.run(
         ["esptool", "--chip", "esp32s3", "--port", port, "erase-region", hex(CHAIN_START), hex(CHAIN_SIZE)],

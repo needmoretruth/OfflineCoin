@@ -98,7 +98,7 @@ impl Node {
     /// Runs `line` when it is one of these commands.
     pub fn run_chain_command(&mut self, line: &str) -> bool {
         let mut words = line.split_whitespace();
-        let rest = |word: &str| line[word.len()..].trim();
+        let rest = |word: &str| line.trim_start().strip_prefix(word).unwrap_or_default().trim();
         match (words.next(), words.next(), words.next()) {
             (Some("name"), _, _) => self.name_from(line),
             (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {

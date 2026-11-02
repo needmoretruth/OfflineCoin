@@ -218,7 +218,7 @@ async fn connection(
 }
 
 async fn serve(socket: &mut TcpSocket<'_>, hub: &SharedHub, slot: usize) {
-    let mut decoder = Decoder::default();
+    let mut decoder = Decoder::at_most(crate::links::most_message());
     let mut bytes = [0u8; 512];
     loop {
         if hub.borrow().closing[slot] {
@@ -234,6 +234,11 @@ async fn serve(socket: &mut TcpSocket<'_>, hub: &SharedHub, slot: usize) {
                     Ok(sent) => rest = &rest[sent..],
                 }
             }
+        }
+        // The node takes a few messages a turn. What it has not reached stays on the socket.
+        if hub.borrow().received.len() >= QUEUE_LIMIT {
+            Timer::after(SEND_CHECK).await;
+            continue;
         }
         match with_timeout(SEND_CHECK, socket.read(&mut bytes)).await {
             Ok(Ok(0) | Err(_)) => return,

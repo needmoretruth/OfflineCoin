@@ -89,6 +89,27 @@ fn the_first_run_starts_real_node_processes() {
 
 /// The owner's scene: one node full without mining, one pruned and mining, one light, all on one
 /// chain, and each set in the window as a person would set it.
+/// A failure in a node's own process must reach the log of whoever started it.
+#[test]
+fn a_node_that_cannot_start_says_why() {
+    let root = scratch("says-why");
+    let file = root.join("coin.json");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(&file, "not a coin").unwrap();
+    let spec = Preset::Esp32S3.spec(31);
+    let mut node = Supervisor::with_program(Paths { root }, node_program());
+    node.start(&spec, &file, &[]).unwrap();
+    let start = Instant::now();
+    while node.view(&spec).pid.is_some() {
+        assert!(start.elapsed() < Duration::from_secs(30), "the node kept running");
+        std::thread::sleep(Duration::from_millis(20));
+        node.reap();
+    }
+    let ended = node.view(&spec).ended.expect("how it ended");
+    assert!(ended.contains("exit status"), "{ended}");
+    assert!(ended.len() > "exit status: 1".len() + 2, "no reason given: {ended}");
+}
+
 #[test]
 fn each_node_is_the_kind_its_person_chose() {
     let settings = Settings { port: port_of_scene(30), ..quiet_settings() };

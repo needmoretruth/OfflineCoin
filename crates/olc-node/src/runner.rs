@@ -55,6 +55,9 @@ const PEER_MASK: u32 = (1 << LINK_SHIFT) - 1;
 const MAX_CONTROL: usize = 32;
 const MAX_HELLOS: usize = 32;
 const MAX_MOVES: usize = 16;
+/// Messages taken from one link in a turn. A node that falls behind on a flood must still mine,
+/// serve its other links and feed a board's watchdog, and the rest waits on the link.
+const MOST_HEARD_PER_TURN: usize = 64;
 
 pub struct Runner {
     pub engine: Engine,
@@ -381,7 +384,10 @@ impl Runner {
         self.engine.tick(device_ms);
         let mut asked = Vec::new();
         for (index, link) in self.links.iter_mut().enumerate() {
-            while let Some((peer, bytes)) = link.receive() {
+            for _ in 0..MOST_HEARD_PER_TURN {
+                let Some((peer, bytes)) = link.receive() else {
+                    break;
+                };
                 let number = peer & PEER_MASK;
                 let from: PeerId = (index as u32) << LINK_SHIFT | number;
                 let Some((mark, body)) = network::read(&bytes) else {

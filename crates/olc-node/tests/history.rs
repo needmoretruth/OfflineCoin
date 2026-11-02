@@ -5,7 +5,7 @@ mod store;
 use common::{deliver, engine, mine, silence, test_coin};
 use olc_core::Chain;
 use olc_node::{Engine, Event, Message, Outgoing};
-use olc_wallet::{Wallet, MERGE_AT_ONCE, MERGE_FROM};
+use olc_wallet::{Wallet, WalletError, MERGE_AT_ONCE, MERGE_FROM};
 use store::{flash, keep_on, plugins, STATE_SIZE};
 
 fn pruned_engine(seed: u8, blocks: u64) -> Engine {
@@ -153,7 +153,7 @@ fn a_note_goes_into_a_block_and_a_long_one_stays_out_of_the_pool() {
         mine(&mut node, height * 1_000);
     }
     let long = vec![7; olc_node::MOST_DATA + 1];
-    assert!(node.write_note(&long).is_ok());
+    assert_eq!(node.write_note(&long), Err(WalletError::Refused));
     assert_eq!(node.status().pool, 0);
     assert!(events(&mut node).contains(&Event::DataRefused));
     let id = node.write_note(b"first note").unwrap();

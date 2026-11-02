@@ -77,6 +77,13 @@ fn number(value: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(bytes))
 }
 
+/// How many values a multi-signature takes. A count past what the stack can hold fails on every
+/// machine. Cut to a board's 32 bits it would read as a small number instead, and one script
+/// would pass on a board and fail on a computer.
+fn count(value: &[u8]) -> Option<usize> {
+    usize::try_from(number(value)?).ok().filter(|count| *count <= MAX_STACK)
+}
+
 impl Machine<'_> {
     fn pop(&mut self) -> Option<Vec<u8>> {
         self.stack.pop()
@@ -195,12 +202,12 @@ impl Machine<'_> {
     }
 
     fn check_multi_sig(&mut self) -> Option<bool> {
-        let key_count = number(&self.pop()?)? as usize;
+        let key_count = count(&self.pop()?)?;
         let mut keys = Vec::new();
         for _ in 0..key_count {
             keys.push(self.pop()?);
         }
-        let signature_count = number(&self.pop()?)? as usize;
+        let signature_count = count(&self.pop()?)?;
         let mut signatures = Vec::new();
         for _ in 0..signature_count {
             signatures.push(self.pop()?);
@@ -251,6 +258,15 @@ mod tests {
     fn key(seed: u8) -> ([u8; 32], [u8; 33]) {
         let secret = [seed; 32];
         (secret, public_key(&secret).unwrap())
+    }
+
+    /// A board's numbers are 32 bits wide. Cut to that, this count reads 0 and the script passes.
+    #[test]
+    fn a_huge_count_fails_on_every_machine() {
+        assert_eq!(count(&[0, 0, 0, 0, 1]), None);
+        assert_eq!(count(&[100]), Some(100));
+        let nothing_of_nothing = [op::ZERO, 5, 0, 0, 0, 0, 1, op::CHECK_MULTI_SIG];
+        assert!(!check(&nothing_of_nothing, &[], 0));
     }
 
     #[test]

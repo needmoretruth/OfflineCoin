@@ -16,6 +16,16 @@ const QUIET_MS: u64 = 15_000;
 /// More than any snapshot a board can hold.
 const MOST_SNAPSHOT: u64 = 8 * 1024 * 1024;
 
+/// The unspent set being handed out. Building it walks every coin, so one short message from
+/// anyone must not start that again. It stays until the askers go quiet.
+pub struct Serving {
+    tip: Hash,
+    height: u64,
+    bytes: Vec<u8>,
+    sum: Hash,
+    asked_ms: u64,
+}
+
 #[derive(Default)]
 pub struct History {
     /// Peers that said which blocks they no longer hold.
@@ -112,30 +122,38 @@ impl Engine {
     }
 
     pub(crate) fn serve_snapshot(&mut self, to: PeerId, part: u32) {
-        if part == 0 || self.serving.is_none() {
+        let tip = self.chain.tip();
+        let stale = self.serving.as_ref().is_none_or(|held| part == 0 && held.tip != tip);
+        if stale {
             let bytes = self.chain.snapshot();
             let sum = olc_crypto::hash(&bytes);
-            self.serving = Some((bytes, sum));
+            let (height, now) = (self.chain.height(), self.now_ms);
+            self.serving = Some(Serving { tip, height, bytes, sum, asked_ms: now });
         }
-        let height = self.chain.height();
-        let Some((bytes, sum)) = &self.serving else {
+        let now = self.now_ms;
+        let Some(held) = self.serving.as_mut() else {
             return;
         };
-        let parts = bytes.len().div_ceil(PART) as u32;
-        let Some(chunk) = bytes.chunks(PART).nth(part as usize) else {
+        held.asked_ms = now;
+        let Some(chunk) = held.bytes.chunks(PART).nth(part as usize) else {
             return;
         };
         let message = Message::SnapshotPart {
-            height,
-            sum: *sum,
+            height: held.height,
+            sum: held.sum,
             part,
-            parts,
+            parts: held.bytes.len().div_ceil(PART) as u32,
             bytes: chunk.to_vec(),
         };
-        if part + 1 == parts {
+        self.outbox.push_back(Outgoing::To(to, message));
+    }
+
+    /// Gives the memory back once nobody is taking the snapshot any more.
+    pub(crate) fn drop_quiet_snapshot(&mut self) {
+        let quiet = |held: &Serving| self.now_ms.saturating_sub(held.asked_ms) >= QUIET_MS;
+        if self.serving.as_ref().is_some_and(quiet) {
             self.serving = None;
         }
-        self.outbox.push_back(Outgoing::To(to, message));
     }
 
     pub(crate) fn snapshot_part(
@@ -150,8 +168,13 @@ impl Engine {
         let Some(fetching) = self.fetching.as_mut().filter(|f| f.peer == from) else {
             return;
         };
-        let too_big = u64::from(parts) * PART as u64 > MOST_SNAPSHOT;
-        if part != fetching.next || too_big || *fetching.sum.get_or_insert(sum) != sum {
+        let held = fetching.bytes.len().saturating_add(bytes.len());
+        if part != fetching.next || *fetching.sum.get_or_insert(sum) != sum {
+            return;
+        }
+        if u64::from(parts) * PART as u64 > MOST_SNAPSHOT || held as u64 > MOST_SNAPSHOT {
+            self.fetching = None;
+            self.push_event(Event::SnapshotRefused { peer: from });
             return;
         }
         fetching.bytes.extend_from_slice(&bytes);
@@ -173,5 +196,71 @@ impl Engine {
             Some(height) => Event::SnapshotAdopted { peer: from, height },
             None => Event::SnapshotRefused { peer: from },
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::{CoinConfig, Plugins};
+    use olc_wallet::Wallet;
+
+    fn node() -> Engine {
+        let mut coin = CoinConfig::olc();
+        coin.initial_difficulty = 8;
+        let plugins = Plugins {
+            consensus: alloc::boxed::Box::new(olc_pow::ProofOfWork),
+            languages: olc_lang::all(),
+        };
+        Engine::new(coin, plugins, Wallet::from_secret([1; 32]).expect("a good key"))
+    }
+
+    /// Where the held snapshot lies. A new one is built while the old one is still held.
+    fn held_at(node: &Engine) -> Option<*const u8> {
+        node.serving.as_ref().map(|held| held.bytes.as_ptr())
+    }
+
+    /// Building the set walks everything a node holds, and asking takes one short message.
+    #[test]
+    fn asking_again_builds_nothing_new_until_the_chain_moved() {
+        let mut node = node();
+        node.tick(1_000);
+        node.serve_snapshot(5, 0);
+        let first = held_at(&node);
+        assert!(first.is_some());
+
+        node.tick(2_000);
+        node.serve_snapshot(5, 0);
+        node.serve_snapshot(5, 1);
+        node.serve_snapshot(5, 0);
+        assert_eq!(held_at(&node), first, "the same chain, the same snapshot");
+
+        assert!(node.mine(1_000_000, 3_000));
+        node.tick(3_000);
+        node.serve_snapshot(5, 0);
+        assert_ne!(held_at(&node), first);
+    }
+
+    #[test]
+    fn the_last_part_says_nothing_about_the_next_ask() {
+        let mut node = node();
+        node.tick(1_000);
+        node.serve_snapshot(5, 0);
+        let first = held_at(&node);
+        let parts = node.chain.snapshot().len().div_ceil(PART) as u32;
+        node.serve_snapshot(5, parts - 1);
+        node.tick(2_000);
+        node.serve_snapshot(5, parts - 1);
+        node.serve_snapshot(5, u32::MAX);
+        assert_eq!(held_at(&node), first);
+    }
+
+    #[test]
+    fn a_snapshot_nobody_takes_gives_its_memory_back() {
+        let mut node = node();
+        node.tick(1_000);
+        node.serve_snapshot(5, 0);
+        node.tick(1_000 + QUIET_MS);
+        assert!(node.serving.is_none());
     }
 }

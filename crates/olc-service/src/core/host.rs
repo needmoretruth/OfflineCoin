@@ -8,7 +8,10 @@ use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
-use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
+use olc_store::{
+    hold_folder, hold_wallet, load_headers, load_wallet, open_chain, save_headers, FolderHold,
+    NodeSettings, WalletHold,
+};
 use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -27,7 +30,6 @@ const ASK_EVERY: Duration = Duration::from_secs(20);
 const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
 const MAX_HEARD: usize = 64;
 const HEADERS_SAVED_EVERY: Duration = Duration::from_secs(30);
-
 
 pub struct Plan {
     pub coin: CoinConfig,
@@ -65,6 +67,8 @@ struct State {
     hashrate: AtomicU64,
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
+    /// A chain is on its way in, and the node's thread says nothing until it is.
+    opening: AtomicBool,
     view: Mutex<NodeView>,
     radio_notes: Mutex<Vec<String>>,
     heard: Mutex<VecDeque<(HeardFrom, Hello)>>,
@@ -108,6 +112,9 @@ struct Asked {
 impl Host {
     /// Returns at once. The chain loads on the host's own thread.
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
+        let mut held = None;
+        hold_folder(&mut held, &plan.folder)?;
+        let wallet_held = hold_wallet(&plan.wallet_folder)?;
         let wallet = load_wallet(&plan.wallet_folder)?;
         let engine = Engine::new(plan.coin.clone(), plugins(), wallet);
         let tcp = TcpLink::new();
@@ -129,6 +136,7 @@ impl Host {
             cap: AtomicU64::new(plan.cap),
             hashrate: AtomicU64::new(0),
             stop: AtomicBool::new(false),
+            opening: AtomicBool::new(true),
             switch: Mutex::new(Some(Switch {
                 coin: plan.coin,
                 folder: plan.folder,
@@ -162,6 +170,8 @@ impl Host {
             blocks: Vec::new(),
             radios: Running::default(),
             wants_bluetooth: false,
+            held,
+            _wallet_held: wallet_held,
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -216,11 +226,8 @@ impl Host {
     }
 
     pub fn view(&self) -> NodeView {
-        self.state
-            .view
-            .lock()
-            .map(|view| view.clone())
-            .unwrap_or_default()
+        let view = self.state.view.lock().map(|view| view.clone()).unwrap_or_default();
+        NodeView { loading: self.state.opening.load(Ordering::Relaxed), ..view }
     }
 
     /// Radios the settings asked for that would not start.
@@ -315,6 +322,8 @@ struct Worker {
     blocks: Vec<BlockRow>,
     radios: Running,
     wants_bluetooth: bool,
+    held: Option<FolderHold>,
+    _wallet_held: WalletHold,
 }
 
 impl Worker {
@@ -417,19 +426,28 @@ impl Worker {
         }
     }
 
-    /// Loads the chain in small steps, so the node keeps its lock free and the screen can count.
+    /// Moves the node to the chain a person chose. The new chain opens before the old one goes,
+    /// so a chain that cannot open leaves the node where it was.
     fn take_switch(&mut self) {
         let switch = self.state.switch.lock().ok().and_then(|mut slot| slot.take());
-        let Some(switch) = switch else {
-            return;
-        };
+        if let Some(switch) = switch {
+            self.state.opening.store(true, Ordering::Relaxed);
+            self.open_switch(switch);
+            self.state.opening.store(false, Ordering::Relaxed);
+        }
+    }
+
+    fn open_switch(&mut self, switch: Switch) {
         let Ok(wallet) = load_wallet(&self.wallet_folder) else {
             return;
         };
-        if let Some(from) = &switch.keep_from {
+        let held = hold_folder(&mut self.held, &switch.folder);
+        if let Some(from) = switch.keep_from.as_ref().filter(|_| held.is_ok()) {
             let _ = super::coins::copy_chain(from, &switch.folder);
         }
-        let opened = open_chain(&switch.folder, switch.coin, plugins(), self.state.storage);
+        let opened = held.and_then(|()| {
+            open_chain(&switch.folder, switch.coin, plugins(), self.state.storage)
+        });
         let chain = match opened {
             Ok(chain) => chain,
             Err(error) => {
@@ -542,7 +560,7 @@ impl Worker {
             light: engine.light().map(Light::status),
             watched: watched_view(engine),
             syncing_to: status.syncing_to,
-            loading: None,
+            loading: false,
             balance: status.balance,
             spendable,
             maturing,

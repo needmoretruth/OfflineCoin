@@ -12,9 +12,7 @@ pub trait Extra: Sync {
     /// Its lines in the help text.
     fn usage(&self) -> &'static str;
     fn run(&self, args: &Args) -> Result<(), String>;
-    /// A script for the app's page, which adds its own panel.
-    fn script(&self) -> &'static str;
-    /// Runs from the app, on a thread of its own, on the boards the page chose. Blocks until done.
+    /// Runs from the app, on a thread of its own, on the boards a person chose. Blocks until done.
     fn run_on(
         &self,
         boards: Vec<Box<dyn BoardLink>>,

@@ -19,6 +19,8 @@ pub const CLOSE_MS: u64 = 15_000;
 /// link, and the one it spoke on last would otherwise look alive for a moment longer.
 const FRESH_MS: u64 = 1_500;
 const MOST: usize = 32;
+/// Ways kept to one neighbour. Anyone can repeat its name from a made-up address.
+const MOST_PATHS: usize = 8;
 /// The top byte of a neighbour's peer id. Link positions never reach it.
 const NEIGHBOUR: u32 = 0xFF << 24;
 
@@ -59,6 +61,18 @@ pub struct Neighbour {
 }
 
 impl Neighbour {
+    /// Adds a way to it. The one heard longest ago gives way.
+    fn add_path(&mut self, path: Path) {
+        if self.paths.len() >= MOST_PATHS {
+            let heard = |(_, path): &(usize, &Path)| path.heard_ms;
+            let oldest = self.paths.iter().enumerate().min_by_key(heard).map(|(at, _)| at);
+            if let Some(oldest) = oldest {
+                self.paths.remove(oldest);
+            }
+        }
+        self.paths.push(path);
+    }
+
     fn path(&self, link: usize) -> Option<&Path> {
         let usable = |path: &&Path| path.live || (self.active == Some(link) && !path.closed);
         self.paths.iter().filter(|path| path.link == link).find(usable)
@@ -148,7 +162,7 @@ impl Neighbours {
                 path.live = true;
                 path.closed = false;
             }
-            None => one.paths.push(Path { link, number, heard_ms: now, steady_from_ms: now, live: true, closed: false }),
+            None => one.add_path(Path { link, number, heard_ms: now, steady_from_ms: now, live: true, closed: false }),
         }
         one.peer
     }
@@ -170,7 +184,7 @@ impl Neighbours {
         let held = one.paths.iter().position(|path| (path.link, path.number) == (link, number))?;
         let path = one.paths.remove(held);
         let empty = one.paths.is_empty();
-        self.list[known].paths.push(path);
+        self.list[known].add_path(path);
         if empty {
             return Some(self.list.remove(at).peer);
         }

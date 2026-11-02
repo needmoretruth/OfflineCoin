@@ -1,7 +1,7 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
 use crate::settings::Paths;
 use olc_core::CoinConfig;
-use olc_store::coin_file;
+use olc_store::{coin_file, replace_file};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,7 +30,8 @@ pub fn copy_chain(from: &Path, to: &Path) -> Result<(), String> {
     for file in files.flatten() {
         let name = file.file_name();
         let target = to.join(&name);
-        if file.path().is_file() && name != COIN_FILE && !target.exists() {
+        let held = name.to_string_lossy().ends_with(".hold");
+        if file.path().is_file() && name != COIN_FILE && !held && !target.exists() {
             fs::copy(file.path(), target).map_err(failed)?;
         }
     }
@@ -42,7 +43,8 @@ pub fn save_coin(paths: &Paths, coin: &CoinConfig) -> Result<PathBuf, String> {
     let folder = paths.coin(&coin_folder(coin));
     fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let file = folder.join(COIN_FILE);
-    fs::write(&file, coin_file::to_json(coin)?).map_err(|error| error.to_string())?;
+    // Each node's start lands here while the node before it may still be reading this file.
+    replace_file(&file, coin_file::to_json(coin)?.as_bytes())?;
     Ok(file)
 }
 
@@ -77,6 +79,37 @@ pub fn write_coin_file(coin: &CoinConfig, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn a_starting_node_never_reads_a_coin_file_half_written() {
+        let root = std::env::temp_dir().join(format!("olc-coin-file-{}", std::process::id()));
+        let paths = Paths { root: root.clone() };
+        let mut coin = CoinConfig::olc();
+        let file = save_coin(&paths, &coin).unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let (file, done) = (file.clone(), done.clone());
+            thread::spawn(move || {
+                let mut cut = 0;
+                while !done.load(Ordering::Relaxed) {
+                    let text = fs::read_to_string(&file).unwrap_or_default();
+                    cut += usize::from(coin_file::from_json(&text).is_err());
+                }
+                cut
+            })
+        };
+        for turn in 0..3_000 {
+            coin.message = format!("{turn}");
+            replace_file(&file, coin_file::to_json(&coin).unwrap().as_bytes()).unwrap();
+        }
+        done.store(true, Ordering::Relaxed);
+        let cut = reader.join().unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(cut, 0, "a reader found a cut file");
+    }
 
     #[test]
     fn amounts_read_exactly() {

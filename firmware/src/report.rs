@@ -64,7 +64,7 @@ impl Node {
              power={} rssi={} bright={} busy={} clock={} network={} boot_wdt={} strap={:#x} key={} \
              name={} opened={} oldest={} held={} fits={} keep={} unspent={} miner={} merge={} \
              needs={} assumed={} work_on={} near={} dials={} moves={} links={} light={} nearby={} \
-             bluetooth={} headers_only={}",
+             bluetooth={} headers_only={} id={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -132,6 +132,7 @@ impl Node {
             radio::ENABLED.load(Ordering::Relaxed),
             self.bluetooth,
             self.runner.engine.light().is_some(),
+            hex(&self.control.router.me()),
         );
         self.say(line);
     }

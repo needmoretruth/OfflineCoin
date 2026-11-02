@@ -107,7 +107,7 @@ fn chain_of(coin: Option<CoinConfig>, entries: Vec<Entry>, split: bool, yours: b
         (_, false, false) => Relation::Network,
     };
     ChainGroup {
-        rules: coin.as_ref().map(|coin| coin.rules.clone()),
+        rules: coin.as_ref().map(|coin| coin.rules_at(u64::MAX).clone()),
         coin,
         relation,
         entries,

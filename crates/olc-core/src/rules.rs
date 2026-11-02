@@ -24,7 +24,7 @@ pub(crate) fn check_tx(
         let spent = unspent
             .get(&input.previous)
             .ok_or(ChainError::MissingInput)?;
-        if spent.coinbase && height < spent.height.saturating_add(rules.coinbase_maturity) {
+        if spent.coinbase && height < rules.matures_at(spent.height) {
             return Err(ChainError::ImmatureCoinbase);
         }
         let language = plugins

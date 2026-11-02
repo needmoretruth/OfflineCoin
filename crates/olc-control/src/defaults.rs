@@ -1,5 +1,5 @@
 //! What an ESP32 board does until someone chooses otherwise. The firmware, the programs on a
-//! computer and the pages they serve all read these, so the numbers live here and nowhere else.
+//! computer and the app all read these, so the numbers live here and nowhere else.
 
 /// Hashes per second: enough to mine, little heat.
 pub const BOARD_CAP: u32 = 1_000;

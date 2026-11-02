@@ -5,7 +5,7 @@ use crate::ledger::{apply_block, spent_by, undo_block, Unspent};
 use crate::log::{block_record, read_block_record, Kind, Meta, Read, NOWHERE};
 use crate::rules::check_block_body;
 use crate::tree::{trim, Entry, Mark, MARK_EVERY, NEAR_MARKS_FOR, NEAR_MARK_EVERY};
-use crate::types::{merkle_root, Block};
+use crate::types::{merkle_tree, Block};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use olc_crypto::Hash;
@@ -23,13 +23,18 @@ impl Chain {
     /// Adds a block and follows it if its branch now has the most work.
     pub fn add_block(&mut self, block: Block) -> Result<AddOutcome, ChainError> {
         let id = block.id();
-        if self.entries.contains_key(&id) || self.is_buried(&block, &id) {
+        if self.entries.contains_key(&id) {
             return Err(ChainError::AlreadyKnown);
         }
+        // The seal comes before the store: it is what makes anyone's block worth a read.
         if !self.plugins.consensus.check_seal(&block.header) {
             return Err(ChainError::BadSeal);
         }
-        if block.header.merkle_root != merkle_root(&block.txs) {
+        if self.is_buried(&block, &id) {
+            return Err(ChainError::AlreadyKnown);
+        }
+        let (root, repeated) = merkle_tree(&block.txs);
+        if block.header.merkle_root != root || repeated {
             return Err(ChainError::BadMerkleRoot);
         }
         let largest = self.config.all_rules().map(|rules| rules.max_block_bytes).max();
@@ -52,8 +57,8 @@ impl Chain {
         }
         let mut entry = Entry {
             header: block.header,
-            height: parent.height + 1,
-            total_work: parent.total_work + self.plugins.consensus.work(&block.header),
+            height: parent.height.saturating_add(1),
+            total_work: parent.total_work.saturating_add(self.plugins.consensus.work(&block.header)),
             at: NOWHERE,
             parent_at: parent.at,
             validated: false,

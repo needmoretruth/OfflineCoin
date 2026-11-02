@@ -184,7 +184,8 @@ impl SendSheet {
         self.wallet_rows(ui, cx);
         let board = self.board(cx);
         let coin = board.map_or(node.coin.as_ref(), |board| coin_of(cx, board));
-        let fee = coin.map_or(0, |coin| coin.rules.min_fee);
+        let next = board.map_or(node.height, |board| board.seen.beacon.height) + 1;
+        let fee = coin.map_or(0, |coin| coin.rules_at(next).min_fee);
         let spendable = board.map_or(node.spendable, |board| board.seen.beacon.balance);
         meta(ui, &cx.fill("send.have", &[&format::coins(spendable, ticker)]), t);
         if spendable == 0 {

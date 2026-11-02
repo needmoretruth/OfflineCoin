@@ -6,7 +6,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{
-    channel, sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError,
+    sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError,
 };
 use std::sync::Arc;
 use std::thread;
@@ -22,6 +22,8 @@ const LINE_START: &str = "\n\n\n\n";
 /// Writes waiting for the board. A board that is starting takes nothing for a minute, and what
 /// it missed by then is old news.
 const WRITES_WAITING: usize = 64;
+/// Whole messages waiting for the node. Past this the reader stops and the board waits.
+const INBOX: usize = 1_024;
 
 pub struct SerialLink {
     writes: SyncSender<Vec<u8>>,
@@ -121,7 +123,7 @@ impl SerialLink {
                 Err(RecvTimeoutError::Timeout) => {}
             }
         });
-        let (sender, incoming) = channel();
+        let (sender, incoming) = sync_channel(INBOX);
         let reader_closed = closed.clone();
         thread::spawn(move || {
             read_lines(&port, &reader_closed, |line| {

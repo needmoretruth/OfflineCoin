@@ -1,6 +1,6 @@
 # Measurements
 
-These numbers come from real hardware, taken on 2026-11-01 and 2026-11-02 on the builds leading up to 0.1.0, at default settings on the OLC chain unless a row says otherwise. The board experiments can be repeated with the scripts in [tools/measure](tools/measure). The top of each script says how.
+These numbers come from real hardware, taken on 2026-11-01 and 2026-11-02 on the builds leading up to 0.1.0, at default settings on the OLC chain unless a row says otherwise. The board experiments can be repeated with the scripts in [tools/measure](../tools/measure). The top of each script says how.
 
 ## Setup
 
@@ -48,7 +48,8 @@ The 240 MHz rows drew the screen at 30 frames a second.
 | What | Result |
 |---|---|
 | Sync 35,000 blocks | 313 s |
-| Memory for each block | 3.42 bytes |
+| Memory for each block | 3.63 bytes |
+| Free memory on a board-sized node, height 16,400 to 100,400 | 7.12 to 7.41 MB |
 | Light node, sync 35,001 headers | 32 s |
 | Light node, memory for each header | about 110 bytes |
 | Node on the desktop | 7 to 10 MB of memory, about 1% of a core |

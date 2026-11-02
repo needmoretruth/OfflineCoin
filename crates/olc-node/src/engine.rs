@@ -2,14 +2,14 @@
 use crate::event::{Event, Outgoing, Status};
 use crate::message::{Heights, Message};
 use crate::refused::Refused;
-use crate::snapshot::{Fetching, History};
+use crate::snapshot::{Fetching, History, Serving};
 use crate::spend::Signing;
 use crate::sync::Sync;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use olc_core::{
-    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Tx,
+    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, Plugins, Tx,
     ADDRESS_LANGUAGE,
 };
 use olc_wallet::Wallet;
@@ -18,12 +18,14 @@ pub type PeerId = u32;
 
 const ANNOUNCE_EVERY_MS: u64 = 2_000;
 const REFRESH_TEMPLATE_EVERY_MS: u64 = 5_000;
-const MAX_POOL: usize = 256;
+/// Peers remembered. A source address costs nothing to make up, so each new one must not cost
+/// memory, and the one heard longest ago gives way.
+pub const MOST_PEERS: usize = 64;
+/// Answers waiting to leave. Past this a request is dropped, and whoever really wants the answer
+/// asks again. Its own news and payments always go out.
+pub const MOST_QUEUED: usize = 16;
 const MAX_EVENTS: usize = 32;
 const PEER_TIMEOUT_MS: u64 = 10_000;
-/// A data output larger than this stays out of this node's pool. Like Bitcoin's OP_RETURN limit
-/// this is a node's policy, and a block holding a larger one is still valid.
-pub const MOST_DATA: usize = 256;
 /// A coinbase note of up to this many bytes.
 pub const MOST_NOTE: usize = 64;
 /// Sectors of the saved state written per tick, so a save never stalls mining.
@@ -57,7 +59,9 @@ pub struct Engine {
     pub(crate) history: History,
     pub(crate) fetching: Option<Fetching>,
     /// The snapshot being handed to a peer.
-    pub(crate) serving: Option<(Vec<u8>, Hash)>,
+    pub(crate) serving: Option<Serving>,
+    /// A walk down the chain was made this turn, for a peer that named no heights.
+    pub(crate) walked: bool,
     /// The wallet's balance and the tip it was counted on. Counting walks every unspent output
     /// and boards ask for the status many times a second, so it runs once per tip.
     balance: Cell<Option<(Hash, u64)>>,
@@ -97,6 +101,7 @@ impl Engine {
             history: History::default(),
             fetching: None,
             serving: None,
+            walked: false,
             balance: Cell::new(None),
             light: None,
             watched: Vec::new(),
@@ -196,17 +201,6 @@ impl Engine {
         }
     }
 
-    /// True while a transaction waits in this node's pool.
-    pub fn in_pool(&self, id: &Hash) -> bool {
-        self.pool.iter().any(|tx| tx.id() == *id)
-    }
-
-    /// Empties this node's pool, as its owner may. Its coins can be spent anew.
-    pub fn clear_pool(&mut self) {
-        self.pool.clear();
-        self.candidate = None;
-    }
-
     pub fn take_outgoing(&mut self) -> Option<Outgoing> {
         self.outbox.pop_front()
     }
@@ -218,6 +212,7 @@ impl Engine {
     /// Announces the tip now and then, which is also how peers find each other.
     pub fn tick(&mut self, device_ms: u64) {
         self.now_ms = device_ms;
+        self.walked = false;
         if self.light_tick(device_ms) {
             return;
         }
@@ -234,6 +229,7 @@ impl Engine {
         self.sync.new_turn(device_ms);
         self.sign_a_little();
         self.ask_for_blocks();
+        self.drop_quiet_snapshot();
         self.chain.keep_up(STATE_SECTORS_PER_TICK);
     }
 
@@ -241,7 +237,17 @@ impl Engine {
         if self.light_heard(from, &message) {
             return;
         }
-        self.peers.insert(from, self.now_ms);
+        hear_peer(&mut self.peers, from, self.now_ms);
+        let asks = matches!(
+            message,
+            Message::GetBlocks(..)
+                | Message::GetSnapshot { .. }
+                | Message::GetHeaders(_)
+                | Message::GetCoins { .. }
+        );
+        if asks && self.outbox.len() >= MOST_QUEUED {
+            return;
+        }
         match message {
             Message::Tip {
                 genesis,
@@ -253,14 +259,14 @@ impl Engine {
                 if genesis != self.chain.genesis_id() || work <= self.chain.total_work() {
                     return;
                 }
+                // This is only a claim, so it adds nothing to what is known to be invalid.
                 if self.refused.has(&tip) || self.refused.has(&previous) {
-                    self.refused.add(tip);
                     return;
                 }
                 if self.history.lacks(from, self.chain.height(), height, self.now_ms) {
                     return;
                 }
-                self.sync.heard(from, tip, height, work, self.now_ms);
+                self.sync.heard(from, height, work, self.now_ms);
                 self.ask_for_blocks();
             }
             Message::GetBlocks(ids, heights) => self.serve_blocks(from, ids, heights.0),
@@ -346,41 +352,6 @@ impl Engine {
         true
     }
 
-    /// Hands in a transaction from outside the network, such as a forged test transaction.
-    pub fn submit_tx(&mut self, tx: Tx) -> bool {
-        self.receive_tx(None, tx)
-    }
-
-    pub(crate) fn receive_tx(&mut self, from: Option<PeerId>, tx: Tx) -> bool {
-        if tx.is_coinbase() || self.pool.iter().any(|known| known == &tx) {
-            return false;
-        }
-        if self.pool.len() >= MAX_POOL {
-            return false;
-        }
-        if tx.outputs.iter().any(|out| out.is_data() && out.lock.len() > MOST_DATA) {
-            self.push_event(Event::DataRefused);
-            return false;
-        }
-        match self.chain.check_tx(&tx, self.chain.height() + 1) {
-            Ok(_) => {
-                self.push_event(Event::TxAccepted);
-                self.pool.push(tx.clone());
-                self.candidate = None;
-                let message = Message::Tx(tx);
-                self.outbox.push_back(Outgoing::All {
-                    except: from,
-                    message,
-                });
-                true
-            }
-            Err(reason) => {
-                self.push_event(Event::TxRejected { reason });
-                false
-            }
-        }
-    }
-
     fn receive_block(&mut self, from: PeerId, block: Block) {
         let id = block.id();
         let tip_before = self.chain.tip();
@@ -449,9 +420,7 @@ impl Engine {
 
     /// A peer whose chain holds an invalid block is no chain to catch up to. It stays a peer.
     fn stop_following(&mut self, peer: PeerId) {
-        if let Some(tip) = self.sync.give_up_on(peer) {
-            self.refused.add(tip);
-        }
+        self.sync.give_up_on(peer, self.now_ms);
     }
 
     /// What the blocks that joined the best chain paid this wallet, leaving out mining rewards and
@@ -465,7 +434,7 @@ impl Engine {
             .flat_map(|tx| &tx.outputs)
             .filter(|output| output.language == ADDRESS_LANGUAGE && self.wallet.owns(&output.lock))
             .map(|output| output.value)
-            .sum()
+            .fold(0, u64::saturating_add)
     }
 
     pub(crate) fn after_tip_change(&mut self, old_tip: Hash) {
@@ -488,53 +457,6 @@ impl Engine {
             .cloned()
             .collect();
         self.settle_pool(returning, &confirmed);
-    }
-
-    /// Bitcoin's reorganisation rule: payments from the blocks that left go back through the same
-    /// check as a new payment, ahead of the pool because a waiting payment may spend their
-    /// outputs. Whatever the new chain made impossible is thrown out.
-    fn settle_pool(&mut self, returning: Vec<Tx>, confirmed: &BTreeSet<Hash>) {
-        let back: BTreeSet<Hash> = returning.iter().map(Tx::id).collect();
-        let waiting = core::mem::take(&mut self.pool)
-            .into_iter()
-            .filter(|tx| !confirmed.contains(&tx.id()) && !back.contains(&tx.id()));
-        let (mut kept, refused) = self
-            .chain
-            .recheck(returning.iter().cloned().chain(waiting).collect());
-        let over = kept.split_off(kept.len().min(MAX_POOL));
-        for tx in kept.iter().filter(|tx| back.contains(&tx.id())) {
-            self.push_event(Event::TxReturned { id: tx.id() });
-            self.outbox.push_back(Outgoing::All {
-                except: None,
-                message: Message::Tx(tx.clone()),
-            });
-        }
-        for (tx, reason) in refused {
-            let (id, reason) = (tx.id(), Some(reason));
-            self.push_event(Event::TxDropped { id, reason });
-        }
-        for tx in over {
-            let (id, reason) = (tx.id(), None);
-            self.push_event(Event::TxDropped { id, reason });
-        }
-        self.pool = kept;
-    }
-
-    /// A waiting payment may spend the output of one before it, as after a reorganisation.
-    fn drop_spent(&mut self) {
-        let chain = &self.chain;
-        let mut made = BTreeSet::new();
-        self.pool.retain(|tx| {
-            let spendable = tx
-                .inputs
-                .iter()
-                .all(|input| chain.is_unspent(&input.previous) || made.contains(&input.previous));
-            if spendable {
-                let txid = tx.id();
-                made.extend((0..tx.outputs.len() as u32).map(|index| OutPoint { txid, index }));
-            }
-            spendable
-        });
     }
 
     pub(crate) fn announce(&mut self, except: Option<PeerId>) {
@@ -577,4 +499,15 @@ impl Engine {
         }
         self.events.push_back(event);
     }
+}
+
+/// Notes that `peer` was heard, on a list of a fixed size.
+pub(crate) fn hear_peer(peers: &mut BTreeMap<PeerId, u64>, peer: PeerId, now: u64) {
+    if peers.len() >= MOST_PEERS && !peers.contains_key(&peer) {
+        let oldest = peers.iter().min_by_key(|(_, heard)| **heard).map(|(peer, _)| *peer);
+        if let Some(oldest) = oldest {
+            peers.remove(&oldest);
+        }
+    }
+    peers.insert(peer, now);
 }

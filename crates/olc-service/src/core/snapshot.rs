@@ -30,8 +30,8 @@ pub struct NodeView {
     /// Addresses followed without a key, with their coins.
     pub watched: Vec<(String, u64)>,
     pub syncing_to: Option<u64>,
-    /// Blocks read back from disk so far and in all, while the chain loads.
-    pub loading: Option<(usize, usize)>,
+    /// The chain is being read back from disk, so the rest of this is from before.
+    pub loading: bool,
     pub balance: u64,
     pub spendable: u64,
     /// Mined coins still too young to spend, which the balance leaves out.

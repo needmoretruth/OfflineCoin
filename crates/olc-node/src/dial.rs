@@ -197,6 +197,9 @@ impl Dialer {
                 let last = self.started.iter().find(|(node, _)| *node == group).map(|(_, ms)| *ms);
                 if last.is_none_or(|ms| now.saturating_sub(ms) >= STAGGER_MS) {
                     self.started.retain(|(node, _)| *node != group);
+                    if self.started.len() >= MOST {
+                        self.started.remove(0);
+                    }
                     self.started.push((group, now));
                     place.dialling_since = Some(now);
                     self.dials += 1;

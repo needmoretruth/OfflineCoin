@@ -89,6 +89,11 @@ impl Default for Rules {
 }
 
 impl Rules {
+    /// The first height a mining reward from `height` may be spent at.
+    pub fn matures_at(&self, height: u64) -> u64 {
+        height.saturating_add(self.coinbase_maturity)
+    }
+
     /// The lowest difficulty a block at `height` may carry after a retarget.
     pub fn floor_at(&self, height: u64) -> u64 {
         match height >= self.floor_from_height {

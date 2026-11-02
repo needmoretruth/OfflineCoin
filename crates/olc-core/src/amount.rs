@@ -3,7 +3,8 @@ use crate::coin::COIN;
 use alloc::format;
 use alloc::string::{String, ToString};
 
-const DECIMALS: usize = 8;
+/// Digits after the point of a whole coin.
+pub const DECIMALS: usize = 8;
 
 /// `1,234` as `1234`. A comma that does not group thousands is refused, because `2,5` may mean 2.5.
 fn without_groups(whole: &str) -> Option<String> {
@@ -55,4 +56,18 @@ pub fn format_coins(units: u64) -> String {
     }
     let text = format!("{whole}.{part:08}");
     text.trim_end_matches('0').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A float cannot hold 0.29, and a person paying 0.29 coins pays exactly that.
+    #[test]
+    fn an_amount_never_passes_through_a_float() {
+        assert_eq!(parse_coins("0.29"), Some(29_000_000));
+        assert_eq!(parse_coins("1.13"), Some(113_000_000));
+        assert_eq!(parse_coins("184467440737"), Some(18_446_744_073_700_000_000));
+        assert_eq!(parse_coins("184467440738"), None);
+    }
 }

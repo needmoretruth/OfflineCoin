@@ -1,30 +1,23 @@
-//! Starts several nodes on one computer, connected to each other, each with its own screen.
+//! Starts several nodes on one computer, connected to each other, each printing its own lines.
 use olc_board::Args;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 
 const BASE_PORT: u16 = 7100;
-const BASE_WEB: u16 = 8100;
 
 pub fn run(args: &Args) -> Result<(), String> {
     let nodes: u16 = args.number("nodes", 3)?;
     let program = std::env::current_exe().map_err(|error| error.to_string())?;
-    let web_ports: Vec<String> = (0..nodes)
-        .map(|index| (BASE_WEB + index).to_string())
-        .collect();
-    let siblings = web_ports.join(",");
     let mut children: Vec<Child> = Vec::new();
     for index in 0..nodes {
         let mut command = Command::new(&program);
-        command.args([
+        command.stdin(Stdio::null()).args([
             "node",
+            "--name",
+            &format!("node{index}"),
             "--data",
             &format!(".olc/devnet/node{index}"),
             "--port",
             &(BASE_PORT + index).to_string(),
-            "--web",
-            &(BASE_WEB + index).to_string(),
-            "--siblings",
-            &siblings,
             "--mine",
         ]);
         if index > 0 {
