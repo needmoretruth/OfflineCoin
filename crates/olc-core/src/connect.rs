@@ -204,6 +204,25 @@ impl Chain {
         Ok(left.len() as u64)
     }
 
+    /// Leaves this chain's blocks from `height` on, for a node about to run by rules that part
+    /// there, and saves that. Those blocks would stay trusted, since a saved state is not checked
+    /// again, and the node would go on from them on neither side. Returns how many went.
+    pub fn step_down_below(&mut self, height: u64) -> Result<u64, ChainError> {
+        if self.height() < height {
+            return Ok(0);
+        }
+        let first_gone = self.id_at(height).ok_or(ChainError::ReorgTooDeep)?;
+        let target = height.checked_sub(1).and_then(|last| self.id_at(last));
+        let target = target.ok_or(ChainError::ReorgTooDeep)?;
+        let gone = self.move_to(target)?;
+        let rewound = self.log.append(Kind::Rewind, target.as_slice());
+        rewound.ok_or(ChainError::StoreFailed)?;
+        // A heavier branch left behind would be walked straight back onto at the next boot.
+        self.forget_branch(first_gone);
+        self.save_now();
+        Ok(gone)
+    }
+
     fn tip_of_fork(&self, left: &[Entry], joined: &[Entry]) -> Hash {
         let lowest = left.last().or(joined.last());
         lowest.map_or(self.tip, |entry| entry.header.previous)

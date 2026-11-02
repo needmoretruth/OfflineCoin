@@ -327,15 +327,16 @@ impl Node {
     }
 
     /// One coin's blocks sit in the log, so a different coin asks first. The keys stay. The same
-    /// coin on other rules keeps its blocks: a fork leaves everything before its height valid.
+    /// coin on other rules keeps its blocks up to where the rules part.
     fn change_coin(&mut self, coin: CoinConfig) {
         let chain = self.runner.engine.chain();
         if coin.genesis().id() == chain.genesis_id() {
-            if coin.rules_id() == chain.config().rules_id() {
-                self.say("coin already running".into());
-            } else {
-                self.waiting_coin = Some(coin);
-                self.say("coin asks confirm: rules change, blocks stay".into());
+            match chain.config().parts_from(&coin) {
+                Some(from) => {
+                    self.waiting_coin = Some(coin);
+                    self.say(format!("coin asks confirm: rules change at block {from}"));
+                }
+                None => self.say("coin already running".into()),
             }
         } else if chain.height() == 0 {
             self.switch_to(&coin);
@@ -351,13 +352,21 @@ impl Node {
     }
 
     fn confirm_coin(&mut self) {
-        match self.waiting_coin.take() {
-            Some(coin) => self.switch_to(&coin),
-            None => self.say("error no coin waiting".into()),
+        let Some(coin) = self.waiting_coin.take() else {
+            return self.say("error no coin waiting".into());
+        };
+        let chain = self.runner.engine.chain_mut();
+        let same_coin = coin.genesis().id() == chain.genesis_id();
+        if let Some(from) = chain.config().parts_from(&coin).filter(|_| same_coin) {
+            if chain.step_down_below(from).is_err() {
+                return self.say("error the rules part too far back".into());
+            }
         }
+        self.switch_to(&coin);
     }
 
-    /// A log written for another coin fails its checks, so the new coin starts clean.
+    /// A log written for another coin fails its checks, so the new coin starts clean. The same coin
+    /// on other rules goes on from its log.
     fn switch_to(&mut self, coin: &CoinConfig) {
         if self.store.save_coin(coin) {
             esp_hal::system::software_reset();

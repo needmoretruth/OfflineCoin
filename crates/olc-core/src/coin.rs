@@ -295,6 +295,18 @@ impl CoinConfig {
 
     /// A short name for this coin's rule changes. Empty when it has none, so a coin without forks
     /// is named as it always was.
+    /// The first height where this coin and `other` go by different rules, if there is one. Blocks
+    /// below it mean the same to both, and blocks from it on belong to one side only.
+    pub fn parts_from(&self, other: &Self) -> Option<u64> {
+        if self.rules_id() == other.rules_id() {
+            return None;
+        }
+        let same = self.forks.iter().zip(&other.forks).take_while(|(ours, theirs)| ours == theirs);
+        let same = same.count();
+        let next = |coin: &Self| coin.forks.get(same).map(|fork| fork.from_height);
+        [next(self), next(other)].into_iter().flatten().min().or(Some(0))
+    }
+
     pub fn forks_id(&self) -> String {
         if self.forks.is_empty() {
             return String::new();

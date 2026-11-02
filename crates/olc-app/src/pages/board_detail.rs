@@ -233,6 +233,30 @@ impl BoardDetail {
         });
     }
 
+    fn rules_row(&mut self, ui: &mut Ui, cx: &mut Cx, board: &BoardView) {
+        let t = cx.t;
+        let id = board.seen.id;
+        let beacon = &board.seen.beacon;
+        let mut slip = None;
+        if board.other_rules {
+            row(ui, t, cx.say("boards.other_rules"), cx.say("boards.other_rules_about"), |ui| {
+                if button(ui, t, cx.say("boards.move_rules"), Kind::Plain).clicked() {
+                    slip = Some(cx.slip_for(Slipping {
+                        what: cx.say("boards.move_rules"),
+                        rows: vec![(cx.say("boards.name"), beacon.name.clone())],
+                        warning: cx.say("boards.move_rules_warning"),
+                        sign: cx.say("boards.move_yes"),
+                        danger: true,
+                        order: vec![Command::MoveBoard(id)],
+                    }));
+                }
+            });
+        }
+        if slip.is_some() {
+            *cx.slip = slip;
+        }
+    }
+
     fn money_rows(&mut self, ui: &mut Ui, cx: &mut Cx, board: &BoardView) {
         let t = cx.t;
         let id = board.seen.id;
@@ -249,20 +273,6 @@ impl BoardDetail {
                             (cx.say("boards.blocks_go"), blocks.clone()),
                         ],
                         warning: cx.say("boards.move_warning"),
-                        sign: cx.say("boards.move_yes"),
-                        danger: true,
-                        order: vec![Command::MoveBoard(id)],
-                    }));
-                }
-            });
-        }
-        if board.other_rules {
-            row(ui, t, cx.say("boards.other_rules"), cx.say("boards.other_rules_about"), |ui| {
-                if button(ui, t, cx.say("boards.move_rules"), Kind::Plain).clicked() {
-                    slip = Some(cx.slip_for(Slipping {
-                        what: cx.say("boards.move_rules"),
-                        rows: vec![(cx.say("boards.name"), beacon.name.clone())],
-                        warning: cx.say("boards.move_rules_warning"),
                         sign: cx.say("boards.move_yes"),
                         danger: true,
                         order: vec![Command::MoveBoard(id)],
@@ -352,6 +362,7 @@ impl BoardDetail {
             });
             return;
         }
+        self.rules_row(ui, cx, board);
         self.name_row(ui, cx, id);
         Self::mining_row(ui, cx, board);
         self.bright_row(ui, cx, id, board.state.bright);

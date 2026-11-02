@@ -1,7 +1,11 @@
 //! A coin changing its rules at a height, on real blocks: same genesis, same history, two chains.
 mod common;
+mod store;
 
 use common::{engine_of, mine, silence, test_coin};
+use olc_core::Chain;
+use olc_wallet::Wallet;
+use store::{flash, keep_on, plugins};
 use olc_core::chain::ChainError;
 use olc_core::coin::{Fork, COIN};
 use olc_core::{Block, CoinConfig, Rules};
@@ -129,6 +133,52 @@ fn a_fork_travels_past_where_older_builds_stop_reading() {
     let (seen_by_old, _) = postcard::take_from_bytes::<CoinConfig>(&bytes).unwrap();
     assert_eq!(seen_by_old.genesis().id(), coin.genesis().id());
     assert_eq!(seen_by_old.rules.reward, coin.rules.reward, "the old side sees the rules it has");
+}
+
+/// A board moved between sides finds blocks of the side it left. They go, or it would stand on
+/// neither side: its saved state is trusted, and the rules are only asked of new blocks.
+#[test]
+fn a_move_between_sides_leaves_the_blocks_of_the_side_it_left() {
+    let coin = test_coin();
+    let new = forked(&coin, |rules| rules.min_fee += 1);
+    assert_eq!(coin.parts_from(&new), Some(FORK_AT));
+    assert_eq!(new.parts_from(&coin), Some(FORK_AT));
+    assert_eq!(coin.parts_from(&coin), None);
+
+    let drive = flash(1 << 20);
+    let wallet = || Wallet::from_secret([1; 32]).unwrap();
+    let open = |coin: &CoinConfig| Chain::open(coin.clone(), plugins(), keep_on(&drive, None));
+    let mut old_side = Engine::on_chain(open(&coin), wallet());
+    mine_to(&mut old_side, FORK_AT + 3);
+    let kept = old_side.chain().id_at(FORK_AT - 1).unwrap();
+    assert_eq!(old_side.chain_mut().step_down_below(FORK_AT).unwrap(), 4);
+    drop(old_side);
+
+    let mut fork = Engine::on_chain(open(&new), wallet());
+    assert_eq!(fork.chain().tip(), kept, "the boot walked back to the blocks that went");
+    mine_to(&mut fork, FORK_AT + 2);
+    let marked = fork.chain().id_at(FORK_AT).unwrap();
+    assert_eq!(fork.chain_mut().step_down_below(FORK_AT).unwrap(), 3);
+    drop(fork);
+
+    let mut back = Engine::on_chain(open(&coin), wallet());
+    assert_eq!(back.chain().tip(), kept);
+    mine_to(&mut back, FORK_AT);
+    assert_ne!(back.chain().tip(), marked, "this side knows nothing of the mark");
+    assert_eq!(back.status().height, FORK_AT);
+    drop(back);
+
+    let reopened = open(&coin);
+    assert_eq!(reopened.height(), FORK_AT, "the log still reads after a step down");
+}
+
+#[test]
+fn a_rules_change_above_the_tip_takes_nothing() {
+    let coin = test_coin();
+    let mut node = engine_of(1, coin);
+    mine_to(&mut node, FORK_AT - 2);
+    assert_eq!(node.chain_mut().step_down_below(FORK_AT).unwrap(), 0);
+    assert_eq!(node.status().height, FORK_AT - 2);
 }
 
 #[test]
