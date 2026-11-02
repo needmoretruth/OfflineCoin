@@ -48,7 +48,8 @@ The 240 MHz rows drew the screen at 30 frames a second.
 | What | Result |
 |---|---|
 | Sync 35,000 blocks | 313 s |
-| Memory for each block | 3.42 bytes |
+| Memory for each block | 3.63 bytes |
+| Free memory on a board-sized node, height 16,400 to 100,400 | 7.12 to 7.41 MB |
 | Light node, sync 35,001 headers | 32 s |
 | Light node, memory for each header | about 110 bytes |
 | Node on the desktop | 7 to 10 MB of memory, about 1% of a core |

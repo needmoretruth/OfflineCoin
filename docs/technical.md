@@ -94,7 +94,23 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 | `olc-pool`, `olc-lab` | The pool and the experiments, outside the coin | |
 | `olc-logo` | The spinning coin | |
 | `olc-compat` | Checks that old and new builds agree on the chain | |
+| `olc-fuzz` | Throws random and damaged bytes at every parser | |
 | `firmware` | The board: radios, flash, OLED | |
+
+## Known limits
+
+These come from the rules, and changing them means a fork.
+
+- A block's time has no upper limit, because a board has no clock of its own.
+- A block has no limit on signature checks. Mining one that stalls a board takes real work.
+- A transaction id covers its unlock data, as in Bitcoin before SegWit.
+- A 64-byte transaction could be mistaken for an inner node of the Merkle tree.
+
+These come from radio and storage.
+
+- ESP-NOW frames are not encrypted, so someone nearby can fake a neighbour's address and cut it off for 10 minutes.
+- A wrong piece during a radio update can spoil that update. It can't take the board over.
+- Keys in a board's flash are not encrypted.
 
 ## Fonts
 
