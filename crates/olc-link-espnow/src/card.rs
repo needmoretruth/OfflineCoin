@@ -28,6 +28,8 @@ fn number_of(mac: &[u8; 6]) -> u32 {
 
 /// How long a card may keep a frame waiting. The node stands still for that long.
 const WRITE_WAIT: Duration = Duration::from_millis(20);
+/// How soon to read again from a card that failed.
+const CARD_BACK: Duration = Duration::from_secs(1);
 
 impl EspNowCard {
     /// Opens `interface`, and hears frames of this coin and everyone's Hellos.
@@ -46,7 +48,12 @@ impl EspNowCard {
         let known = macs.clone();
         thread::spawn(move || {
             let mut joiner = Reassembler::default();
-            while let Ok(bytes) = card_reader.next() {
+            loop {
+                // A card that went down and came back up reports it once, and carries on.
+                let Ok(bytes) = card_reader.next() else {
+                    thread::sleep(CARD_BACK);
+                    continue;
+                };
                 let Some((from, body)) = read(bytes, &me) else {
                     continue;
                 };

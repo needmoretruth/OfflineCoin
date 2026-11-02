@@ -231,6 +231,7 @@ async fn connection(stack: &'static BleStack, hub: SharedHub, conn: Conn, slot: 
             free_slot(&hub, slot);
         }
         _ => {
+            println!("bluetooth channel: not opened");
             hub.borrow_mut().open[slot] = false;
             if let Some(address) = dialled {
                 hub.borrow_mut().news.push_back(News::Failed { address });
@@ -333,7 +334,10 @@ async fn dial_on_order(stack: &'static BleStack, hub: SharedHub, spawner: Spawne
                         println!("bluetooth dial: {error:?}");
                         None
                     }
-                    Err(_) => None,
+                    Err(_) => {
+                        println!("bluetooth dial: no answer");
+                        None
+                    }
                 }
             }
             _ => None,

@@ -16,8 +16,8 @@ use esp_hal::uart::{Config, Instance, RxConfig, Uart, UartInterrupt};
 use esp_hal::Blocking;
 use olc_node::line::{Hunt, LineLink, Pipe};
 
-/// Fast enough for blocks, and slow enough for loose wires a hand long.
-const BAUD: u32 = 460_800;
+/// The fastest rate that spoiled nothing over 10 cm jumpers between real boards.
+const BAUD: u32 = 921_600;
 /// Half the hardware buffer, so the interrupt has time to answer.
 const FIFO_THRESHOLD: u16 = 64;
 const MOST_WAITING: usize = 16 * 1024;

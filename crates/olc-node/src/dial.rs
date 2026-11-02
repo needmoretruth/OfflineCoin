@@ -259,13 +259,13 @@ mod tests {
     #[test]
     fn a_better_link_that_shows_itself_is_dialled_once() {
         let (mut table, mut dialer) = (table(), Dialer::default());
-        table.name(WIFI, 1, THEM, 0);
+        table.name(BLUETOOTH, 1, THEM, 0);
         table.settle(0);
-        dialer.seen(BLUETOOTH, "ble".into(), THEM, 0);
+        dialer.seen(WIFI, "host:7000".into(), THEM, 0);
         assert_eq!(dials(&dialer.step(&table, ME, 0)), 1);
-        dialer.opened(BLUETOOTH, "ble", 3, 100);
-        table.name(BLUETOOTH, 3, THEM, 100);
-        table.name(WIFI, 1, THEM, 100);
+        dialer.opened(WIFI, "host:7000", 3, 100);
+        table.name(WIFI, 3, THEM, 100);
+        table.name(BLUETOOTH, 1, THEM, 100);
         assert_eq!(dials(&dialer.step(&table, ME, 200)), 0);
         assert_eq!(dialer.dials, 1);
     }
@@ -355,19 +355,19 @@ mod tests {
     #[test]
     fn a_better_way_that_keeps_failing_waits_longer_each_time() {
         let mut table = table();
-        table.name(RADIO, 1, THEM, 0);
+        table.name(BLUETOOTH, 1, THEM, 0);
         table.settle(0);
         let mut dialer = Dialer::default();
         let mut started = Vec::new();
         for now in (0..30_000).step_by(100) {
-            table.name(RADIO, 1, THEM, now);
+            table.name(BLUETOOTH, 1, THEM, now);
             table.settle(now);
-            dialer.seen(BLUETOOTH, "here".into(), THEM, now);
+            dialer.seen(WIFI, "here".into(), THEM, now);
             if dials(&dialer.step(&table, ME, now)) > 0 {
                 started.push(now);
-                dialer.failed(BLUETOOTH, "here", now + 50);
+                dialer.failed(WIFI, "here", now + 50);
             }
         }
-        assert!(started.len() <= 5, "{started:?}");
+        assert!((2..=5).contains(&started.len()), "{started:?}");
     }
 }
