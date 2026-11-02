@@ -16,6 +16,7 @@ mod node;
 mod pages;
 mod radio;
 mod report;
+mod rollback;
 mod screen;
 mod serve;
 mod store;
@@ -33,7 +34,6 @@ use control::Control;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_time::Timer;
-use esp_backtrace as _;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
@@ -113,6 +113,10 @@ async fn main(spawner: Spawner) -> ! {
         .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
     rtc.rwdt.enable();
     flash::give(FlashStorage::new(peripherals.FLASH));
+    let start = rollback::check_start();
+    if start == rollback::Start::Stopped {
+        rollback::go_back();
+    }
     let mut store = Store::default();
     let reset = esp_hal::system::reset_reason().map_or(0, |reason| reason as u8);
     store.begin_boot(reset);
@@ -225,7 +229,7 @@ async fn main(spawner: Spawner) -> ! {
         format_address(&engine.address())
     );
 
-    let updated = store.mark_running_build_good();
+    let updated = start == rollback::Start::First;
     let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
     let mut me = [0u8; 6];
     me.copy_from_slice(mac.as_bytes());

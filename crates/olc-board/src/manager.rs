@@ -1,6 +1,7 @@
 //! What a program that manages boards needs, whatever its face: the boards on the cables, the
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
 use crate::clearance::{deliver, Ledger, UNPROVEN};
+use crate::comeback::{back_on, Back, WENT_BACK};
 use proving::NO_PROVER;
 use crate::ports::board_ports;
 use crate::control_key::{config_folder, ControlKey};
@@ -30,6 +31,8 @@ const MAX_LOG: usize = 400;
 const MAX_HEARD: usize = 40;
 const MAX_LOADER_WAKES: u32 = 3;
 const RETURN_WAIT: Duration = Duration::from_secs(600);
+/// Longer than the minute a board's new build may still go back (`firmware/src/rollback.rs`).
+const SETTLE_WAIT: Duration = Duration::from_secs(90);
 
 struct Port {
     link: usize,
@@ -202,7 +205,7 @@ impl Manager {
     pub fn is_updating(&self) -> bool {
         self.jobs.lock().is_ok_and(|jobs| {
             jobs.values()
-                .any(|job| job != "update_failed" && job != "installing")
+                .any(|job| !matches!(job.as_str(), "update_failed" | "went_back" | "installing"))
         })
     }
 
@@ -423,6 +426,11 @@ impl Manager {
         thread::spawn(move || manager.update(board));
     }
 
+    fn build_of(&self, board: BoardId) -> Option<String> {
+        let fleet = self.fleet.lock().ok()?;
+        fleet.boards().iter().find(|seen| seen.id == board).map(|seen| seen.beacon.build.clone())
+    }
+
     /// A new image always lands in the slot the board is not running from.
     fn running_slot(&self, board: BoardId) -> Option<String> {
         let line = command(&self.fleet, board, "status").ok().flatten()?;
@@ -439,6 +447,7 @@ impl Manager {
         let done = result.is_ok();
         let failed = match &result {
             Err(error) if error == UNPROVEN || error == NO_PROVER => "unproven",
+            Err(error) if error == WENT_BACK => "went_back",
             _ => "update_failed",
         };
         self.set_job(&key, (!done).then(|| failed.to_string()));
@@ -459,23 +468,35 @@ impl Manager {
         self.prove_for(board, &hash_of(&image), &ledger)?;
         self.set_job(key, Some("preparing".into()));
         let slot_before = self.running_slot(board);
+        let build_before = self.build_of(board).unwrap_or_default();
         let delivery = deliver(&self.fleet, &ledger, board, &image, hash_of(&image), &shown)?;
         self.set_job(key, Some("restarting".into()));
         let deadline = Instant::now() + RETURN_WAIT;
         thread::sleep(Duration::from_secs(5));
         // The beacon comes back first, and a board still catching up may miss an order.
         while Instant::now() < deadline {
-            let back = self.fleet.lock().map(|fleet| {
-                fleet
-                    .boards()
-                    .iter()
-                    .any(|seen| seen.id == board && seen.silent_for < Duration::from_secs(3))
+            let fresh = |seen: &&Seen| seen.id == board && seen.silent_for < Duration::from_secs(3);
+            let back = self.fleet.lock().ok().and_then(|fleet| {
+                fleet.boards().iter().find(fresh).map(|seen| seen.beacon.build.clone())
             });
-            if back.unwrap_or(false) {
+            if back.as_deref().is_some_and(|now| back_on(&build_before, now) == Back::OnNewBuild) {
+                // The page shows the board as it is from here. The build counts as run once it
+                // has outlasted the minute in which a stop sends it back.
+                self.set_job(key, None);
+                let settled = Instant::now() + SETTLE_WAIT;
+                while Instant::now() < settled {
+                    thread::sleep(Duration::from_secs(1));
+                    if self.build_of(board).is_some_and(|now| now == build_before) {
+                        return Err(WENT_BACK.to_string());
+                    }
+                }
+                return ledger.landed(&delivery);
+            }
+            if back.is_some() {
                 let answer = command(&self.fleet, board, "status");
                 if answer.is_ok_and(|line| line.is_some_and(|line| line.starts_with("status"))) {
                     if slot_before.is_some() && self.running_slot(board) == slot_before {
-                        return Err("The board came back on its old build.".to_string());
+                        return Err(WENT_BACK.to_string());
                     }
                     return ledger.landed(&delivery);
                 }

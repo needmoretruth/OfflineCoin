@@ -182,7 +182,7 @@ impl Terminal {
             }
             match job.as_deref() {
                 None => return Ok("Updated.".to_string()),
-                Some(failed @ ("update_failed" | "unproven")) => return Err(failed.to_string()),
+                Some(failed @ ("update_failed" | "went_back" | "unproven")) => return Err(failed.to_string()),
                 Some(_) => thread::sleep(LOOK_EVERY),
             }
         }

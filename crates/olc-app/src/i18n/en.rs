@@ -148,6 +148,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.job_restarting", "Restarting"),
     ("boards.job_installing", "Installing"),
     ("boards.job_failed", "Update failed. Try again."),
+    ("boards.job_went_back", "This version did not run on the board. The board is back on its earlier version."),
     ("boards.job_unproven", "No board with a USB cable could try this version by radio first. Keep a second board with a cable near the first, or connect this board with a cable."),
     ("boards.job_proof_cable", "Trying this version on {} by cable first"),
     ("boards.job_proof_radio", "Checking that {} takes this version by radio"),

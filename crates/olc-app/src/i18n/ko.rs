@@ -148,6 +148,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.job_restarting", "다시 시작하는 중"),
     ("boards.job_installing", "설치 중"),
     ("boards.job_failed", "업데이트에 실패했습니다. 다시 눌러 주세요."),
+    ("boards.job_went_back", "이 버전이 보드에서 돌아가지 않았습니다. 보드는 이전 버전으로 돌아왔습니다."),
     ("boards.job_unproven", "USB 케이블로 연결된 보드가 이 버전을 무선으로 먼저 시험하지 못했습니다. 케이블 보드를 하나 더 가까이 두거나, 이 보드를 케이블로 연결해 주세요."),
     ("boards.job_proof_cable", "{}에서 케이블로 먼저 시험하는 중"),
     ("boards.job_proof_radio", "{}에서 무선 업데이트를 확인하는 중"),

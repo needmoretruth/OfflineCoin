@@ -54,6 +54,7 @@ pub fn job_text(cx: &Cx, job: &str) -> String {
         "restarting" => said("boards.job_restarting"),
         "installing" => said("boards.job_installing"),
         "update_failed" => said("boards.job_failed"),
+        "went_back" => said("boards.job_went_back"),
         "unproven" => said("boards.job_unproven"),
         progress => progress.to_string(),
     }
