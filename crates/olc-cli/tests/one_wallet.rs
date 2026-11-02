@@ -193,7 +193,9 @@ fn every_word_typed_into_a_node_does_what_it_does_on_its_own_and_reads_plainly()
     for ((name, line), answer) in names.iter().zip(&lines).zip(&answers) {
         let refused = answer.contains("has no boards") || answer.contains("--coin file");
         let missing = answer.contains("needs OLC Core") || (refused && !not_for_a_lone_node(name));
-        if answer.is_empty() || missing || reads_as_code(answer) {
+        // The folder this test made is in some answers, and its name on Windows has AppData in it.
+        let said = answer.replace(&home.display().to_string(), "home");
+        if answer.is_empty() || missing || reads_as_code(&said) {
             wrong.push(format!("{line} -> {answer}"));
         }
     }
