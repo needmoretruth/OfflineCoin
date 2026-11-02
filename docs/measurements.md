@@ -1,6 +1,6 @@
 # Measurements
 
-These numbers come from real hardware, taken on 2026-11-01 and 2026-11-02 on the builds leading up to 0.1.0, at default settings on the OLC chain unless a row says otherwise. The board experiments can be repeated with the scripts in [tools/measure](tools/measure). The top of each script says how.
+These numbers come from real hardware, taken on 2026-11-01 and 2026-11-02 on the builds leading up to 0.1.0, at default settings on the OLC chain unless a row says otherwise. The board experiments can be repeated with the scripts in [tools/measure](../tools/measure). The top of each script says how.
 
 ## Setup
 

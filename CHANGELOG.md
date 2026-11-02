@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes for each version. How the numbers were taken is in [MEASUREMENTS.md](MEASUREMENTS.md).
+Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
 ## [Unreleased]
 
@@ -14,7 +14,7 @@ Notable changes for each version. How the numbers were taken is in [MEASUREMENTS
 - One link for each neighbour, chosen from the links that are alive, in an order you can change.
 - A pool and a 51% attack lab, both outside the coin and built from ordinary node operations.
 - Radio updates that reach boards with no data cable, once a board on a cable has proved the build.
-- Scripts in `tools/measure` that repeat the board experiments in MEASUREMENTS.md.
+- Scripts in `tools/measure` that repeat the board experiments in docs/measurements.md.
 
 ### Changed
 

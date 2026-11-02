@@ -1,6 +1,6 @@
 # 변경 기록
 
-버전마다 달라진 내용입니다. 숫자를 잰 방법은 [MEASUREMENTS.md](MEASUREMENTS.md)에 있습니다.
+버전마다 달라진 내용입니다. 숫자를 잰 방법은 [docs/measurements.md](docs/measurements.md)에 있습니다.
 
 ## [Unreleased]
 
@@ -14,7 +14,7 @@
 - 이웃마다 살아 있는 연결 중 하나를 고릅니다. 순서는 설정에서 바꿀 수 있습니다.
 - 풀과 51% 공격 실험실을 추가했습니다. 둘 다 코인 밖에 있고 일반 노드 동작으로 만들었습니다.
 - 데이터 케이블이 없는 보드도 무선으로 업데이트합니다. 케이블에 연결된 보드에서 먼저 증명된 빌드만 받습니다.
-- MEASUREMENTS.md의 보드 실험을 다시 돌리는 스크립트를 `tools/measure`에 넣었습니다.
+- docs/measurements.md의 보드 실험을 다시 돌리는 스크립트를 `tools/measure`에 넣었습니다.
 
 ### 변경
 
