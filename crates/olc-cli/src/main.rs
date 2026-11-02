@@ -77,17 +77,26 @@ fn action(args: &Args) -> Result<(), String> {
         None => match EXTRAS.iter().find(|extra| Some(extra.command()) == args.command()) {
             Some(extra) => extra.run(args),
             None => {
-                print!("{PROGRAMS}{}", usage());
-                EXTRAS.iter().for_each(|extra| print!("{}", extra.usage()));
-                print!("{CLOSING}");
+                help();
                 Ok(())
             }
         },
     }
 }
 
+fn help() {
+    print!("{PROGRAMS}{}", usage());
+    EXTRAS.iter().for_each(|extra| print!("{}", extra.usage()));
+    print!("{CLOSING}");
+}
+
 fn main() {
     let args = Args::parse(std::env::args().skip(1));
+    // Asking for help never starts or changes anything, whatever command it follows.
+    if args.has("help") || std::env::args().skip(1).any(|word| word == "-h") {
+        help();
+        return;
+    }
     let result = match args.command() {
         Some("node") => node::run(&args),
         Some("start") => run_node(std::env::args().skip(2).collect()),
