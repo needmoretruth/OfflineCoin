@@ -1,4 +1,4 @@
-Download the file for your computer and open it. Plug in a board and the app finds it.
+Download the file for your computer and open it. Plug in an ESP32-S3 board and the app finds it.
 
 **Windows.** Download `OLC-Core-windows-x86_64-setup.exe` and open it. Windows shows "Windows protected your PC", because this app has no paid signature. Click More info, then Run anyway. Click Next until it finishes. You need no administrator password. OLC Core is now on your desktop and in the Start menu.
 
