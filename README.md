@@ -12,7 +12,7 @@
   <a href="README.ko.md">한국어</a>
 </p>
 
-OfflineCoin is a cryptocurrency that works with no internet. You mine it, check it and send it yourself, on your own computers. It has no exchange and no price. It's made for fun, so treat it as a toy.
+OfflineCoin is a cryptocurrency that works with no internet. You mine it, check it and send it yourself.
 
 ## Download
 
@@ -26,7 +26,7 @@ OfflineCoin is a cryptocurrency that works with no internet. You mine it, check 
 
 Other systems are on the [releases page](https://github.com/needmoretruth/OfflineCoin/releases/latest).
 
-Your computer will warn you the first time, because this app isn't signed.
+Your computer may warn you the first time you open it.
 
 - **Windows** says "Windows protected your PC". Choose **More info**, then **Run anyway**.
 - **Mac** says it can't check the app. Open **System Settings**, then **Privacy & Security**, and choose **Open Anyway**.
@@ -49,13 +49,12 @@ You can make your own coin too. On the **Coins** page, press **New coin**, then 
 
 ## Small boards
 
-OfflineCoin also runs on a tiny board with a small screen, with no computer once it's set up. It mines, keeps the whole chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core. The [technical guide](docs/technical.md) says which boards work.
+OfflineCoin also runs on ESP32 boards, with no computer once they're set up. A board mines, keeps the chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core.
 
 ## Keep your coins safe
 
 - Go to **Settings** and press **Back up**. If you lose your wallet with no backup, your coins are gone.
-- Anyone who gets your wallet file can spend your coins. It isn't encrypted.
-- Anyone with more mining power can rewrite the chain. On a coin like this, that's part of the fun.
+- Anyone who gets your wallet file can spend your coins, so keep it to yourself.
 
 ## A word from the developer (more than a word)
 

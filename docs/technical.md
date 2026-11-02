@@ -27,11 +27,9 @@ cargo build --release -p olc-app -p olc-cli
 
 `cargo run` and `cargo test` leave USB alone so that a test never touches a board. Set `OLC_NO_USB=0` to reach boards from a source run.
 
-## ESP32-S3
+## Boards
 
-A board needs 16 MB of flash and 8 MB of PSRAM. An SH1106 OLED on I2C (SDA 8, SCL 9) is optional.
-
-Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
+An SH1106 OLED on I2C is optional. Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
 
 ```
 cd firmware
