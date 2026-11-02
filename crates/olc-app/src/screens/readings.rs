@@ -89,13 +89,8 @@ fn look(window: &Window, place: &str, wrong: &mut Vec<String>) {
     }
 }
 
-#[test]
-fn every_amount_reads_with_its_commas() {
-    let mut window = harness(app(scratch("readings"), quiet_settings(), None), SIZES[1]);
-    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
-    let stage = large(&window.state().snapshot());
-    window.state_mut().set_stage(Some(stage));
-    let mut wrong = Vec::new();
+/// Walks every page and tab in both modes and languages.
+fn every_view(window: &mut Window, look: &mut dyn FnMut(&Window, &str)) {
     for mode in [Mode::Basic, Mode::Expert] {
         for lang in [Lang::En, Lang::Ko] {
             window.state_mut().settings_mut().mode = mode;
@@ -104,17 +99,50 @@ fn every_amount_reads_with_its_commas() {
             for title in window.state().page_titles() {
                 window.state_mut().open(title);
                 window.run_steps(SETTLE_STEPS);
-                look(&window, &format!("{mode:?} {lang:?} {title}"), &mut wrong);
+                look(window, &format!("{mode:?} {lang:?} {title}"));
             }
             window.state_mut().open("page.boards");
             window.run_steps(SETTLE_STEPS);
             for tab in ["boards.tab_nodes", "boards.tab_pool"] {
-                tap(&mut window, tab);
+                tap(window, tab);
                 window.run_steps(SETTLE_STEPS);
-                look(&window, &format!("{mode:?} {lang:?} {tab}"), &mut wrong);
+                look(window, &format!("{mode:?} {lang:?} {tab}"));
             }
         }
     }
+}
+
+/// A screen reader says a field's name, and a field without one is only "edit".
+#[test]
+fn every_field_has_a_name() {
+    let mut window = harness(app(scratch("field-names"), quiet_settings(), None), SIZES[1]);
+    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
+    let stage = large(&window.state().snapshot());
+    window.state_mut().set_stage(Some(stage));
+    let mut wrong = Vec::new();
+    let mut fields = 0;
+    every_view(&mut window, &mut |window, place| {
+        let field = |role| matches!(role, Role::TextInput | Role::PasswordInput | Role::SpinButton);
+        for node in window.query_all(By::new().predicate(move |node| field(node.role()))) {
+            fields += 1;
+            let access = node.accesskit_node();
+            if access.label().is_none_or(|name| name.trim().is_empty()) {
+                wrong.push(format!("{place}: {:?}", access.value()));
+            }
+        }
+    });
+    assert!(fields > 8, "the walk found {fields} fields");
+    assert!(wrong.is_empty(), "fields with no name: {wrong:#?}");
+}
+
+#[test]
+fn every_amount_reads_with_its_commas() {
+    let mut window = harness(app(scratch("readings"), quiet_settings(), None), SIZES[1]);
+    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
+    let stage = large(&window.state().snapshot());
+    window.state_mut().set_stage(Some(stage));
+    let mut wrong = Vec::new();
+    every_view(&mut window, &mut |window, place| look(window, place, &mut wrong));
     window.state_mut().settings_mut().language = Lang::En;
     window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);

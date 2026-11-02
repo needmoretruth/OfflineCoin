@@ -155,7 +155,8 @@ impl Desk for Terminal {
             Command::Pay { .. } => self.send_and_stay(command),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
-                write_coin_file(&new_coin(choices), &path).map(|()| path)
+                let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;
+                write_coin_file(&coin, &path).map(|()| path)
             }
             Command::InstallBoard { path, name } => {
                 let key = ControlKey::load_or_create(&config_folder()?)?.public()?;

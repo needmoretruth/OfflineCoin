@@ -14,6 +14,7 @@ mod forged;
 mod found;
 mod history;
 mod host;
+pub mod host_locks;
 mod host_parts;
 mod ops;
 #[cfg(test)]
@@ -30,8 +31,10 @@ pub use folder::Folder;
 pub use terminal::Terminal;
 pub use words::{run_line, run_words, usage, Desk, Word, WORDS};
 pub use ops::Book;
-pub use olc_store::coin_file::{new_coin, NewCoin};
-pub use commands::{Command, Personal, StartCoin};
+pub use olc_store::coin_fields::{
+    first_fork_height, fork_coin, new_coin, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS,
+};
+pub use commands::{Command, LockOrder, Personal, StartCoin};
 pub use explorer::{BlockRow, Explored, NoteRow, TxRow};
 pub use history::{Activity, ActivityKind};
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};

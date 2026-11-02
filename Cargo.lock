@@ -2992,6 +2992,7 @@ dependencies = [
  "olc-crypto",
  "olc-lang",
  "olc-pow",
+ "postcard",
 ]
 
 [[package]]

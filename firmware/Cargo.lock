@@ -1923,6 +1923,7 @@ version = "0.1.0"
 dependencies = [
  "olc-core",
  "olc-crypto",
+ "olc-lang",
  "olc-wallet",
  "postcard",
  "serde",
@@ -1942,6 +1943,7 @@ dependencies = [
  "olc-core",
  "olc-crypto",
  "olc-lang",
+ "postcard",
 ]
 
 [[package]]

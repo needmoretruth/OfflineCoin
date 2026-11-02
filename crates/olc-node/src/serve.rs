@@ -2,13 +2,14 @@
 //! chooses that. Nothing else about a node changes: same links, same keys, same commands.
 use crate::engine::{Engine, PeerId};
 use crate::event::{Outgoing, Status};
+use crate::hello::Keeps;
 use crate::light::Light;
 use crate::message::Message;
 use crate::sync::BLOCKS_AT_ONCE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
-use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Served, Tx};
+use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Rules, Served, Tx};
 use olc_wallet::{prepare, Order, Unsigned, WalletError};
 
 /// A peer that asks again this soon has not had time to see the answer. Asks pile up while a slow
@@ -66,8 +67,23 @@ impl Engine {
         self.candidate = None;
     }
 
+    /// What this node holds of its chain, for its card.
+    pub fn keeps(&self) -> Keeps {
+        match (&self.light, self.chain.recent()) {
+            (Some(_), _) => Keeps::Headers,
+            (None, Some(_)) => Keeps::Recent,
+            (None, None) => Keeps::Everything,
+        }
+    }
+
     pub fn light(&self) -> Option<&Light> {
         self.light.as_deref()
+    }
+
+    /// The rules for the next block, by the headers when this node keeps no blocks.
+    pub fn rules(&self) -> &Rules {
+        let height = self.light.as_deref().map_or(self.chain.height(), |light| light.headers().height());
+        self.chain.config().rules_at(height + 1)
     }
 
     /// Where this node's wallet finds its coins.
@@ -97,7 +113,7 @@ impl Engine {
     pub fn prepare(&self, to: Address, amount: u64, fee: u64) -> Result<Unsigned, WalletError> {
         let change = *self.watched.first().ok_or(WalletError::NoSuchKey)?;
         let payments = [(to, amount)];
-        let order = Order { payments: &payments, data: &[], fee, change };
+        let order = Order { payments: &payments, data: &[], locked: None, fee, change };
         prepare(self.coins(), &self.watched, &order, &[])
     }
 

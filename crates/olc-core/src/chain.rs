@@ -115,8 +115,9 @@ impl Chain {
         &self.config
     }
 
+    /// The rules for the next block.
     pub fn rules(&self) -> &Rules {
-        &self.config.rules
+        self.config.rules_at(self.height() + 1)
     }
 
     pub fn plugins(&self) -> &Plugins {
@@ -167,7 +168,8 @@ impl Chain {
     }
 
     pub(crate) fn window(&self) -> u64 {
-        window(self.config.rules.retarget_interval)
+        let intervals = self.config.all_rules().map(|rules| rules.retarget_interval);
+        window(intervals.max().unwrap_or_default())
     }
 
     /// The block before `entry`, from memory or else from the log.
@@ -342,6 +344,11 @@ impl Chain {
         }
     }
 
+    /// How many recent blocks are kept. `None` keeps all that fit.
+    pub fn recent(&self) -> Option<u64> {
+        self.recent
+    }
+
     /// Changes how many recent blocks are kept. `None` keeps all that fit.
     pub fn set_recent(&mut self, recent: Option<u64>) {
         self.recent = recent.map(|blocks| blocks.max(FEWEST_RECENT));
@@ -368,9 +375,19 @@ impl Chain {
     pub fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
         self.unspent
             .iter()
-            .filter(|(_, entry)| entry.output.lock.as_slice() == address.as_slice())
+            .filter(|(_, entry)| entry.output.pays(address))
             .map(|(point, entry)| (*point, entry.clone()))
             .collect()
+    }
+
+    /// The unspent coin at `point`.
+    pub fn coin_at(&self, point: &OutPoint) -> Option<&Unspent> {
+        self.unspent.get(point)
+    }
+
+    /// Unspent coins under a lock of `language`.
+    pub fn coins_under(&self, language: u8) -> impl Iterator<Item = (&OutPoint, &Unspent)> {
+        self.unspent.iter().filter(move |(_, entry)| entry.output.language == language)
     }
 
     /// A hash of the whole unspent set. Two nodes with the same one agree on every coin.
@@ -389,14 +406,14 @@ impl Chain {
         let next = self.height() + 1;
         self.unspent
             .values()
-            .filter(|entry| entry.output.lock.as_slice() == address.as_slice())
+            .filter(|entry| entry.output.pays(address))
             .filter(|entry| self.is_mature(entry, next))
             .map(|entry| entry.output.value)
             .fold(0, u64::saturating_add)
     }
 
     pub fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
-        !entry.coinbase || spend_height >= self.config.rules.matures_at(entry.height)
+        !entry.coinbase || spend_height >= self.config.rules_at(spend_height).matures_at(entry.height)
     }
 
     /// The difficulty a block on top of `parent` must carry.
@@ -408,11 +425,10 @@ impl Chain {
     }
 
     pub(crate) fn difficulty_after(&self, entry: &Entry) -> u64 {
-        let rules = &self.config.rules;
         let consensus = self.plugins.consensus.as_ref();
-        difficulty_after(rules, consensus, &entry.header, entry.height + 1, || {
+        difficulty_after(&self.config, consensus, &entry.header, entry.height + 1, |interval| {
             let mut first = *entry;
-            for _ in 1..rules.retarget_interval {
+            for _ in 1..interval {
                 match self.parent_of(&first) {
                     Some(previous) => first = previous,
                     None => break,
@@ -425,7 +441,18 @@ impl Chain {
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
     pub fn check_tx(&self, tx: &Tx, height: u64) -> Result<u64, ChainError> {
         let view = Overlay::new(&self.unspent);
-        rules::check_tx(tx, height, &view, &self.config.rules, &self.plugins)
+        rules::check_tx(tx, height, &view, self.config.rules_at(height), &self.plugins)
+    }
+
+    /// The most signature checks `tx` can cost, read from its scripts without running them. An
+    /// input this chain does not hold counts for nothing, since the real check stops on it first.
+    pub fn signature_checks(&self, tx: &Tx) -> usize {
+        let of_input = |input: &crate::types::TxIn| {
+            let spent = self.unspent.get(&input.previous)?;
+            let language = self.plugins.language(spent.output.language)?;
+            Some(language.signature_checks(&spent.output.lock, &input.unlock))
+        };
+        tx.inputs.iter().filter_map(of_input).fold(0, usize::saturating_add)
     }
 
     /// False once `point` has been spent or was never made. Costs no signature checks.
@@ -459,7 +486,7 @@ impl Chain {
     /// Returns the ones that stay valid, then the rest with the reason each failed.
     pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
         let height = self.height() + 1;
-        let rules = &self.config.rules;
+        let rules = self.config.rules_at(height);
         let mut view = Overlay::new(&self.unspent);
         let (mut kept, mut refused) = (Vec::new(), Vec::new());
         for tx in txs {
@@ -477,7 +504,7 @@ impl Chain {
     /// True when a block could hold a payment of `size` bytes beside its mining reward. One that
     /// cannot would wait in every pool for good.
     pub fn fits_a_block(&self, size: usize) -> bool {
-        (size as u64).saturating_add(BLOCK_OVERHEAD) <= self.config.rules.max_block_bytes
+        (size as u64).saturating_add(BLOCK_OVERHEAD) <= self.rules().max_block_bytes
     }
 
     /// Takes the orphans waiting for `parent`, so the caller can add them again.
@@ -505,7 +532,7 @@ impl Chain {
         note: &[u8],
     ) -> Block {
         let height = self.height() + 1;
-        let rules = &self.config.rules;
+        let rules = self.config.rules_at(height);
         let mut view = Overlay::new(&self.unspent);
         let mut chosen = Vec::new();
         let mut fees = 0u64;

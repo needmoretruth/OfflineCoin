@@ -357,6 +357,7 @@ impl Node {
                 }
                 Event::SnapshotRefused { peer } => self.say(format!("snapshot refused {peer}")),
                 Event::DataRefused => self.say("data too long".into()),
+                Event::ChecksRefused { checks } => self.say(format!("too many checks {checks}")),
                 Event::CoinsMerged { inputs } => self.say(format!("merged {inputs} coins")),
             }
             self.note(now, Note::Chain(event));
@@ -460,10 +461,6 @@ impl Node {
                 }
                 None => self.say("error trust KEY".into()),
             },
-            (Some("name"), Some(_), _) => {
-                self.rename(line["name".len()..].trim());
-                self.say("named".into());
-            }
             (Some("clock"), Some(value), _) => match value.parse() {
                 Ok(mhz) if clock::is_speed(mhz) => {
                     self.restart_with(|settings| settings.clock = format!("{mhz}"));
@@ -481,14 +478,6 @@ impl Node {
             (Some("network"), Some(state @ ("on" | "off")), _) => {
                 self.restart_with(|settings| settings.own_network = state.into());
             }
-            (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
-                settings.ssid.clear();
-                settings.password.clear();
-            }),
-            (Some("wifi"), Some(ssid), password) => self.restart_with(|settings| {
-                settings.ssid = ssid.into();
-                settings.password = password.unwrap_or("").into();
-            }),
             (Some("dial"), Some("off"), _) => self.restart_with(|settings| settings.dial.clear()),
             (Some("dial"), Some(target), _) => {
                 self.restart_with(|settings| settings.dial = target.into());
@@ -498,7 +487,7 @@ impl Node {
                 "commands: status, boots, screen, logo, view basic|detail|easy, lang en|ko, \
                  smooth FPS, bright 0-255, clock 80|160|240, full on|off, network on|off, power DBM, ignore MAC-END|none, \
                  pay ADDRESS AMOUNT, tx ID, pool clear, mine on|off, limit HASHES|default, \
-                 offline on|off, espnow on|off, wifi SSID [PASSWORD], wifi off, dial IP:PORT, \
+                 offline on|off, espnow on|off, wifi \"NAME\" [\"PASSWORD\"], wifi off, dial IP:PORT, \
                  dial off, name NAME, trust KEY, keys, key new|use N|import HEX|export N, \
                  mineto ADDRESS|own, keep BLOCKS|all, merge on|off, light on|off, note TEXT, \
                  minenote TEXT|off, snapshot accept, coin [HEX|default|confirm], \

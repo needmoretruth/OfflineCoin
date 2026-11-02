@@ -17,9 +17,13 @@ const TICK: Duration = Duration::from_millis(200);
 
 pub struct CapTest;
 
-/// Half of what the board runs at now, so the cap is one it can reach.
+/// Half of what the board really does now. A cap above that rate says nothing, and a board at a
+/// slow clock stays far below its cap.
 fn lower_cap(limit: u64, hashrate: u64) -> u64 {
-    let now = if limit > 0 { limit } else { hashrate };
+    let now = match (limit, hashrate) {
+        (0, rate) | (rate, 0) => rate,
+        (limit, rate) => limit.min(rate),
+    };
     (now / 2).max(LOWEST_CAP)
 }
 
@@ -36,8 +40,12 @@ fn wait(time: Duration, stop: &AtomicBool) -> bool {
     stop.load(Ordering::Relaxed)
 }
 
-fn measure(board: &mut Board, cap: u64, say: &Say, stop: &AtomicBool) -> Result<(), String> {
+fn measure(board: &mut Board, saved_limit: u64, say: &Say, stop: &AtomicBool) -> Result<(), String> {
     board.set_mining(true)?;
+    if wait(SETTLE, stop) {
+        return Ok(());
+    }
+    let cap = lower_cap(saved_limit, board.status()?.hashrate);
     board.set_limit(cap)?;
     say(format!("1. Cap lowered to {cap} H/s"));
     if wait(SETTLE, stop) {
@@ -83,7 +91,7 @@ impl Extra for CapTest {
         let saved = board.status()?;
         let journal = Journal::standard()?;
         journal.remember(&saved.address, saved.restore_lines())?;
-        let result = measure(&mut board, lower_cap(saved.limit, saved.hashrate), &say, &stop);
+        let result = measure(&mut board, saved.limit, &say, &stop);
         let back = if saved.limit_chosen {
             board.set_limit(saved.limit)
         } else {
@@ -105,6 +113,8 @@ mod tests {
     #[test]
     fn the_test_cap_is_one_the_board_can_reach() {
         assert_eq!(lower_cap(15_000, 15_000), 7_500);
+        assert_eq!(lower_cap(15_000, 5_000), 2_500, "a board at 80 MHz");
+        assert_eq!(lower_cap(15_000, 0), 7_500);
         assert_eq!(lower_cap(0, 24_000), 12_000);
         assert_eq!(lower_cap(1_000, 1_000), 500);
         assert_eq!(lower_cap(300, 300), LOWEST_CAP);

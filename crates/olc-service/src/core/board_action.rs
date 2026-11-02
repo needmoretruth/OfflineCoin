@@ -1,5 +1,9 @@
 //! Everything a board can be told, by name. The words a board reads stay here, so a screen picks
 //! an action and never writes a command.
+use olc_control::line::{
+    always_quoted, quoted, FEWEST_WIFI_PASSWORD_BYTES, MOST_NAME_BYTES, MOST_WIFI_NAME_BYTES,
+    MOST_WIFI_PASSWORD_BYTES,
+};
 
 /// What a person can ask of a board. Reading actions leave their answer on the board's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,7 +79,7 @@ fn on_off(on: bool) -> &'static str {
     }
 }
 
-/// A board splits its lines at spaces, so one value must be one word.
+/// A value only a program writes, like a key or an address. It has no spaces to keep.
 fn word(text: &str) -> Option<&str> {
     let text = text.trim();
     (!text.is_empty() && !text.contains(char::is_whitespace)).then_some(text)
@@ -83,6 +87,18 @@ fn word(text: &str) -> Option<&str> {
 
 fn text(text: &str) -> Option<&str> {
     Some(text.trim()).filter(|text| !text.is_empty() && !text.contains('\n'))
+}
+
+/// A network's name in a line. One called `off` must not read as the word that turns Wi-Fi off.
+fn wifi_name(name: &str) -> String {
+    match name {
+        "off" => always_quoted(name),
+        _ => quoted(name),
+    }
+}
+
+fn breaks_a_line(text: &str) -> bool {
+    text.contains(['\n', '\r'])
 }
 
 impl BoardAction {
@@ -103,8 +119,9 @@ impl BoardAction {
             Self::FullSpeed(on) => format!("full {}", on_off(*on)),
             Self::Clock(mhz) => format!("clock {mhz}"),
             Self::OwnNetwork(on) => format!("network {}", on_off(*on)),
-            Self::Wifi { name, password } if password.is_empty() => format!("wifi {}", word(name)?),
-            Self::Wifi { name, password } => format!("wifi {} {}", word(name)?, word(password)?),
+            Self::Wifi { .. } | Self::Name(_) if self.fault().is_some() => return None,
+            Self::Wifi { name, password } if password.is_empty() => format!("wifi {}", wifi_name(name)),
+            Self::Wifi { name, password } => format!("wifi {} {}", wifi_name(name), quoted(password)),
             Self::WifiOff => "wifi off".into(),
             Self::Dial(target) => format!("dial {}", word(target)?),
             Self::DialOff => "dial off".into(),
@@ -119,7 +136,7 @@ impl BoardAction {
             Self::Smooth(frames) => format!("smooth {frames}"),
             Self::Bright(level) => format!("bright {level}"),
             Self::ShowLogo => "logo".into(),
-            Self::Name(name) => format!("name {}", word(name)?),
+            Self::Name(name) => format!("name {}", quoted(name)),
             Self::Trust(key) => format!("trust {}", word(key)?),
             Self::Pay { to, amount } => format!("pay {} {}", word(to)?, word(amount)?),
             Self::ClearWaitingPayments => "pool clear".into(),
@@ -198,7 +215,7 @@ impl BoardAction {
             ["smooth", frames] => Self::Smooth(number(frames)?),
             ["bright", level] => Self::Bright(number(level)?),
             ["logo"] => Self::ShowLogo,
-            ["name", board] => Self::Name(name(board)),
+            ["name", _, ..] => Self::Name(rest(1)),
             ["trust", key] => Self::Trust(name(key)),
             ["pay", to, amount] => Self::Pay { to: name(to), amount: name(amount) },
             ["pool", "clear"] => Self::ClearWaitingPayments,
@@ -243,6 +260,34 @@ impl BoardAction {
         )
     }
 
+    /// Why these values cannot go to a board, as the key of a sentence.
+    pub fn fault(&self) -> Option<&'static str> {
+        match self {
+            Self::Name(name) if name.trim().is_empty() || breaks_a_line(name) => {
+                Some("notice.name_bad")
+            }
+            Self::Name(name) if name.len() > MOST_NAME_BYTES => Some("notice.name_too_long"),
+            Self::Wifi { name, .. } if name.trim().is_empty() || breaks_a_line(name) => {
+                Some("notice.wifi_name_bad")
+            }
+            Self::Wifi { name, .. } if name.len() > MOST_WIFI_NAME_BYTES => {
+                Some("notice.wifi_name_too_long")
+            }
+            Self::Wifi { password, .. } if breaks_a_line(password) => {
+                Some("notice.wifi_password_bad")
+            }
+            Self::Wifi { password, .. } if password.len() > MOST_WIFI_PASSWORD_BYTES => {
+                Some("notice.wifi_password_bad")
+            }
+            Self::Wifi { password, .. }
+                if !password.is_empty() && password.len() < FEWEST_WIFI_PASSWORD_BYTES =>
+            {
+                Some("notice.wifi_password_bad")
+            }
+            _ => None,
+        }
+    }
+
     /// What a notice may repeat. A secret stays out of it.
     pub fn shown(&self) -> String {
         match self {
@@ -258,20 +303,55 @@ impl BoardAction {
 mod tests {
     use super::*;
     use olc_control::allowed_remotely;
+    use olc_control::line::{name_in, wifi_in};
 
     #[test]
     fn a_value_that_would_break_the_line_is_refused() {
         let wifi = |name: &str| BoardAction::Wifi { name: name.into(), password: String::new() };
         assert_eq!(wifi("home").line().as_deref(), Some("wifi home"));
-        assert_eq!(wifi("my home").line(), None);
+        assert_eq!(wifi("my home").line().as_deref(), Some("wifi \"my home\""));
         assert_eq!(BoardAction::Name(String::new()).line(), None);
         assert_eq!(BoardAction::Note("two words".into()).line().unwrap(), "note two words");
     }
 
     #[test]
+    fn a_name_with_spaces_and_korean_reaches_what_the_board_reads() {
+        let line = BoardAction::Name("내 보드 2".into()).line().unwrap();
+        assert_eq!(name_in(&line).as_deref(), Some("내 보드 2"));
+        assert!(allowed_remotely(&line));
+
+        let joined = BoardAction::Wifi { name: "My Home".into(), password: "pass word".into() };
+        let line = joined.line().unwrap();
+        assert_eq!(wifi_in(&line), Some(("My Home".into(), "pass word".into())));
+        let quote = BoardAction::Wifi { name: "우리 집".into(), password: "a \"b\" \\c  ".into() };
+        let parts = wifi_in(&quote.line().unwrap()).unwrap();
+        assert_eq!(parts, ("우리 집".into(), "a \"b\" \\c  ".into()));
+        let off = BoardAction::Wifi { name: "off".into(), password: String::new() };
+        assert_eq!(wifi_in(&off.line().unwrap()), Some(("off".into(), String::new())));
+        assert_ne!(off.line().unwrap(), "wifi off");
+    }
+
+    #[test]
+    fn a_value_a_board_cannot_keep_says_why() {
+        let wifi = |name: &str, password: &str| BoardAction::Wifi {
+            name: name.into(),
+            password: password.into(),
+        };
+        let long = "가".repeat(11);
+        assert_eq!(BoardAction::Name(long.clone()).fault(), Some("notice.name_too_long"));
+        assert_eq!(BoardAction::Name("  ".into()).fault(), Some("notice.name_bad"));
+        assert_eq!(wifi(&long, "").fault(), Some("notice.wifi_name_too_long"));
+        assert_eq!(wifi("home", "short").fault(), Some("notice.wifi_password_bad"));
+        assert_eq!(wifi("home", &"x".repeat(64)).fault(), Some("notice.wifi_password_bad"));
+        assert_eq!(wifi("home", "").fault(), None);
+        assert_eq!(wifi("home", "eight 8 ").fault(), None);
+        assert_eq!(wifi("home", "short").line(), None);
+    }
+
+    #[test]
     fn a_notice_keeps_secrets_out() {
-        let wifi = BoardAction::Wifi { name: "home".into(), password: "secret".into() };
-        assert_eq!(wifi.line().unwrap(), "wifi home secret");
+        let wifi = BoardAction::Wifi { name: "home".into(), password: "secret12".into() };
+        assert_eq!(wifi.line().unwrap(), "wifi home secret12");
         assert!(!wifi.shown().contains("secret"));
         assert!(!BoardAction::ImportKey("abcd".into()).shown().contains("abcd"));
     }
@@ -294,7 +374,7 @@ mod tests {
             BoardAction::FullSpeed(true),
             BoardAction::Clock(80),
             BoardAction::OwnNetwork(true),
-            BoardAction::Wifi { name: word(), password: word() },
+            BoardAction::Wifi { name: word(), password: "password".into() },
             BoardAction::WifiOff,
             BoardAction::Dial(word()),
             BoardAction::DialOff,

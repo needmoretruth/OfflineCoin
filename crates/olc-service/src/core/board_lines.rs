@@ -49,8 +49,9 @@ pub fn run_action(
 ) {
     let shown = action.shown();
     let Some(line) = action.line() else {
+        let key = action.fault().unwrap_or("notice.board_failed");
         if let Ok(mut late) = late.lock() {
-            late.push(("notice.board_failed", shown, false));
+            late.push((key, shown, false));
         }
         return;
     };

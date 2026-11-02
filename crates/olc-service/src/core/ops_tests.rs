@@ -38,7 +38,7 @@ fn a_chain_on_its_way_in_shows_as_loading() {
     let root = folder("loading");
     let host = host(&root);
     let seen = (0..20).any(|round| {
-        host.switch(CoinConfig::olc(), root.join(format!("chain-{round}")), Vec::new());
+        host.switch(CoinConfig::olc(), root.join(format!("chain-{round}")), Vec::new(), None);
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(1) {
             if host.view().loading {

@@ -3,8 +3,20 @@ use super::Service;
 use crate::core::board_action::BoardAction;
 use crate::core::board_lines::{read_state, run_action};
 use crate::core::commands::Personal;
+use crate::core::host::PayError;
 use olc_control::BoardId;
 use olc_node::Rank;
+use olc_wallet::WalletError;
+
+/// A failed payment as the key of a sentence and what to put in it.
+pub(super) fn pay_fault(error: &PayError) -> (&'static str, String) {
+    match error {
+        PayError::BadAddress => ("notice.bad_address", String::new()),
+        PayError::Wallet(WalletError::NotEnoughCoins) => ("notice.not_enough", String::new()),
+        PayError::Wallet(WalletError::Refused) => ("notice.pay_refused", String::new()),
+        error => ("notice.pay_failed", format!("{error:?}")),
+    }
+}
 
 impl Service {
     pub(super) fn add_address(&mut self, address: String) {
@@ -46,5 +58,17 @@ impl Service {
         if let Some(fleet) = self.fleet.clone() {
             run_action(fleet, (self.late.clone(), self.told.clone()), id, action);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_payment_has_its_own_sentence() {
+        assert_eq!(pay_fault(&PayError::Wallet(WalletError::Refused)).0, "notice.pay_refused");
+        assert_eq!(pay_fault(&PayError::Wallet(WalletError::NotEnoughCoins)).0, "notice.not_enough");
+        assert_eq!(pay_fault(&PayError::BadAddress).0, "notice.bad_address");
     }
 }

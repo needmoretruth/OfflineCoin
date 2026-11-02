@@ -49,6 +49,11 @@ pub trait LockLanguage: Send {
     fn id(&self) -> u8;
     fn name(&self) -> &'static str;
     fn check(&self, lock: &[u8], unlock: &[u8], context: &SpendContext) -> bool;
+    /// The most signature checks a spend can cost, read without running it. A node's pool reads
+    /// this. No block is ever judged by it.
+    fn signature_checks(&self, _lock: &[u8], _unlock: &[u8]) -> usize {
+        1
+    }
 }
 
 /// Everything a chain needs from outside.

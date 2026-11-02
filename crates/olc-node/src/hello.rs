@@ -3,9 +3,9 @@
 //! genesis id is computed from it, so a node cannot pass one coin off as another.
 use alloc::string::String;
 use alloc::vec::Vec;
-use olc_core::coin::CoinAdded;
+use olc_core::coin::SpokenAdded;
 use olc_core::{Address, CoinConfig, Hash};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Addresses to pass on in one answer, as in Bitcoin's addr message.
 pub const MAX_KNOWN: usize = 16;
@@ -25,6 +25,9 @@ pub struct Card {
     pub known: Vec<String>,
     /// How the node that passed this on reaches this one, such as `bluetooth`.
     pub via: Via,
+    /// Goes last in a hello, after what `Card` writes. See [`Spoken`].
+    #[serde(skip)]
+    pub keeps: Keeps,
 }
 
 /// Comes last, so older builds stop reading before it and answer without it.
@@ -40,6 +43,40 @@ impl<'de> Deserialize<'de> for Via {
 impl From<&str> for Via {
     fn from(text: &str) -> Self {
         Self(text.into())
+    }
+}
+
+/// What a node holds of its chain. It goes as one number after everything older builds read, so
+/// they stop before it, and a number from a later build reads as unsaid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Keeps {
+    /// A build too old to say.
+    #[default]
+    Unsaid,
+    Everything,
+    Recent,
+    Headers,
+}
+
+impl Serialize for Keeps {
+    fn serialize<S: Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
+        writer.serialize_u8(match self {
+            Self::Unsaid => 0,
+            Self::Everything => 1,
+            Self::Recent => 2,
+            Self::Headers => 3,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Keeps {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        Ok(match u8::deserialize(reader).unwrap_or_default() {
+            1 => Self::Everything,
+            2 => Self::Recent,
+            3 => Self::Headers,
+            _ => Self::Unsaid,
+        })
     }
 }
 
@@ -63,21 +100,24 @@ struct Spoken {
     work: u128,
     address: Address,
     card: Card,
-    added: CoinAdded,
+    added: SpokenAdded,
+    keeps: Keeps,
 }
 
 impl From<Spoken> for Hello {
     fn from(spoken: Spoken) -> Self {
-        let Spoken { coin, tip, height, work, address, card, added } = spoken;
-        Self { coin: coin.with_added(added), tip, height, work, address, card }
+        let Spoken { coin, tip, height, work, address, mut card, added, keeps } = spoken;
+        card.keeps = keeps;
+        Self { coin: coin.with_added(added.0), tip, height, work, address, card }
     }
 }
 
 impl From<Hello> for Spoken {
     fn from(hello: Hello) -> Self {
         let Hello { coin, tip, height, work, address, card } = hello;
-        let added = coin.added();
-        Self { coin, tip, height, work, address, card, added }
+        let added = SpokenAdded(coin.added());
+        let keeps = card.keeps;
+        Self { coin, tip, height, work, address, card, added, keeps }
     }
 }
 

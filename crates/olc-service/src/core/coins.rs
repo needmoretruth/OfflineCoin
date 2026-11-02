@@ -1,44 +1,41 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
 use crate::settings::Paths;
-pub use olc_core::coin::parse_coins;
-use olc_core::coin::COIN;
 use olc_core::CoinConfig;
 use olc_store::{coin_file, replace_file};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+pub use olc_store::amount::{format_coins, group_thousands, parse_coins};
 
 const COIN_FILE: &str = "coin.json";
 
-/// `1234567` as `1,234,567`.
-pub fn group_thousands(value: u128) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-/// How an amount reads anywhere a person sees it: thousands grouped, and only the decimals it has.
-pub fn format_coins(units: u64) -> String {
-    let whole = group_thousands((units / COIN).into());
-    let part = units % COIN;
-    if part == 0 {
-        return whole;
-    }
-    let text = format!("{whole}.{part:08}");
-    text.trim_end_matches('0').to_string()
-}
-
-/// The folder name of a coin: the start of its genesis id.
+/// The folder name of a coin: the start of its genesis id, then its rule changes. A fork keeps a
+/// chain of its own, so the coin it left stays whole and the way back stays open.
 pub fn coin_folder(coin: &CoinConfig) -> String {
-    coin.genesis().id()[..6]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let start: String = coin.genesis().id()[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+    match coin.forks_id() {
+        forks if forks.is_empty() => start,
+        forks => format!("{start}-{forks}"),
+    }
+}
+
+/// Gives a fork's folder the chain it leaves from, with this node's settings. What a folder holds
+/// already stays, so a fork a person returns to keeps the blocks it made.
+pub fn copy_chain(from: &Path, to: &Path) -> Result<(), String> {
+    let failed = |error: std::io::Error| error.to_string();
+    fs::create_dir_all(to).map_err(failed)?;
+    let Ok(files) = fs::read_dir(from) else {
+        return Ok(());
+    };
+    for file in files.flatten() {
+        let name = file.file_name();
+        let target = to.join(&name);
+        let held = name.to_string_lossy().ends_with(".hold");
+        if file.path().is_file() && name != COIN_FILE && !held && !target.exists() {
+            fs::copy(file.path(), target).map_err(failed)?;
+        }
+    }
+    Ok(())
 }
 
 /// Writes the coin next to its chain and returns the file, which a node process reads.

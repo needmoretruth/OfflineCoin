@@ -37,7 +37,8 @@ impl Chain {
         if block.header.merkle_root != root || repeated {
             return Err(ChainError::BadMerkleRoot);
         }
-        if block.size() as u64 > self.config.rules.max_block_bytes {
+        let largest = self.config.all_rules().map(|rules| rules.max_block_bytes).max();
+        if block.size() as u64 > largest.unwrap_or_default() {
             return Err(ChainError::TooLarge);
         }
         let previous = block.header.previous;
@@ -45,6 +46,9 @@ impl Chain {
             self.orphans.insert(id, block);
             return Ok(AddOutcome::Orphan { missing: previous });
         };
+        if block.size() as u64 > self.config.rules_at(parent.height + 1).max_block_bytes {
+            return Err(ChainError::TooLarge);
+        }
         if block.header.time_ms <= parent.header.time_ms {
             return Err(ChainError::BadTime);
         }
@@ -60,7 +64,7 @@ impl Chain {
             validated: false,
         };
         if previous == self.tip {
-            let rules = &self.config.rules;
+            let rules = self.config.rules_at(entry.height);
             let spent = check_block_body(&block, entry.height, &self.unspent, rules, &self.plugins)?;
             let record = block_record(&meta_of(&entry), &block.txs, Some(&spent));
             entry.at = self.log.append(Kind::Tip, &record).ok_or(ChainError::StoreFailed)?;
@@ -181,7 +185,7 @@ impl Chain {
             let spent = if entry.validated {
                 Ok(spent_by(&block, entry.height, &self.unspent))
             } else {
-                let rules = &self.config.rules;
+                let rules = self.config.rules_at(entry.height);
                 check_block_body(&block, entry.height, &self.unspent, rules, &self.plugins)
             };
             match spent {

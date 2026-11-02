@@ -12,6 +12,7 @@ pub mod frame;
 pub mod hello;
 pub mod light;
 pub mod line;
+pub mod locks;
 mod pool;
 pub mod medium;
 pub mod message;
@@ -27,7 +28,7 @@ mod work;
 
 pub use engine::{Engine, PeerId, MOST_NOTE, MOST_PEERS, MOST_QUEUED};
 pub use event::{Event, Outgoing, Status};
-pub use hello::{Card, Hello};
+pub use hello::{Card, Hello, Keeps};
 pub use light::{Light, LightStatus, MOST_HEADERS_ON_A_BOARD};
 pub use medium::{Medium, Rank};
 pub use message::{Heights, Message};

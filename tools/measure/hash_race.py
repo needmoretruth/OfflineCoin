@@ -30,7 +30,7 @@ def main():
     blocks = int(last[ids[0]]["height"]) - int(first[ids[0]]["height"])
     print(f"blocks {blocks} in {minutes} minutes, difficulty {last[ids[0]]['difficulty']}")
     for board in ids:
-        won = float(last[board]["balance"]) - float(first[board]["balance"])
+        won = float(last[board]["balance"].replace(",", "")) - float(first[board]["balance"].replace(",", ""))
         print(f"{board[-4:]} hash {sum(rates[board]) / len(rates[board]):.0f} "
               f"balance +{won:.2f} temp {last[board]['temp']} clock {last[board]['clock']} "
               f"no answer {missed[board]}")

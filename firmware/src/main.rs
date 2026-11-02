@@ -178,7 +178,8 @@ async fn main(spawner: Spawner) -> ! {
     let old_blocks = store.old_blocks(&coin.genesis().id());
     let keep = store.keep(settings.recent.parse().ok());
     let read_ms = node::device_ms();
-    links::take_blocks_of(coin.rules.max_block_bytes);
+    let largest = coin.all_rules().map(|rules| rules.max_block_bytes).max();
+    links::take_blocks_of(largest.unwrap_or(coin.rules.max_block_bytes));
     let chain = Chain::open(coin, plugins, keep);
     let mut engine = Engine::on_chain(chain, wallet);
     engine.set_miner(parse_address(&settings.miner));

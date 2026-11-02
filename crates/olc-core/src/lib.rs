@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+pub mod amount;
 pub mod chain;
 pub mod coin;
 mod connect;
@@ -33,4 +34,4 @@ pub use proof::{CoinProof, Coins};
 pub use shelf::Shelf;
 pub use snapshot::SnapshotError;
 pub use state::Opened;
-pub use types::{Block, BlockHeader, OutPoint, Tx, TxIn, TxOut, DATA_LANGUAGE};
+pub use types::{Block, BlockHeader, OutPoint, Tx, TxIn, TxOut, ADDRESS_LANGUAGE, DATA_LANGUAGE};

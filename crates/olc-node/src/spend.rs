@@ -38,14 +38,14 @@ impl Engine {
     /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
     pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let fee = self.chain.rules().min_fee;
+        let fee = self.rules().min_fee;
         let tx = self.wallet.note(self.coins(), data, fee, &reserved)?;
         self.send_payment(tx)
     }
 
     /// Sends a payment this node signed. A person hears when its own pool would not take it,
     /// because nobody else would ever see it then.
-    fn send_payment(&mut self, tx: Tx) -> Result<Hash, WalletError> {
+    pub(crate) fn send_payment(&mut self, tx: Tx) -> Result<Hash, WalletError> {
         let id = self.send_signed(tx);
         match self.light.is_some() || self.in_pool(&id) {
             true => Ok(id),
@@ -53,7 +53,7 @@ impl Engine {
         }
     }
 
-    fn reserved(&self) -> Vec<OutPoint> {
+    pub(crate) fn reserved(&self) -> Vec<OutPoint> {
         let signing = self.signing.iter().map(|signing| &signing.tx);
         let inputs = self.pool.iter().chain(signing).flat_map(|tx| &tx.inputs);
         inputs.map(|input| input.previous).collect()

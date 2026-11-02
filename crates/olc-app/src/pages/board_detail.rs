@@ -1,8 +1,10 @@
 //! One board as a register: its name, what it does and how it connects.
 use super::board_more::expert_rows;
-use super::coins::reach_text;
+use super::coins::{keeps_text, reach_text};
+use super::money::{balance_of, ReceiveSheet};
 use super::{Cx, Slipping};
 use crate::core::{BoardAction, BoardView, Command};
+use crate::ui::floating::sheet;
 use crate::ui::format;
 use crate::ui::register::{group, row};
 use crate::ui::tokens;
@@ -12,6 +14,7 @@ use crate::ui::widgets::{
 use egui::Ui;
 use olc_control::defaults::{BOARD_BRIGHT, BOARD_SCREEN_RATE};
 use olc_control::BoardId;
+use olc_wallet::format_address;
 use std::collections::HashMap;
 
 /// Dim, middle and bright, on the board's own scale of 0 to 255.
@@ -30,6 +33,7 @@ pub struct BoardDetail {
     pub(super) words: HashMap<&'static str, String>,
     pay_to: String,
     pay_amount: String,
+    receive: Option<ReceiveSheet>,
 }
 
 pub fn tell(cx: &Cx, id: BoardId, action: BoardAction) {
@@ -135,7 +139,10 @@ impl BoardDetail {
         let t = cx.t;
         let id = board.seen.id;
         let build = board.seen.beacon.build.clone();
-        let about = cx.fill("boards.update_about", &[&build]);
+        let about = match build.is_empty() {
+            true => cx.say("boards.update_plain").to_string(),
+            false => cx.fill("boards.update_about", &[&build]),
+        };
         row(ui, t, cx.say("boards.update"), &about, |ui| {
             match &board.job {
                 Some(job) => {
@@ -281,18 +288,52 @@ impl BoardDetail {
         }
     }
 
+    /// A silent board's wallet still shows what it last said, and says that it is old.
+    fn wallet_rows(&mut self, ui: &mut Ui, cx: &Cx, board: &BoardView) {
+        let t = cx.t;
+        let about = if board.seen.online { "boards.balance_about" } else { "boards.balance_old" };
+        row(ui, t, cx.say("boards.balance"), cx.say(about), |ui| {
+            ui.label(balance_of(cx, board));
+        });
+        let address = format_address(&board.seen.beacon.address);
+        row(ui, t, cx.say("boards.receive"), &format::short_address(&address), |ui| {
+            if button(ui, t, cx.say("receive.copy"), Kind::Plain).clicked() {
+                ui.ctx().copy_text(address.clone());
+            }
+            if button(ui, t, cx.say("boards.show_code"), Kind::Plain).clicked() {
+                self.receive = Some(ReceiveSheet::for_address(&address));
+            }
+        });
+    }
+
+    fn receive_sheet(&mut self, ui: &mut Ui, cx: &Cx) {
+        if let Some(receive) = &mut self.receive {
+            let (done, outside) = sheet(ui, cx.t, "board_receive", tokens::SLIP_WIDTH, |ui| receive.show(ui, cx));
+            if done || outside {
+                self.receive = None;
+            }
+        }
+    }
+
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx, board: &BoardView) {
         let t = cx.t;
         let id = board.seen.id;
         ui.spacing_mut().item_spacing.y = 0.0;
-        let way = if board.returning { String::new() } else { reach_text(cx, &board.reach) };
+        self.receive_sheet(ui, cx);
+        let way = if board.returning { "-".to_string() } else { reach_text(cx, &board.reach) };
         row(ui, t, cx.say("boards.connection"), cx.say("boards.connection_about"), |ui| {
             ui.label(way);
         });
+        row(ui, t, cx.say("found.keeps"), cx.say("boards.keeps_about"), |ui| {
+            ui.label(keeps_text(cx, board.keeps));
+        });
+        self.wallet_rows(ui, cx, board);
         if !board.seen.online || board.returning {
             // Every other row is an order to the board, and it cannot hear one now.
-            row(ui, t, cx.say("boards.state"), cx.say("boards.gone_about"), |ui| {
-                let line = board.job.as_deref().map_or(cx.say("boards.gone"), |job| super::boards::job_text(cx, job));
+            let about = if board.returning { "boards.returning_about" } else { "boards.gone_about" };
+            row(ui, t, cx.say("boards.state"), cx.say(about), |ui| {
+                let quiet = cx.say(if board.returning { "boards.restarting" } else { "boards.gone" });
+                let line = board.job.as_deref().map_or(quiet, |job| super::boards::job_text(cx, job));
                 ui.label(line);
             });
             return;

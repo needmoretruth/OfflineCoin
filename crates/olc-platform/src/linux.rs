@@ -1,5 +1,5 @@
 //! Linux: control groups through systemd, and `/proc` and `/sys` for everything else.
-use crate::{unix, Enforcement, Limits, Place, PlaceKind, Platform, Usage, UsbPort};
+use crate::{unix, Enforcement, Limits, NoBluetooth, Place, PlaceKind, Platform, Usage, UsbPort};
 use olc_node::network::Mark;
 use olc_node::Link;
 use std::fs;
@@ -108,8 +108,12 @@ fn in_address_space(limits: &Limits, program: &str, words: &[String]) -> Command
 }
 
 impl Platform for Os {
-    fn has_bluetooth(&self) -> bool {
-        cfg!(feature = "ble")
+    fn no_bluetooth(&self) -> Option<NoBluetooth> {
+        if !cfg!(feature = "ble") {
+            return Some(NoBluetooth::Build);
+        }
+        let adapters = fs::read_dir("/sys/class/bluetooth").map_or(0, Iterator::count);
+        (adapters == 0).then_some(NoBluetooth::Adapter)
     }
 
     #[cfg(feature = "ble")]

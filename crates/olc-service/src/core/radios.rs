@@ -2,13 +2,18 @@
 //! do is said in plain words and costs nothing else.
 use olc_node::Runner;
 use olc_platform::platform;
-pub use olc_platform::{NO_BLUETOOTH, NO_ESP_NOW};
+pub use olc_platform::{NoBluetooth, NO_BLUETOOTH, NO_ESP_NOW};
 use olc_store::NodeSettings;
 
 
 /// Whether this build on this system can use Bluetooth.
 pub fn bluetooth_here() -> bool {
     platform().has_bluetooth()
+}
+
+/// Why it cannot.
+pub fn no_bluetooth() -> Option<NoBluetooth> {
+    platform().no_bluetooth()
 }
 
 fn add_bluetooth(runner: &mut Runner) -> Result<(), String> {

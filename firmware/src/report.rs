@@ -4,7 +4,7 @@ use crate::control::BUILD;
 use crate::node::{decode_hash, hex, Node, LINK_RADIO, LINK_USB, LINK_WIFI};
 use crate::radio;
 use crate::screen::{PAGES, WIDTH};
-use crate::views::coins;
+use olc_core::amount::format_coins;
 use alloc::format;
 use core::sync::atomic::Ordering;
 use esp_hal::peripherals::GPIO;
@@ -69,7 +69,7 @@ impl Node {
             hex(&status.tip),
             status.work,
             status.difficulty,
-            coins(status.balance),
+            format_coins(status.balance),
             status.peers,
             self.runner.peers_on(LINK_RADIO),
             self.runner.peers_on(LINK_USB),
@@ -112,7 +112,7 @@ impl Node {
             self.boot_watchdog,
             GPIO::regs().strap().read().bits(),
             self.control.gate.has_key(),
-            self.control.identity.name,
+            self.control.identity.name.replace(char::is_whitespace, "_"),
             opened_name(chain.opened()),
             held.oldest,
             held.bytes,

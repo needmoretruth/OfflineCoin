@@ -1,6 +1,6 @@
 //! The chain as a node without blocks knows it: headers only, checked for proof of work and
 //! for the difficulty the rules ask, with the most work winning. Nothing here reads a block.
-use crate::coin::Rules;
+use crate::coin::CoinConfig;
 use crate::plugin::{Consensus, RetargetInput};
 use crate::types::BlockHeader;
 use alloc::vec::Vec;
@@ -12,24 +12,35 @@ const LONGEST_BRANCH: usize = 8_192;
 const FEWEST_KEPT: usize = LONGEST_BRANCH + 1_024;
 
 /// The difficulty the rules ask after `parent`. `first_time` gives the time of the first block
-/// of the window that closes here, and is only read when the difficulty moves.
+/// of the window of the given length that closes here, and is only read when the difficulty moves.
+/// A fork's first block asks what the rules before it ask, raised to its floor, plus its mark, so
+/// the one number it cannot be is the one the old rules ask.
 pub fn difficulty_after(
-    rules: &Rules,
+    coin: &CoinConfig,
     consensus: &dyn Consensus,
     parent: &BlockHeader,
     next_height: u64,
-    first_time: impl FnOnce() -> u64,
+    first_time: impl FnOnce(u64) -> u64,
 ) -> u64 {
+    let fork = coin.fork_starting_at(next_height);
+    let rules = coin.rules_at(next_height - u64::from(fork.is_some()));
     let interval = rules.retarget_interval;
-    if interval == 0 || !next_height.is_multiple_of(interval) || next_height < interval {
-        return parent.difficulty;
-    }
-    consensus.next_difficulty(&RetargetInput {
-        parent_difficulty: parent.difficulty,
-        actual_ms: parent.time_ms.saturating_sub(first_time()),
-        expected_ms: rules.block_time_ms.saturating_mul(interval - 1),
-        min_difficulty: rules.floor_at(next_height),
-    })
+    let asked = if interval == 0 || !next_height.is_multiple_of(interval) || next_height < interval {
+        parent.difficulty
+    } else {
+        consensus.next_difficulty(&RetargetInput {
+            parent_difficulty: parent.difficulty,
+            actual_ms: parent.time_ms.saturating_sub(first_time(interval)),
+            expected_ms: rules.block_time_ms.saturating_mul(interval - 1),
+            min_difficulty: rules.floor_at(next_height),
+        })
+    };
+    let Some(fork) = fork else {
+        return asked;
+    };
+    let floored = asked.max(fork.rules.floor_at(next_height));
+    let mark = fork.mark();
+    floored.checked_add(mark).unwrap_or(u64::MAX - mark)
 }
 
 /// Why headers were not taken.
@@ -155,7 +166,7 @@ impl HeaderChain {
     pub fn offer(
         &mut self,
         batch: &[BlockHeader],
-        rules: &Rules,
+        coin: &CoinConfig,
         consensus: &dyn Consensus,
     ) -> Result<Offered, HeaderRefused> {
         let Some(first) = batch.first() else {
@@ -174,7 +185,7 @@ impl HeaderChain {
             return Ok(Offered::Nothing);
         }
         for header in batch {
-            if let Err(refused) = self.follow(header, rules, consensus) {
+            if let Err(refused) = self.follow(header, coin, consensus) {
                 self.side.clear();
                 return Err(refused);
             }
@@ -185,7 +196,7 @@ impl HeaderChain {
     fn follow(
         &mut self,
         header: &BlockHeader,
-        rules: &Rules,
+        coin: &CoinConfig,
         consensus: &dyn Consensus,
     ) -> Result<(), HeaderRefused> {
         if self.side.len() >= LONGEST_BRANCH {
@@ -202,9 +213,11 @@ impl HeaderChain {
         if header.time_ms <= parent.time_ms {
             return Err(HeaderRefused::BadTime);
         }
-        let window = height.saturating_sub(rules.retarget_interval);
-        let first_time = || self.on_side(window).map_or(parent.time_ms, |first| first.time_ms);
-        if header.difficulty != difficulty_after(rules, consensus, &parent, height, first_time) {
+        let first_time = |interval| {
+            let first = self.on_side(height.saturating_sub(interval));
+            first.map_or(parent.time_ms, |first| first.time_ms)
+        };
+        if header.difficulty != difficulty_after(coin, consensus, &parent, height, first_time) {
             return Err(HeaderRefused::BadDifficulty);
         }
         self.side.push(*header);

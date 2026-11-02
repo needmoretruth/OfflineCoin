@@ -134,6 +134,7 @@ impl Setup {
         let t = cx.t;
         widgets::title(ui, cx.say("coins.new"));
         ui.scope(|ui| self.form.show(ui, cx));
+        self.form.problem(ui, cx);
         ui.add_space(tokens::GAP_WIDE);
         let coin = self.form.coin(cx);
         ui.horizontal(|ui| {

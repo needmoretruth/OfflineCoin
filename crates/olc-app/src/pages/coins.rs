@@ -1,5 +1,6 @@
 //! This coin, the coins found around, and starting or joining another. Nothing joins until a
 //! person picks it.
+use super::coin_fork::ForkForm;
 use super::coin_new::CoinForm;
 use super::{Cx, Page, Slipping};
 use crate::core::{Command, Personal};
@@ -12,12 +13,16 @@ use crate::ui::widgets::{
     Columns, Kind,
 };
 use crate::ui::{format, Icon};
-use egui::{Align, Layout, Ui};
+use egui::{Align, Layout, ScrollArea, Ui};
 use olc_core::CoinConfig;
-use olc_node::Medium;
+use olc_node::{Keeps, Medium};
 
-const WEIGHTS: [f32; 7] = [1.5, 2.3, 0.9, 1.4, 0.8, 1.8, 0.8];
+const WEIGHTS: [f32; 8] = [1.4, 2.0, 1.0, 0.8, 1.2, 0.7, 1.7, 0.8];
+/// Device, what it keeps, what it does.
+const PLAIN_WEIGHTS: [f32; 3] = [2.2, 1.0, 1.4];
 const COIN_ENDING: &str = "coin";
+/// A sheet's margins, title and buttons.
+const SHEET_FRAME: f32 = 220.0;
 
 enum Filing {
     Join(Picker),
@@ -29,6 +34,7 @@ pub struct Coins {
     address: String,
     by_address: bool,
     new_coin: Option<CoinForm>,
+    fork: Option<ForkForm>,
     filing: Option<Filing>,
 }
 
@@ -100,6 +106,7 @@ fn age_text(cx: &Cx, seconds: u64) -> String {
 fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
     let t = cx.t;
     let (colour, text) = match entry.work {
+        Work::Mining(0) => (t.good, cx.say("state.mining").to_string()),
         Work::Mining(rate) => (t.good, cx.fill("work.mining", &[&format::rate(cx.voice(), rate)])),
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
@@ -117,6 +124,40 @@ fn dash(value: Option<String>) -> String {
     value.unwrap_or_else(|| "-".into())
 }
 
+/// What a node holds, in the words of the form that sets one up.
+pub(super) fn keeps_text(cx: &Cx, keeps: Keeps) -> String {
+    match keeps {
+        Keeps::Everything => cx.say("local.keep_all").to_string(),
+        Keeps::Recent => cx.say("local.keep_recent").to_string(),
+        Keeps::Headers => cx.say("local.keep_headers").to_string(),
+        Keeps::Unsaid => "-".to_string(),
+    }
+}
+
+/// Every device around, for a person who does not need the expert's table.
+fn plain_rows(ui: &mut Ui, cx: &Cx, entries: &[&Entry]) {
+    let columns = Columns::new(ui, &PLAIN_WEIGHTS);
+    columns.row(ui, |ui, index| {
+        let keys = ["found.device", "found.keeps", "found.work"];
+        header_cell(ui, cx.t, cx.say(keys[index]));
+    });
+    for entry in entries {
+        columns.row(ui, |ui, index| match index {
+            0 => cell(ui, device_text(cx, entry)),
+            1 => cell(ui, keeps_text(cx, entry.keeps)),
+            _ => work_cell(ui, cx, entry),
+        });
+    }
+}
+
+fn device_text(cx: &Cx, entry: &Entry) -> String {
+    let device = format::device(cx.voice(), &entry.device);
+    match entry.name.is_empty() {
+        true => device,
+        false => format!("{device}  {}", entry.name),
+    }
+}
+
 /// One thing found, for an expert.
 fn entry_row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, group: (Option<&Identity>, Relation)) {
     let (identity, relation) = group;
@@ -127,18 +168,12 @@ fn entry_row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, group: (Opt
                 shown.on_hover_text(address);
             }
         }
-        1 => {
-            let device = format::device(cx.voice(), &entry.device);
-            let text = match entry.name.is_empty() {
-                true => device,
-                false => format!("{device}  {}", entry.name),
-            };
-            cell(ui, text);
-        }
-        2 => cell(ui, dash(entry.height.map(|height| format::number(height.into())))),
-        3 => cell(ui, dash(entry.work_done.map(format::number))),
-        4 => cell(ui, dash(Some(entry.build.clone()).filter(|build| !build.is_empty()))),
-        5 => work_cell(ui, cx, entry),
+        1 => cell(ui, device_text(cx, entry)),
+        2 => cell(ui, keeps_text(cx, entry.keeps)),
+        3 => cell(ui, dash(entry.height.map(|height| format::number(height.into())))),
+        4 => cell(ui, dash(entry.work_done.map(format::number))),
+        5 => cell(ui, dash(Some(entry.build.clone()).filter(|build| !build.is_empty()))),
+        6 => work_cell(ui, cx, entry),
         _ => connect_button(ui, cx, entry, identity, relation),
     });
 }
@@ -181,7 +216,7 @@ fn expert_table(ui: &mut Ui, cx: &Cx, group: &CoinGroup) {
     for chain in &group.chains {
         ui.horizontal(|ui| chain_tags(ui, cx, chain, many));
         columns.row(ui, |ui, index| {
-            let keys = ["pro.reach", "pro.device", "pro.height", "pro.work", "pro.build", "pro.activity"];
+            let keys = ["pro.reach", "pro.device", "found.keeps", "pro.height", "pro.work", "pro.build", "pro.activity"];
             if let Some(key) = keys.get(index) {
                 header_cell(ui, t, cx.say(key));
             }
@@ -195,6 +230,13 @@ fn expert_table(ui: &mut Ui, cx: &Cx, group: &CoinGroup) {
         let id = mono(format::short_id(&identity.genesis)).color(t.muted);
         ui.label(id).on_hover_text(cx.say("pro.genesis"));
     }
+}
+
+/// Everything found but this app itself, on any coin.
+fn other_devices<'a>(cx: &Cx<'a>) -> Vec<&'a Entry> {
+    let chains = cx.snap.groups.iter().flat_map(|group| &group.chains);
+    let entries = chains.flat_map(|chain| &chain.entries);
+    entries.filter(|entry| entry.reach != Reach::ThisApp).collect()
 }
 
 /// A coin that is not this one, with where to reach it.
@@ -211,7 +253,8 @@ fn found_in(group: &CoinGroup) -> Option<Found<'_>> {
     let around: Vec<&Entry> = others().flat_map(|chain| &chain.entries).collect();
     let first = around.first()?;
     Some(Found {
-        coin: &identity.coin,
+        // Joining a split takes its rules, not those of the first one found.
+        coin: others().find_map(|chain| chain.coin.as_ref()).unwrap_or(&identity.coin),
         count: around.len(),
         address: first.address.clone(),
         split: others().any(|chain| chain.relation == Relation::Split),
@@ -222,28 +265,93 @@ impl Coins {
     fn this_coin(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         let node = &cx.snap.node;
+        let mut back = false;
         card(ui, t, |ui| {
             ui.horizontal(|ui| {
                 dot(ui, t.good);
                 if let Some(coin) = &node.coin {
                     section(ui, &coin.name);
                     tag(ui, &coin.ticker, t.muted, t);
+                    if !coin.forks.is_empty() {
+                        tag(ui, cx.say("coins.split"), t.warn, t);
+                    }
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if button(ui, t, cx.say("coins.save_file"), Kind::Quiet).clicked() {
                         let picker = Picker::save("coins.save_file", "coin", COIN_ENDING, cx.folder.as_deref());
                         self.filing = Some(Filing::Save(picker));
                     }
+                    if let Some(coin) = node.coin.as_ref().filter(|_| cx.expert()) {
+                        if button(ui, t, cx.say("pro.fork"), Kind::Quiet).clicked() {
+                            self.fork = Some(ForkForm::new(coin, node.height));
+                        }
+                    }
+                    if node.coin.as_ref().is_some_and(|coin| !coin.forks.is_empty())
+                        && button(ui, t, cx.say("coins.fork_back"), Kind::Quiet).clicked()
+                    {
+                        back = true;
+                    }
                 });
             });
             meta(ui, &cx.fill("coins.this_line", &[&format::number(node.height.into()), &node.peers.to_string()]), t);
+            if let Some(fork) = node.coin.as_ref().and_then(|coin| coin.forks.last()) {
+                meta(ui, &cx.fill("coins.forked_line", &[&format::number(fork.from_height.into())]), t);
+            }
         });
+        if back {
+            let name = node.coin.as_ref().map_or(String::new(), |coin| coin.name.clone());
+            *cx.slip = Some(cx.slip_for(Slipping {
+                what: cx.say("coins.fork_back"),
+                rows: vec![(cx.say("coin.name"), name)],
+                warning: cx.say("coins.fork_back_warning"),
+                sign: cx.say("coins.fork_back"),
+                danger: false,
+                order: vec![Command::ForkBack],
+            }));
+        }
+    }
+
+    fn fork_sheet(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        let (Some(form), Some(coin)) = (&mut self.fork, &cx.snap.node.coin) else {
+            return;
+        };
+        let height = cx.snap.node.height;
+        let (slip, outside) = sheet(ui, t, "fork", tokens::SHEET_WIDE, |ui| {
+            sheet_head(ui, cx.say("pro.fork"));
+            ScrollArea::vertical().max_height(sheet_room(ui)).show(ui, |ui| form.show(ui, cx, coin, height));
+            ui.add_space(tokens::GAP_WIDE);
+            let order = form.order(coin, height);
+            let mut next = None;
+            let mut cancel = false;
+            ui.horizontal(|ui| {
+                let go = button_on(ui, t, cx.say("pro.fork_go"), Kind::Main, order.is_ok());
+                if let Some(order) = order.ok().filter(|_| go.clicked()) {
+                    next = Some(form.slip(cx, coin, height, order));
+                }
+                cancel = button(ui, t, cx.say("common.cancel"), Kind::Plain).clicked();
+            });
+            (next, cancel)
+        });
+        let (next, cancel) = slip;
+        if let Some(next) = next {
+            *cx.slip = Some(next);
+        }
+        if cancel || outside || cx.slip.is_some() {
+            self.fork = None;
+        }
     }
 
     fn found(&self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         let snap = cx.snap;
         let found: Vec<Found> = snap.groups.iter().filter_map(found_in).collect();
+        let entries = other_devices(cx);
+        if !entries.is_empty() && !cx.expert() {
+            section(ui, cx.say("coins.devices"));
+            plain_rows(ui, cx, &entries);
+            ui.add_space(tokens::GAP_WIDE);
+        }
         section(ui, cx.say("coins.found"));
         if found.is_empty() {
             let again = cx.say("coins.look_again");
@@ -299,11 +407,12 @@ impl Coins {
             if button(ui, t, cx.say("coins.look_again"), Kind::Quiet).clicked() {
                 cx.send(Command::Rescan);
             }
-        });
-        if !cx.expert() && !self.by_address {
-            if button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
+            let hidden = !cx.expert() && !self.by_address;
+            if hidden && button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
                 self.by_address = true;
             }
+        });
+        if !cx.expert() && !self.by_address {
             return;
         }
         ui.add_space(tokens::GAP);
@@ -326,7 +435,8 @@ impl Coins {
         };
         let (done, outside) = sheet(ui, t, "new-coin", tokens::SHEET_WIDE, |ui| {
             sheet_head(ui, cx.say("coins.new"));
-            form.show(ui, cx);
+            ScrollArea::vertical().max_height(sheet_room(ui)).show(ui, |ui| form.show(ui, cx));
+            form.problem(ui, cx);
             ui.add_space(tokens::GAP_WIDE);
             let coin = form.coin(cx);
             let mut done = false;
@@ -403,8 +513,14 @@ impl Page for Coins {
             meta(ui, &scan_line(cx), t);
         }
         self.new_coin_sheet(ui, cx);
+        self.fork_sheet(ui, cx);
         self.file_sheet(ui, cx);
     }
+}
+
+/// How tall the rows of a sheet can stand with its title and buttons still on the screen.
+fn sheet_room(ui: &Ui) -> f32 {
+    ui.ctx().content_rect().height() - SHEET_FRAME
 }
 
 fn scan_line(cx: &Cx) -> String {

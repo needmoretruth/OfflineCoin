@@ -4,7 +4,7 @@ mod common;
 
 use common::{engine_of, mine, silence, test_coin};
 use olc_core::{Address, Block, CoinConfig, Hash, Tx};
-use olc_node::{Card, Hello, Message, Outgoing};
+use olc_node::{Card, Hello, Keeps, Message, Outgoing};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -152,6 +152,25 @@ fn an_older_build_reads_a_hello_with_a_floor() {
     let bytes = Message::Hello(hello_of(&coin).into()).encode();
     let read: OlderHello = postcard::from_bytes(&bytes[1..]).unwrap();
     assert_eq!(read, older_hello(&coin));
+}
+
+#[test]
+fn a_hello_says_what_a_node_keeps_and_older_builds_skip_it() {
+    let coin = CoinConfig::olc();
+    for keeps in [Keeps::Everything, Keeps::Recent, Keeps::Headers] {
+        let mut hello = hello_of(&coin);
+        hello.card.keeps = keeps;
+        let bytes = Message::Hello(hello.clone().into()).encode();
+        assert_eq!(Message::decode(&bytes), Some(Message::Hello(hello.into())));
+        let read: OlderHello = postcard::from_bytes(&bytes[1..]).unwrap();
+        assert_eq!(read, older_hello(&coin));
+    }
+    let mut bytes = Message::Hello(hello_of(&coin).into()).encode();
+    *bytes.last_mut().unwrap() = 200;
+    let Some(Message::Hello(hello)) = Message::decode(&bytes) else {
+        panic!("a later kind reads");
+    };
+    assert_eq!(hello.card.keeps, Keeps::Unsaid);
 }
 
 #[test]

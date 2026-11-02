@@ -107,8 +107,9 @@ mod tests {
     #[test]
     fn expert_words_replace_basic_ones_or_are_expert_rows() {
         for (key, _) in rows(en_expert::WORDS, en_expert_more::WORDS) {
-            let only_expert = matches!(key.split('.').next(), Some("pro" | "lab" | "captest" | "console"))
-                || matches!(key, "page.console" | "notice.experiment_busy");
+            let first = key.split('.').next();
+            let only_expert = matches!(first, Some("pro" | "lab" | "captest" | "console" | "lock"))
+                || matches!(key, "page.console" | "page.locks" | "notice.experiment_busy");
             assert!(only_expert || text(voice(Lang::En), key) != "?", "{key}");
         }
         let expert = Voice { lang: Lang::Ko, mode: Mode::Expert };
@@ -201,7 +202,8 @@ mod tests {
         let mut seen = BTreeSet::new();
         for text in texts {
             for piece in text.split('"').skip(1).step_by(2) {
-                let shaped = piece != "coin.json" && piece.split_once('.').is_some_and(|(head, tail)| {
+                let file = piece == "coin.json" || piece.ends_with(".rs");
+                let shaped = !file && piece.split_once('.').is_some_and(|(head, tail)| {
                     prefixes.contains(head)
                         && !tail.is_empty()
                         && tail.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit())

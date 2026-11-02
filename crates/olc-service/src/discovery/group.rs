@@ -2,6 +2,7 @@
 //! different rules is a split chain. Both the same is one network, even if its nodes compete.
 use super::Reach;
 use olc_core::{CoinConfig, Hash, Rules};
+use olc_node::Keeps;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The coin something runs, when it has said.
@@ -44,6 +45,7 @@ pub struct Entry {
     pub work_done: Option<u128>,
     pub build: String,
     pub work: Work,
+    pub keeps: Keeps,
     /// How old the row is, when it comes only from a past answer.
     pub age_secs: Option<u64>,
 }
@@ -64,6 +66,8 @@ pub enum Relation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChainGroup {
     pub rules: Option<Rules>,
+    /// The coin this chain runs, which a person joins. A split has a coin of its own.
+    pub coin: Option<CoinConfig>,
     pub relation: Relation,
     pub entries: Vec<Entry>,
     /// Different best blocks among its nodes, so at least this many are competing or behind.
@@ -94,20 +98,27 @@ fn competing_tips(entries: &[Entry]) -> usize {
     by_height.values().map(BTreeSet::len).max().unwrap_or(0)
 }
 
-fn chain_of(rules: Option<Rules>, entries: Vec<Entry>, split: bool, yours: bool) -> ChainGroup {
+fn chain_of(coin: Option<CoinConfig>, entries: Vec<Entry>, split: bool, yours: bool) -> ChainGroup {
     let tips = competing_tips(&entries);
-    let relation = match (&rules, yours, split) {
+    let relation = match (&coin, yours, split) {
         (None, _, _) => Relation::Unknown,
         (_, true, _) => Relation::Yours,
         (_, false, true) => Relation::Split,
         (_, false, false) => Relation::Network,
     };
     ChainGroup {
-        rules,
+        rules: coin.as_ref().map(|coin| coin.rules_at(u64::MAX).clone()),
+        coin,
         relation,
         entries,
         tips,
     }
+}
+
+/// One chain has one set of rules at every height. Rules that change later differ from the start
+/// as far as a chain's future goes, so forks count too.
+fn same_rules(one: &CoinConfig, other: &CoinConfig) -> bool {
+    one.rules == other.rules && one.forks == other.forks
 }
 
 /// `mine` is the coin this app runs. Its coin comes first, then larger groups, then by name, so a
@@ -136,19 +147,15 @@ pub fn group(entries: &[Entry], mine: Option<&Identity>) -> Vec<CoinGroup> {
                 &mut coins[last]
             }
         };
-        let rules = &identity.coin.rules;
-        match coin
-            .chains
-            .iter_mut()
-            .find(|chain| chain.rules.as_ref() == Some(rules))
-        {
+        let same = |chain: &&mut ChainGroup| {
+            chain.coin.as_ref().is_some_and(|known| same_rules(known, &identity.coin))
+        };
+        match coin.chains.iter_mut().find(same) {
             Some(chain) => chain.entries.push(entry.clone()),
-            None => coin.chains.push(ChainGroup {
-                rules: Some(rules.clone()),
-                relation: Relation::Network,
-                entries: vec![entry.clone()],
-                tips: 0,
-            }),
+            None => {
+                let first = vec![entry.clone()];
+                coin.chains.push(chain_of(Some(identity.coin.clone()), first, false, false));
+            }
         }
     }
     for coin in &mut coins {
@@ -160,12 +167,11 @@ pub fn group(entries: &[Entry], mine: Option<&Identity>) -> Vec<CoinGroup> {
             .into_iter()
             .map(|chain| {
                 let yours = mine_here.is_some_and(|identity| {
-                    chain.rules.as_ref() == Some(&identity.coin.rules)
+                    chain.coin.as_ref().is_some_and(|coin| same_rules(coin, &identity.coin))
                 });
                 // A chain beside yours is a split even when only it was found.
                 let split = split || (mine_here.is_some() && !yours);
-                let rules = chain.rules.clone();
-                chain_of(rules, chain.entries, split, yours)
+                chain_of(chain.coin, chain.entries, split, yours)
             })
             .collect();
         coin.chains.sort_by_key(|chain| {
@@ -234,6 +240,7 @@ mod tests {
             work_done: Some(1),
             build: "x".into(),
             work: Work::Idle,
+            keeps: Keeps::Unsaid,
             age_secs: None,
         }
     }

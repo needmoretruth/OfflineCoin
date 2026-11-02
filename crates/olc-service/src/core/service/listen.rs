@@ -1,8 +1,9 @@
 //! What the service hears from the network, boards and its own threads.
 use super::Service;
-use crate::core::host::HeardFrom;
+use crate::core::host::{HeardFrom, PayError};
 use crate::discovery::ScanPlan;
 use olc_node::Hello;
+use olc_wallet::WalletError;
 
 impl Service {
     pub(super) fn plan_scan(&self) {
@@ -63,6 +64,9 @@ impl Service {
             self.pool.take_node_shares(id, &answer.shares);
             match (answer.paid, answer.error) {
                 (Some(_), _) => self.say("notice.node_paid", id.to_string(), true),
+                (_, Some(error)) if error == format!("{:?}", PayError::Wallet(WalletError::Refused)) => {
+                    self.say("notice.pay_refused", String::new(), false);
+                }
                 (_, Some(error)) => self.say("notice.pay_failed", error, false),
                 _ => {}
             }

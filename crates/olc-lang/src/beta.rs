@@ -56,6 +56,38 @@ impl LockLanguage for Beta {
             && machine.run(lock).is_some()
             && machine.stack.last().is_some_and(|top| is_true(top))
     }
+
+    fn signature_checks(&self, lock: &[u8], unlock: &[u8]) -> usize {
+        signature_checks(unlock).saturating_add(signature_checks(lock))
+    }
+}
+
+/// The most signature checks `script` can cost, read without running it. Both sides of a branch
+/// count and nothing loops, so the real number is never higher. A multi-signature tries each key
+/// once at most: a key count pushed right before it is that count, and any other count may be as
+/// many keys as the stack holds.
+pub fn signature_checks(script: &[u8]) -> usize {
+    let mut checks = 0usize;
+    let mut keys = None;
+    let mut at = 0;
+    while let Some(code) = script.get(at).copied() {
+        at += 1;
+        let mut pushed = None;
+        match code {
+            1..=op::PUSH_MAX => {
+                let end = at + usize::from(code);
+                pushed = script.get(at..end).and_then(count);
+                at = end;
+            }
+            op::ZERO => pushed = Some(0),
+            op::ONE => pushed = Some(1),
+            op::CHECK_SIG => checks = checks.saturating_add(1),
+            op::CHECK_MULTI_SIG => checks = checks.saturating_add(keys.unwrap_or(MAX_STACK)),
+            _ => {}
+        }
+        keys = pushed;
+    }
+    checks
 }
 
 struct Machine<'a> {
@@ -267,6 +299,30 @@ mod tests {
         assert_eq!(count(&[100]), Some(100));
         let nothing_of_nothing = [op::ZERO, 5, 0, 0, 0, 0, 1, op::CHECK_MULTI_SIG];
         assert!(!check(&nothing_of_nothing, &[], 0));
+    }
+
+    #[test]
+    fn checks_are_counted_without_running_a_script() {
+        assert_eq!(signature_checks(&pay_to_address(&[1; 20])), 1);
+        assert_eq!(signature_checks(&[1, 2, op::CHECK_MULTI_SIG]), 2);
+        assert_eq!(signature_checks(&[op::ONE, op::CHECK_MULTI_SIG]), 1);
+        assert_eq!(signature_checks(&[op::ZERO, op::CHECK_MULTI_SIG]), 0);
+        let both_sides = [op::IF, op::CHECK_SIG, op::ELSE, op::CHECK_SIG, op::END_IF];
+        assert_eq!(signature_checks(&both_sides), 2);
+    }
+
+    /// The count may come from the unlock side, so all a stack can hold is what it may cost.
+    #[test]
+    fn a_count_that_is_not_written_beside_it_costs_the_most() {
+        assert_eq!(signature_checks(&[op::CHECK_MULTI_SIG]), MAX_STACK);
+        assert_eq!(signature_checks(&[1, 2, op::DUP, op::DROP, op::CHECK_MULTI_SIG]), MAX_STACK);
+        assert_eq!(signature_checks(&[1, 200, op::CHECK_MULTI_SIG]), MAX_STACK);
+    }
+
+    #[test]
+    fn a_script_cut_short_is_counted_up_to_the_cut() {
+        assert_eq!(signature_checks(&[op::CHECK_SIG, 5, 1]), 1);
+        assert_eq!(signature_checks(&[]), 0);
     }
 
     #[test]

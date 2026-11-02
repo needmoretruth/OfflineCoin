@@ -8,12 +8,24 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use esp_hal::rng::Rng;
 use esp_println::println;
-use olc_core::coin::parse_coins;
+use olc_core::amount::parse_coins;
+use olc_control::line::{
+    name_in, wifi_in, FEWEST_WIFI_PASSWORD_BYTES, MOST_NAME_BYTES, MOST_WIFI_NAME_BYTES,
+    MOST_WIFI_PASSWORD_BYTES,
+};
+
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
-use olc_wallet::{format_address, parse_address};
+use olc_wallet::{format_address, parse_address, WalletError};
 
 /// Shares held between two questions, so an answer stays small.
 const MOST_SHARES: usize = 8;
+
+fn payment_error(error: WalletError) -> String {
+    match error {
+        WalletError::Refused => "error pool refused it, send less or try after the next block".into(),
+        error => format!("error {error:?}"),
+    }
+}
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) || !text.is_ascii() {
@@ -53,10 +65,55 @@ impl Node {
             return;
         };
         let started = crate::node::device_ms();
-        match self.runner.engine.pay(to, units, 0) {
+        let fee = self.runner.engine.rules().min_fee;
+        match self.runner.engine.pay(to, units, fee) {
             Ok(id) => self.say(format!("paid {} in {}ms", hex(&id), crate::node::device_ms() - started)),
-            Err(error) => self.say(format!("error {error:?}")),
+            Err(error) => self.say(payment_error(error)),
         }
+    }
+
+    /// Times one real signature check. The limit on checks a node takes in a transaction rests on
+    /// what this costs a board at 80 MHz.
+    fn time_one_check(&mut self) {
+        let secret = [7; 32];
+        let digest = olc_crypto::hash(b"check-time");
+        let signed = olc_crypto::public_key(&secret).zip(olc_crypto::sign(&secret, &digest));
+        let Some((key, signature)) = signed else {
+            return self.say("error check-time".into());
+        };
+        let started = crate::node::device_ms();
+        let good = olc_crypto::verify(&key, &digest, &signature);
+        self.say(format!("check-time {}ms good={good}", crate::node::device_ms() - started));
+    }
+
+    fn name_from(&mut self, line: &str) {
+        match name_in(line) {
+            Some(name) if name.len() <= MOST_NAME_BYTES => {
+                self.rename(&name);
+                self.say("named".into());
+            }
+            Some(_) => self.say(format!("error name has {MOST_NAME_BYTES} bytes at most")),
+            None => self.say("error name NAME".into()),
+        }
+    }
+
+    fn wifi_from(&mut self, line: &str) {
+        let Some((ssid, password)) = wifi_in(line) else {
+            return self.say("error wifi \"NAME\" \"PASSWORD\"".into());
+        };
+        if ssid.len() > MOST_WIFI_NAME_BYTES {
+            return self.say(format!("error wifi name has {MOST_WIFI_NAME_BYTES} bytes at most"));
+        }
+        let fits = FEWEST_WIFI_PASSWORD_BYTES..=MOST_WIFI_PASSWORD_BYTES;
+        if !password.is_empty() && !fits.contains(&password.len()) {
+            return self.say(format!(
+                "error wifi password has {FEWEST_WIFI_PASSWORD_BYTES} to {MOST_WIFI_PASSWORD_BYTES} bytes"
+            ));
+        }
+        self.restart_with(|settings| {
+            settings.ssid = ssid;
+            settings.password = password;
+        });
     }
 
     /// Runs `line` when it is one of these commands.
@@ -64,6 +121,13 @@ impl Node {
         let mut words = line.split_whitespace();
         let rest = |word: &str| line.trim_start().strip_prefix(word).unwrap_or_default().trim();
         match (words.next(), words.next(), words.next()) {
+            (Some("name"), _, _) => self.name_from(line),
+            (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
+                settings.ssid.clear();
+                settings.password.clear();
+            }),
+            (Some("wifi"), _, _) => self.wifi_from(line),
+            (Some("check-time"), _, _) => self.time_one_check(),
             (Some("keys"), _, _) => self.print_keys(),
             (Some("key"), Some("new"), _) => self.new_key(),
             (Some("key"), Some("use"), Some(index)) => self.choose_key(index),
@@ -86,7 +150,7 @@ impl Node {
                 let result = self.runner.engine.write_note(rest("note").as_bytes());
                 match result {
                     Ok(id) => self.say(format!("noted {}", hex(&id))),
-                    Err(error) => self.say(format!("error {error:?}")),
+                    Err(error) => self.say(payment_error(error)),
                 }
             }
             (Some("minenote"), Some("off"), _) => self.mine_note(""),

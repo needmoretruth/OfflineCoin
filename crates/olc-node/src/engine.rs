@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 use olc_core::{
     AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, Plugins, Tx,
+    ADDRESS_LANGUAGE,
 };
 use olc_wallet::Wallet;
 
@@ -431,7 +432,7 @@ impl Engine {
             .flat_map(|block| &block.txs)
             .filter(|tx| !tx.is_coinbase() && !self.sent.contains(&tx.id()))
             .flat_map(|tx| &tx.outputs)
-            .filter(|output| self.wallet.owns(&output.lock))
+            .filter(|output| output.language == ADDRESS_LANGUAGE && self.wallet.owns(&output.lock))
             .map(|output| output.value)
             .fold(0, u64::saturating_add)
     }

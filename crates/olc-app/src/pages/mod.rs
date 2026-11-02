@@ -3,12 +3,15 @@
 mod board_detail;
 mod board_more;
 mod boards;
+mod coin_fork;
 mod coin_new;
+mod coin_rows;
 mod coins;
 mod console;
 mod home;
 mod lab;
 mod local;
+mod locks;
 mod money;
 mod pool;
 mod records;
@@ -115,6 +118,7 @@ pub fn all() -> Vec<Box<dyn Page>> {
         Box::<boards::Boards>::default(),
         Box::<coins::Coins>::default(),
         Box::<records::Records>::default(),
+        Box::<locks::Locks>::default(),
         Box::<console::Console>::default(),
         Box::<settings::SettingsPage>::default(),
     ]

@@ -3,6 +3,7 @@
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
 mod readings;
 mod scenes;
+mod rule_shots;
 mod shots;
 mod steady;
 
@@ -181,7 +182,7 @@ pub(super) fn staged_board(online: bool, returning: bool) -> BoardView {
         keep: Some(0),
         ..BoardState::default()
     };
-    BoardView { seen, job, answer: None, returning, reach: Reach::Usb, state }
+    BoardView { seen, job, answer: None, keeps: olc_node::Keeps::Everything, returning, reach: Reach::Usb, state }
 }
 
 pub(super) fn staged(boards: Vec<BoardView>) -> Snapshot {

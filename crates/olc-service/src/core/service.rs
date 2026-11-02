@@ -9,12 +9,12 @@ use olc_store::coin_file::new_coin;
 use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
-use super::host::{Host, PayError, Plan};
+use super::host::{Host, Plan};
 use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
 use super::rows::{
-    board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
+    board_entry, coin_of_board, device_kind, hostname, keeps_of, merge_local, own_entry, reach_of_board,
 };
 use super::radios::bluetooth_here;
 use super::returning::{is_returning, Returning};
@@ -26,7 +26,6 @@ use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Card;
-use olc_wallet::WalletError;
 use olc_store::NodeSettings;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -93,6 +92,8 @@ fn bind_host(settings: &Settings) -> String {
 /// Notices from threads the service started: key, detail, and whether it went well.
 pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
+mod forks;
+mod locks;
 mod listen;
 mod orders;
 
@@ -258,11 +259,15 @@ impl Service {
             }
             Command::Board { id, action } => self.board_action(id, action),
             Command::NewCoinFile { choices, path } => {
-                match write_coin_file(&new_coin(choices), &path) {
+                let made = new_coin(&choices).map_err(|bad| bad.to_string());
+                match made.and_then(|coin| write_coin_file(&coin, &path)) {
                     Ok(()) => self.say("notice.coin_saved", path, true),
                     Err(detail) => self.say("notice.coin_file", detail, false),
                 }
             }
+            Command::Fork { at, changes } => self.fork(at, &changes),
+            Command::ForkBack => self.fork_back(),
+            Command::Lock(order) => self.lock_order(order),
             Command::JoinCoinFile(path) => match read_coin_file(&path) {
                 Ok(coin) => self.join(coin, None),
                 Err(detail) => self.say("notice.coin_file", detail, false),
@@ -440,7 +445,7 @@ impl Service {
         match settings.save(&folder) {
             Ok(()) => {
                 let coin = current_coin(&self.paths, &self.settings);
-                self.host.switch(coin, folder, self.settings.peers.clone());
+                self.host.switch(coin, folder, self.settings.peers.clone(), None);
             }
             Err(error) => self.say("notice.save_failed", error, false),
         }
@@ -448,8 +453,7 @@ impl Service {
 
     /// Moves this app to a coin a person picked. Every node process follows it.
     fn join(&mut self, coin: CoinConfig, address: Option<String>) {
-        let name = coin_folder(&coin);
-        if self.settings.coin.as_deref() == Some(name.as_str()) {
+        if self.settings.coin.as_deref() == Some(coin_folder(&coin).as_str()) {
             if let Some(address) = address {
                 self.settings.peers.push(address.clone());
                 self.save();
@@ -457,23 +461,34 @@ impl Service {
             }
             return;
         }
+        let name = coin.name.clone();
+        if self.move_to(coin, address.into_iter().collect(), None) {
+            self.say("notice.joined", name, true);
+        }
+    }
+
+    /// Takes this node and its local nodes to `coin`. A fork names the folder it `leaves`, whose
+    /// chain it carries on from.
+    fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
+        let name = coin_folder(&coin);
         if let Err(error) = save_coin(&self.paths, &coin) {
             self.say("notice.save_failed", error, false);
-            return;
+            return false;
         }
         self.settings.coin = Some(name.clone());
-        self.settings.peers = address.into_iter().collect();
+        self.settings.peers = peers;
         self.save();
-        self.host.switch(
-            coin.clone(),
-            self.paths.coin(&name),
-            self.settings.peers.clone(),
-        );
+        let keep_from = leaves.as_ref().map(|old| self.paths.coin(old));
+        let (folder, peers) = (self.paths.coin(&name), self.settings.peers.clone());
+        self.host.switch(coin, folder, peers, keep_from);
         self.local.stop_all();
         // Their ports stay taken until the old processes have gone.
         thread::sleep(Duration::from_millis(100));
+        if let Some(old) = &leaves {
+            self.carry_local_chains(old, &name);
+        }
         self.start_nodes();
-        self.say("notice.joined", coin.name, true);
+        true
     }
 
     fn pay(&mut self, to: &str, amount: &str) {
@@ -483,11 +498,10 @@ impl Service {
         };
         let result = match self.host.pay(to, units) {
             Ok(_) => ("notice.sent", format_coins(units), true),
-            Err(PayError::BadAddress) => ("notice.bad_address", String::new(), false),
-            Err(PayError::Wallet(WalletError::NotEnoughCoins)) => {
-                ("notice.not_enough", String::new(), false)
+            Err(error) => {
+                let (key, detail) = orders::pay_fault(&error);
+                (key, detail, false)
             }
-            Err(error) => ("notice.pay_failed", format!("{error:?}"), false),
         };
         self.say(result.0, result.1, result.2);
     }
@@ -508,12 +522,12 @@ impl Service {
         };
         let hellos: Vec<_> = rows.iter().map(said).collect();
         let links: Vec<_> = hellos.iter().map(|hello| hello.as_ref().and_then(link_of)).collect();
-        let answers = hellos.into_iter().map(|hello| hello.map(|hello| Identity::of(hello.coin)));
+        let answers = hellos.iter().map(|hello| hello.as_ref().map(|hello| Identity::of(hello.coin.clone())));
         let answers: Vec<_> = answers.collect();
         let mut known: Vec<_> = entries.iter().filter_map(|entry| entry.identity.clone()).collect();
         known.extend(answers.iter().flatten().cloned());
-        entries.extend(rows.iter().zip(answers).zip(&links).map(|((row, said), link)| {
-            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), *link)
+        entries.extend(rows.iter().zip(answers).zip(&hellos).map(|((row, said), hello)| {
+            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), hello.as_ref())
         }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;
@@ -527,7 +541,9 @@ impl Service {
         let boards = rows
             .into_iter()
             .zip(links)
-            .map(|(row, link)| BoardView {
+            .zip(hellos.iter().map(|hello| keeps_of(hello.as_ref())))
+            .map(|((row, link), keeps)| BoardView {
+                keeps,
                 returning: is_returning(&row),
                 reach: reach_of_board(&row, link),
                 state: told.get(&row.seen.id).map(|told| told.state.clone()).unwrap_or_default(),

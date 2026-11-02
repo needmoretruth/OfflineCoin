@@ -3,6 +3,7 @@
 use super::coins::medium_text;
 use super::settings::switch_setting;
 use super::Cx;
+use crate::core::radios::NoBluetooth;
 use crate::core::{Command, Personal};
 use crate::local::Holding;
 use crate::ui::format;
@@ -43,7 +44,12 @@ fn link_rows(ui: &mut Ui, cx: &Cx) {
         });
     }
     let bluetooth = cx.snap.node.bluetooth;
-    let about = cx.say(if bluetooth.is_some() { "settings.bluetooth_note" } else { "settings.no_bluetooth" });
+    let about = cx.say(match cx.snap.node.no_bluetooth {
+        None => "settings.bluetooth_note",
+        Some(NoBluetooth::Adapter) => "settings.no_bluetooth",
+        Some(NoBluetooth::Build) => "settings.no_bluetooth_build",
+        Some(NoBluetooth::System) => "settings.no_bluetooth_system",
+    });
     row(ui, t, cx.say("boards.bluetooth"), about, |ui| {
         widgets::slot(ui, |ui| {
             if let Some(mut on) = bluetooth {
