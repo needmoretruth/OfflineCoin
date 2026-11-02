@@ -18,7 +18,7 @@ loaded=$(sort -u "$here/deb-loaded.txt")
 linked=$(for program in "$work"/usr/lib/olc-core/*; do
   readelf -d "$program" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'
 done | sort -u | grep -v '^ld-linux' | while read -r library; do
-  dpkg -S "/$triplet/$library" | sed -n 's/:.*//p' | head -n 1
+  dpkg -S "*/$triplet/$library" | sed -n 's/:.*//p' | head -n 1
 done | sort -u)
 
 echo "Linked: $(echo "$linked" | xargs)"
