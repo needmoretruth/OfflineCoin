@@ -1,7 +1,8 @@
 name: Release
 
-# A tag publishes. The other two build and test every package and publish nothing. The branch is
-# here because the manual trigger only reaches workflow files on the default branch.
+# A tag publishes. The other two build and test every package and publish nothing. GitHub offers
+# the manual start only for a workflow that has run once, which a push to the branch does before
+# this file reaches the default branch.
 on:
   push:
     tags: ["v*"]
