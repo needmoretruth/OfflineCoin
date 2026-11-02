@@ -2,6 +2,17 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
+## [0.1.1] - 2026-11-03
+
+### Fixed
+
+- Boards that joined the same Wi-Fi router could not find each other, and a computer had to be given their addresses. Boards now announce themselves on the router every 2 seconds, and boards and computers that hear them connect with nothing typed.
+- A board stopped by a panic stayed stopped until someone pressed its reset button. It now restarts, and a new build that stops within its first minute sends the board back to the build it had before. OLC Core says so on the board's page.
+- After an update, a board's page could show Restarting for minutes. It now shows the board's state as soon as the board answers.
+- The default board brightness showed as Middle. It now shows as Dim.
+- Text typed on one board's page, such as a Wi-Fi name, showed on another board's page.
+- `olc node --help` started a node. `--help` and `-h` now print help after any command.
+
 ## [0.1.0] - 2026-11-03
 
 ### Added
