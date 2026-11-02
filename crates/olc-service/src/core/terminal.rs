@@ -67,7 +67,7 @@ impl Terminal {
                 None => standard_folder()?,
             };
             let instance = claim(&root)?.ok_or("OLC Core is open. Use it, or close it first.")?;
-            let fleet: Arc<dyn FleetPort> = Arc::new(RealFleet::new(self.ports.clone())?);
+            let fleet: Arc<dyn FleetPort> = Arc::new(RealFleet::new(self.ports.clone(), self.firmware.as_deref())?);
             let settings = Settings::load(&root);
             let launch = CoreLaunch {
                 paths: Paths { root },
