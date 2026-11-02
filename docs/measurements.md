@@ -110,6 +110,11 @@ The firmware image is 1.94 MB.
 | ESP-NOW first, Bluetooth on | 97 s |
 | Wired link first | 102 s |
 
+A board with only power, updated from its page in the app with no build tried before: the app first
+put the build on a board with a cable, then sent it to that board again by radio through the other
+cabled board, and only then to the board with only power. About 6.5 minutes from the button to the
+board back on the new build.
+
 ## Experiments
 
 | Experiment | Result |
@@ -132,3 +137,12 @@ Bluetooth on and off, three boards, four rounds of 21 minutes:
 | Hash rate | 986.3 H/s | 989.8 H/s |
 | Disconnects, restarts, chain splits | 0 | 0 |
 | Stale blocks | 1 in 79 | 0 in 70 |
+
+## Long life
+
+| Check | Result |
+|---|---|
+| Heat limit set 5 °C under the chip | 999 H/s to 99 H/s within 5 s; the app said why on the board's page and in Activity |
+| Heat limit back to 60 °C | 996 H/s again within 6 s |
+| Panelless build, 5.4 minutes | 59 status reads, no panel each time, 985 H/s mean, followed 11 blocks, 2 peers kept |
+| A payment from a locked coin with the wrong unlock words, sent straight down a cable | The board said `rejected payment BadLock`; the coin stayed under its lock |
