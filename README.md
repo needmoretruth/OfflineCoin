@@ -47,9 +47,9 @@ Anyone on the same Wi-Fi opens OLC Core, goes to **Coins** and presses **Join**.
 
 You can make your own coin too. On the **Coins** page, press **New coin**, then give it a name and your own rules.
 
-## Small boards
+## ESP32 boards
 
-OfflineCoin also runs on ESP32 boards, with no computer once they're set up. A board mines, keeps the chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core.
+There's a separate version of OfflineCoin for ESP32 boards. Once it's set up, a board needs no computer: it mines, keeps the chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core.
 
 ## Keep your coins safe
 

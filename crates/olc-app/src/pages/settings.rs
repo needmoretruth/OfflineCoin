@@ -12,12 +12,15 @@ use crate::ui::{Icon, Tokens};
 use egui::Ui;
 
 const TEXT_SIZES: [u16; 3] = [100, 125, 150];
+/// Tall enough for all five devices at the largest text size, with no scroll bar.
+const DEVICE_LIST_HEIGHT: f32 = 420.0;
 
 pub fn device_name(device: Device) -> &'static str {
     match device {
         Device::Esp32 => "setup.esp32",
         Device::RaspberryPi => "setup.pi",
         Device::ThisComputer => "setup.this_computer",
+        Device::SeveralNodes => "setup.several_nodes",
         Device::TwoComputers => "setup.two_computers",
     }
 }
@@ -92,7 +95,7 @@ fn general(ui: &mut Ui, cx: &mut Cx) {
 impl SettingsPage {
     fn about(&mut self, ui: &mut Ui, cx: &Cx) {
         group(ui, cx.say("settings.about"));
-        if opening_row(ui, cx.t, cx, ("note.title", "settings.note_about", "settings.note_go")) {
+        if opening_row(ui, cx.t, cx, ("settings.note", "settings.note_about", "settings.note_go")) {
             self.tools.open(Tool::Note);
         }
     }
@@ -158,12 +161,18 @@ fn this_computer(ui: &mut Ui, cx: &mut Cx) {
     group(ui, cx.say("settings.computer"));
     let about = cx.say("settings.device_about");
     row(ui, t, cx.say("settings.device"), about, |ui| {
-        let items: Vec<(Device, String)> = Device::ALL
-            .iter()
-            .map(|device| (*device, cx.say(device_name(*device)).to_string()))
-            .collect();
-        if let Some(device) = segments(ui, t, &items, Some(cx.settings.device)) {
-            cx.settings.apply_device(device);
+        // Five names do not fit this column as a row of segments at any text size.
+        let mut chosen = cx.settings.device;
+        egui::ComboBox::from_id_salt("device")
+            .selected_text(cx.say(device_name(chosen)))
+            .height(DEVICE_LIST_HEIGHT)
+            .show_ui(ui, |ui| {
+                for device in Device::ALL {
+                    ui.selectable_value(&mut chosen, device, cx.say(device_name(device)));
+                }
+            });
+        if chosen != cx.settings.device {
+            cx.settings.apply_device(chosen);
             cx.save();
         }
     });

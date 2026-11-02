@@ -53,7 +53,7 @@ fn the_first_run_starts_real_node_processes() {
     let settings = Settings { setup_done: false, port: port_of_scene(10), ..quiet_settings() };
     let window = app(scratch("first-nodes"), settings, Some(node_program()));
     let mut harness = harness(window, SIZES[0]);
-    click(&mut harness, "Just this computer");
+    click(&mut harness, "Several miners");
     // A new coin starts easy, so its height moves while the table is watched.
     click(&mut harness, "New coin");
     type_into(&mut harness, 0, "Quick");
@@ -412,6 +412,10 @@ fn the_developers_note_opens_in_both_languages() {
         harness.state_mut().settings_mut().language = language;
         harness.state_mut().open("page.settings");
         harness.run_steps(SETTLE_STEPS);
+        if let Ok(folder) = std::env::var("OLC_SHOTS") {
+            let page = format!("{name}-page");
+            super::shots::shot(&mut harness, std::path::Path::new(&folder), &page);
+        }
         click(&mut harness, read);
         harness.run_steps(SETTLE_STEPS);
         assert!(harness.query_by_label_contains("NeedMoreTruth").is_some(), "{name}");
@@ -419,4 +423,21 @@ fn the_developers_note_opens_in_both_languages() {
             super::shots::shot(&mut harness, std::path::Path::new(&folder), name);
         }
     }
+}
+
+/// The list of devices fits its column and changes the choice.
+#[test]
+fn the_device_is_chosen_from_a_list() {
+    let settings = Settings { port: port_of_scene(86), ..quiet_settings() };
+    let mut harness = harness(app(scratch("device-list"), settings, None), (1280, 2600));
+    harness.state_mut().open("page.settings");
+    harness.run_steps(SETTLE_STEPS);
+    harness.get_by_role(egui::accesskit::Role::ComboBox).click();
+    harness.run_steps(SETTLE_STEPS);
+    if let Ok(folder) = std::env::var("OLC_SHOTS") {
+        super::shots::shot(&mut harness, std::path::Path::new(&folder), "device-list");
+    }
+    click(&mut harness, "Two computers");
+    harness.run_steps(SETTLE_STEPS);
+    assert_eq!(harness.state_mut().settings_mut().device, Device::TwoComputers);
 }
