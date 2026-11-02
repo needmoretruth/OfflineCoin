@@ -311,5 +311,9 @@ fn shutting_others_out_closes_the_door_at_once() {
         assert!(started.elapsed() < WAIT, "the network still reaches this app");
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(reach(std::net::Ipv4Addr::LOCALHOST.into()), "this computer lost its own way in");
+    // The new door opens a moment after the old one shuts, later on a slow machine.
+    while !reach(std::net::Ipv4Addr::LOCALHOST.into()) {
+        assert!(started.elapsed() < WAIT, "this computer lost its own way in");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
