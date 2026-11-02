@@ -54,17 +54,16 @@ pub fn merge_local(entries: &mut Vec<Entry>, nodes: &[LocalView], coin: Option<&
         let Some(status) = &node.status else {
             continue;
         };
-        let Some(address) = status.port.map(|port| format!("127.0.0.1:{port}")) else {
-            continue;
-        };
+        // A node with no port still runs and mines, so it keeps its row.
+        let address = status.port.map(|port| format!("127.0.0.1:{port}"));
         let same_node = |entry: &&mut Entry| {
             let genesis = entry.identity.as_ref().map(|found| found.genesis);
-            let same_port = entry.address.as_deref() == Some(address.as_str());
+            let same_port = address.is_some() && entry.address == address;
             entry.reach == Reach::ThisComputer && same_port && genesis == Some(coin.genesis)
         };
         let live = Entry {
             reach: Reach::ThisComputer,
-            address: Some(address.clone()),
+            address: address.clone(),
             via: None,
             device: device_kind(),
             name: node.spec.name.clone(),
@@ -223,6 +222,20 @@ mod tests {
         merge_local(&mut entries, &running(), Some(&identity));
         assert_eq!(entries[0].height, Some(3));
         assert_eq!(entries[1].height, Some(40));
+    }
+
+    #[test]
+    fn a_running_node_with_no_port_keeps_its_row() {
+        let identity = Identity::of(CoinConfig::olc());
+        let mut nodes = running();
+        if let Some(status) = nodes[0].status.as_mut() {
+            status.port = None;
+        }
+        let mut entries = Vec::new();
+        merge_local(&mut entries, &nodes, Some(&identity));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].address, None);
+        assert_eq!(entries[0].height, Some(40));
     }
 
     #[test]

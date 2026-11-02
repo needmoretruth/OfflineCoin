@@ -314,7 +314,7 @@ fn screenshots() {
     others.start(&Preset::Esp32S3.spec(9), &file, &[]).unwrap();
     let mut settings = quiet_settings();
     settings.coin = Some(coin_folder(&coin));
-    settings.device = Device::ThisComputer;
+    settings.device = Device::SeveralNodes;
     settings.mine_on_start = true;
     settings.scan_lan = true;
     settings.port = port_of_scene(76);

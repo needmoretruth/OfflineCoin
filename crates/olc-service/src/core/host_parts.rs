@@ -57,9 +57,16 @@ pub fn plugins() -> Plugins {
 }
 
 pub fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
-    (0..plan.port_tries.max(1))
-        .filter_map(|step| plan.port.checked_add(step))
-        .find_map(|port| tcp.listen(&format!("{}:{port}", plan.bind_host)).ok())
+    listen_from(tcp, &plan.bind_host, plan.port, plan.port_tries)
+}
+
+/// Tries the ports in turn, then any port the system has free. A node that others cannot find by
+/// its usual port can still be reached by the app that started it.
+fn listen_from(tcp: &TcpLink, host: &str, first: u16, tries: u16) -> Option<u16> {
+    (0..tries.max(1))
+        .filter_map(|step| first.checked_add(step))
+        .chain(std::iter::once(0))
+        .find_map(|port| tcp.listen(&format!("{host}:{port}")).ok())
         .map(|address| address.port())
 }
 
@@ -71,4 +78,20 @@ pub fn watched_view(engine: &Engine) -> Vec<(String, u64)> {
 pub fn stored_bytes(engine: &Engine, blocks: u64) -> u64 {
     let header = BlockHeader::ENCODED_LEN as u64;
     engine.light().map_or(blocks, |light| light.headers().held() as u64 * header)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn a_node_listens_even_when_its_usual_ports_are_taken() {
+        let taken: Vec<_> = (0..3).map(|_| TcpListener::bind("127.0.0.1:0").unwrap()).collect();
+        let first = taken[0].local_addr().unwrap().port();
+        let tcp = TcpLink::new();
+        let port = listen_from(&tcp, "127.0.0.1", first, 1).expect("a port");
+        assert_ne!(port, first);
+        assert_ne!(port, 0);
+    }
 }

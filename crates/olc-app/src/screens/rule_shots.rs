@@ -255,7 +255,7 @@ fn rule_screens() {
     let mut settings = quiet_settings();
     settings.language = Lang::Ko;
     settings.coin = Some(coin_folder(&coin));
-    settings.device = Device::ThisComputer;
+    settings.device = Device::SeveralNodes;
     settings.mine_on_start = true;
     settings.hash_cap = 10_000;
     settings.port = port_of_scene(82);
