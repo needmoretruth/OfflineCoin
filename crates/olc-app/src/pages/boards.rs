@@ -48,6 +48,7 @@ pub fn job_text<'a>(cx: &Cx, job: &'a str) -> &'a str {
         "restarting" => cx.say("boards.job_restarting"),
         "installing" => cx.say("boards.job_installing"),
         "update_failed" => cx.say("boards.job_failed"),
+        "unproven" => cx.say("boards.job_unproven"),
         progress => progress,
     }
 }

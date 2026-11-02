@@ -2,7 +2,7 @@
 use super::host::{Host, PayError, Waiting};
 use super::host_parts::unix_ms;
 use super::{format_coins, parse_coins};
-use olc_core::{Hash, OutPoint};
+use olc_core::{ChainError, Hash, OutPoint};
 use olc_crypto::hash;
 use olc_lang::words::{
     hash_lock, lock_from_text, public_key_from_text, time_lock, two_of_two, Cost, WordError,
@@ -80,6 +80,11 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
         LockFailure::Lock(LockError::Wallet(error)) => ("lock.wallet", format!("{error:?}")),
         LockFailure::NoCoin => ("lock.no_coin", String::new()),
         LockFailure::NeedsBlocks => ("lock.needs_blocks", String::new()),
+        LockFailure::Refused(ChainError::BadLock) => ("lock.not_open", String::new()),
+        LockFailure::Refused(ChainError::FeeTooLow | ChainError::Overspend) => {
+            ("lock.too_small", String::new())
+        }
+        LockFailure::Refused(ChainError::MissingInput) => ("lock.spent", String::new()),
         LockFailure::Refused(error) => ("lock.refused", format!("{error:?}")),
     }
 }
@@ -159,5 +164,13 @@ mod tests {
         let point = OutPoint { txid: [7; 32], index: 3 };
         assert_eq!(coin_named(&name_of_coin(&point)), Some(point));
         assert_eq!(coin_named("nothing"), None);
+    }
+
+    #[test]
+    fn a_lock_that_does_not_open_says_so_in_words() {
+        let (key, detail) = fault_of_lock(&LockFailure::Refused(ChainError::BadLock));
+        assert_eq!((key, detail.as_str()), ("lock.not_open", ""));
+        let (key, _) = fault_of_lock(&LockFailure::Refused(ChainError::MissingInput));
+        assert_eq!(key, "lock.spent");
     }
 }

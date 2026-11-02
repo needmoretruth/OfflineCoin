@@ -271,6 +271,20 @@ fn boards_show_what_they_do() {
     assert!(harness.query_by_label("Dim").is_none());
 }
 
+/// The manager holds back a build no board with a cable has taken by radio, and the page says
+/// what a person can do about it instead of the manager's word.
+#[test]
+fn an_unproven_update_says_to_use_a_cable() {
+    let mut harness = harness(app(scratch("unproven"), quiet_settings(), None), SIZES[0]);
+    let board = BoardView { job: Some("unproven".into()), ..staged_board(true, false) };
+    harness.state_mut().set_stage(Some(staged(vec![board])));
+    harness.state_mut().open("page.boards");
+    harness.run_steps(SETTLE_STEPS);
+    let said = "This version has not yet updated a board by radio. Connect this board with a USB cable to update it.";
+    assert!(harness.query_all_by_label(said).count() > 0);
+    assert!(harness.query_by_label("unproven").is_none());
+}
+
 /// A peer that holds no old headers answers a light node with its first block, and only a small
 /// device does: a computer keeps them all. So this stands in for a board, as a stage.
 #[test]

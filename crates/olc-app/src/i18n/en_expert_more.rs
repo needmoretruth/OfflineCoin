@@ -232,5 +232,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.no_coin", "No coin under a lock there."),
     ("lock.needs_blocks", "A node with headers only cannot read locks. Keep blocks in Settings."),
     ("lock.refused", "The lock did not open: {}"),
+    ("lock.not_open", "These unlock words do not open the lock. A time lock opens only from its height."),
+    ("lock.spent", "This coin is already spent."),
     ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Network page."),
 ];
