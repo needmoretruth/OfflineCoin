@@ -285,6 +285,21 @@ fn an_unproven_update_says_to_use_a_cable() {
     assert!(harness.query_by_label("unproven").is_none());
 }
 
+/// A build that stopped on the board and was sent back must not read as a failure to try again,
+/// since trying again sends the same build.
+#[test]
+fn a_build_the_board_sent_back_says_so_instead_of_try_again() {
+    let mut harness = harness(app(scratch("went-back"), quiet_settings(), None), SIZES[0]);
+    let board = BoardView { job: Some("went_back".into()), ..staged_board(true, false) };
+    harness.state_mut().set_stage(Some(staged(vec![board])));
+    harness.state_mut().open("page.boards");
+    harness.run_steps(SETTLE_STEPS);
+    let said = "This version did not run on the board. The board is back on its earlier version.";
+    assert!(harness.query_all_by_label(said).count() > 0);
+    assert!(harness.query_by_label("Update failed. Try again.").is_none());
+    assert!(harness.query_by_label("went_back").is_none());
+}
+
 /// A peer that holds no old headers answers a light node with its first block, and only a small
 /// device does: a computer keeps them all. So this stands in for a board, as a stage.
 #[test]
