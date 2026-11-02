@@ -59,6 +59,7 @@ pub const CLI_ROWS: &[Row] = &[
     row("move", BOARDS, "Move to this coin"),
     expert("cap-test", BOARDS, "Lab", "Tuning a board's cap is measurement, and the buttons already set speed"),
     row("install", BOARDS, "New board"),
+    row("pool-start", BOARDS, "Together, start"),
     row("pool-stop", BOARDS, "Together, stop"),
     expert("lab-stop", BOARDS, "Lab", "It stops an experiment, and experiments are expert work"),
     row("node-start", BOARDS, "This computer"),
