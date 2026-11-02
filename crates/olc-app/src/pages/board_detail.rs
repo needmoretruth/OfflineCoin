@@ -17,12 +17,15 @@ use olc_control::BoardId;
 use olc_wallet::format_address;
 use std::collections::HashMap;
 
-/// Dim, middle and bright, on the board's own scale of 0 to 255.
-const BRIGHT_STEPS: [u64; 3] = [24, 96, 255];
+/// Dim, middle and bright, on the board's own scale of 0 to 255. A board starts dim, so its panel
+/// lasts.
+const BRIGHT_STEPS: [u64; 3] = [BOARD_BRIGHT as u64, 150, 255];
 const BRIGHT_MAX: u64 = 255;
 
+/// What a person types or opens on a board's page. It belongs to that board alone.
 #[derive(Default)]
 pub struct BoardDetail {
+    board: Option<BoardId>,
     pub(super) cap: u64,
     pub(super) smooth: u64,
     pub(super) bright: u64,
@@ -71,16 +74,30 @@ pub(super) fn switch_row(
 
 impl BoardDetail {
     pub fn select(&mut self, cx: &Cx, board: &BoardView) {
-        let beacon = &board.seen.beacon;
-        self.cap = u64::from(beacon.limit);
-        self.smooth = match beacon.smooth {
-            0 => u64::from(BOARD_SCREEN_RATE),
-            fps => u64::from(fps),
-        };
-        self.bright = board.state.bright.map_or(u64::from(BOARD_BRIGHT), u64::from);
-        self.bright_heard = board.state.bright;
+        self.open(board);
         cx.send(Command::ReadBoardState(board.seen.id));
-        self.name.clone_from(&beacon.name);
+    }
+
+    /// Forgets what was typed for the board shown before.
+    fn open(&mut self, board: &BoardView) {
+        *self = Self::opened(board);
+    }
+
+    /// A page with nothing typed, showing what `board` said of itself.
+    fn opened(board: &BoardView) -> Self {
+        let beacon = &board.seen.beacon;
+        Self {
+            board: Some(board.seen.id),
+            cap: u64::from(beacon.limit),
+            smooth: match beacon.smooth {
+                0 => u64::from(BOARD_SCREEN_RATE),
+                fps => u64::from(fps),
+            },
+            bright: board.state.bright.map_or(u64::from(BOARD_BRIGHT), u64::from),
+            bright_heard: board.state.bright,
+            name: beacon.name.clone(),
+            ..Self::default()
+        }
     }
 
     fn name_row(&mut self, ui: &mut Ui, cx: &Cx, id: BoardId) {
@@ -345,6 +362,9 @@ impl BoardDetail {
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx, board: &BoardView) {
         let t = cx.t;
         let id = board.seen.id;
+        if self.board != Some(id) {
+            self.select(cx, board);
+        }
         ui.spacing_mut().item_spacing.y = 0.0;
         self.receive_sheet(ui, cx);
         let way = if board.returning { "-".to_string() } else { reach_text(cx, &board.reach) };
@@ -379,5 +399,36 @@ impl BoardDetail {
             expert_rows(self, ui, cx, board);
         }
         ui.add_space(tokens::GAP_WIDE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::staged_board;
+
+    #[test]
+    fn what_is_typed_on_one_boards_page_stays_with_that_board() {
+        let first = staged_board(true, false);
+        let mut second = staged_board(true, false);
+        second.seen.id = [9; 6];
+        let mut page = BoardDetail::opened(&first);
+        page.wifi_name = "Home".into();
+        page.wifi_password = "secret".into();
+        page.pay_to = "olc1...".into();
+        page.pay_amount = "5".into();
+        page.words.insert("pro.dial", "192.168.0.2:7000".into());
+        page.name = "Kit".into();
+        page.open(&second);
+        assert!(page.wifi_name.is_empty() && page.wifi_password.is_empty());
+        assert!(page.pay_to.is_empty() && page.pay_amount.is_empty() && page.words.is_empty());
+        assert_eq!(page.name, second.seen.beacon.name);
+    }
+
+    #[test]
+    fn a_board_on_its_default_brightness_shows_the_dim_choice() {
+        let near = BRIGHT_STEPS.iter().position(|step| *step == u64::from(BOARD_BRIGHT));
+        assert_eq!(near, Some(0));
+        assert!(BRIGHT_STEPS.windows(2).all(|pair| pair[0] < pair[1]));
     }
 }
