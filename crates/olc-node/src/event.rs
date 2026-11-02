@@ -65,6 +65,10 @@ pub enum Event {
     },
     /// A data output was over this node's size limit.
     DataRefused,
+    /// A transaction could cost more signature checks than this node's limit.
+    ChecksRefused {
+        checks: usize,
+    },
     /// Small coins went into one with an ordinary transaction.
     CoinsMerged {
         inputs: usize,

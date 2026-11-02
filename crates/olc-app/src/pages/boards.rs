@@ -10,12 +10,16 @@ use crate::core::{BoardView, Command};
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, segments, Kind};
 use crate::ui::{format, Icon};
-use egui::{vec2, Align, Label, Layout, RichText, Ui};
+use egui::{vec2, Align, Frame, Label, Layout, Margin, RichText, Ui};
 use olc_control::BoardId;
 use olc_node::Keeps;
 
 const LIST_WIDTH: f32 = 248.0;
 const LIST_ROW: f32 = 54.0;
+/// The first line of a list row, which holds a name and what the board keeps.
+const NAME_LINE: f32 = 19.0;
+/// Where a list row's words start, past its dot.
+const ROW_TEXT: i8 = 32;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Tab {
@@ -73,14 +77,13 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
         ui.vertical(|ui| {
             ui.add_space(9.0);
             ui.spacing_mut().item_spacing.y = 1.0;
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if board.keeps != Keeps::Unsaid {
-                        ui.add(quiet(cx.fill("boards.keeps_line", &[&keeps_text(cx, board.keeps)])));
-                    }
-                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.add(Label::new(beacon.name.as_str()).truncate().selectable(false));
-                    });
+            let name_line = vec2(ui.available_width(), NAME_LINE);
+            ui.allocate_ui_with_layout(name_line, Layout::right_to_left(Align::Center), |ui| {
+                if board.keeps != Keeps::Unsaid {
+                    ui.add(quiet(cx.fill("boards.keeps_line", &[&keeps_text(cx, board.keeps)])));
+                }
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.add(Label::new(beacon.name.as_str()).truncate().selectable(false));
                 });
             });
             ui.add(quiet(line).truncate());
@@ -88,7 +91,9 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
     })
     .clicked();
     if let Some(job) = board.job.as_deref().filter(|job| !(board.returning && *job == "restarting")) {
-        meta(ui, job_text(cx, job), t);
+        Frame::NONE.inner_margin(Margin { left: ROW_TEXT, ..Margin::ZERO }).show(ui, |ui| {
+            meta(ui, job_text(cx, job), t);
+        });
     }
     clicked
 }

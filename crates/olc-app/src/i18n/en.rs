@@ -135,6 +135,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.bright_full", "Bright"),
     ("boards.update", "Update"),
     ("boards.update_about", "Puts this app's version on the board. Now on {}."),
+    ("boards.update_plain", "Puts this app's version on the board."),
     ("boards.auto_update", "Update on its own"),
     ("boards.auto_update_about", "This board updates by itself when the app has a new version."),
     ("boards.job_preparing", "Getting ready"),

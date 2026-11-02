@@ -450,8 +450,9 @@ mod tests {
         for key in keys {
             let field = coin_field(&key).unwrap_or_else(|| panic!("{key} cannot be set"));
             let sample = samples.iter().find(|(named, _)| *named == key).unwrap();
-            let before = (field.get)(&CoinConfig::olc());
-            let mut coin = CoinConfig::olc();
+            let start = new_coin(&NewCoin::default()).unwrap();
+            let before = (field.get)(&start);
+            let mut coin = start.clone();
             (field.set)(&mut coin, &sample.1).unwrap();
             assert_ne!((field.get)(&coin), before, "{key} set nothing");
             assert_eq!((field.get)(&coin), sample.1, "{key} reads back as written");

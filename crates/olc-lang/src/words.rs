@@ -1,6 +1,6 @@
 //! Beta scripts as text words, so a person writes `HASH 0x12ab EQUAL` and never bytes. Reading a
 //! script back gives the same words, and a block explorer shows them.
-use crate::beta::op;
+use crate::beta::{op, signature_checks};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -28,6 +28,7 @@ pub enum WordError {
     OpenBranch,
     TooManyOps(usize),
     TooManyBytes(usize),
+    TooManyChecks(usize),
     Empty,
 }
 
@@ -40,6 +41,9 @@ impl core::fmt::Display for WordError {
             Self::OpenBranch => write!(out, "IF, ELSE and ENDIF do not match"),
             Self::TooManyOps(count) => write!(out, "{count} words, and {MOST_OPS} is the most"),
             Self::TooManyBytes(count) => write!(out, "{count} bytes, and {MOST_LOCK_BYTES} is the most"),
+            Self::TooManyChecks(count) => {
+                write!(out, "{count} signature checks, and {MOST_SIGNATURE_CHECKS} is the most")
+            }
             Self::Empty => write!(out, "No words"),
         }
     }
@@ -53,6 +57,11 @@ pub struct Cost {
     pub signature_checks: usize,
 }
 
+/// The most signature checks a node takes in one transaction. This is a node's policy, as Bitcoin's
+/// standard transactions are, and a block holding more is still valid. A board at 80 MHz took 2.5 s
+/// for a block of 8 merged coins, so a check costs it about 310 ms at most: 32 checks hold it for
+/// about 10 s, a third of the usual block time, and 32 plain inputs fill a usual block of 4,096 bytes.
+pub const MOST_SIGNATURE_CHECKS: usize = 32;
 /// One lock with its unlock must fit in this many steps, as [`crate::beta`] counts them.
 pub const MOST_OPS: usize = 200;
 /// A lock travels inside a transaction output, and a board has to keep that coin.
@@ -212,24 +221,18 @@ pub fn assemble(words: &[Word]) -> Result<(Vec<u8>, Cost), WordError> {
         }
     }
     let bytes = encode(words);
-    let cost = cost_of(words, bytes.len());
+    let cost = Cost { bytes: bytes.len(), ops: words.len(), signature_checks: signature_checks(&bytes) };
     if cost.ops > MOST_OPS {
         return Err(WordError::TooManyOps(cost.ops));
     }
     if bytes.len() > MOST_LOCK_BYTES {
         return Err(WordError::TooManyBytes(bytes.len()));
     }
+    // Coins under such a lock could never be spent, because no node would pass the spend on.
+    if cost.signature_checks > MOST_SIGNATURE_CHECKS {
+        return Err(WordError::TooManyChecks(cost.signature_checks));
+    }
     Ok((bytes, cost))
-}
-
-fn cost_of(words: &[Word], bytes: usize) -> Cost {
-    let is_op = |code: u8, word: &Word| matches!(word, Word::Op(found) if *found == code);
-    let checks = words.iter().map(|word| match word {
-        word if is_op(op::CHECK_SIG, word) => 1,
-        word if is_op(op::CHECK_MULTI_SIG, word) => 2,
-        _ => 0,
-    });
-    Cost { bytes, ops: words.len(), signature_checks: checks.sum() }
 }
 
 /// Text to the bytes of a lock.

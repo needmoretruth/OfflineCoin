@@ -88,6 +88,7 @@ fn event_text(event: Event, language: Language) -> String {
         Event::SnapshotAdopted { .. } => language.pick("snapshot taken", "스냅샷 받음").into(),
         Event::SnapshotRefused { .. } => language.pick("snapshot refused", "스냅샷 거부").into(),
         Event::DataRefused => language.pick("data too long", "데이터가 너무 김").into(),
+        Event::ChecksRefused { .. } => language.pick("too many checks", "서명 검사 초과").into(),
         Event::CoinsMerged { inputs } if korean => format!("코인 {inputs}개 합침"),
         Event::CoinsMerged { inputs } => format!("merged {inputs} coins"),
     }

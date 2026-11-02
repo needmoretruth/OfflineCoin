@@ -225,11 +225,12 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.open_branch", "IF, ELSE and ENDIF do not match."),
     ("lock.too_many_ops", "{} words. The most a lock takes is 200."),
     ("lock.too_many_bytes", "{} bytes. The most a lock takes is 1,000."),
+    ("lock.too_many_checks", "{} signature checks. Nodes pass on 32 at most, so these coins could never be spent."),
     ("lock.too_small", "The amount has to be more than the fee."),
     ("lock.bad_text", "That text is not a spend."),
     ("lock.wallet", "The wallet refused: {}"),
     ("lock.no_coin", "No coin under a lock there."),
     ("lock.needs_blocks", "A node with headers only cannot read locks. Keep blocks in Settings."),
     ("lock.refused", "The lock did not open: {}"),
-    ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Coins page."),
+    ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Network page."),
 ];

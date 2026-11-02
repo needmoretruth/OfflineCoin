@@ -2,14 +2,14 @@
 use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
 use super::radios::{self, Running};
-use super::host_parts::{fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
+use super::host_parts::{engine_with, fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
 use olc_store::{
-    hold_folder, hold_wallet, load_headers, load_wallet, open_chain, save_headers, FolderHold,
+    hold_folder, hold_wallet, load_wallet, open_chain, save_headers, FolderHold,
     NodeSettings, WalletHold,
 };
 use olc_wallet::{format_address, parse_address, WalletError};
@@ -455,17 +455,8 @@ impl Worker {
                 return;
             }
         };
-        let mut engine = Engine::on_chain(chain, wallet);
         let settings = NodeSettings::load(&switch.folder);
-        engine.set_miner(settings.miner.as_deref().and_then(parse_address));
-        engine.set_note(settings.note.as_bytes());
-        engine.set_merging(!settings.no_merge);
-        for address in settings.watched.iter().filter_map(|text| parse_address(text)) {
-            engine.watch(address);
-        }
-        if settings.light {
-            engine.become_light(usize::MAX, &load_headers(&switch.folder));
-        }
+        let engine = engine_with(Engine::on_chain(chain, wallet), &settings, &switch.folder);
         if let Ok(mut folder) = self.state.folder.lock() {
             *folder = Some(switch.folder);
         }

@@ -357,6 +357,7 @@ impl Node {
                 }
                 Event::SnapshotRefused { peer } => self.say(format!("snapshot refused {peer}")),
                 Event::DataRefused => self.say("data too long".into()),
+                Event::ChecksRefused { checks } => self.say(format!("too many checks {checks}")),
                 Event::CoinsMerged { inputs } => self.say(format!("merged {inputs} coins")),
             }
             self.note(now, Note::Chain(event));

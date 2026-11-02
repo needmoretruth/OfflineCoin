@@ -139,7 +139,10 @@ impl BoardDetail {
         let t = cx.t;
         let id = board.seen.id;
         let build = board.seen.beacon.build.clone();
-        let about = cx.fill("boards.update_about", &[&build]);
+        let about = match build.is_empty() {
+            true => cx.say("boards.update_plain").to_string(),
+            false => cx.fill("boards.update_about", &[&build]),
+        };
         row(ui, t, cx.say("boards.update"), &about, |ui| {
             match &board.job {
                 Some(job) => {
@@ -317,7 +320,7 @@ impl BoardDetail {
         let id = board.seen.id;
         ui.spacing_mut().item_spacing.y = 0.0;
         self.receive_sheet(ui, cx);
-        let way = if board.returning { String::new() } else { reach_text(cx, &board.reach) };
+        let way = if board.returning { "-".to_string() } else { reach_text(cx, &board.reach) };
         row(ui, t, cx.say("boards.connection"), cx.say("boards.connection_about"), |ui| {
             ui.label(way);
         });

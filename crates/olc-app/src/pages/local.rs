@@ -118,6 +118,13 @@ fn tags(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     }
 }
 
+/// Why a node stopped, in the system's words for an expert.
+fn ended_line(ui: &mut Ui, cx: &Cx, view: &LocalView) {
+    if let Some(how) = &view.ended {
+        meta(ui, if cx.expert() { how } else { cx.say("local.ended_about") }, cx.t);
+    }
+}
+
 fn status_line(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     let Some(status) = &view.status else {
         return;
@@ -170,6 +177,7 @@ impl Local {
                 meta(ui, cx.say("local.light_trust"), t);
             }
             status_line(ui, cx, view);
+            ended_line(ui, cx, view);
             budget(ui, cx, view);
             if view.spec.holding != Holding::Headers {
                 self.cap_row(ui, cx, view);

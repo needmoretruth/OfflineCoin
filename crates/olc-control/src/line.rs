@@ -113,6 +113,8 @@ mod tests {
         assert_eq!(name_in("name \"내 보드 2\"").as_deref(), Some("내 보드 2"));
         assert_eq!(name_in("name"), None);
         assert_eq!(name_in("name \"\""), None);
+        assert_eq!(name_in("\u{3000}name 내 보드").as_deref(), Some("내 보드"));
+        assert_eq!(name_in("내 보드"), None);
     }
 
     #[test]

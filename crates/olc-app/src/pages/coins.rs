@@ -407,11 +407,12 @@ impl Coins {
             if button(ui, t, cx.say("coins.look_again"), Kind::Quiet).clicked() {
                 cx.send(Command::Rescan);
             }
-        });
-        if !cx.expert() && !self.by_address {
-            if button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
+            let hidden = !cx.expert() && !self.by_address;
+            if hidden && button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
                 self.by_address = true;
             }
+        });
+        if !cx.expert() && !self.by_address {
             return;
         }
         ui.add_space(tokens::GAP);

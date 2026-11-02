@@ -53,6 +53,7 @@ fn with_wallets(live: &Snapshot) -> Option<Snapshot> {
         board.seen.beacon.name = names[index].into();
         board.seen.beacon.balance = u64::from(number) * 1_250 * COIN + 5 * COIN / 10;
         board.seen.beacon.address = [number; 20];
+        board.seen.beacon.build = "i8".into();
     }
     Some(stage)
 }
@@ -200,6 +201,20 @@ impl Scene<'_> {
         self.both("bluetooth", "page.settings", |window| scroll_to(window, "boards.bluetooth"));
     }
 
+    /// A node that stopped by itself, with what the system said about it.
+    fn stopped(&mut self) {
+        let mut stage = Snapshot::clone(&self.window.state().snapshot());
+        if let Some(node) = stage.local.first_mut() {
+            node.pid = None;
+            node.status = None;
+            node.measured = None;
+            node.ended = Some("exit status: 1: could not open the chain folder".into());
+        }
+        self.stage(Some(stage));
+        self.both("node-stopped", "page.boards", |window| tap(window, "boards.tab_nodes"));
+        self.stage(None);
+    }
+
     fn fork(&mut self) {
         let height = self.window.state().snapshot().node.height;
         let changes = vec![("rules.reward".to_string(), "25".to_string())];
@@ -257,5 +272,6 @@ fn rule_screens() {
     scene.locks();
     scene.boards();
     scene.cards();
+    scene.stopped();
     scene.fork();
 }

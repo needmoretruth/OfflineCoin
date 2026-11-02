@@ -225,11 +225,12 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.open_branch", "IF, ELSE, ENDIF 짝이 맞지 않습니다."),
     ("lock.too_many_ops", "단어가 {}개입니다. 잠금 하나에 200개까지 됩니다."),
     ("lock.too_many_bytes", "{}바이트입니다. 잠금 하나에 1,000바이트까지 됩니다."),
+    ("lock.too_many_checks", "서명 검사가 {}번입니다. 노드는 32번까지만 전달해서 이 코인을 쓸 수 없게 됩니다."),
     ("lock.too_small", "금액이 수수료보다 커야 합니다."),
     ("lock.bad_text", "지출 형식이 아닙니다."),
     ("lock.wallet", "지갑이 거절했습니다: {}"),
     ("lock.no_coin", "거기에는 잠긴 코인이 없습니다."),
     ("lock.needs_blocks", "헤더만 가진 노드는 잠금을 읽을 수 없습니다. 설정에서 블록을 보관하세요."),
     ("lock.refused", "잠금이 열리지 않았습니다: {}"),
-    ("pro.fork_warning","옛 규칙의 노드와는 이 높이에서 갈라집니다. 코인 화면에서 돌아올 수 있습니다."),
+    ("pro.fork_warning","옛 규칙의 노드와는 이 높이에서 갈라집니다. 네트워크 화면에서 돌아올 수 있습니다."),
 ];

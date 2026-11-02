@@ -444,6 +444,17 @@ impl Chain {
         rules::check_tx(tx, height, &view, self.config.rules_at(height), &self.plugins)
     }
 
+    /// The most signature checks `tx` can cost, read from its scripts without running them. An
+    /// input this chain does not hold counts for nothing, since the real check stops on it first.
+    pub fn signature_checks(&self, tx: &Tx) -> usize {
+        let of_input = |input: &crate::types::TxIn| {
+            let spent = self.unspent.get(&input.previous)?;
+            let language = self.plugins.language(spent.output.language)?;
+            Some(language.signature_checks(&spent.output.lock, &input.unlock))
+        };
+        tx.inputs.iter().filter_map(of_input).fold(0, usize::saturating_add)
+    }
+
     /// False once `point` has been spent or was never made. Costs no signature checks.
     pub fn is_unspent(&self, point: &OutPoint) -> bool {
         self.unspent.contains_key(point)

@@ -60,6 +60,7 @@ pub fn fault_of_words(error: &WordError) -> (&'static str, String) {
         WordError::OpenBranch => ("lock.open_branch", String::new()),
         WordError::TooManyOps(count) => ("lock.too_many_ops", count.to_string()),
         WordError::TooManyBytes(count) => ("lock.too_many_bytes", count.to_string()),
+        WordError::TooManyChecks(count) => ("lock.too_many_checks", count.to_string()),
     }
 }
 
@@ -71,6 +72,9 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
         LockFailure::Lock(LockError::BadText) => ("lock.bad_text", String::new()),
         LockFailure::Lock(LockError::Wallet(WalletError::NotEnoughCoins)) => {
             ("notice.not_enough", String::new())
+        }
+        LockFailure::Lock(LockError::Wallet(WalletError::Refused)) => {
+            ("notice.pay_refused", String::new())
         }
         LockFailure::Lock(LockError::Wallet(error)) => ("lock.wallet", format!("{error:?}")),
         LockFailure::NoCoin => ("lock.no_coin", String::new()),

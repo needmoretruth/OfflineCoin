@@ -9,7 +9,7 @@ use olc_store::coin_file::new_coin;
 use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
-use super::host::{Host, PayError, Plan};
+use super::host::{Host, Plan};
 use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
@@ -26,7 +26,6 @@ use crate::settings::{Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Card;
-use olc_wallet::WalletError;
 use olc_store::NodeSettings;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -499,11 +498,10 @@ impl Service {
         };
         let result = match self.host.pay(to, units) {
             Ok(_) => ("notice.sent", format_coins(units), true),
-            Err(PayError::BadAddress) => ("notice.bad_address", String::new(), false),
-            Err(PayError::Wallet(WalletError::NotEnoughCoins)) => {
-                ("notice.not_enough", String::new(), false)
+            Err(error) => {
+                let (key, detail) = orders::pay_fault(&error);
+                (key, detail, false)
             }
-            Err(error) => ("notice.pay_failed", format!("{error:?}"), false),
         };
         self.say(result.0, result.1, result.2);
     }

@@ -155,6 +155,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.install_refused", "Another job is running on that board: {}"),
     ("notice.node_failed", "The node did not start: {}"),
     ("notice.pay_failed", "The payment failed: {}"),
+    ("notice.pay_refused", "Your node's mempool refused this transaction. It is full, or the transaction has too many inputs or signature checks. Send less, or try after the next block."),
     ("notice.board_needs_cable", "This needs USB: {}"),
     ("notice.coin_file", "That coin file did not work: {}"),
     ("notice.board_done", "The board did it: {}"),

@@ -3,9 +3,25 @@ use super::host::Plan;
 use olc_core::{BlockHeader, Plugins};
 use olc_link_tcp::TcpLink;
 use olc_node::Engine;
+use olc_store::{load_headers, NodeSettings};
 use olc_pow::ProofOfWork;
-use olc_wallet::format_address;
+use olc_wallet::{format_address, parse_address};
+use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+/// An engine set the way this chain's folder says.
+pub fn engine_with(mut engine: Engine, settings: &NodeSettings, folder: &Path) -> Engine {
+    engine.set_miner(settings.miner.as_deref().and_then(parse_address));
+    engine.set_note(settings.note.as_bytes());
+    engine.set_merging(!settings.no_merge);
+    for address in settings.watched.iter().filter_map(|text| parse_address(text)) {
+        engine.watch(address);
+    }
+    if settings.light {
+        engine.become_light(usize::MAX, &load_headers(folder));
+    }
+    engine
+}
 
 pub fn unix_ms() -> u64 {
     SystemTime::now()

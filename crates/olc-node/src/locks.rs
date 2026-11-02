@@ -58,7 +58,7 @@ impl Engine {
         let reserved = self.reserved();
         let fee = self.rules().min_fee;
         let tx = self.wallet().pay_lock(self.coins(), &lock, amount, fee, &reserved)?;
-        Ok((self.send_signed(tx), cost))
+        Ok((self.send_payment(tx)?, cost))
     }
 
     /// Starts a spend of the coin at `point`, with the signatures this wallet can make.
@@ -91,7 +91,7 @@ impl Engine {
         let tx = spend.finish()?;
         let next = self.chain.height() + 1;
         self.chain.check_tx(&tx, next).map_err(LockFailure::Refused)?;
-        Ok(self.send_signed(tx))
+        Ok(self.send_payment(tx)?)
     }
 
     /// Coins under a lock, with their words, oldest first.

@@ -6,6 +6,7 @@ use crate::message::Message;
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use olc_core::{ChainError, Hash, OutPoint, Tx};
+use olc_lang::words::MOST_SIGNATURE_CHECKS;
 
 const MAX_POOL: usize = 256;
 /// What waiting payments may take in all. A board's heap sets this, and a computer gets no more
@@ -69,6 +70,11 @@ impl Engine {
             self.push_event(Event::TxRejected { reason });
             return false;
         }
+        let checks = self.chain.signature_checks(&tx);
+        if checks > MOST_SIGNATURE_CHECKS {
+            self.push_event(Event::ChecksRefused { checks });
+            return false;
+        }
         match self.chain.check_tx(&tx, self.chain.height() + 1) {
             Ok(_) => {
                 self.push_event(Event::TxAccepted);
@@ -96,9 +102,12 @@ impl Engine {
         let waiting = core::mem::take(&mut self.pool)
             .into_iter()
             .filter(|tx| !confirmed.contains(&tx.id()) && !back.contains(&tx.id()));
-        let (mut kept, refused) = self
+        let (kept, refused) = self
             .chain
             .recheck(returning.iter().cloned().chain(waiting).collect());
+        // A block may carry what this node would not pass on. It stays out once it leaves the block.
+        let light = |tx: &Tx| self.chain.signature_checks(tx) <= MOST_SIGNATURE_CHECKS;
+        let (mut kept, heavy): (Vec<Tx>, Vec<Tx>) = kept.into_iter().partition(light);
         let over = kept.split_off(kept.len().min(MAX_POOL));
         for tx in kept.iter().filter(|tx| back.contains(&tx.id())) {
             self.push_event(Event::TxReturned { id: tx.id() });
@@ -111,7 +120,7 @@ impl Engine {
             let (id, reason) = (tx.id(), Some(reason));
             self.push_event(Event::TxDropped { id, reason });
         }
-        for tx in over {
+        for tx in over.into_iter().chain(heavy) {
             let (id, reason) = (tx.id(), None);
             self.push_event(Event::TxDropped { id, reason });
         }

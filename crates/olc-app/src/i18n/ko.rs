@@ -135,6 +135,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.bright_full", "밝게"),
     ("boards.update", "업데이트"),
     ("boards.update_about", "이 앱의 버전을 보드에 넣습니다. 지금 버전은 {}입니다."),
+    ("boards.update_plain", "이 앱의 버전을 보드에 넣습니다."),
     ("boards.auto_update", "자동 업데이트"),
     ("boards.auto_update_about", "앱에 새 버전이 오면 이 보드가 알아서 업데이트합니다."),
     ("boards.job_preparing", "준비 중"),

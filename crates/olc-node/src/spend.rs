@@ -45,7 +45,7 @@ impl Engine {
 
     /// Sends a payment this node signed. A person hears when its own pool would not take it,
     /// because nobody else would ever see it then.
-    fn send_payment(&mut self, tx: Tx) -> Result<Hash, WalletError> {
+    pub(crate) fn send_payment(&mut self, tx: Tx) -> Result<Hash, WalletError> {
         let id = self.send_signed(tx);
         match self.light.is_some() || self.in_pool(&id) {
             true => Ok(id),

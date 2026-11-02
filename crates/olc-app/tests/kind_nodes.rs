@@ -85,7 +85,7 @@ fn a_list_of_real_nodes_says_what_each_one_keeps_and_a_cap_moves_on_a_running_no
         node(703, Holding::Headers, false),
     ];
     for spec in &specs {
-        others.start(spec, &file, &[address.clone()]).unwrap();
+        others.start(spec, &file, std::slice::from_ref(&address)).unwrap();
     }
     let mut ports = Vec::new();
     for spec in &specs {
