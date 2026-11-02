@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn a_port_set_aside_for_the_proof_is_no_new_board() {
         let manager = manager_in("aside");
-        let (aside, installing) = ("/dev/ttyACM0", "/dev/ttyACM1");
+        let (aside, installing) = ("port-one", "port-two");
         manager.busy_ports.lock().unwrap().insert(aside.into());
         manager.set_job(&hex(&ONE), Some("proof_radio one".into()));
         assert!(manager.new_boards().is_empty(), "the set-aside port shows as a new board");
