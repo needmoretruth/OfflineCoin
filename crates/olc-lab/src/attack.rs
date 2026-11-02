@@ -1,6 +1,8 @@
 //! A double spend on real boards. The attacker pays the victim, keeps its own chain out of sight
 //! and spends the same coins on itself. Once its chain is heavier it comes back and the payment
 //! is gone. Nothing stops this: the chain with the most work wins, which is the point of showing it.
+//! A third board may help the attacker. Then every board stays at its own cap, and the victim is
+//! the one cut off, because the two attacking boards must keep hearing each other.
 use olc_board::journal::Journal;
 use olc_board::{Args, Board, BoardLink, Place, Say, Status, UsbBoard};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,7 +56,7 @@ pub fn run(args: &Args) -> Result<(), String> {
     let mut attacker = Board::new("attacker", Box::new(UsbBoard::open(attacker)?));
     let mut victim = Board::new("victim", Box::new(UsbBoard::open(victim)?));
     let say: Say = Arc::new(|line| println!("{line}"));
-    attack(&mut attacker, &mut victim, &plan, &say, &stop)
+    attack(&mut attacker, &mut victim, None, &plan, &say, &stop)
 }
 
 /// From the app, on boards reached any way at all.
@@ -71,13 +73,15 @@ pub fn run_on(
     };
     let mut attacker = Board::new("attacker", attacker);
     let mut victim = Board::new("victim", victim);
-    attack(&mut attacker, &mut victim, &plan, &say, &stop)
+    let mut helper = boards.next().map(|link| Board::new("helper", link));
+    attack(&mut attacker, &mut victim, helper.as_mut(), &plan, &say, &stop)
 }
 
 /// Runs the steps, then puts both boards back as they were, whatever happened.
 fn attack(
     attacker: &mut Board,
     victim: &mut Board,
+    mut helper: Option<&mut Board>,
     plan: &Plan,
     say: &Say,
     stop: &AtomicBool,
@@ -85,13 +89,21 @@ fn attack(
     put_back_leftovers(attacker, plan, say)?;
     put_back_leftovers(victim, plan, say)?;
     let saved = (attacker.status()?, victim.status()?);
-    for board in [&saved.0, &saved.1] {
+    let helper_saved = match helper.as_deref_mut() {
+        Some(board) => {
+            put_back_leftovers(board, plan, say)?;
+            Some(board.status()?)
+        }
+        None => None,
+    };
+    for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved) {
         plan.journal
             .remember(&board.address, board.restore_lines())?;
     }
     let mut race = Race {
         attacker,
         victim,
+        helper: helper.as_deref_mut(),
         plan,
         say,
         stop,
@@ -101,11 +113,18 @@ fn attack(
     if let Err(error) = &result {
         say(format!("Stopped: {error}"));
     }
-    let restored = restore(attacker, &saved.0).and(restore(victim, &saved.1));
+    let helper_back = match (helper, &helper_saved) {
+        (Some(board), Some(saved)) => restore(board, saved),
+        _ => Ok(()),
+    };
+    let restored = restore(attacker, &saved.0)
+        .and(restore(victim, &saved.1))
+        .and(helper_back);
     if restored.is_ok() {
-        plan.journal.forget(&saved.0.address);
-        plan.journal.forget(&saved.1.address);
-        say("Both boards are back to their cap and network state.".to_string());
+        for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved) {
+            plan.journal.forget(&board.address);
+        }
+        say("All boards are back to their cap and network state.".to_string());
     }
     result.and(restored)
 }
@@ -159,6 +178,7 @@ macro_rules! say {
 struct Race<'a> {
     attacker: &'a mut Board,
     victim: &'a mut Board,
+    helper: Option<&'a mut Board>,
     plan: &'a Plan,
     say: &'a Say,
     stop: &'a AtomicBool,
@@ -209,25 +229,37 @@ impl Race<'_> {
 
     fn measure_power(&mut self) -> Result<(), String> {
         say!(self, "\n1. Hash power");
+        let together = self.helper.is_some();
         for board in [&mut *self.attacker, &mut *self.victim] {
-            board.set_limit(0)?;
+            if !together {
+                board.set_limit(0)?;
+            }
             board.set_mining(true)?;
             board.set_offline(false)?;
+        }
+        if let Some(helper) = &mut self.helper {
+            helper.set_mining(true)?;
+            helper.set_offline(false)?;
         }
         // The first second after a cap changes still counts the old rate.
         self.pause()?;
         self.pause()?;
-        let cap = match self.plan.victim_limit {
-            0 => (self.attacker.status()?.hashrate / 2).max(1),
-            chosen => chosen,
-        };
-        self.victim.set_limit(cap)?;
-        self.pause()?;
-        self.pause()?;
+        if !together {
+            let cap = match self.plan.victim_limit {
+                0 => (self.attacker.status()?.hashrate / 2).max(1),
+                chosen => chosen,
+            };
+            self.victim.set_limit(cap)?;
+            self.pause()?;
+            self.pause()?;
+        }
         let (mut attacker, mut victim) = (0, 0);
         for _ in 0..POWER_SAMPLES {
             self.pause()?;
             attacker += self.attacker.status()?.hashrate;
+            if let Some(helper) = &mut self.helper {
+                attacker += helper.status()?.hashrate;
+            }
             victim += self.victim.status()?.hashrate;
         }
         let total = (attacker + victim).max(1) as f64;
@@ -252,6 +284,9 @@ impl Race<'_> {
     /// of equal work never settle by themselves, so the attacker mines until one is heavier.
     fn line_up(&mut self) -> Result<(), String> {
         self.victim.set_mining(false)?;
+        if let Some(helper) = &mut self.helper {
+            helper.set_mining(false)?;
+        }
         loop {
             if self.same_tip()? {
                 self.attacker.set_mining(false)?;
@@ -307,7 +342,13 @@ impl Race<'_> {
     /// Dark comes first: a board that saw the confirming block could not mine without it.
     fn go_dark(&mut self) -> Result<(), String> {
         say!(self, "\n3. The attacker goes dark");
-        self.attacker.set_offline(true)?;
+        match &mut self.helper {
+            Some(helper) => {
+                self.victim.set_offline(true)?;
+                helper.set("pool clear", |now| now.pool == 0)?;
+            }
+            None => self.attacker.set_offline(true)?,
+        }
         self.attacker.set("pool clear", |now| now.pool == 0)?;
         self.victim.set_mining(true)?;
         Ok(())
@@ -347,6 +388,9 @@ impl Race<'_> {
         let id = self.attacker_pays(own_address)?;
         say!(self, "   private spend {}", short(&id));
         self.attacker.set_mining(true)?;
+        if let Some(helper) = &mut self.helper {
+            helper.set_mining(true)?;
+        }
         Ok(id)
     }
 
@@ -380,7 +424,11 @@ impl Race<'_> {
     fn come_back(&mut self) -> Result<(), String> {
         say!(self, "\n7. The attacker comes back");
         let earlier = self.victim.status()?.reorg;
-        self.attacker.set_offline(false)?;
+        if self.helper.is_some() {
+            self.victim.set_offline(false)?;
+        } else {
+            self.attacker.set_offline(false)?;
+        }
         loop {
             let attacker = self.attacker.status()?;
             let victim = self.victim.status_within(BRANCH_MOVE_WAIT)?;

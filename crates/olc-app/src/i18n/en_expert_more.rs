@@ -27,6 +27,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lab.two_boards", "It needs two boards online."),
     ("lab.attacker", "Attacker"),
     ("lab.victim", "Victim"),
+    ("lab.helper", "Helps the attacker"),
     ("lab.amount", "Amount"),
     ("lab.confirmations", "Confirmations"),
     ("lab.start", "Start"),

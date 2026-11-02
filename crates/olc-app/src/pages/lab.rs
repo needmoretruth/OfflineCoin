@@ -15,6 +15,7 @@ pub struct Lab {
     tested: Option<BoardId>,
     attacker: Option<BoardId>,
     victim: Option<BoardId>,
+    helper: Option<BoardId>,
     amount: Option<u64>,
     confirmations: Option<u64>,
 }
@@ -23,7 +24,8 @@ const AMOUNT: u64 = 10;
 const CONFIRMATIONS: u64 = 2;
 
 /// One board out of those online, as rows.
-fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>) {
+/// With `optional`, a second click on the picked board takes it away.
+fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>, optional: bool) {
     ui.vertical(|ui| {
         ui.set_max_width(200.0);
         meta(ui, label, cx.t);
@@ -32,7 +34,7 @@ fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>) {
             let name = &board.seen.beacon.name;
             let row = pick_row(ui, cx.t, 30.0, *slot == Some(id), name, |ui| cell(ui, name.as_str()));
             if row.clicked() {
-                *slot = Some(id);
+                *slot = Some(id).filter(|_| !optional || *slot != Some(id));
             }
         }
     });
@@ -50,7 +52,7 @@ impl Lab {
             let first = on_cable.or_else(|| online().next());
             self.tested = self.tested.or(first.map(|board| board.seen.id));
             ui.horizontal(|ui| {
-                pick(ui, cx, cx.say("captest.board"), &mut self.tested);
+                pick(ui, cx, cx.say("captest.board"), &mut self.tested, false);
                 let start = cx.say("lab.start");
                 let ready = self.tested.is_some() && !running;
                 if button_on(ui, t, start, Kind::Main, ready).clicked() {
@@ -87,8 +89,9 @@ impl Lab {
             self.attacker = self.attacker.or(first);
             self.victim = self.victim.or(second);
             ui.horizontal(|ui| {
-                pick(ui, cx, cx.say("lab.attacker"), &mut self.attacker);
-                pick(ui, cx, cx.say("lab.victim"), &mut self.victim);
+                pick(ui, cx, cx.say("lab.attacker"), &mut self.attacker, false);
+                pick(ui, cx, cx.say("lab.victim"), &mut self.victim, false);
+                pick(ui, cx, cx.say("lab.helper"), &mut self.helper, true);
                 let mut amount = self.amount.unwrap_or(AMOUNT);
                 ui.label(cx.say("lab.amount"));
                 number_field(ui, &mut amount, cx.say("lab.amount"), 70.0);
@@ -110,8 +113,11 @@ impl Lab {
                             "--confirmations".to_string(),
                             amount_word(self.confirmations, CONFIRMATIONS),
                         ];
+                        let helper = self.helper.filter(|id| ![attacker, victim].contains(id));
+                        let mut boards = vec![attacker, victim];
+                        boards.extend(helper);
                         cx.send(Command::StartExperiment {
-                            boards: vec![attacker, victim],
+                            boards,
                             args: Args::parse(words.into_iter()),
                         });
                     }

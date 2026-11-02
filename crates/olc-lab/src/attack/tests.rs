@@ -90,6 +90,7 @@ fn a_failed_run_puts_both_boards_back() {
     let result = attack(
         &mut a,
         &mut v,
+        None,
         &plan(Duration::from_millis(40)),
         &quiet(),
         &stop,
@@ -114,6 +115,49 @@ fn a_failed_run_puts_both_boards_back() {
 }
 
 #[test]
+fn a_helper_leaves_every_cap_alone_and_is_put_back() {
+    let (attacker, victim, helper) = (
+        Fake {
+            tip: "aa",
+            ..Fake::default()
+        },
+        Fake {
+            tip: "bb",
+            ..Fake::default()
+        },
+        Fake {
+            tip: "aa",
+            ..Fake::default()
+        },
+    );
+    for board in [&attacker, &victim, &helper] {
+        *board.limit.lock().unwrap() = 1_000;
+    }
+    let (mut a, mut v, mut h) = (
+        Board::new("attacker", Box::new(attacker.clone())),
+        Board::new("victim", Box::new(victim.clone())),
+        Board::new("helper", Box::new(helper.clone())),
+    );
+    let stop = AtomicBool::new(false);
+    let result = attack(
+        &mut a,
+        &mut v,
+        Some(&mut h),
+        &plan(Duration::from_millis(40)),
+        &quiet(),
+        &stop,
+    );
+    assert!(result.is_err());
+    for board in [&attacker, &victim, &helper] {
+        let sent = board.sent.lock().unwrap();
+        assert!(!sent.contains(&"limit 0".to_string()));
+    }
+    let sent = helper.sent.lock().unwrap();
+    assert!(sent.contains(&"mine off".to_string()));
+    assert!(sent.contains(&"mine on".to_string()));
+}
+
+#[test]
 fn a_pressed_stop_ends_the_run_and_restores() {
     let (attacker, victim) = (
         Fake {
@@ -130,10 +174,7 @@ fn a_pressed_stop_ends_the_run_and_restores() {
         Board::new("victim", Box::new(victim.clone())),
     );
     let stop = AtomicBool::new(true);
-    let result = attack(
-        &mut a,
-        &mut v,
-        &plan(Duration::from_secs(60)),
+    let result = attack(&mut a, &mut v, None, &plan(Duration::from_secs(60)),
         &quiet(),
         &stop,
     );

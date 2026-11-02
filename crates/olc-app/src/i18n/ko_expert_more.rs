@@ -27,6 +27,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lab.two_boards", "온라인 보드 두 개가 필요합니다."),
     ("lab.attacker", "공격자"),
     ("lab.victim", "피해자"),
+    ("lab.helper", "공격자를 돕는 보드"),
     ("lab.amount", "금액"),
     ("lab.confirmations", "컨펌"),
     ("lab.start", "시작"),

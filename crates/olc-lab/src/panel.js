@@ -39,7 +39,7 @@ const labKorean = [
   [/^9\. Result/, "9. 결과"],
   [/^ +winning chain height (\d+)/, "   이긴 체인 높이 $1"],
   [/^ +payment: gone/, "   송금: 사라짐"],
-  [/^Both boards are back to their cap and network state\./, "두 보드가 원래 상한과 네트워크 상태로 돌아왔습니다."],
+  [/^All boards are back to their cap and network state\./, "보드가 모두 원래 상한과 네트워크 상태로 돌아왔습니다."],
   [/^Stopped: /, "중지: "],
 ];
 const labLine = (line) => {
