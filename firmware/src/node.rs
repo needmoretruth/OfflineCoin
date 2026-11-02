@@ -441,9 +441,9 @@ impl Node {
             },
             (Some("ignore"), Some("none"), _) => radio::hear_everyone(),
             (Some("ignore"), Some(peer), _) => {
-                match u32::from_str_radix(peer, 16).map(radio::ignore) {
-                    Ok(true) => {}
-                    _ => self.say("error ignore MAC-END".into()),
+                match olc_control::gate::mac_end(peer).map(radio::ignore) {
+                    Some(true) => {}
+                    _ => self.say("error ignore MAC".into()),
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",

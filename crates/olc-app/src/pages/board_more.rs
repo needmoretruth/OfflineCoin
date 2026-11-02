@@ -97,8 +97,11 @@ fn radio_rows(detail: &mut BoardDetail, ui: &mut Ui, cx: &Cx, board: &BoardView)
     let t = cx.t;
     let id = board.seen.id;
     row(ui, t, cx.say("pro.radio_power"), cx.say("pro.radio_power_about"), |ui| {
-        let items = [(2, "pro.power_low"), (8, "pro.power_mid"), (20, "pro.power_full")]
-            .map(|(dbm, key)| (dbm, cx.say(key).to_string()));
+        let items = [(2, "pro.power_low"), (5, "pro.power_usual"), (8, "pro.power_mid")]
+            .into_iter()
+            .chain([(20, "pro.power_full")])
+            .map(|(dbm, key)| (dbm, cx.say(key).to_string()))
+            .collect::<Vec<_>>();
         if let Some(dbm) = picked(ui, t, &items, board.state.power) {
             tell(cx, id, BoardAction::RadioPower(dbm));
         }

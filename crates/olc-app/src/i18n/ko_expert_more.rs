@@ -116,6 +116,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.power_full", "20 dBm"),
     ("pro.power_low", "2 dBm"),
     ("pro.power_mid", "8 dBm"),
+    ("pro.power_usual", "5 dBm"),
     ("pro.premine", "프리마인"),
     ("pro.premine_about", "제네시스 블록에서 이 지갑으로 지급합니다."),
     ("pro.public_key", "공개 키 {}"),

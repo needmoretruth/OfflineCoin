@@ -180,7 +180,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("setup.olc_about", "기본 코인입니다."),
     ("setup.new_coin_about", "내 이름과 규칙으로 만듭니다."),
     ("setup.mine", "지금 채굴을 시작할까요?"),
-    ("setup.mine_about", "속도는 {}입니다."),
+    ("setup.mine_about", "이 컴퓨터 속도는 {}입니다."),
     ("setup.mine_now", "채굴 시작"),
     ("setup.mine_later", "나중에"),
     ("setup.mine_later_about", "지갑은 준비됐습니다. 원할 때 홈에서 채굴 시작을 누르세요."),

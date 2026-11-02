@@ -116,6 +116,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.power_full", "20 dBm"),
     ("pro.power_low", "2 dBm"),
     ("pro.power_mid", "8 dBm"),
+    ("pro.power_usual", "5 dBm"),
     ("pro.premine", "Premine"),
     ("pro.premine_about", "Paid to this wallet in the genesis block."),
     ("pro.public_key", "Public key {}"),

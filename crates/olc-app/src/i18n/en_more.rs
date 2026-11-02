@@ -180,7 +180,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("setup.olc_about", "The usual coin."),
     ("setup.new_coin_about", "Your own name and rules."),
     ("setup.mine", "Start mining now?"),
-    ("setup.mine_about", "Speed: {}."),
+    ("setup.mine_about", "This computer: {}."),
     ("setup.mine_now", "Start mining"),
     ("setup.mine_later", "Not now"),
     ("setup.mine_later_about", "Your wallet is ready. Press Start mining on Home when you like."),

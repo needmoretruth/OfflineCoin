@@ -20,6 +20,18 @@ pub fn allowed_remotely(line: &str) -> bool {
     REMOTE_WORDS.contains(&word)
 }
 
+/// The last three bytes of a radio address, written whole (`AC:27:6E:AA:EF:90`) or as its end.
+pub fn mac_end(text: &str) -> Option<u32> {
+    let digits = text.bytes().filter(|byte| *byte != b':');
+    let mut count = 0;
+    let mut value = 0u32;
+    for digit in digits {
+        value = value << 4 | char::from(digit).to_digit(16)?;
+        count += 1;
+    }
+    (count == 6 || count == 12).then_some(value & 0x00ff_ffff)
+}
+
 fn digest(order: &Order) -> Hash {
     let mut bytes = Vec::from(DOMAIN);
     bytes.extend(postcard::to_allocvec(order).unwrap_or_default());
@@ -155,6 +167,16 @@ mod tests {
         let mut gate = Gate::new(ME, None, 0);
         let signed = sign(&SECRET, order(ME, 6, "limit 100")).unwrap();
         assert_eq!(gate.admit(&signed), Err(Refusal::NoKey));
+    }
+
+    #[test]
+    fn a_radio_address_may_be_written_whole_or_by_its_end() {
+        for text in ["AC:27:6E:AA:EF:90", "ac276eaaef90", "AAEF90", "aa:ef:90"] {
+            assert_eq!(mac_end(text), Some(0x00aa_ef90), "{text}");
+        }
+        for text in ["", "AAEF9", "AAEF900", "zzzzzz"] {
+            assert_eq!(mac_end(text), None, "{text}");
+        }
     }
 
     #[test]

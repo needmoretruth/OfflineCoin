@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 /// Four beacons in a row lost, plus some room for a board busy with flash.
 const SILENT_AFTER: Duration = Duration::from_secs(25);
 const DIRECT_FOR: Duration = Duration::from_secs(14);
+/// A little longer than a board waits between two beacons.
+const LATELY: Duration = Duration::from_secs(6);
 const MAX_LINES: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -310,6 +312,14 @@ impl Fleet {
             }
         };
         self.boards.iter().map(view).collect()
+    }
+
+    /// Whether a board spoke on this link just now. A board that has restarted stays quiet on
+    /// its cable until it hears from this side.
+    pub fn heard_lately(&self, link: usize) -> bool {
+        self.boards.values().any(|known| {
+            matches!(known.direct, Some((when, at)) if at == link && when.elapsed() < LATELY)
+        })
     }
 
     /// Whether the board on this link is one the app can already order about.

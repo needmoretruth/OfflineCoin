@@ -31,6 +31,8 @@ const RETURN_WAIT: Duration = Duration::from_secs(600);
 struct Port {
     link: usize,
     opened: Instant,
+    /// Once a board of ours has answered here, a quiet spell is not a new board.
+    served: bool,
     closer: Arc<AtomicBool>,
     cable: Cable,
 }
@@ -282,11 +284,23 @@ impl Manager {
                     Port {
                         link,
                         opened,
+                        served: false,
                         closer,
                         cable,
                     },
                 );
             }
+        }
+        let quiet: Vec<usize> = self.fleet.lock().map_or_else(
+            |_| Vec::new(),
+            |fleet| {
+                ports.values_mut().for_each(|port| port.served |= fleet.serves(port.link));
+                let links = ports.values().map(|port| port.link);
+                links.filter(|link| !fleet.heard_lately(*link)).collect()
+            },
+        );
+        if let Ok(mut runner) = runner.lock() {
+            quiet.into_iter().for_each(|link| runner.ask_who_on(link));
         }
     }
 
@@ -301,7 +315,7 @@ impl Manager {
         let waiting = ports
             .iter()
             .filter(|(_, port)| port.opened.elapsed() > NEW_BOARD_AFTER)
-            .filter(|(_, port)| !fleet.serves(port.link))
+            .filter(|(_, port)| !port.served && !fleet.serves(port.link))
             .map(|(path, _)| path.clone());
         let busy = self
             .busy_ports
