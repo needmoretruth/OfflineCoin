@@ -148,4 +148,38 @@ mod tests {
         let proof = proof_for(false, false, &[(ONE, false), (TWO, true)]);
         assert_eq!(proof, Proof::On { board: TWO, by_cable_first: false });
     }
+
+    fn manager_in(name: &str) -> Manager {
+        use crate::control_key::ControlKey;
+        use crate::fleet::Fleet;
+        use std::sync::{Arc, Mutex};
+        let folder = std::env::temp_dir().join(format!("olc-proving-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let key = ControlKey::load_or_create(&folder).unwrap();
+        let fleet = Fleet::new(key, olc_node::Runner::link_of).unwrap();
+        Manager {
+            fleet: Arc::new(Mutex::new(fleet)),
+            firmware: std::path::PathBuf::new(),
+            fixed_ports: Vec::new(),
+            ports: Mutex::default(),
+            busy_ports: Mutex::default(),
+            loader_wakes: Mutex::default(),
+            jobs: Mutex::default(),
+            run: Arc::default(),
+        }
+    }
+
+    /// During the proof the cabled board's port is let go, and a person must not be offered to
+    /// install a new board on it, while a port really being installed stays in view.
+    #[test]
+    fn a_port_set_aside_for_the_proof_is_no_new_board() {
+        let manager = manager_in("aside");
+        let (aside, installing) = ("/dev/ttyACM0", "/dev/ttyACM1");
+        manager.busy_ports.lock().unwrap().insert(aside.into());
+        manager.set_job(&hex(&ONE), Some("proof_radio one".into()));
+        assert!(manager.new_boards().is_empty(), "the set-aside port shows as a new board");
+        manager.busy_ports.lock().unwrap().insert(installing.into());
+        manager.set_job(installing, Some("installing".into()));
+        assert_eq!(manager.new_boards(), vec![installing.to_string()]);
+    }
 }
