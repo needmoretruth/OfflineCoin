@@ -525,7 +525,8 @@ impl Service {
         entries.extend(rows.iter().zip(answers).zip(&hellos).map(|((row, said), hello)| {
             let rules = said_rules(row);
             let coin = coin_of_board((row.seen.beacon.genesis, rules.as_deref()), said, &known);
-            board_entry(row, coin, hello.as_ref())
+            let cooling = told.get(&row.seen.id).is_some_and(|told| told.state.cooling == Some(true));
+            board_entry(row, coin, hello.as_ref(), cooling)
         }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;

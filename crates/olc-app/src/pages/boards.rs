@@ -41,15 +41,21 @@ pub struct Boards {
     lab: Lab,
 }
 
-/// A job is a word from the manager, or how far an update got.
-pub fn job_text<'a>(cx: &Cx, job: &'a str) -> &'a str {
+/// A job is a word from the manager, or how far an update got. A proof names the board it uses.
+pub fn job_text(cx: &Cx, job: &str) -> String {
+    let said = |key: &str| cx.say(key).to_string();
+    match job.split_once(' ') {
+        Some(("proof_cable", name)) => return cx.fill("boards.job_proof_cable", &[name]),
+        Some(("proof_radio", name)) => return cx.fill("boards.job_proof_radio", &[name]),
+        _ => {}
+    }
     match job {
-        "preparing" => cx.say("boards.job_preparing"),
-        "restarting" => cx.say("boards.job_restarting"),
-        "installing" => cx.say("boards.job_installing"),
-        "update_failed" => cx.say("boards.job_failed"),
-        "unproven" => cx.say("boards.job_unproven"),
-        progress => progress,
+        "preparing" => said("boards.job_preparing"),
+        "restarting" => said("boards.job_restarting"),
+        "installing" => said("boards.job_installing"),
+        "update_failed" => said("boards.job_failed"),
+        "unproven" => said("boards.job_unproven"),
+        progress => progress.to_string(),
     }
 }
 
@@ -94,7 +100,7 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
     .clicked();
     if let Some(job) = board.job.as_deref().filter(|job| !(board.returning && *job == "restarting")) {
         Frame::NONE.inner_margin(Margin { left: ROW_TEXT, ..Margin::ZERO }).show(ui, |ui| {
-            meta(ui, job_text(cx, job), t);
+            meta(ui, &job_text(cx, job), t);
         });
     }
     clicked
@@ -121,7 +127,7 @@ impl Boards {
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| match job {
                         Some(job) => {
-                            meta(ui, job_text(cx, job), t);
+                            meta(ui, &job_text(cx, job), t);
                         }
                         None => {
                             let name = self.new_names[place].1.trim().to_string();

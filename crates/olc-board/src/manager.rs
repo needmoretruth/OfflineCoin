@@ -1,6 +1,7 @@
 //! What a program that manages boards needs, whatever its face: the boards on the cables, the
 //! fleet they reach, and the jobs a person starts. Runs next to a [`Runner`], and holds no screen.
 use crate::clearance::{deliver, Ledger, UNPROVEN};
+use proving::NO_PROVER;
 use crate::ports::board_ports;
 use crate::control_key::{config_folder, ControlKey};
 use crate::install::{app_image, install as install_board};
@@ -19,6 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+mod proving;
 
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 /// A port stays quiet this long before a person is offered to install on it.
@@ -322,7 +325,9 @@ impl Manager {
             .lock()
             .map(|set| set.clone())
             .unwrap_or_default();
-        waiting.chain(busy).collect()
+        // A port set aside while its board is reached by radio holds no new board.
+        let installing = busy.into_iter().filter(|path| self.job(path).as_deref() == Some("installing"));
+        waiting.chain(installing).collect()
     }
 
     /// Which port a link of the fleet is, shortened for reading.
@@ -433,7 +438,7 @@ impl Manager {
         }
         let done = result.is_ok();
         let failed = match &result {
-            Err(error) if error == UNPROVEN => "unproven",
+            Err(error) if error == UNPROVEN || error == NO_PROVER => "unproven",
             _ => "update_failed",
         };
         self.set_job(&key, (!done).then(|| failed.to_string()));
@@ -451,6 +456,8 @@ impl Manager {
             )
         };
         let ledger = Ledger::open(&config_folder()?);
+        self.prove_for(board, &hash_of(&image), &ledger)?;
+        self.set_job(key, Some("preparing".into()));
         let slot_before = self.running_slot(board);
         let delivery = deliver(&self.fleet, &ledger, board, &image, hash_of(&image), &shown)?;
         self.set_job(key, Some("restarting".into()));

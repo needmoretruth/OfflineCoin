@@ -280,7 +280,7 @@ fn an_unproven_update_says_to_use_a_cable() {
     harness.state_mut().set_stage(Some(staged(vec![board])));
     harness.state_mut().open("page.boards");
     harness.run_steps(SETTLE_STEPS);
-    let said = "This version has not yet updated a board by radio. Connect this board with a USB cable to update it.";
+    let said = "No board with a USB cable could try this version by radio first. Keep a second board with a cable near the first, or connect this board with a cable.";
     assert!(harness.query_all_by_label(said).count() > 0);
     assert!(harness.query_by_label("unproven").is_none());
 }
