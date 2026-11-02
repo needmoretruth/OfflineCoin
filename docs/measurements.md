@@ -146,3 +146,13 @@ Bluetooth on and off, three boards, four rounds of 21 minutes:
 | Heat limit back to 60 °C | 996 H/s again within 6 s |
 | Panelless build, 5.4 minutes | 59 status reads, no panel each time, 985 H/s mean, followed 11 blocks, 2 peers kept |
 | A payment from a locked coin with the wrong unlock words, sent straight down a cable | The board said `rejected payment BadLock`; the coin stayed under its lock |
+
+Flash wear on 보드투, 84 minutes on the real chain, 94 blocks an hour. Rated 100,000 erases per
+sector (ESP32-S3-WROOM-1 datasheet v1.8, flash specifications). Years = sectors × 100,000 ÷
+(erases per hour × 8,766).
+
+| Part | Erases seen | Per hour | Sectors sharing them | Years |
+|---|---|---|---|---|
+| Block log | 13 | 9.3 | 1,504 | about 1,850 |
+| Saved state | 0, one save every 256 blocks | first sector of each half 0.18 | 1 | about 62 |
+| Settings, keys, image | 0 | 0 | | |
