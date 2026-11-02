@@ -27,9 +27,11 @@ cargo build --release -p olc-app -p olc-cli
 
 `cargo run` and `cargo test` leave USB alone so that a test never touches a board. Set `OLC_NO_USB=0` to reach boards from a source run.
 
-## Boards
+## The ESP32 version
 
-An SH1106 OLED on I2C is optional. Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
+OfflineCoin is a desktop program first. The ESP32 version in `firmware` is a separate program that follows the same rules. It needs 16 MB of flash and 8 MB of PSRAM, as on an ESP32-S3 N16R8. An SH1106 OLED on I2C (SDA 8, SCL 9) is optional.
+
+Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
 
 ```
 cd firmware
@@ -101,7 +103,7 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 | `olc-logo` | The spinning coin | |
 | `olc-compat` | Checks that old and new builds agree on the chain | |
 | `olc-fuzz` | Throws random and damaged bytes at every parser | |
-| `firmware` | The board: radios, flash, OLED | |
+| `firmware` | The ESP32 version: radios, flash, OLED | |
 
 ## Known limits
 

@@ -52,20 +52,22 @@ pub enum Theme {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Device {
     #[default]
-    Esp32,
-    RaspberryPi,
     ThisComputer,
+    SeveralNodes,
     /// A first screen once offered a phone as well, and old settings still say so.
     #[serde(alias = "ComputerAndPhone")]
     TwoComputers,
+    RaspberryPi,
+    Esp32,
 }
 
 impl Device {
-    pub const ALL: [Self; 4] = [
-        Self::Esp32,
-        Self::RaspberryPi,
+    pub const ALL: [Self; 5] = [
         Self::ThisComputer,
+        Self::SeveralNodes,
         Self::TwoComputers,
+        Self::RaspberryPi,
+        Self::Esp32,
     ];
 }
 
@@ -89,7 +91,8 @@ impl Device {
             listen_lan: true,
         };
         match self {
-            Self::ThisComputer => Defaults {
+            Self::ThisComputer => Defaults { listen_lan: false, ..standard },
+            Self::SeveralNodes => Defaults {
                 local_nodes: 3,
                 listen_lan: false,
                 ..standard
@@ -297,7 +300,9 @@ mod tests {
     #[test]
     fn a_device_choice_only_fills_numbers() {
         let mut settings = Settings::default();
-        settings.apply_device(Device::ThisComputer);
+        assert_eq!(settings.device, Device::ThisComputer);
+        assert_eq!(settings.device.defaults().local_nodes, 0);
+        settings.apply_device(Device::SeveralNodes);
         assert_eq!(settings.device.defaults().local_nodes, 3);
         assert!(!settings.listen_lan);
         settings.hash_cap = 5;

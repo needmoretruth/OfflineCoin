@@ -238,7 +238,7 @@ fn one_click_turns_every_word_korean() {
 fn the_first_run_offers_every_device() {
     let settings = Settings { setup_done: false, ..quiet_settings() };
     let harness = harness(app(scratch("first"), settings, None), SIZES[0]);
-    for name in ["ESP32 boards", "Raspberry Pi", "Just this computer", "Two computers"] {
+    for name in ["Just this computer", "Several miners", "Two computers", "Raspberry Pi", "ESP32 boards"] {
         assert!(harness.query_by_label(name).is_some(), "{name}");
     }
 }

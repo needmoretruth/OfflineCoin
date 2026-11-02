@@ -36,6 +36,7 @@ fn device_about(device: Device) -> &'static str {
         Device::Esp32 => "setup.esp32_about",
         Device::RaspberryPi => "setup.pi_about",
         Device::ThisComputer => "setup.this_computer_about",
+        Device::SeveralNodes => "setup.several_nodes_about",
         Device::TwoComputers => "setup.two_computers_about",
     }
 }
