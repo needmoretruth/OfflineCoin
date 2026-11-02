@@ -18,7 +18,15 @@ pub(super) fn pay_fault(error: &PayError) -> (&'static str, String) {
         PayError::BadAddress => ("notice.bad_address", String::new()),
         PayError::Wallet(WalletError::NotEnoughCoins) => ("notice.not_enough", String::new()),
         PayError::Wallet(WalletError::Refused) => ("notice.pay_refused", String::new()),
-        error => ("notice.pay_failed", format!("{error:?}")),
+        PayError::Wallet(WalletError::ZeroAmount) => ("notice.bad_amount", String::new()),
+        PayError::Stopped | PayError::Wallet(_) => ("notice.pay_failed", String::new()),
+    }
+}
+
+impl PayError {
+    /// The failure as the key of a sentence and what to put in it.
+    pub fn notice(&self) -> (&'static str, String) {
+        pay_fault(self)
     }
 }
 
@@ -137,5 +145,19 @@ mod tests {
         assert_eq!(pay_fault(&PayError::Wallet(WalletError::Refused)).0, "notice.pay_refused");
         assert_eq!(pay_fault(&PayError::Wallet(WalletError::NotEnoughCoins)).0, "notice.not_enough");
         assert_eq!(pay_fault(&PayError::BadAddress).0, "notice.bad_address");
+    }
+
+    #[test]
+    fn a_failed_payment_carries_no_name_from_the_code() {
+        let errors = [
+            PayError::Stopped,
+            PayError::Wallet(WalletError::BadKey),
+            PayError::Wallet(WalletError::NoSuchKey),
+            PayError::Wallet(WalletError::ZeroAmount),
+        ];
+        for error in &errors {
+            let (key, detail) = pay_fault(error);
+            assert!(detail.is_empty(), "{key} carries {detail}");
+        }
     }
 }

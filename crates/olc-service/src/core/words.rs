@@ -247,6 +247,7 @@ fn snapshot(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
 }
 
 fn explore(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    first(args, "Say what to find: a height, a block or payment id, or an address.")?;
     own(desk, Personal::Explore(rest(args, 1)))
 }
 

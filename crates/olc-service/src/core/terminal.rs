@@ -3,9 +3,10 @@
 use super::commands::{Command, Personal};
 use super::console::{answer_to, looked_up};
 use super::folder::Folder;
+use super::host_locks::plain_detail;
 use super::ops::Book;
 use super::service::{Core, CoreLaunch};
-use super::snapshot::BoardView;
+use super::snapshot::{BoardView, Notice};
 use super::words::Desk;
 use super::{new_coin, write_coin_file};
 use crate::fleet::{FleetPort, RealFleet};
@@ -15,7 +16,7 @@ use olc_board::carried::firmware_path;
 use olc_board::control_key::{config_folder, ControlKey};
 use olc_board::install::install;
 use olc_control::BoardId;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -34,6 +35,16 @@ const LEAVING: Duration = Duration::from_secs(2);
 const UPDATE_STALLS: Duration = Duration::from_secs(600);
 const LOOK_EVERY: Duration = Duration::from_millis(100);
 const NOBODY_NEAR: &str = "No node answered, so nothing was sent.";
+const OTHER_WALLET: &str =
+    "That needs a node on the wallet in --data. Run olc node --data DIR and type it there.";
+/// Where `olc` kept a node's folder before it followed the core's.
+const OLD_FOLDER: &str = ".olc/node";
+
+/// The same folder, however it was written.
+fn same_folder(one: &Path, other: &Path) -> bool {
+    let whole = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    whole(one) == whole(other)
+}
 
 pub struct Terminal {
     pub folder: Folder,
@@ -60,6 +71,27 @@ impl Terminal {
         }
     }
 
+    /// The wallet every word of a run reads: `data` when given, else the wallet of the core in
+    /// `root` or in the standard folder. A one-shot word and `olc node` with the same flags meet
+    /// on it, and so does a word that starts the core.
+    pub fn wallet_folder(data: Option<&str>, root: Option<&Path>) -> Result<PathBuf, String> {
+        if let Some(data) = data {
+            return Ok(PathBuf::from(data));
+        }
+        let root = match root {
+            Some(root) => root.to_path_buf(),
+            None => standard_folder()?,
+        };
+        Ok(Paths { root }.wallet())
+    }
+
+    /// A line for a person whose wallet sits where `olc` kept it before, beside the one in use.
+    pub fn old_wallet_here(chosen: &Path) -> Option<String> {
+        let old = Path::new(OLD_FOLDER);
+        let there = old.join("wallet.json").is_file() && !same_folder(old, chosen);
+        there.then(|| format!("A wallet is also in {OLD_FOLDER} here. Add --data {OLD_FOLDER} to use it."))
+    }
+
     fn core(&mut self) -> Result<&Core, String> {
         if self.core.is_none() {
             let root = match &self.root {
@@ -79,6 +111,22 @@ impl Terminal {
         }
         let core = self.core.as_ref().map(|(core, _)| core);
         core.ok_or_else(|| "The core did not start.".to_string())
+    }
+
+    /// Whether the core's wallet and chain are the ones the rest of the run reads. An order on
+    /// them goes nowhere else.
+    fn same_wallet(&self, command: &Command) -> Result<(), String> {
+        if !command.needs_the_chain() {
+            return Ok(());
+        }
+        let root = match &self.root {
+            Some(root) => root.clone(),
+            None => standard_folder()?,
+        };
+        match same_folder(&Paths { root }.wallet(), &self.folder.directory) {
+            true => Ok(()),
+            false => Err(OTHER_WALLET.to_string()),
+        }
     }
 
     /// The core, once it holds its chain.
@@ -135,6 +183,15 @@ impl Terminal {
     }
 }
 
+impl Drop for Terminal {
+    /// Orders that give no notice are only sent. The core takes each before this process ends.
+    fn drop(&mut self) {
+        if let Some((core, _)) = &self.core {
+            core.finish();
+        }
+    }
+}
+
 /// Looks until `ready` says yes or the time is up. Says which came first.
 fn wait_for(time: Duration, ready: impl Fn() -> bool) -> bool {
     let started = Instant::now();
@@ -149,16 +206,29 @@ fn wait_for(time: Duration, ready: impl Fn() -> bool) -> bool {
 
 impl Desk for Terminal {
     fn command(&mut self, command: Command) -> Result<String, String> {
+        let on_folder = match &command {
+            Command::Own(Personal::Explore(_)) => false,
+            Command::Own(order) => !order.needs_a_node(),
+            _ => false,
+        };
+        if !on_folder {
+            self.same_wallet(&command)?;
+        }
         match command {
             Command::Own(Personal::Explore(text)) => Ok(looked_up(self.loaded_core()?, text)),
             Command::Own(order) if order.goes_out() => self.send_and_stay(Command::Own(order)),
             Command::Own(order) if order.needs_a_node() => self.through_core(Command::Own(order)),
-            Command::Own(order) => self.folder.carry_out(order).map(|(_, detail)| detail),
-            Command::Pay { .. } => self.send_and_stay(command),
+            Command::Own(order) => match self.folder.carry_out(order) {
+                Ok((key, detail)) => Ok(Notice { number: 0, key, detail, good: true }.sentence()),
+                Err(why) => Err(plain_detail(&why).to_string()),
+            },
+            // A coin put under a lock or spent from one leaves like any payment, or not at all.
+            Command::Pay { .. } | Command::Lock(_) => self.send_and_stay(command),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
                 let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;
-                write_coin_file(&coin, &path).map(|()| path)
+                write_coin_file(&coin, &path)?;
+                Ok(Notice { number: 0, key: "notice.coin_saved", detail: path, good: true }.sentence())
             }
             Command::InstallBoard { path, name } => {
                 let key = ControlKey::load_or_create(&config_folder()?)?.public()?;

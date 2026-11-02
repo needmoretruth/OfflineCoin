@@ -5,23 +5,29 @@ use olc_board::Args;
 use olc_link_serial::SerialLink;
 use olc_node::{Card, Medium, Rank};
 use olc_service::core::{
-    device_kind, run_line, BoardView, Book, Command, Desk, Host, Personal, Plan,
+    device_kind, format_coins, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
+    Command, Desk, Host, NodeView, Notice, Personal, Plan,
 };
 use olc_store::NodeSettings;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const NODE_PORT: u16 = 7000;
 /// The cap of a computer whose owner never chose one.
 const RELAXED_LIMIT: u64 = 20_000;
 const LIMIT_FILE: &str = "hash-limit";
 const LOOK_EVERY: Duration = Duration::from_millis(200);
+/// Time for a stored chain to open.
+const CHAIN_OPENS: Duration = Duration::from_secs(120);
 /// Time for a lookup to reach this node's view.
 const LOOKUP_SHOWS: Duration = Duration::from_millis(600);
-const NOT_HERE: &str = "That needs OLC Core or `olc` with no node running.";
+/// Boards, the app's own nodes, pools and experiments belong to OLC Core.
+const APP_ONLY: &str = "olc node has no boards or nodes of its own. Type that word as olc WORD in another terminal.";
+const OWN_COIN: &str = "olc node runs the coin in its --coin file. Change the file, then start the node again.";
+const STILL_OPENING: &str = "The chain is still opening. Try again in a moment.";
 
 /// The order of links: this run's flag, saved if given. The host reads the saved choice.
 fn save_links(args: &Args, settings: &mut NodeSettings) -> Result<(), String> {
@@ -114,57 +120,112 @@ struct NodeDesk<'a> {
     host: &'a Host,
     directory: &'a Path,
     lines: &'a Receiver<String>,
+    /// The nodes `--connect` named, called again on `scan`.
+    known: &'a [String],
+}
+
+/// A notice as the answer to a typed word.
+fn said(key: &'static str, detail: String, good: bool) -> Result<String, String> {
+    let sentence = Notice { number: 0, key, detail, good }.sentence();
+    if good {
+        Ok(sentence)
+    } else {
+        Err(sentence)
+    }
+}
+
+/// The answer the core gives to an order with no notice.
+fn at_once(command: &Command) -> Result<String, String> {
+    command.said_at_once().ok_or_else(|| "Done.".to_string())
 }
 
 impl NodeDesk<'_> {
     fn explore(&self, text: &str) -> Result<String, String> {
         self.host.show_explored(text)?;
         thread::sleep(LOOKUP_SHOWS);
-        Ok(format!("{:#?}", self.host.view().explored))
+        Ok(self.host.view().explored.text(text))
+    }
+
+    fn pay(&self, to: &str, amount: &str) -> Result<String, String> {
+        let units = parse_coins(amount).filter(|units| *units > 0);
+        let Some(units) = units else {
+            return said("notice.bad_amount", String::new(), false);
+        };
+        match self.host.pay(to, units) {
+            Ok(id) => {
+                let id: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
+                said("notice.sent", format_coins(units), true).map(|sent| format!("{sent}\n{id}"))
+            }
+            Err(error) => {
+                let (key, detail) = error.notice();
+                said(key, detail, false)
+            }
+        }
     }
 }
 
 impl Desk for NodeDesk<'_> {
     fn command(&mut self, command: Command) -> Result<String, String> {
+        // A word typed while the chain opens waits for it, as a one-shot word does for the core's.
+        let started = Instant::now();
+        let opening = |view: NodeView| view.coin.is_none() || view.loading;
+        while opening(self.host.view()) && started.elapsed() < CHAIN_OPENS {
+            thread::sleep(LOOK_EVERY);
+        }
+        let answer = at_once(&command);
         match command {
             Command::Own(Personal::Explore(text)) => self.explore(&text),
             Command::Own(order) => {
                 let (key, detail, good) = self.host.obey(order);
-                let said = key.trim_start_matches("notice.").replace('_', " ");
-                let answer = if detail.is_empty() { said } else { detail };
-                if good {
-                    Ok(answer)
-                } else {
-                    Err(answer)
-                }
+                said(key, detail, good)
+            }
+            Command::Lock(order) => {
+                let (key, detail, good) = self.host.carry_lock(order);
+                said(key, detail, good)
             }
             Command::SetMining(on) => {
                 self.host.set_mining(on);
                 let mut settings = NodeSettings::load(self.directory);
                 settings.mining = on;
-                settings.save(self.directory).map(|()| "saved".to_string())
+                settings.save(self.directory).and(answer)
             }
             Command::SetCap(cap) => {
                 self.host.set_cap(cap);
                 save_limit(self.directory, cap);
-                Ok("saved".to_string())
+                answer
             }
-            Command::Pay { to, amount } => {
-                let units = olc_service::core::parse_coins(&amount).filter(|units| *units > 0);
-                let units = units.ok_or("That is not an amount.")?;
-                let id = self.host.pay(&to, units).map_err(|error| format!("{error:?}"))?;
-                Ok(id.iter().map(|byte| format!("{byte:02x}")).collect())
-            }
+            Command::Pay { to, amount } => self.pay(&to, &amount),
             Command::AddAddress(address) => {
                 self.host.connect(address);
-                Ok("saved".to_string())
+                answer
             }
-            _ => Err(NOT_HERE.to_string()),
+            Command::Rescan => {
+                self.known.iter().for_each(|address| self.host.connect(address.clone()));
+                answer
+            }
+            Command::NewCoinFile { choices, path } => {
+                let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;
+                match write_coin_file(&coin, &path) {
+                    Ok(()) => said("notice.coin_saved", path, true),
+                    Err(why) => said("notice.coin_file", why, false),
+                }
+            }
+            Command::SaveCoinFile(path) => {
+                let coin = self.host.view().coin.ok_or(STILL_OPENING)?;
+                match write_coin_file(&coin, &path) {
+                    Ok(()) => said("notice.coin_saved", path, true),
+                    Err(why) => said("notice.coin_file", why, false),
+                }
+            }
+            Command::Join { .. } | Command::JoinCoinFile(_) | Command::Fork { .. } | Command::ForkBack => {
+                Err(OWN_COIN.to_string())
+            }
+            _ => Err(APP_ONLY.to_string()),
         }
     }
 
     fn boards(&mut self) -> Result<Vec<BoardView>, String> {
-        Err(NOT_HERE.to_string())
+        Err(APP_ONLY.to_string())
     }
 
     fn password(&mut self) -> Result<String, String> {
@@ -187,7 +248,8 @@ fn print_moves(host: &Host) {
 }
 
 pub fn run(args: &Args) -> Result<(), String> {
-    let directory = PathBuf::from(args.value("data").unwrap_or(".olc/node"));
+    let directory = crate::wallet_folder(args)?;
+    let known = args.values("connect");
     let host = start_host(args, directory.clone())?;
     let name = args.value("name").map(|name| format!("{name} ")).unwrap_or_default();
     println!("{name}listening on port {}", host.port.unwrap_or(0));
@@ -204,7 +266,8 @@ pub fn run(args: &Args) -> Result<(), String> {
         match typed {
             Ok(line) if line.trim().is_empty() => {}
             Ok(line) => {
-                let mut desk = NodeDesk { host: &host, directory: &directory, lines: &lines };
+                let mut desk =
+                    NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known };
                 match run_line(&mut desk, &line) {
                     Ok(answer) => println!("{answer}"),
                     Err(error) => println!("{error}"),
