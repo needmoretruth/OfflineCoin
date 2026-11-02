@@ -146,7 +146,7 @@ impl Service {
                 bind_host: bind_host(&settings),
                 port: settings.port,
                 port_tries: PORT_TRIES,
-                peers: settings.peers.clone(),
+                peers: settings.to_dial(Some(settings.port)),
                 cap: settings.hash_cap,
                 // Nothing mines before a person has chosen a coin.
                 mining: settings.setup_done && settings.mine_on_start,
@@ -468,7 +468,7 @@ impl Service {
         match settings.save(&folder) {
             Ok(()) => {
                 let coin = current_coin(&self.paths, &self.settings);
-                self.host.switch(coin, folder, self.settings.peers.clone(), None);
+                self.host.switch(coin, folder, self.settings.to_dial(self.host.port), None);
             }
             Err(error) => self.say("notice.save_failed", error, false),
         }
@@ -487,7 +487,7 @@ impl Service {
         self.settings.peers = peers;
         self.save();
         let keep_from = leaves.as_ref().map(|old| self.paths.coin(old));
-        let (folder, peers) = (self.paths.coin(&name), self.settings.peers.clone());
+        let (folder, peers) = (self.paths.coin(&name), self.settings.to_dial(self.host.port));
         self.host.switch(coin, folder, peers, keep_from);
         self.local.stop_all();
         // Their ports stay taken until the old processes have gone.

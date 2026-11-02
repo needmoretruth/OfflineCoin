@@ -116,6 +116,27 @@ pub fn wallet_words(error: &WalletError) -> &'static str {
     }
 }
 
+/// Why a wallet said no to an order of a person's, as the key of a sentence.
+pub fn wallet_key(error: &WalletError) -> &'static str {
+    match error {
+        WalletError::BadKey => "notice.bad_key",
+        WalletError::NotEnoughCoins => "notice.not_enough",
+        WalletError::ZeroAmount => "notice.zero_amount",
+        WalletError::NoSuchKey => "notice.no_such_key",
+        WalletError::KnownKey => "notice.known_key",
+        WalletError::Refused => "notice.pay_refused",
+    }
+}
+
+/// An order with no watched address has nothing to pay from.
+pub const NO_WATCHED: &str = "notice.no_watched";
+
+/// The key an order's failure already names, when it names one.
+pub fn failure_key(failure: &str) -> Option<&'static str> {
+    let keys = WALLET_ERRORS.iter().map(wallet_key).chain([NO_WATCHED]);
+    keys.into_iter().find(|key| *key == failure)
+}
+
 /// A detail as a person reads it. Some orders still give a reason by its name in the code: a
 /// wallet's reason reads as its sentence, and any other such name is left out.
 pub fn plain_detail(detail: &str) -> &str {
@@ -148,6 +169,7 @@ fn failed(failure: &LockFailure) -> (&'static str, String, bool) {
 
 impl Host {
     /// Does a lock order and says how it went: a notice's key, its detail, and whether it went well.
+    /// A spend that waits for another signer stays where a person can copy it.
     pub fn carry_lock(&self, order: LockOrder) -> (&'static str, String, bool) {
         let done = match order {
             LockOrder::Pay { words, amount } => {
@@ -164,9 +186,13 @@ impl Host {
         };
         match done {
             Ok(LockDone::Sent(id)) => {
+                self.set_half_spend(None);
                 ("lock.sent", id.iter().map(|byte| format!("{byte:02x}")).collect(), true)
             }
-            Ok(LockDone::Waiting { text, .. }) => ("lock.waiting", text, true),
+            Ok(LockDone::Waiting { text, who }) => {
+                self.set_half_spend(Some((text.clone(), who)));
+                ("lock.waiting", text, true)
+            }
             Err(failure) => failed(&failure),
         }
     }

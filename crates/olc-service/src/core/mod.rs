@@ -8,6 +8,8 @@ mod words;
 mod coins;
 mod commands;
 mod console;
+#[cfg(test)]
+mod dial_tests;
 mod explorer;
 #[cfg(test)]
 mod forged;

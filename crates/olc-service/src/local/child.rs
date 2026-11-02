@@ -3,7 +3,7 @@
 //! node outlives the app that started it.
 use crate::core::Book;
 use super::supervisor::ChildStatus;
-use crate::core::host_locks::LockDone;
+use crate::core::host_locks::{fault_of_lock, LockDone};
 use crate::core::{parse_coins, Host, Plan};
 use crate::settings::PORT_TRIES;
 use olc_core::BlockHeader;
@@ -105,12 +105,12 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
         }
         ["pay", to, amount] => {
             let paid = parse_coins(amount)
-                .ok_or_else(|| "bad_amount".to_string())
-                .and_then(|units| host.pay(to, units).map_err(|error| format!("{error:?}")));
+                .ok_or_else(|| ("notice.bad_amount", amount.to_string()))
+                .and_then(|units| host.pay(to, units).map_err(|error| error.notice()));
             let mut status = ChildStatus::from_view(&host.view());
             match paid {
                 Ok(id) => status.paid = Some(hex(&id)),
-                Err(error) => status.error = Some(error),
+                Err(said) => failed(&mut status, said),
             }
             return Some(status);
         }
@@ -135,9 +135,15 @@ fn lock_answer(host: &Host, done: Result<LockDone, LockFailure>) -> ChildStatus 
     match done {
         Ok(LockDone::Sent(id)) => status.paid = Some(hex(&id)),
         Ok(LockDone::Waiting { text, .. }) => status.half = Some(text),
-        Err(failure) => status.error = Some(format!("{failure:?}")),
+        Err(failure) => failed(&mut status, fault_of_lock(&failure)),
     }
     status
+}
+
+/// Carries a failure to the window as the key of its sentence, so it reads in any language.
+fn failed(status: &mut ChildStatus, (key, detail): (&str, String)) {
+    status.error = Some(key.to_string());
+    status.detail = detail;
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -198,5 +204,49 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
         say(&status_of(&host));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::CoinConfig;
+    use std::path::Path;
+
+    /// A payment a node of this app could not make comes back as the key of a sentence, so the
+    /// window says it in the person's language.
+    #[test]
+    fn a_payment_that_fails_comes_back_as_a_sentence() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.scratch/tests/child/pay");
+        let _ = std::fs::remove_dir_all(&root);
+        let plan = Plan {
+            coin: CoinConfig::olc(),
+            folder: root.join("chain"),
+            wallet_folder: root.join("wallet"),
+            bind_host: "127.0.0.1".into(),
+            port: 7690,
+            port_tries: 30,
+            peers: Vec::new(),
+            cap: 0,
+            mining: false,
+            card: Card::default(),
+            storage: None,
+        };
+        let host = Host::start(plan, None).unwrap();
+        while host.opening() {
+            thread::sleep(OPENING_STEP);
+        }
+        let to = "olc7fb614d9675c5f5b9851c5026632731f89ac8683";
+        let answers = [
+            (format!("pay {to} 5"), "notice.not_enough", ""),
+            (format!("pay {to} lots"), "notice.bad_amount", "lots"),
+            ("lockpay 5 HASH 0x00 EQUAL".to_string(), "notice.not_enough", ""),
+            ("lockspend nothing own".to_string(), "lock.no_coin", ""),
+        ];
+        for (line, key, detail) in answers {
+            let status = run_line(&host, &line).unwrap();
+            assert_eq!(status.error.as_deref(), Some(key), "{line}");
+            assert_eq!(status.detail, detail, "{line}");
+        }
     }
 }

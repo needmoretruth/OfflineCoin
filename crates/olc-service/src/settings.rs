@@ -208,6 +208,25 @@ impl Settings {
         self.listen_lan = defaults.listen_lan;
     }
 
+    /// Joined nodes and the addresses a person added, wherever they are, as `addnode` does.
+    /// This node's own address is left out: dialling itself would only hold a line open.
+    pub fn to_dial(&self, own_port: Option<u16>) -> Vec<String> {
+        let own = |address: &str| {
+            let Some((host, port)) = address.rsplit_once(':') else {
+                return false;
+            };
+            let here = matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1");
+            here && port.parse::<u16>().ok() == own_port
+        };
+        let mut dial: Vec<String> = Vec::new();
+        for address in self.peers.iter().chain(&self.added) {
+            if !own(address) && !dial.contains(address) {
+                dial.push(address.clone());
+            }
+        }
+        dial
+    }
+
     pub fn remember(&mut self, address: &str) {
         if !self.book.iter().any(|known| known == address) {
             self.book.push(address.to_string());

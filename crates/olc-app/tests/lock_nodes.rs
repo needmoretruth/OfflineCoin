@@ -128,7 +128,7 @@ fn a_hash_lock_and_two_of_two_are_paid_and_spent_between_real_nodes() {
     // A hash lock: the wrong words change nothing, and the secret moves the coins.
     let coin = lock_coins(&core, &mut nodes, &board, &hash_lock_for(SECRET));
     let wrong = answer(&mut nodes, id, &format!("lockspend {coin} own \"not the words\""));
-    assert!(wrong.error.is_some_and(|error| error.contains("Refused")), "the node refuses");
+    assert_eq!(wrong.error.as_deref(), Some("lock.not_open"), "the node refuses");
     let refused = told(&core, LockOrder::Spend {
         coin: coin.clone(),
         to: String::new(),
@@ -155,7 +155,7 @@ fn a_hash_lock_and_two_of_two_are_paid_and_spent_between_real_nodes() {
 
     let blank = format!("0x{0} 0x{0}", "11".repeat(64));
     let forged = answer(&mut nodes, id, &format!("lockspend {coin} own {blank}"));
-    assert!(forged.error.is_some_and(|error| error.contains("Refused")), "made-up signatures");
+    assert_eq!(forged.error.as_deref(), Some("lock.not_open"), "made-up signatures");
 
     let half = told(&core, LockOrder::Spend { coin: coin.clone(), to: String::new(), unlock });
     assert!(half.0, "{}", half.1);

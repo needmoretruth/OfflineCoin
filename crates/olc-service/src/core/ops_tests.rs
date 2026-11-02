@@ -202,6 +202,56 @@ fn closing_during_a_load_finishes_what_waits() {
     assert_eq!(NodeSettings::load(&chain).note, "kept");
 }
 
+/// A spend that waits for another signer stays where a person can copy it, on a node of the
+/// command line as in the window: both carry a lock order the same way.
+#[test]
+fn a_spend_waiting_for_a_signer_is_kept_wherever_it_starts() {
+    let root = folder("half-spend");
+    let mut coin = CoinConfig::olc();
+    coin.name = "Halves".into();
+    coin.initial_difficulty = 16;
+    coin.rules.min_difficulty = 1;
+    coin.rules.block_time_ms = 1_000;
+    coin.rules.coinbase_maturity = 1;
+    let plan = |name: &str, port| Plan { coin: coin.clone(), folder: root.join(format!("{name}-chain")), wallet_folder: root.join(name), bind_host: "127.0.0.1".into(), port, port_tries: 40, peers: Vec::new(), cap: 0, mining: false, card: Card::default(), storage: None };
+    let host = Host::start(plan("mine", 7710), None).unwrap();
+    let other = Host::start(plan("other", 7750), None).unwrap();
+    opened(&host);
+    opened(&other);
+    let mine_one = || {
+        let mut runner = host.runner.lock().unwrap();
+        let now = runner.engine.chain().tip_header().time_ms + 1_000;
+        while !runner.engine.mine(100_000, now) {}
+    };
+    (0..4).for_each(|_| mine_one());
+    let started = Instant::now();
+    while host.view().keys.is_empty() || other.view().keys.is_empty() {
+        assert!(started.elapsed() < WAIT, "the wallets never showed their keys");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let publics = [&host, &other].map(|one| one.view().keys[0].public.clone());
+    let words = super::host_locks::two_of_two_for(&publics[0], &publics[1]).unwrap();
+    let (key, _, good) = host.carry_lock(LockOrder::Pay { words, amount: "5".into() });
+    assert_eq!((key, good), ("lock.paid", true));
+    mine_one();
+    let started = Instant::now();
+    let coin = loop {
+        if let Some(coin) = host.view().locks.first().cloned() {
+            break coin;
+        }
+        assert!(started.elapsed() < WAIT, "no block took the coins");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let name = super::host_locks::name_of_coin(&coin.point);
+    let order = LockOrder::Spend { coin: name, to: String::new(), unlock: coin.unlock };
+    let (key, text, _) = host.carry_lock(order);
+    assert_eq!(key, "lock.waiting");
+    while host.view().half_spend.as_ref().map(|half| &half.0) != Some(&text) {
+        assert!(started.elapsed() < WAIT, "the spend was not kept for the other signer");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// A setting that restarts the node leaves a payment still waiting where it was.
 #[test]
 fn a_restart_of_the_node_keeps_payments_waiting() {
@@ -261,7 +311,7 @@ fn failures_name_the_order_that_failed() {
     assert_eq!((key, good), ("notice.import_failed", false));
     assert!(!detail.is_empty(), "the expert word needs the cause");
     assert_eq!(host.obey(Personal::Watch("nobody".into())).0, "notice.bad_address");
-    assert_eq!(host.obey(Personal::UseKey(9)).0, "notice.key_failed");
+    assert_eq!(host.obey(Personal::UseKey(9)).0, "notice.no_such_key");
     let order = Personal::Sign { path: text(&root.join("missing")), save: None };
     assert_eq!(host.obey(order).0, "notice.offline_failed");
 }
@@ -270,15 +320,35 @@ fn failures_name_the_order_that_failed() {
 fn a_payment_is_refused_where_there_is_nothing_to_spend() {
     let root = folder("offline");
     let host = host(&root);
-    let address = host.view().address.clone();
-    let order = Personal::Prepare {
-        to: address,
+    let order = || Personal::Prepare {
+        to: SOMEONE.into(),
         units: 1,
         fee: 0,
         save: Some(text(&root.join("out.payment"))),
     };
-    assert_eq!(host.obey(order).0, "notice.offline_failed");
+    assert_eq!(host.obey(order()).0, "notice.no_watched");
+    assert!(host.obey(Personal::Watch(SOMEONE.into())).2);
+    assert_eq!(host.obey(order()).0, "notice.not_enough");
     assert!(!root.join("out.payment").exists());
+}
+
+/// A wallet that says no is heard as a sentence of its own in every language, not by its name in
+/// the code.
+#[test]
+fn a_wallet_that_says_no_is_heard_in_words() {
+    let root = folder("wallet-says-no");
+    let host = host(&root);
+    let secret = olc_store::format_secret(&olc_store::new_secret().unwrap());
+    assert!(host.obey(Personal::ImportKey(secret.clone())).2);
+    let orders = [
+        (Personal::ImportKey(secret), "notice.known_key"),
+        (Personal::UseKey(9), "notice.no_such_key"),
+        (Personal::WriteNote("hello".into()), "notice.not_enough"),
+    ];
+    for (order, expected) in orders {
+        let (key, detail, good) = host.obey(order);
+        assert_eq!((key, detail.as_str(), good), (expected, "", false));
+    }
 }
 
 /// The address other computers on the network reach this one by, when it has one.

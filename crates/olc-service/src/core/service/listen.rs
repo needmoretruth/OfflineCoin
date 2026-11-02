@@ -1,9 +1,9 @@
 //! What the service hears from the network, boards and its own threads.
 use super::Service;
-use crate::core::host::{HeardFrom, PayError};
+use crate::core::console::known_key;
+use crate::core::host::HeardFrom;
 use crate::discovery::ScanPlan;
 use olc_node::Hello;
-use olc_wallet::WalletError;
 use std::time::{Duration, Instant};
 
 /// Long enough to leave a radio alone, short enough that a board's move shows soon after.
@@ -68,10 +68,11 @@ impl Service {
             self.pool.take_node_shares(id, &answer.shares);
             match (answer.paid, answer.error) {
                 (Some(_), _) => self.say("notice.node_paid", id.to_string(), true),
-                (_, Some(error)) if error == format!("{:?}", PayError::Wallet(WalletError::Refused)) => {
-                    self.say("notice.pay_refused", String::new(), false);
+                // The node names its failure by the key of a sentence, chosen from the error itself.
+                (_, Some(key)) => {
+                    let key = known_key(&key).unwrap_or("notice.pay_failed");
+                    self.say(key, answer.detail, false);
                 }
-                (_, Some(error)) => self.say("notice.pay_failed", error, false),
                 _ => {}
             }
         }

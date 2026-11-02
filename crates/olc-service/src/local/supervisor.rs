@@ -46,7 +46,9 @@ pub struct ChildStatus {
     pub refused: u32,
     pub reorganized: u32,
     pub paid: Option<String>,
+    /// Why an order failed, as the key of a sentence, and what goes into it.
     pub error: Option<String>,
+    pub detail: String,
     /// A spend under a lock that waits for another signer.
     pub half: Option<String>,
     /// The public key of the node's wallet, for a lock that names it.
@@ -79,6 +81,7 @@ impl ChildStatus {
             reorganized: view.light.map_or(0, |light| light.reorganized),
             paid: None,
             error: None,
+            detail: String::new(),
             half: None,
             public: view.keys.first().map_or_else(String::new, |key| key.public.clone()),
             shares: Vec::new(),
