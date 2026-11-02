@@ -106,8 +106,8 @@ fn a_node_that_cannot_start_says_why() {
         node.reap();
     }
     let ended = node.view(&spec).ended.expect("how it ended");
-    assert!(ended.contains("exit status"), "{ended}");
-    assert!(ended.len() > "exit status: 1".len() + 2, "no reason given: {ended}");
+    // Each system words the exit its own way, so this looks for the reason after it.
+    assert!(ended.contains("expected"), "no reason given: {ended}");
 }
 
 #[test]
@@ -290,7 +290,9 @@ fn a_snapshot_waits_for_the_person_in_the_window() {
     coin.rules.min_difficulty = 1;
     let peer_port = port_of_scene(40);
     let peer = pruned_peer(&root.join("peer"), &coin, peer_port, 700);
-    let tip = peer.view().height;
+    // From the chain itself: the published view can still be behind what was just mined, and a
+    // lower number here would end the wait below before the snapshot arrives.
+    let tip = peer.runner.lock().unwrap().engine.chain().height();
 
     let app_root = root.join("app");
     save_coin(&Paths { root: app_root.clone() }, &coin).unwrap();
