@@ -1,0 +1,4 @@
+# Boards made with Espressif chips: the person at this computer may use them, with no group to join.
+# uaccess works only before 73-seat-late.rules, so this file keeps a lower number.
+# ModemManager would otherwise take a new serial port for a modem and send it commands.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"

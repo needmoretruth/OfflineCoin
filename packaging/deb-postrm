@@ -1,0 +1,6 @@
+#!/bin/sh
+# Wallets and chains stay in the person's home folder. Only the rule goes.
+set -e
+if [ "$1" = remove ] && [ -e /run/udev/control ]; then
+  udevadm control --reload-rules || true
+fi

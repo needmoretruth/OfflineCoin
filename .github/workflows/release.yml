@@ -1,8 +1,12 @@
 name: Release
 
+# A tag publishes. The other two build and test every package and publish nothing. The branch is
+# here because the manual trigger only reaches workflow files on the default branch.
 on:
   push:
     tags: ["v*"]
+    branches: [ci-package]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,8 +16,11 @@ env:
   ESP_TOOLCHAIN: "1.97.0.0"
   ESPUP_VERSION: "0.19.0"
   ESPFLASH_VERSION: "4.7.0"
+  INNO_SETUP_VERSION: "6.7.1"
   CARGO_TERM_COLOR: always
   FIRMWARE: firmware/target/xtensa-esp32s3-none-elf/release
+  # A new Windows may not have Microsoft's C runtime, so the programs carry it.
+  CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
 
 jobs:
   firmware:
@@ -21,7 +28,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Only test runs reuse a build. A release is built from nothing.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: built
+        if: github.ref_type != 'tag'
+        with:
+          path: ${{ env.FIRMWARE }}/olc-firmware
+          key: firmware-${{ hashFiles('firmware/**', 'crates/**', 'Cargo.lock') }}
       - name: Install the Espressif toolchain
+        if: steps.built.outputs.cache-hit != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -29,6 +44,7 @@ jobs:
           cargo install espup --locked --version "$ESPUP_VERSION"
           espup install --targets esp32s3 --toolchain-version "$ESP_TOOLCHAIN" --export-file "$HOME/export-esp.sh"
       - name: Build the firmware
+        if: steps.built.outputs.cache-hit != 'true'
         working-directory: firmware
         run: |
           . "$HOME/export-esp.sh"
@@ -47,8 +63,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, features: ble }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, features: ble }
+          # The oldest Ubuntu offered: a program runs on systems as new as the one it was built on
+          # or newer, and the links promise Debian, Mint and Raspberry Pi as well.
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, features: ble }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, features: ble }
           - { os: windows-2025, target: x86_64-pc-windows-msvc }
           - { os: macos-15, target: aarch64-apple-darwin }
           - { os: macos-15, target: x86_64-apple-darwin }
@@ -59,11 +77,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install what the build needs on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev libxkbcommon-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev libdbus-1-dev libudev-dev libxkbcommon-dev pkg-config
+      - name: Install what the installer needs on Windows
+        if: runner.os == 'Windows'
+        run: choco install innosetup --version "$INNO_SETUP_VERSION" --no-progress -y
       - name: Install Rust
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal --target "${{ matrix.target }}"
           rustup default "$RUST_VERSION"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref_type != 'tag'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            ~/espflash
+          key: release-${{ matrix.target }}-${{ env.RUST_VERSION }}-${{ env.ESPFLASH_VERSION }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: release-${{ matrix.target }}-${{ env.RUST_VERSION }}-
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: firmware
@@ -73,18 +104,90 @@ jobs:
       - name: Build the terminal program, carrying the firmware
         run: cargo build --release --locked -p olc-cli --bin olc --features "${{ matrix.features }}" --target "${{ matrix.target }}"
       - name: Build the flashing tool
-        run: cargo install espflash --locked --version "$ESPFLASH_VERSION" --target "${{ matrix.target }}"
+        run: |
+          cargo install espflash --locked --version "$ESPFLASH_VERSION" --target "${{ matrix.target }}" --root "$HOME/espflash"
+          echo "$HOME/espflash/bin" >> "$GITHUB_PATH"
       - name: Package
-        run: packaging/package.sh "${{ matrix.target }}" "${GITHUB_REF_NAME#v}"
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          fi
+          packaging/package.sh "${{ matrix.target }}" "$version"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
+  # The real package on the system it is for: installed, opened, and a block mined.
+  test:
+    name: Try ${{ matrix.system }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, system: windows, target: x86_64-pc-windows-msvc, script: windows.ps1, package: OLC-Core-windows-x86_64-setup.exe, terminal: olc-windows-x86_64.zip }
+          - { os: macos-15, system: macos-apple-silicon, target: aarch64-apple-darwin, script: macos.sh, package: OLC-Core-macos-apple-silicon.dmg, terminal: olc-macos-apple-silicon.tar.gz }
+          - { os: macos-15-intel, system: macos-intel, target: x86_64-apple-darwin, script: macos.sh, package: OLC-Core-macos-intel.dmg, terminal: olc-macos-intel.tar.gz }
+          - { os: ubuntu-24.04, system: linux-x86_64, target: x86_64-unknown-linux-gnu, script: linux.sh, package: OLC-Core-linux-x86_64.deb, terminal: olc-linux-x86_64.tar.gz }
+          - { os: ubuntu-24.04-arm, system: linux-arm64, target: aarch64-unknown-linux-gnu, script: linux.sh, package: OLC-Core-linux-arm64.deb, terminal: olc-linux-arm64.tar.gz }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-${{ matrix.target }}
+          path: dist
+      - name: Make a folder for the screenshots
+        shell: bash
+        run: mkdir -p "shots/${{ matrix.system }}"
+      - name: Install, open and mine on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packaging/test/windows.ps1 -Setup "dist/${{ matrix.package }}" -Terminal "dist/${{ matrix.terminal }}" -Shots "$PWD/shots/${{ matrix.system }}"
+      - name: Install, open and mine
+        if: runner.os != 'Windows'
+        run: packaging/test/${{ matrix.script }} "dist/${{ matrix.package }}" "dist/${{ matrix.terminal }}" "$PWD/shots/${{ matrix.system }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: shots-${{ matrix.system }}
+          path: shots/${{ matrix.system }}
+
+  # What the links promise: every file there, and every screenshot a drawn window and no blank one.
+  check:
+    name: Names and screenshots
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: shots-*
+          path: shots
+      - name: The README's links match the files
+        run: packaging/check-names.sh dist
+      - name: Every screenshot shows a drawn window
+        run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick
+          find shots -name '*.png' -print0 | while IFS= read -r -d '' shot; do
+            colors=$(identify -format '%k' "$shot")
+            echo "$colors colors in $shot"
+            [ "$colors" -gt 200 ]
+          done
+
   publish:
     name: Publish
-    needs: build
+    needs: check
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

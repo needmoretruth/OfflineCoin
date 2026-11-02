@@ -1,0 +1,7 @@
+#!/bin/sh
+# A board already plugged in follows the new rule without being plugged in again.
+set -e
+if [ "$1" = configure ] && [ -e /run/udev/control ]; then
+  udevadm control --reload-rules || true
+  udevadm trigger --subsystem-match=tty --action=change || true
+fi
