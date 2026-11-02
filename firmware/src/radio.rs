@@ -47,6 +47,13 @@ pub fn hear_everyone() {
     }
 }
 
+/// Whether a node, by the id it goes by, is a board this one acts as if it cannot hear. A board
+/// goes by its radio address, so the wire, Bluetooth and Wi-Fi go quiet for it as ESP-NOW does.
+pub fn ignores_node(node: u64) -> bool {
+    let id = node.to_le_bytes();
+    is_ignored(peer_id(&[id[0], id[1], id[2], id[3], id[4], id[5]]))
+}
+
 fn is_ignored(peer: u32) -> bool {
     IGNORED
         .iter()

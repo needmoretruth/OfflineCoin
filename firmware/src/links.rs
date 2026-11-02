@@ -68,10 +68,12 @@ impl Node {
                 let medium = |link| self.runner.medium_of(link).map_or("?", Medium::name);
                 let ways: Vec<&str> =
                     neighbour.paths.iter().filter(|path| path.live).map(|path| medium(path.link)).collect();
+                // Its name still arrives, but nothing of the chain passes either way.
+                let ignored = neighbour.node.is_some_and(radio::ignores_node);
                 format!(
                     "node={:016x} on={} ways={} moves={}",
                     neighbour.node.unwrap_or(0),
-                    neighbour.active.map_or("none", medium),
+                    if ignored { "ignored" } else { neighbour.active.map_or("none", medium) },
                     ways.join(","),
                     neighbour.moves,
                 )

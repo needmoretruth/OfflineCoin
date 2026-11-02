@@ -191,3 +191,35 @@ fn a_better_rank_takes_effect_on_the_next_settle_and_is_the_only_one_used() {
     assert!(radio.heard.lock().unwrap().is_empty());
     assert!(!bluetooth.heard.lock().unwrap().is_empty());
 }
+
+fn ignores_node_one(node: u64) -> bool {
+    node == 1
+}
+
+fn hears_everyone(_node: u64) -> bool {
+    false
+}
+
+/// A test lays nodes out in a line by telling one to act as if it cannot hear another. That holds
+/// on every link between them, not only the radio it was first written for.
+#[test]
+fn an_ignored_node_is_not_heard_on_any_link() {
+    let (mut left, mut right) = nodes();
+    pair(&mut left, &mut right, Medium::Wire);
+    pair(&mut left, &mut right, Medium::Bluetooth);
+    right.set_ignores(ignores_node_one);
+    run(&mut left, &mut right, 0, 3 * HELLO_MS);
+    let mut now = 3 * HELLO_MS;
+    for _ in 0..3 {
+        mine(&mut left.engine, now);
+        run(&mut left, &mut right, now, now + 2 * HELLO_MS);
+        now += 2 * HELLO_MS;
+    }
+    assert_eq!(left.engine.chain().height(), 3);
+    assert_eq!(right.engine.chain().height(), 0, "a block crossed from an ignored node");
+
+    right.set_ignores(hears_everyone);
+    mine(&mut left.engine, now);
+    run(&mut left, &mut right, now, now + 4 * HELLO_MS);
+    assert_eq!(right.engine.chain().height(), 4, "hearing everyone again brings the chain back");
+}

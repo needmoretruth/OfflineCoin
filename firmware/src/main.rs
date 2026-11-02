@@ -236,6 +236,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut id = [0u8; 8];
     id[..6].copy_from_slice(&me);
     runner.set_id(u64::from_le_bytes(id));
+    runner.set_ignores(radio::ignores_node);
     if settings.bluetooth_on() {
         let link = ble::start(spawner, peripherals.BT, runner.id(), me);
         runner.add_link(Box::new(link));
