@@ -57,15 +57,15 @@ OfflineCoin also runs on a tiny board with a small screen, with no computer once
 - Anyone who gets your wallet file can spend your coins. It isn't encrypted.
 - Anyone with more mining power can rewrite the chain. On a coin like this, that's part of the fun.
 
-## 💬 A word from the developer (more than a word)
+## A word from the developer (more than a word)
 
-Hi, I'm NeedMoreTruth. I hope my name gets famous one day. (In a good way 😅)
+Hi, I'm NeedMoreTruth. I hope my name gets famous one day. (In a good way)
 
-I'm a nerd who really, really loves cryptocurrency. The technology, the ideas, the design, all of it. 🧡 I've tried and read up on a lot of coins, but I don't have much money, they aren't easy to buy, and it was all a bit awkward.
+I'm a nerd who really, really loves cryptocurrency. The technology, the ideas, the design, all of it. I've tried and read up on a lot of coins, but I don't have much money, they aren't easy to buy, and it was all a bit awkward.
 
 So I thought about running a real coin on my own computer. Cosmos SDK wasn't for me. Bitcoin Core's built-in test coins did too little. Nothing else out there satisfied me either. I'd already done most of what I could, and with no money and not much skill, I put together something simple: a coin you can make and try yourself, offline on your own network, very easily.
 
-It's nothing grand, but here's what matters. I don't like fake simulations, and I don't like things that are hard to run. 🙅
+It's nothing grand, but here's what matters. I don't like fake simulations, and I don't like things that are hard to run.
 
 So what do I want?
 
@@ -73,9 +73,9 @@ So what do I want?
 - Nothing is fake. Real devices really compute, talk to each other, mine and verify.
 - You use it through a simple, clear app, with no complicated commands.
 
-If people take an interest in OfflineCoin later, I'd like to support it properly and build a site where you can try it right there. 🌐 But I don't know yet if it's worth spending money on. I already have plenty of projects that will cost a lot, so I'll wait and see.
+If people take an interest in OfflineCoin later, I'd like to support it properly and build a site where you can try it right there. But I don't know yet if it's worth spending money on. I already have plenty of projects that will cost a lot, so I'll wait and see.
 
-(Spending money here would be for fun. I have no plans to make money from this. Normally I'd just spend it here, but right now I'm building something really important and the money has to go there. Then again, if this project gets attention, even that money won't beat my inner nerd 🤓)
+(Spending money here would be for fun. I have no plans to make money from this. Normally I'd just spend it here, but right now I'm building something really important and the money has to go there. Then again, if this project gets attention, even that money won't beat my inner nerd)
 
 ## The coin
 

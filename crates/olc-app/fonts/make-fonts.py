@@ -4,10 +4,9 @@
 Inter comes from the variable Latin web subset of rsms/inter, cut to three weights, and its digits
 are mapped to the tabular ones so amounts line up in a ledger without the toolkit's OpenType help.
 Noto Sans KR is the Korean face of the variable Noto Sans CJK, cut to the same weights: Regular
-keeps every Hangul syllable so any name can show, the others keep the common 2,350. Noto Emoji is cut
-to the few the developer's note uses.
+keeps every Hangul syllable so any name can show, the others keep the common 2,350.
 
-    python3 make-fonts.py INTER.woff2 NOTO-CJK.ttc NOTO-EMOJI.ttf
+    python3 make-fonts.py INTER.woff2 NOTO-CJK.ttc
 """
 import sys
 from fontTools.subset import Options, Subsetter
@@ -76,15 +75,6 @@ def noto(source):
         instance.save(f"NotoSansKR-{name}.otf")
 
 
-def emoji(path):
-    font = TTFont(path)
-    subsetter = Subsetter(plain_options())
-    subsetter.populate(unicodes=[0x1F605, 0x1F9E1, 0x1F645, 0x1F310, 0x1F913])
-    subsetter.subset(font)
-    font.save("NotoEmoji-Subset.ttf")
-
-
 if __name__ == "__main__":
     inter(sys.argv[1])
     noto(sys.argv[2])
-    emoji(sys.argv[3])

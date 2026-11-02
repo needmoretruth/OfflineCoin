@@ -122,6 +122,6 @@ These come from radio and storage.
 
 ## Fonts
 
-The Korean letters on the OLED come from [Galmuri](https://github.com/quiple/galmuri). OLC Core carries Inter, Noto Sans KR, Noto Emoji and IBM Plex Mono. All five are under the SIL Open Font License.
+The Korean letters on the OLED come from [Galmuri](https://github.com/quiple/galmuri). OLC Core carries Inter, Noto Sans KR and IBM Plex Mono. All four are under the SIL Open Font License.
 
 To remake the coin at the top of the README, see `tools/logo/spin_gif.py`.
