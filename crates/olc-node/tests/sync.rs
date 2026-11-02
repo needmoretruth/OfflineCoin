@@ -1,7 +1,7 @@
 //! Catching up: forward from the node's own position, whatever arrives or gets lost.
 mod common;
 
-use common::{deliver, engine, mine, silence};
+use common::{deliver, engine, engine_of, mine, silence, test_coin};
 use olc_node::{Engine, Heights, Message, Outgoing};
 
 const LONG_CHAIN: u64 = 200;
@@ -174,15 +174,29 @@ fn a_slow_check_is_not_taken_for_a_quiet_peer() {
     assert_eq!(asks(&mut nodes[1]), 1);
 }
 
+/// Loses every block but a few, as a line that fails after real blocks came.
+fn past_the_first_blocks() -> impl FnMut(&Message) -> bool {
+    let mut let_through = 2;
+    move |message| {
+        if !matches!(message, Message::Block(_)) {
+            return false;
+        }
+        let lost = let_through == 0;
+        let_through -= usize::from(!lost);
+        lost
+    }
+}
+
 #[test]
 fn a_node_well_behind_does_not_mine_until_it_has_caught_up() {
     let mut nodes = [engine(1), engine(2)];
     grown_by(&mut nodes[0], 30, 0);
     nodes[0].tick(100_000);
     nodes[1].tick(100_000);
-    carry(&mut nodes, |message| matches!(message, Message::Block(_)));
+    carry(&mut nodes, past_the_first_blocks());
+    nodes[1].tick(100_500);
     assert_eq!(nodes[1].status().syncing_to, Some(30));
-    assert!(!nodes[1].mine(HEAVY_ATTEMPTS, 101_000));
+    assert!(!nodes[1].mine(HEAVY_ATTEMPTS, 100_500));
 
     deliver(&mut nodes);
     nodes[0].tick(110_000);
@@ -199,10 +213,107 @@ fn a_node_goes_back_to_mining_when_the_peer_it_followed_leaves() {
     grown_by(&mut nodes[0], 30, 0);
     nodes[0].tick(100_000);
     nodes[1].tick(100_000);
-    carry(&mut nodes, |message| matches!(message, Message::Block(_)));
+    carry(&mut nodes, past_the_first_blocks());
+    nodes[1].tick(100_500);
     assert!(nodes[1].status().syncing_to.is_some());
 
     nodes[1].tick(200_000);
     assert_eq!(nodes[1].status().syncing_to, None);
     assert!(nodes[1].mine(HEAVY_ATTEMPTS, 200_000));
+}
+
+fn config_block_ms() -> u64 {
+    test_coin().rules.block_time_ms
+}
+
+/// Offline groups run apart for hours, and when they meet the most work must win everywhere.
+#[test]
+fn nodes_that_mined_apart_for_long_end_on_one_chain() {
+    let mut config = test_coin();
+    config.rules.retarget_interval = 10;
+    let born = config.genesis().header.time_ms;
+    let mut nodes = [engine_of(1, config.clone()), engine_of(2, config)];
+    for (node, blocks) in nodes.iter_mut().zip([300, 200]) {
+        for block in 1..=blocks {
+            mine(node, born + block * config_block_ms());
+        }
+        silence(node);
+    }
+    let mut now = born + 301 * config_block_ms();
+    for _ in 0..80 {
+        now += 2_000;
+        nodes[0].tick(now);
+        nodes[1].tick(now);
+        carry(&mut nodes, |_| false);
+    }
+    assert_eq!(nodes[1].chain().tip(), nodes[0].chain().tip());
+    assert_eq!(nodes[1].chain().height(), 300);
+}
+
+/// One false word from a peer must not stop a miner, however often it comes.
+#[test]
+fn a_claim_of_more_work_asks_and_stops_no_miner() {
+    let mut node = engine(1);
+    let genesis = node.chain().genesis_id();
+    let claim = || Message::Tip {
+        genesis,
+        tip: [7; 32],
+        previous: [6; 32],
+        height: 1_000,
+        work: u128::MAX,
+    };
+    let mut asked = 0;
+    for second in 0..60 {
+        let now = 100_000 + second * 1_000;
+        node.tick(now);
+        node.on_message(7, claim());
+        asked += std::iter::from_fn(|| node.take_outgoing())
+            .filter(|out| matches!(out, Outgoing::To(7, Message::GetBlocks(..))))
+            .count();
+        assert_eq!(node.status().syncing_to, None);
+        assert!(node.mine(HEAVY_ATTEMPTS, now), "stopped at {second} s");
+    }
+    assert!(asked > 0);
+}
+
+/// Claiming the most work must not keep a peer with real blocks from being heard.
+#[test]
+fn a_peer_that_claims_and_brings_nothing_gives_way_to_one_that_brings_blocks() {
+    const LIAR: u32 = 7;
+    let mut nodes = [engine(1), engine(2)];
+    grown_by(&mut nodes[0], 30, 0);
+    let genesis = nodes[1].chain().genesis_id();
+    for second in 0..40 {
+        let now = 100_000 + second * 1_000;
+        nodes[0].tick(now);
+        nodes[1].tick(now);
+        let claim = Message::Tip {
+            genesis,
+            tip: [7; 32],
+            previous: [6; 32],
+            height: 1_000,
+            work: u128::MAX,
+        };
+        nodes[1].on_message(LIAR, claim);
+        let mut moved = true;
+        while moved {
+            moved = false;
+            while let Some(outgoing) = nodes[0].take_outgoing() {
+                moved = true;
+                let (Outgoing::To(_, message) | Outgoing::All { message, .. }) = outgoing;
+                nodes[1].on_message(0, message);
+            }
+            while let Some(outgoing) = nodes[1].take_outgoing() {
+                moved = true;
+                let (to, message) = match outgoing {
+                    Outgoing::To(to, message) => (to, message),
+                    Outgoing::All { message, .. } => (0, message),
+                };
+                if to != LIAR {
+                    nodes[0].on_message(1, message);
+                }
+            }
+        }
+    }
+    assert_eq!(nodes[1].chain().tip(), nodes[0].chain().tip());
 }

@@ -210,7 +210,7 @@ impl Light {
             }
             Message::Headers(batch) => {
                 if self.take_headers(&batch, chain) {
-                    self.sync.answered(batch.len(), self.headers.position());
+                    self.sync.answered(batch.len(), self.headers.position(), self.now_ms);
                 } else {
                     self.sync.give_up_on(from);
                 }

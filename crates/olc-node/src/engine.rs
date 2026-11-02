@@ -297,7 +297,7 @@ impl Engine {
     /// The height this node is catching up to, while it is well behind it. It does not mine then.
     pub fn syncing_to(&self) -> Option<u64> {
         let (height, work) = (self.chain.height(), self.chain.total_work());
-        self.sync.behind(height, work, self.now_ms)
+        self.sync.behind(height, work, self.now_ms).filter(|_| self.sync.moving(self.now_ms))
     }
 
     fn ask_for_blocks(&mut self) {
@@ -409,11 +409,13 @@ impl Engine {
         }
         let height = block.txs.first().and_then(|tx| tx.coinbase_height);
         let outcome = self.chain.add_block(block);
+        let known = outcome == Err(ChainError::AlreadyKnown);
         let connected = match outcome {
             Ok(AddOutcome::Orphan { .. }) => None,
+            Err(_) if !known => None,
             _ => height.map(|height| (height, id)),
         };
-        self.sync.arrived(connected, outcome == Err(ChainError::AlreadyKnown));
+        self.sync.arrived(connected, known, self.now_ms);
         match outcome {
             Ok(AddOutcome::NewTip) => {
                 let height = self.chain.height();
