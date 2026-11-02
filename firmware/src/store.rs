@@ -87,7 +87,7 @@ pub struct Settings {
     pub own_network: String,
     /// Processor speed in MHz. Empty means the default.
     pub clock: String,
-    /// `on` starts Bluetooth. Empty means off.
+    /// `on` or `off`. Empty means the default.
     pub bluetooth: String,
     /// The order links are preferred in. Empty means the usual one.
     pub links: String,
@@ -120,6 +120,17 @@ pub struct Store {
 
 /// The chip as the wear rings see it.
 struct Nor;
+
+impl Settings {
+    /// A stored choice stays; a board that was never told goes by the shared default.
+    pub fn bluetooth_on(&self) -> bool {
+        match self.bluetooth.as_str() {
+            "on" => true,
+            "off" => false,
+            _ => olc_control::defaults::BOARD_BLUETOOTH,
+        }
+    }
+}
 
 impl Flash for Nor {
     fn read(&mut self, at: u32, bytes: &mut [u8]) -> bool {

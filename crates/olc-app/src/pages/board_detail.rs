@@ -10,21 +10,20 @@ use crate::ui::widgets::{
     button, button_on, field, meta, number_field, secret_field, segments, slot, switch, Kind,
 };
 use egui::Ui;
-use olc_control::defaults::BOARD_SCREEN_RATE;
+use olc_control::defaults::{BOARD_BRIGHT, BOARD_SCREEN_RATE};
 use olc_control::BoardId;
 use std::collections::HashMap;
 
 /// Dim, middle and bright, on the board's own scale of 0 to 255.
 const BRIGHT_STEPS: [u64; 3] = [24, 96, 255];
 const BRIGHT_MAX: u64 = 255;
-/// Used only until a board says its own number.
-const BRIGHT_FALLBACK: u64 = 96;
 
 #[derive(Default)]
 pub struct BoardDetail {
     pub(super) cap: u64,
     pub(super) smooth: u64,
     pub(super) bright: u64,
+    bright_heard: Option<u8>,
     name: String,
     pub(super) wifi_name: String,
     pub(super) wifi_password: String,
@@ -74,7 +73,8 @@ impl BoardDetail {
             0 => u64::from(BOARD_SCREEN_RATE),
             fps => u64::from(fps),
         };
-        self.bright = board.state.bright.map_or(BRIGHT_FALLBACK, u64::from);
+        self.bright = board.state.bright.map_or(u64::from(BOARD_BRIGHT), u64::from);
+        self.bright_heard = board.state.bright;
         cx.send(Command::ReadBoardState(board.seen.id));
         self.name.clone_from(&beacon.name);
     }
@@ -105,8 +105,13 @@ impl BoardDetail {
         });
     }
 
-    fn bright_row(&mut self, ui: &mut Ui, cx: &Cx, id: BoardId) {
+    fn bright_row(&mut self, ui: &mut Ui, cx: &Cx, id: BoardId, told: Option<u8>) {
         let t = cx.t;
+        // The board answers after the page has opened, and a number being typed stays.
+        if told != self.bright_heard {
+            self.bright_heard = told;
+            self.bright = told.map_or(self.bright, u64::from);
+        }
         let names = ["boards.dim", "boards.middle", "boards.bright_full"];
         let items: Vec<(u64, String)> =
             BRIGHT_STEPS.iter().zip(names).map(|(step, key)| (*step, cx.say(key).to_string())).collect();
@@ -294,7 +299,7 @@ impl BoardDetail {
         }
         self.name_row(ui, cx, id);
         Self::mining_row(ui, cx, board);
-        self.bright_row(ui, cx, id);
+        self.bright_row(ui, cx, id, board.state.bright);
         Self::update_row(ui, cx, board);
         Self::screen_rows(ui, cx, board);
         group(ui, cx.say("boards.connections"));

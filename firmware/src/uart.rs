@@ -27,6 +27,23 @@ struct Wires {
     ways: [Uart<'static, Blocking>; 2],
     using: usize,
     arrived: VecDeque<u8>,
+    waiting: VecDeque<u8>,
+}
+
+impl Wires {
+    /// Fills the hardware buffer. It empties in about a millisecond, far sooner than a turn of
+    /// the main loop, so the interrupt calls this too.
+    fn send_more(&mut self) {
+        let way = &mut self.ways[self.using];
+        while way.write_ready() {
+            let Some(byte) = self.waiting.pop_front() else {
+                break;
+            };
+            if way.write(&[byte]).is_err() {
+                break;
+            }
+        }
+    }
 }
 
 /// Lines spoiled on the way, since the board started.
@@ -70,14 +87,16 @@ fn on_uart() {
                     wires.arrived.extend(&bytes[..size.min(room)]);
                 }
             }
-            wires.ways[way].clear_interrupts(UartInterrupt::RxFifoFull | UartInterrupt::RxTimeout);
+            wires.ways[way].clear_interrupts(
+                UartInterrupt::RxFifoFull | UartInterrupt::RxTimeout | UartInterrupt::TxDone,
+            );
         }
+        wires.send_more();
     });
 }
 
-/// The wires as the node sees them. Sending waits in `waiting` so a block never stalls mining.
+/// The wires as the node sees them. Sending waits in `Wires` so a block never stalls mining.
 pub struct Pins {
-    waiting: VecDeque<u8>,
     hunt: Hunt,
     rng: Rng,
     /// How long the last search took, for `wires`.
@@ -98,9 +117,14 @@ impl Pipe for Pins {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        if self.waiting.len() + bytes.len() <= MOST_WAITING {
-            self.waiting.extend(bytes);
-        }
+        critical_section::with(|cs| {
+            if let Some(wires) = WIRES.borrow_ref_mut(cs).as_mut() {
+                if wires.waiting.len() + bytes.len() <= MOST_WAITING {
+                    wires.waiting.extend(bytes);
+                    wires.send_more();
+                }
+            }
+        });
     }
 
     fn read(&mut self, into: &mut [u8]) -> usize {
@@ -120,15 +144,7 @@ impl Pipe for Pins {
                 return 0;
             };
             wires.using = usize::from(self.hunt.way);
-            let using = wires.using;
-            while wires.ways[using].write_ready() {
-                let Some(byte) = self.waiting.pop_front() else {
-                    break;
-                };
-                if wires.ways[using].write(&[byte]).is_err() {
-                    break;
-                }
-            }
+            wires.send_more();
             let size = wires.arrived.len().min(into.len());
             for (to, from) in into.iter_mut().zip(wires.arrived.drain(..size)) {
                 *to = from;
@@ -164,7 +180,7 @@ fn one_way(device: impl Instance + 'static, talk: Flex<'static>, hear: InputSign
         .with_tx(talk.with_gpio_matrix_forced(true).freeze())
         .with_rx(hear.with_gpio_matrix_forced(true));
     uart.set_interrupt_handler(on_uart);
-    uart.listen(UartInterrupt::RxFifoFull | UartInterrupt::RxTimeout);
+    uart.listen(UartInterrupt::RxFifoFull | UartInterrupt::RxTimeout | UartInterrupt::TxDone);
     uart
 }
 
@@ -193,7 +209,8 @@ pub fn start(
             ways,
             using: usize::from(hunt.way),
             arrived: VecDeque::with_capacity(1024),
+            waiting: VecDeque::new(),
         });
     });
-    LineLink::new(Pins { waiting: VecDeque::new(), hunt, rng, hunting_from_ms: 0 })
+    LineLink::new(Pins { hunt, rng, hunting_from_ms: 0 })
 }

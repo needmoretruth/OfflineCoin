@@ -275,7 +275,7 @@ pub fn start(
     seed: u64,
 ) -> (EspNow, WifiLink, Network) {
     let mut controller = WifiController::new(device, Default::default()).expect("Wi-Fi starts");
-    if settings.bluetooth == "on" {
+    if settings.bluetooth_on() {
         // The two radios share one antenna, and Wi-Fi has to let go of it between frames.
         let _ = controller.set_power_saving(PowerSaveMode::Minimum);
     }

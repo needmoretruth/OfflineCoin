@@ -26,4 +26,9 @@ fn the_firmware_reads_the_shared_defaults() {
     let clock = source("firmware/src/clock.rs");
     assert!(clock.contains("defaults::BOARD_CLOCK_MHZ as DEFAULT_MHZ"));
     assert!(!clock.contains("const DEFAULT_MHZ"));
+    let screen = source("firmware/src/screen.rs");
+    assert!(screen.contains("defaults::BOARD_BRIGHT as DEFAULT_BRIGHT"));
+    assert!(!screen.contains("const DEFAULT_BRIGHT"));
+    assert!(source("firmware/src/store.rs").contains("defaults::BOARD_BLUETOOTH"));
+    assert!(!source("firmware/src/main.rs").contains("settings.bluetooth =="));
 }

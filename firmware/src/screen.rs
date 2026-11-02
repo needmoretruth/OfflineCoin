@@ -31,7 +31,7 @@ const STARTUP: [u8; 24] = [
     0xDA, 0x12, 0x81, DEFAULT_BRIGHT, 0xD9, 0xF1, 0xDB, 0x40, 0xA4,
 ];
 /// Plenty on a desk, and an organic panel ages with how hard it is driven.
-pub const DEFAULT_BRIGHT: u8 = 0x40;
+pub use olc_control::defaults::BOARD_BRIGHT as DEFAULT_BRIGHT;
 const SET_CONTRAST: u8 = 0x81;
 const SWITCH_ON: [u8; 3] = [COMMAND, 0xA6, 0xAF];
 

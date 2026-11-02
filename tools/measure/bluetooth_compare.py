@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Compares Bluetooth on and off on every board, in turns: bluetooth_compare.py MINUTES ROUNDS [LOG]."""
+"""Compares Bluetooth on and off on every board, in turns, with blocks, branch moves, link moves and rate: bluetooth_compare.py MINUTES ROUNDS [LOG]."""
+import re
 import sys
 import time
 
@@ -23,6 +24,9 @@ def turn(ids, state, minutes, log):
     first = {board: boards.status(board) for board in ids}
     rates = {board: [] for board in ids}
     behind = {board: 0 for board in ids}
+    moved = {board: 0 for board in ids}
+    reorg = {board: first[board].get("reorg") for board in ids}
+    fell_back = {board: 0 for board in ids}
     lost = {board: 0 for board in ids}
     gone = 0
     samples = 0
@@ -34,13 +38,15 @@ def turn(ids, state, minutes, log):
                 now[board] = boards.status(board)
             except OSError:
                 gone += 1
-        if len(now) == len(ids) and all(now.values()):
+        if len(now) == len(ids) and all("height" in fields for fields in now.values()):
             top = max(int(fields["height"]) for fields in now.values())
             samples += 1
             for board, fields in now.items():
                 rates[board].append(int(fields["hashrate"]))
                 behind[board] += int(fields["height"]) < top - 1
                 lost[board] += int(fields["peers"]) < 1
+                fell_back[board] += fields["reorg"] != reorg[board]
+                reorg[board] = fields["reorg"]
         else:
             gone += 1
         log.write(f"{time.time():.0f} {state} " + " ".join(
@@ -50,10 +56,11 @@ def turn(ids, state, minutes, log):
         time.sleep(EVERY)
     last = {board: boards.status(board) for board in ids}
     for board in ids:
+        moved[board] = sum(int(count) for count in re.findall(r"moves=(\d+)", boards.line(board, "near") or ""))
         print(f"{state} {board[-4:]} blocks +{int(last[board]['height']) - int(first[board]['height'])} "
               f"hash {sum(rates[board]) / max(1, len(rates[board])):.1f} "
               f"behind {behind[board]}/{samples} no_peer {lost[board]} "
-              f"reorg {first[board]['reorg']}->{last[board]['reorg']} reset {last[board]['reset']} "
+              f"reorgs {fell_back[board]} link_moves {moved[board]} reset {last[board]['reset']} "
               f"temp {last[board]['temp']} rssi {last[board]['rssi']} no_answer {gone}", flush=True)
 
 

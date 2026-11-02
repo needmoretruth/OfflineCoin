@@ -231,7 +231,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut id = [0u8; 8];
     id[..6].copy_from_slice(&me);
     runner.set_id(u64::from_le_bytes(id));
-    if settings.bluetooth == "on" {
+    if settings.bluetooth_on() {
         let link = ble::start(spawner, peripherals.BT, runner.id(), me);
         runner.add_link(Box::new(link));
     }
@@ -276,7 +276,7 @@ async fn main(spawner: Spawner) -> ! {
         view: View::from_name(&settings.view).unwrap_or(View::Basic),
         language: Language::from_name(&settings.language).unwrap_or(Language::English),
         mining: !light && settings.mine != "off",
-        bluetooth: settings.bluetooth == "on",
+        bluetooth: settings.bluetooth_on(),
         work: None,
         waiting_coin: None,
         limit: limit.unwrap_or(node::RELAXED_LIMIT),

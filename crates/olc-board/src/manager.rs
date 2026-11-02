@@ -418,6 +418,12 @@ impl Manager {
         thread::spawn(move || manager.update(board));
     }
 
+    /// A new image always lands in the slot the board is not running from.
+    fn running_slot(&self, board: BoardId) -> Option<String> {
+        let line = command(&self.fleet, board, "status").ok().flatten()?;
+        line.split(' ').find(|word| word.starts_with("slot=")).map(str::to_string)
+    }
+
     /// Sends the firmware to a board and tells whether it came back with it.
     pub fn update(&self, board: BoardId) -> bool {
         let key = hex(&board);
@@ -445,6 +451,7 @@ impl Manager {
             )
         };
         let ledger = Ledger::open(&config_folder()?);
+        let slot_before = self.running_slot(board);
         let delivery = deliver(&self.fleet, &ledger, board, &image, hash_of(&image), &shown)?;
         self.set_job(key, Some("restarting".into()));
         let deadline = Instant::now() + RETURN_WAIT;
@@ -460,6 +467,9 @@ impl Manager {
             if back.unwrap_or(false) {
                 let answer = command(&self.fleet, board, "status");
                 if answer.is_ok_and(|line| line.is_some_and(|line| line.starts_with("status"))) {
+                    if slot_before.is_some() && self.running_slot(board) == slot_before {
+                        return Err("The board came back on its old build.".to_string());
+                    }
                     return ledger.landed(&delivery);
                 }
             }

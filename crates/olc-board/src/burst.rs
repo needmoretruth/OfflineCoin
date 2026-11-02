@@ -20,6 +20,8 @@ const HUB_WAIT: Duration = Duration::from_secs(12);
 const FOLLOW_EVERY: Duration = Duration::from_millis(500);
 /// Writing a page of flash or changing branch can hold a board this long.
 const STALLED_AFTER: Duration = Duration::from_secs(30);
+/// The board restarts by itself as soon as it has all of it, sometimes between two questions.
+const SILENT_AT_THE_END: Duration = Duration::from_secs(6);
 
 type Word = (u32, Vec<(u32, u32)>);
 
@@ -130,6 +132,12 @@ fn hub_serves(
     Ok(false)
 }
 
+/// Past nineteen parts in twenty of `done`, which counts to twice the size. The caller still
+/// waits for the board to return with the new build, so this only moves the verdict there.
+fn nearly_all(done: u32, size: u32) -> bool {
+    u64::from(done) * 20 >= u64::from(size) * 2 * 19
+}
+
 /// Watches a transfer between two boards until the target has everything in flash.
 fn follow(
     fleet: &SharedFleet,
@@ -139,12 +147,17 @@ fn follow(
     on_progress: &dyn Fn(u32),
 ) -> Result<(), String> {
     let mut heard = Instant::now();
+    let mut last = 0;
     while heard.elapsed() < STALLED_AFTER {
+        if nearly_all(last, size) && heard.elapsed() > SILENT_AT_THE_END {
+            return Ok(());
+        }
         with(fleet, |fleet| {
             fleet.send_body(board, Body::AskMissing { session })
         })?;
         if let Some((done, _)) = wait_for_word(fleet, board, session, FOLLOW_EVERY)? {
             heard = Instant::now();
+            last = done;
             on_progress(done / 2);
             if done >= size.saturating_mul(2) {
                 return Ok(());
@@ -189,5 +202,14 @@ mod tests {
     fn every_piece_of_every_stretch_is_wanted_in_order() {
         let pieces: Vec<u32> = wanted(&[(2, 2), (7, 1)]).collect();
         assert_eq!(pieces, [2, 3, 7]);
+    }
+
+    #[test]
+    fn only_silence_at_the_very_end_counts_as_a_restart() {
+        const SIZE: u32 = 2_000_000;
+        assert!(!nearly_all(0, SIZE));
+        assert!(!nearly_all(SIZE, SIZE));
+        assert!(nearly_all(SIZE * 2 / 20 * 19, SIZE));
+        assert!(nearly_all(SIZE * 2, SIZE));
     }
 }
