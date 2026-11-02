@@ -108,7 +108,7 @@ fn sample(word: &str, home: &Path) -> String {
         "restore" => format!("restore {}", file("backup.json")),
         "miner" => "miner off".into(),
         "keep" => "keep 100".into(),
-        "merge" | "bluetooth" | "light" | "mining" | "mine" => format!("{word} off"),
+        "merge" | "version1" | "bluetooth" | "light" | "mining" | "mine" => format!("{word} off"),
         "espnow" => "espnow off".into(),
         "watch" => format!("watch {somebody}"),
         "prepare" => format!("prepare {somebody} 5"),

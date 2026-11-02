@@ -235,5 +235,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.not_taken", "Nodes would not take this spend."),
     ("lock.not_open", "These unlock words do not open the lock. A time lock opens only from its height."),
     ("lock.spent", "This coin is already spent."),
+    ("pro.version_one", "Sign the old way"),
+    ("pro.version_one_about", "Signs payments as version 1, as the first Bitcoin did. They still go through, but a fork of this coin could copy them."),
     ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Network page."),
 ];

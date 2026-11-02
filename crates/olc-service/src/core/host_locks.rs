@@ -1,4 +1,4 @@
-//! Coins under a beta lock, for a person or for a node's own command line.
+//! Coins under a lock, for a person or for a node's own command line.
 use super::commands::LockOrder;
 use super::host::{Host, PayError, Waiting};
 use super::host_parts::unix_ms;
@@ -6,7 +6,8 @@ use super::{format_coins, parse_coins};
 use olc_core::{ChainError, Hash, OutPoint};
 use olc_crypto::hash;
 use olc_lang::words::{
-    hash_lock, lock_from_text, public_key_from_text, time_lock, two_of_two, Cost, WordError,
+    hash_lock, lock_from_text, lock_from_text_in, public_key_from_text, time_lock, two_of_two, Cost, Dialect,
+    WordError,
 };
 use olc_node::locks::{LockFailure, LockedCoin};
 use olc_wallet::locks::{LockError, LockSpend};
@@ -47,9 +48,11 @@ pub fn time_lock_for(height: &str, address: &str) -> Option<String> {
     Some(time_lock(height.trim().parse().ok()?, &parse_address(address.trim())?))
 }
 
-/// What the words of a lock cost, or what is wrong with them.
+/// What the words of a lock cost, or what is wrong with them. Words only today's Bitcoin knows
+/// read as gamma.
 pub fn check_lock(words: &str) -> Result<Cost, WordError> {
-    lock_from_text(words).map(|(_, cost)| cost)
+    let beta = lock_from_text(words);
+    beta.or_else(|error| lock_from_text_in(Dialect::Gamma, words).map_err(|_| error)).map(|(_, cost)| cost)
 }
 
 /// The words of a lock's fault, as the key of a sentence and what to put in it.

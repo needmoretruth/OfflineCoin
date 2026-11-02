@@ -1,7 +1,6 @@
 //! Blocks, payments, addresses and notes, read from the node's own chain.
 use olc_core::{Block, Chain, Hash, ADDRESS_LANGUAGE};
-use olc_lang::words::words_of;
-use olc_lang::BETA;
+use olc_lang::words::{words_of_in, Dialect};
 use olc_wallet::{format_address, parse_address};
 
 /// Enough to fill a screen, and little enough to read at every new tip.
@@ -22,7 +21,7 @@ pub struct OutputRow {
     pub to: String,
     /// The words of a data output.
     pub note: Option<String>,
-    /// The words of a beta lock.
+    /// The words of a beta or gamma lock.
     pub lock: Option<String>,
 }
 
@@ -85,7 +84,7 @@ fn tx_row(tx: &olc_core::Tx) -> TxRow {
             value: output.value,
             to: plain.map(|to| format_address(&to)).unwrap_or_default(),
             note: data.then(|| text_of(&output.lock)),
-            lock: (output.language == BETA).then(|| words_of(&output.lock)),
+            lock: Dialect::of(output.language).map(|dialect| words_of_in(dialect, &output.lock)),
         }
     });
     TxRow {

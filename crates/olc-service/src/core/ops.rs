@@ -194,6 +194,11 @@ pub trait Book {
         self.change_settings(|settings| settings.no_merge = !on)
     }
 
+    fn set_version_one(&self, on: bool) -> Result<(), String> {
+        self.live(|runner| runner.engine.set_version_one(on))?;
+        self.change_settings(|settings| settings.version_one = on)
+    }
+
     /// Takes the unspent set of the peer that has what this node lacks. Only a person says so.
     fn accept_snapshot(&self) -> Result<(), String> {
         self.live(|runner| {
@@ -248,6 +253,9 @@ pub trait Book {
             }
             Personal::SetMerging(on) => {
                 self.set_merging(on).map(|()| ("notice.saved", String::new()))
+            }
+            Personal::SetVersionOne(on) => {
+                self.set_version_one(on).map(|()| ("notice.saved", String::new()))
             }
             Personal::Watch(text) => self.watch(&text).map(|()| ("notice.saved", String::new())),
             Personal::SetLight(on) => self

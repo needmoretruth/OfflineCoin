@@ -566,6 +566,7 @@ impl Worker {
             miner_is_chosen: engine.miner_is_chosen(),
             mine_note: text_of(engine.note()),
             merging: engine.merging(),
+            version_one: engine.version_one(),
             links: runner.rank(),
             bluetooth: radios::bluetooth_here().then_some(self.wants_bluetooth),
             no_bluetooth: radios::no_bluetooth(),

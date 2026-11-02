@@ -140,6 +140,14 @@ impl Extras<'_> {
                 cx.send(Command::Own(Personal::SetMerging(merging)));
             }
         });
+        if cx.expert() {
+            row(ui, t, cx.say("pro.version_one"), cx.say("pro.version_one_about"), |ui| {
+                let mut on = node.version_one;
+                if switch(ui, t, &mut on, cx.say("pro.version_one")).clicked() {
+                    cx.send(Command::Own(Personal::SetVersionOne(on)));
+                }
+            });
+        }
         widgets::slot(ui, |ui| {
             if node.rebuilt {
                 meta(ui, cx.say("storage.rebuilt"), t);

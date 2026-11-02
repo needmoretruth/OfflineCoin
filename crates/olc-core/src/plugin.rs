@@ -1,6 +1,6 @@
 //! The two sockets of the chain. A new consensus or lock language is a new implementation of one
 //! of these traits, added at start-up, with no change to this crate.
-use crate::types::BlockHeader;
+use crate::types::{BlockHeader, Tx, SEQUENCE_FINAL};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_crypto::Hash;
@@ -37,11 +37,37 @@ pub trait Consensus: Send {
 }
 
 /// What a lock language may look at when an output is spent.
-pub struct SpendContext {
-    /// The digest signatures must cover.
+pub struct SpendContext<'a> {
+    /// The digest a signature without a kind byte covers.
     pub signature_hash: Hash,
     /// Height of the block spending the output.
     pub height: u64,
+    /// The spend itself, from the coin's upgrade on, for what newer words read. `None` before
+    /// it, so nothing judged there can depend on it.
+    pub spending: Option<Spending<'a>>,
+}
+
+/// One input of a transaction on an upgraded coin.
+#[derive(Clone, Copy)]
+pub struct Spending<'a> {
+    pub tx: &'a Tx,
+    pub input: usize,
+    /// The lock of the coin it spends.
+    pub lock: &'a [u8],
+    /// What signatures name. See [`crate::CoinConfig::signing_id_at`].
+    pub coin: Hash,
+}
+
+impl Spending<'_> {
+    /// What a signature of `kind` covers. See [`crate::sighash`].
+    pub fn signature_hash(&self, kind: u8) -> Option<Hash> {
+        self.tx.signature_hash_as(self.input, self.lock, &self.coin, kind)
+    }
+
+    /// The input's sequence (BIP 68).
+    pub fn sequence(&self) -> u32 {
+        self.tx.inputs.get(self.input).map_or(SEQUENCE_FINAL, |input| input.sequence)
+    }
 }
 
 /// Decides when a locked output can be spent.

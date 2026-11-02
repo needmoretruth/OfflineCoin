@@ -1,6 +1,8 @@
-//! Beta scripts as text words, so a person writes `HASH 0x12ab EQUAL` and never bytes. Reading a
-//! script back gives the same words, and a block explorer shows them.
+//! Beta and gamma scripts as text words, so a person writes `HASH 0x12ab EQUAL` and never bytes.
+//! Reading a script back gives the same words, and a block explorer shows them. The functions
+//! without `_in` read beta, as they always did.
 use crate::beta::{op, signature_checks};
+use crate::{gamma, gamma_words, BETA, GAMMA};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -88,6 +90,45 @@ const NAMES: &[(&str, u8)] = &[
     ("CHECKHEIGHT", op::CHECK_HEIGHT),
 ];
 
+/// Whose words: beta's, the 2009 set, or gamma's, which are today's Bitcoin's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dialect {
+    Beta,
+    Gamma,
+}
+
+impl Dialect {
+    /// The words of a lock language, for the two that have words.
+    pub fn of(language: u8) -> Option<Self> {
+        match language {
+            BETA => Some(Self::Beta),
+            GAMMA => Some(Self::Gamma),
+            _ => None,
+        }
+    }
+
+    pub fn language(self) -> u8 {
+        match self {
+            Self::Beta => BETA,
+            Self::Gamma => GAMMA,
+        }
+    }
+
+    fn names(self) -> &'static [(&'static str, u8)] {
+        match self {
+            Self::Beta => NAMES,
+            Self::Gamma => gamma_words::NAMES,
+        }
+    }
+
+    fn checks(self, script: &[u8]) -> usize {
+        match self {
+            Self::Beta => signature_checks(script),
+            Self::Gamma => gamma::signature_checks(script),
+        }
+    }
+}
+
 fn hex_value(byte: u8) -> Option<u8> {
     char::from(byte).to_digit(16).and_then(|digit| u8::try_from(digit).ok())
 }
@@ -114,9 +155,9 @@ fn data_word(bytes: Vec<u8>, shown: &str) -> Result<Word, WordError> {
     }
 }
 
-fn one_word(text: &str) -> Result<Word, WordError> {
+fn one_word(dialect: Dialect, text: &str) -> Result<Word, WordError> {
     let upper = text.to_ascii_uppercase();
-    if let Some((_, code)) = NAMES.iter().find(|(name, _)| *name == upper) {
+    if let Some((_, code)) = dialect.names().iter().find(|(name, _)| *name == upper) {
         return Ok(Word::Op(*code));
     }
     if let Some(hex) = text.strip_prefix("0x") {
@@ -129,6 +170,9 @@ fn one_word(text: &str) -> Result<Word, WordError> {
     if let Some(address) = text.strip_prefix("key:") {
         return Ok(Word::KeyOf(address.to_string()));
     }
+    if dialect == Dialect::Gamma {
+        return gamma_words::number_word(text).ok_or_else(|| WordError::Unknown(text.to_string()));
+    }
     match text.parse::<u64>() {
         Ok(0) => Ok(Word::Op(op::ZERO)),
         Ok(1) => Ok(Word::Op(op::ONE)),
@@ -138,7 +182,7 @@ fn one_word(text: &str) -> Result<Word, WordError> {
 }
 
 /// Splits text into words. `"..."` is one word of text, with `\"` and `\\` inside.
-fn split_words(text: &str) -> Result<Vec<Word>, WordError> {
+fn split_words(dialect: Dialect, text: &str) -> Result<Vec<Word>, WordError> {
     let mut words = Vec::new();
     let mut chars = text.chars().peekable();
     while let Some(next) = chars.peek().copied() {
@@ -164,7 +208,7 @@ fn split_words(text: &str) -> Result<Vec<Word>, WordError> {
             word.push(next);
             chars.next();
         }
-        words.push(one_word(&word)?);
+        words.push(one_word(dialect, &word)?);
     }
     Ok(words)
 }
@@ -189,7 +233,7 @@ fn branches_close(words: &[Word]) -> bool {
     let mut open = 0usize;
     for word in words {
         match word {
-            Word::Op(op::IF) => open += 1,
+            Word::Op(op::IF | gamma::op::NOT_IF) => open += 1,
             Word::Op(op::ELSE) if open == 0 => return false,
             Word::Op(op::END_IF) => match open.checked_sub(1) {
                 Some(left) => open = left,
@@ -203,7 +247,12 @@ fn branches_close(words: &[Word]) -> bool {
 
 /// Text to words, for a lock or an unlock.
 pub fn parse_words(text: &str) -> Result<Vec<Word>, WordError> {
-    let words = split_words(text)?;
+    parse_words_in(Dialect::Beta, text)
+}
+
+/// Text to words in `dialect`.
+pub fn parse_words_in(dialect: Dialect, text: &str) -> Result<Vec<Word>, WordError> {
+    let words = split_words(dialect, text)?;
     if words.is_empty() {
         return Err(WordError::Empty);
     }
@@ -213,8 +262,25 @@ pub fn parse_words(text: &str) -> Result<Vec<Word>, WordError> {
     Ok(words)
 }
 
+/// The number a word stands for in `dialect`, if it is one.
+pub fn number_in(dialect: Dialect, word: &Word) -> Option<i64> {
+    match (dialect, word) {
+        (Dialect::Gamma, Word::Op(code)) => gamma_words::small_number(*code),
+        (Dialect::Gamma, Word::Data(data)) => gamma_words::number_of(data),
+        (Dialect::Beta, Word::Op(op::ZERO)) => Some(0),
+        (Dialect::Beta, Word::Op(op::ONE)) => Some(1),
+        (Dialect::Beta, Word::Data(data)) => number_of(data).and_then(|number| i64::try_from(number).ok()),
+        _ => None,
+    }
+}
+
 /// Words to the bytes of a script, with what it costs. A lock has no `sig:` words.
 pub fn assemble(words: &[Word]) -> Result<(Vec<u8>, Cost), WordError> {
+    assemble_in(Dialect::Beta, words)
+}
+
+/// Words to the bytes of a script in `dialect`, with what it costs.
+pub fn assemble_in(dialect: Dialect, words: &[Word]) -> Result<(Vec<u8>, Cost), WordError> {
     for word in words {
         match word {
             Word::SignBy(address) => return Err(WordError::Unknown(format!("sig:{address}"))),
@@ -223,7 +289,7 @@ pub fn assemble(words: &[Word]) -> Result<(Vec<u8>, Cost), WordError> {
         }
     }
     let bytes = encode(words);
-    let cost = Cost { bytes: bytes.len(), ops: words.len(), signature_checks: signature_checks(&bytes) };
+    let cost = Cost { bytes: bytes.len(), ops: words.len(), signature_checks: dialect.checks(&bytes) };
     if cost.ops > MOST_OPS {
         return Err(WordError::TooManyOps(cost.ops));
     }
@@ -239,7 +305,12 @@ pub fn assemble(words: &[Word]) -> Result<(Vec<u8>, Cost), WordError> {
 
 /// Text to the bytes of a lock.
 pub fn lock_from_text(text: &str) -> Result<(Vec<u8>, Cost), WordError> {
-    assemble(&parse_words(text)?)
+    lock_from_text_in(Dialect::Beta, text)
+}
+
+/// Text to the bytes of a lock in `dialect`.
+pub fn lock_from_text_in(dialect: Dialect, text: &str) -> Result<(Vec<u8>, Cost), WordError> {
+    assemble_in(dialect, &parse_words_in(dialect, text)?)
 }
 
 /// The number these bytes are, when `number_bytes` gives the same bytes back.
@@ -250,7 +321,7 @@ fn number_of(data: &[u8]) -> Option<u64> {
     (number_bytes(number) == data).then_some(number)
 }
 
-fn show_data(data: &[u8], out: &mut String) {
+pub(crate) fn show_data(data: &[u8], out: &mut String) {
     let printable = data.iter().all(|byte| byte.is_ascii_graphic() || *byte == b' ');
     if printable && data.len() > 1 && core::str::from_utf8(data).is_ok() && data.len() < 20 {
         out.push('"');
@@ -269,13 +340,21 @@ fn show_data(data: &[u8], out: &mut String) {
     }
 }
 
-fn name_of(code: u8) -> Option<&'static str> {
-    NAMES.iter().find(|(_, found)| *found == code).map(|(name, _)| *name)
+fn name_of(dialect: Dialect, code: u8) -> Option<&'static str> {
+    dialect.names().iter().find(|(_, found)| *found == code).map(|(name, _)| *name)
 }
 
 /// The words of a script. A byte that has no word shows as `?xx`, so a person sees it is not a
 /// script that can run, and the rest still reads.
 pub fn words_of(script: &[u8]) -> String {
+    words_of_in(Dialect::Beta, script)
+}
+
+/// The words of a script in `dialect`.
+pub fn words_of_in(dialect: Dialect, script: &[u8]) -> String {
+    if dialect == Dialect::Gamma {
+        return gamma_words::words_of(script);
+    }
     let mut out = String::new();
     let mut at = 0;
     while at < script.len() {
@@ -303,7 +382,7 @@ pub fn words_of(script: &[u8]) -> String {
             at = end;
             continue;
         }
-        match (code, name_of(code)) {
+        match (code, name_of(Dialect::Beta, code)) {
             (op::ZERO, _) => out.push('0'),
             (op::ONE, _) => out.push('1'),
             (_, Some(name)) => out.push_str(name),
@@ -317,13 +396,18 @@ pub fn words_of(script: &[u8]) -> String {
 
 /// Words as text that reads back as the same words, with signatures still to come.
 pub fn text_of_words(words: &[Word]) -> String {
+    text_of_words_in(Dialect::Beta, words)
+}
+
+/// Words in `dialect` as text that reads back as the same words.
+pub fn text_of_words_in(dialect: Dialect, words: &[Word]) -> String {
     let mut out = String::new();
     for word in words {
         if !out.is_empty() {
             out.push(' ');
         }
         match word {
-            Word::Op(code) => out.push_str(&words_of(&[*code])),
+            Word::Op(code) => out.push_str(&words_of_in(dialect, &[*code])),
             Word::Data(data) if data.is_empty() => out.push('0'),
             Word::Data(data) => show_hex(data, &mut out),
             Word::SignBy(address) => {
@@ -363,6 +447,15 @@ pub fn time_lock(height: u64, address: &Address) -> String {
     out
 }
 
+/// A gamma lock this address opens once the coin has stood `blocks` blocks in the chain, with the
+/// spending input's sequence at least that (BIP 68 and 112).
+pub fn age_lock(blocks: u64, address: &Address) -> String {
+    let mut out = format!("{blocks} CHECKSEQUENCEVERIFY DROP DUP HASH ");
+    show_hex(address, &mut out);
+    out.push_str(" EQUALVERIFY CHECKSIG");
+    out
+}
+
 /// A public key typed as hex.
 pub fn public_key_from_text(text: &str) -> Option<[u8; 33]> {
     let text = text.trim();
@@ -380,14 +473,21 @@ fn signer(key: &[u8]) -> Option<String> {
 /// The unlock words a lock of a preset's shape takes, with the signatures still to come. A hash
 /// lock's unlock is a person's own secret, so it has none to offer.
 pub fn unlock_for(lock: &[u8]) -> String {
+    unlock_for_in(Dialect::Beta, lock)
+}
+
+/// [`unlock_for`] for a lock in `dialect`. Gamma writes small numbers as words of their own.
+pub fn unlock_for_in(dialect: Dialect, lock: &[u8]) -> String {
     use Word::{Data, Op};
-    let words = parse_words(&words_of(lock)).unwrap_or_default();
+    let words = parse_words_in(dialect, &words_of_in(dialect, lock)).unwrap_or_default();
+    let number = |word: &Word| matches!(word, Data(_)) || matches!(word, Op(code) if gamma_words::small_number(*code).is_some());
+    let waits = |code: u8| code == op::CHECK_HEIGHT || (dialect == Dialect::Gamma && code == gamma::op::CHECK_SEQUENCE);
     match words.as_slice() {
-        [Data(_), Data(first), Data(second), Data(_), Op(op::CHECK_MULTI_SIG)] => {
+        [count, Data(first), Data(second), total, Op(op::CHECK_MULTI_SIG)] if number(count) && number(total) => {
             let first = signer(first).zip(signer(second));
             first.map_or_else(String::new, |(a, b)| format!("sig:{a} sig:{b}"))
         }
-        [Data(_), Op(op::CHECK_HEIGHT), Op(op::DROP), Op(op::DUP), Op(op::HASH), Data(address), ..] => {
+        [height, Op(code), Op(op::DROP), Op(op::DUP), Op(op::HASH), Data(address), ..] if number(height) && waits(*code) => {
             let mut out = String::new();
             for byte in address {
                 let _ = write!(out, "{byte:02x}");
@@ -406,119 +506,5 @@ fn show_hex(bytes: &[u8], out: &mut String) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::beta::{unlock_address, Beta};
-    use olc_core::{LockLanguage, SpendContext};
-    use olc_crypto::{address_of, hash, public_key, sign};
-
-    fn context(height: u64) -> SpendContext {
-        SpendContext { signature_hash: hash(b"spend"), height }
-    }
-
-    fn unlocks(lock: &str, unlock: &[u8], height: u64) -> bool {
-        let (lock, _) = lock_from_text(lock).unwrap();
-        Beta.check(&lock, unlock, &context(height))
-    }
-
-    fn signed(seed: u8) -> ([u8; 33], [u8; 64]) {
-        let secret = [seed; 32];
-        (public_key(&secret).unwrap(), sign(&secret, &hash(b"spend")).unwrap())
-    }
-
-    fn push(script: &mut Vec<u8>, data: &[u8]) {
-        script.push(data.len() as u8);
-        script.extend_from_slice(data);
-    }
-
-    #[test]
-    fn the_hash_lock_opens_for_the_secret_alone() {
-        let lock = hash_lock(&hash(b"open sesame")[..20]);
-        let (right, _) = assemble(&parse_words("\"open sesame\"").unwrap()).unwrap();
-        let (wrong, _) = assemble(&parse_words("\"open barley\"").unwrap()).unwrap();
-        assert!(unlocks(&lock, &right, 0));
-        assert!(!unlocks(&lock, &wrong, 0));
-    }
-
-    #[test]
-    fn two_of_two_needs_both_signatures_in_order() {
-        let (first, first_signature) = signed(1);
-        let (second, second_signature) = signed(2);
-        let lock = two_of_two(&first, &second);
-        let mut both = Vec::new();
-        push(&mut both, &first_signature);
-        push(&mut both, &second_signature);
-        assert!(unlocks(&lock, &both, 0));
-        let mut one = Vec::new();
-        push(&mut one, &second_signature);
-        assert!(!unlocks(&lock, &one, 0));
-        let mut twice = Vec::new();
-        push(&mut twice, &first_signature);
-        push(&mut twice, &first_signature);
-        assert!(!unlocks(&lock, &twice, 0));
-    }
-
-    #[test]
-    fn the_time_lock_opens_at_its_height() {
-        let (key, signature) = signed(3);
-        let lock = time_lock(500, &address_of(&key));
-        let unlock = unlock_address(&key, &signature);
-        assert!(!unlocks(&lock, &unlock, 499));
-        assert!(unlocks(&lock, &unlock, 500));
-    }
-
-    #[test]
-    fn words_read_back_as_they_were_written() {
-        for text in [
-            "DUP HASH 0x0102030405060708090a0b0c0d0e0f1011121314 EQUALVERIFY CHECKSIG",
-            "1 IF \"yes\" ELSE 0 ENDIF DROP",
-            "500 CHECKHEIGHT DROP 1",
-            "SWAP ADD VERIFY RETURN",
-        ] {
-            let (bytes, _) = lock_from_text(text).unwrap();
-            assert_eq!(words_of(&bytes), text);
-        }
-    }
-
-    #[test]
-    fn lower_case_words_are_the_same_words() {
-        assert_eq!(lock_from_text("dup hash").unwrap(), lock_from_text("DUP HASH").unwrap());
-    }
-
-    #[test]
-    fn a_bad_script_says_what_is_wrong() {
-        let wrong = |text: &str| lock_from_text(text).unwrap_err();
-        assert_eq!(wrong("DUP SPIN"), WordError::Unknown("SPIN".into()));
-        assert_eq!(wrong("0xabc"), WordError::Unknown("0xabc".into()));
-        assert_eq!(wrong("\"open"), WordError::OpenQuote);
-        assert_eq!(wrong("IF 1"), WordError::OpenBranch);
-        assert_eq!(wrong("ENDIF"), WordError::OpenBranch);
-        assert_eq!(wrong("  "), WordError::Empty);
-        assert_eq!(wrong(&format!("0x{}", "ab".repeat(76))), WordError::TooLong(format!("0x{}", "ab".repeat(76))));
-        assert_eq!(wrong(&"DUP ".repeat(201)), WordError::TooManyOps(201));
-        assert_eq!(wrong("sig:abc"), WordError::Unknown("sig:abc".into()));
-    }
-
-    #[test]
-    fn a_script_says_what_it_costs() {
-        let (bytes, cost) = lock_from_text("DUP HASH 0x0102 EQUALVERIFY CHECKSIG").unwrap();
-        assert_eq!(cost, Cost { bytes: bytes.len(), ops: 5, signature_checks: 1 });
-        assert_eq!(bytes.len(), 7);
-    }
-
-    #[test]
-    fn bytes_that_are_no_script_still_read() {
-        assert_eq!(words_of(&[0xff, op::DUP]), "?ff DUP");
-        assert_eq!(words_of(&[5, 1]), "?cut");
-        assert_eq!(words_of(&[]), "");
-    }
-
-    #[test]
-    fn an_unlock_keeps_its_signature_place_for_the_wallet() {
-        let words = parse_words("sig:abc key:abc \"text\"").unwrap();
-        assert_eq!(words[0], Word::SignBy("abc".into()));
-        assert_eq!(words[1], Word::KeyOf("abc".into()));
-        assert_eq!(words[2], Word::Data(b"text".to_vec()));
-        assert_eq!(parse_words(&text_of_words(&words)).unwrap(), words);
-    }
-}
+#[path = "words_tests.rs"]
+mod tests;

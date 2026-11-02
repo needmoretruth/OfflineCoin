@@ -2,7 +2,7 @@
 use crate::engine::Engine;
 use crate::event::Event;
 use alloc::vec::Vec;
-use olc_core::{Address, Hash, OutPoint, Tx};
+use olc_core::{Address, Coins, Hash, OutPoint, Tx, Unspent};
 use olc_wallet::WalletError;
 
 /// Own payments remembered, so their change does not read as money received.
@@ -12,14 +12,52 @@ const MAX_SENT: usize = 16;
 pub(crate) struct Signing {
     tx: Tx,
     owners: Vec<Address>,
+    coin: Option<Hash>,
     done: usize,
 }
 
+/// The coins a payment of this node's spends, signed the way the node is set to sign.
+pub(crate) struct Paying<'a> {
+    coins: &'a dyn Coins,
+    version_one: bool,
+}
+
+impl Coins for Paying<'_> {
+    fn height(&self) -> u64 {
+        self.coins.height()
+    }
+
+    fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
+        self.coins.unspent_of(address)
+    }
+
+    fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
+        self.coins.is_mature(entry, spend_height)
+    }
+
+    /// A version 1 transaction names no coin.
+    fn signing_id(&self, height: u64) -> Option<Hash> {
+        self.coins.signing_id(height).filter(|_| !self.version_one)
+    }
+}
+
 impl Engine {
+    /// What this node's next payment spends. It is version 1 only where the coin still takes it.
+    pub(crate) fn paying(&self) -> Paying<'_> {
+        let next = self.chain.height() + 1;
+        let version_one = self.version_one && self.chain.config().takes_version_one_at(next);
+        Paying { coins: self.coins(), version_one }
+    }
+
+    /// What a signature in this node's next payment names. See [`Engine::paying`].
+    pub(crate) fn paying_signing(&self) -> Option<Hash> {
+        self.paying().signing_id(self.chain.height() + 1)
+    }
+
     /// Signs a payment from this node's wallet and sends it to the network.
     pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let tx = self.wallet.pay(self.coins(), to, amount, fee, &reserved)?;
+        let tx = self.wallet.pay(&self.paying(), to, amount, fee, &reserved)?;
         let id = self.send_payment(tx)?;
         self.push_event(Event::PaymentSent { amount });
         Ok(id)
@@ -28,7 +66,7 @@ impl Engine {
     /// Pays many addresses in one transaction.
     pub fn pay_many(&mut self, payments: &[(Address, u64)], fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let tx = self.wallet.pay_many(self.coins(), payments, fee, &reserved)?;
+        let tx = self.wallet.pay_many(&self.paying(), payments, fee, &reserved)?;
         let amount = payments.iter().map(|(_, amount)| *amount).fold(0, u64::saturating_add);
         let id = self.send_payment(tx)?;
         self.push_event(Event::PaymentSent { amount });
@@ -39,7 +77,7 @@ impl Engine {
     pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
         let fee = self.rules().min_fee;
-        let tx = self.wallet.note(self.coins(), data, fee, &reserved)?;
+        let tx = self.wallet.note(&self.paying(), data, fee, &reserved)?;
         self.send_payment(tx)
     }
 
@@ -77,8 +115,9 @@ impl Engine {
         }
         let reserved = self.reserved();
         let fee = self.chain.rules().min_fee;
-        if let Some((tx, owners)) = self.wallet.merge(&self.chain, fee, &reserved) {
-            self.signing = Some(Signing { tx, owners, done: 0 });
+        if let Some(unsigned) = self.wallet.merge(&self.chain, fee, &reserved) {
+            let olc_wallet::Unsigned { tx, owners, coin } = unsigned;
+            self.signing = Some(Signing { tx, owners, coin, done: 0 });
         }
     }
 
@@ -88,7 +127,8 @@ impl Engine {
             return;
         };
         let done = signing.done;
-        if self.wallet.sign_input(&mut signing.tx, &signing.owners, done).is_err() {
+        let coin = signing.coin;
+        if self.wallet.sign_input(&mut signing.tx, &signing.owners, done, coin.as_ref()).is_err() {
             return;
         }
         signing.done += 1;

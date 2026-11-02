@@ -53,6 +53,13 @@ pub const CLI_ROWS: &[Row] = &[
         "Needs a Wi-Fi card in monitor mode and its system name",
     ),
     row("merge", SETTINGS, "Keeping blocks, merge", "Personal::SetMerging"),
+    expert(
+        "version1",
+        SETTINGS,
+        "Keeping blocks, sign the old way",
+        "Personal::SetVersionOne",
+        "Payments a fork could copy are for people who know why they want them",
+    ),
     row("light", SETTINGS, "Keeping blocks", "Personal::SetLight"),
     row("mining", SETTINGS, "Mining, start on open", "settings.mine_on_start"),
     row("watch", SETTINGS, "Wallet, watch", "Personal::Watch"),

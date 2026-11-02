@@ -26,6 +26,9 @@ pub struct NodeSettings {
     /// Leaves small coins as they are when set.
     #[serde(default)]
     pub no_merge: bool,
+    /// Signs payments as version 1, as Bitcoin did in 2009.
+    #[serde(default)]
+    pub version_one: bool,
     /// Keeps headers only, and asks full nodes for its coins.
     #[serde(default)]
     pub light: bool,

@@ -11,6 +11,7 @@ olc-core.workspace = true
 olc-crypto.workspace = true
 olc-lang.workspace = true
 postcard.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 olc-pow.workspace = true

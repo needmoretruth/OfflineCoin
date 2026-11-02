@@ -4,7 +4,7 @@ mod common;
 
 use common::{deliver, engine_of, mine, silence, test_coin};
 use olc_core::coin::COIN;
-use olc_core::{OutPoint, Tx, TxIn, TxOut};
+use olc_core::{OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL};
 use olc_crypto::hash;
 use olc_lang::words::{assemble, hash_lock, parse_words};
 use olc_lang::ALPHA;
@@ -33,13 +33,13 @@ fn locked(nodes: &mut [Engine], words: &str) -> (OutPoint, Tx) {
         language: ALPHA,
         lock: nodes[1].address().to_vec(),
     };
-    let tx = Tx { version: 1, inputs: Vec::new(), outputs: vec![out], coinbase_height: None };
+    let tx = Tx { version: 1, inputs: Vec::new(), outputs: vec![out], coinbase_height: None, lock_time: 0 };
     (coin.point, tx)
 }
 
 fn with_unlock(mut tx: Tx, point: OutPoint, words: &str) -> Tx {
     let (unlock, _) = assemble(&parse_words(words).unwrap()).unwrap();
-    tx.inputs = vec![TxIn { previous: point, unlock }];
+    tx.inputs = vec![TxIn { previous: point, unlock, sequence: SEQUENCE_FINAL }];
     tx
 }
 

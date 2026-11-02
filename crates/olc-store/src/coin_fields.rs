@@ -344,6 +344,8 @@ pub fn new_coin(choices: &NewCoin) -> Result<CoinConfig, Bad> {
     let mut coin = CoinConfig::olc();
     coin.rules.floor_from_height = 0;
     coin.message_in_block = true;
+    // A new coin takes the upgrade from its genesis: its signatures name it from the first block.
+    coin.upgrade_from = 0;
     for (key, text) in choices.values.iter().filter(|(_, text)| !text.trim().is_empty()) {
         let field = coin_field(key).ok_or_else(|| Bad::on(key, Why::NotARule))?;
         (field.set)(&mut coin, text).map_err(|why| Bad::on(key, why))?;
@@ -444,7 +446,8 @@ mod tests {
         let mut keys = Vec::new();
         keys_of(&file, "", &mut keys);
         // A fork starts from a running coin, so it has its own word and a test of real nodes.
-        keys.retain(|key| key != "forks");
+        // A new coin takes the upgrade from genesis, so nobody chooses its height.
+        keys.retain(|key| key != "forks" && key != "upgrade_from");
         assert_eq!(keys.len(), COIN_FIELDS.len(), "{keys:?}");
         let samples = samples();
         for key in keys {

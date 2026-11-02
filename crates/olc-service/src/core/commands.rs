@@ -43,6 +43,8 @@ pub enum Personal {
     SetMineNote(String),
     SetRecent(Option<u64>),
     SetMerging(bool),
+    /// Whether this node signs its payments as version 1.
+    SetVersionOne(bool),
     Watch(String),
     /// Whether this node holds headers only.
     SetLight(bool),

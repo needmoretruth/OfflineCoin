@@ -1,14 +1,17 @@
-//! Coins under a beta lock. A person writes what opens the lock in words. Each wallet fills in the
-//! signatures it can make, and a lock that needs two people passes the spend along as text.
+//! Coins under a beta or gamma lock. A person writes what opens the lock in words. Each wallet
+//! fills in the signatures it can make, and a lock that needs two people passes the spend along as
+//! text.
 use crate::{Wallet, WalletError};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use olc_core::{Address, OutPoint, Tx, TxIn, TxOut};
+use olc_core::types::version_for;
+use olc_core::{Address, OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL};
 use olc_crypto::{sign, Hash};
-use olc_lang::words::{assemble, parse_words, text_of_words, Word, WordError};
-use olc_lang::ALPHA;
+use olc_lang::gamma::op::CHECK_SEQUENCE;
+use olc_lang::words::{assemble_in, parse_words_in, text_of_words_in, Dialect, Word, WordError};
+use olc_lang::{ALPHA, BETA};
 
 const TEXT_START: &str = "olcspend1";
 
@@ -39,6 +42,11 @@ pub struct LockSpend {
     pub tx: Tx,
     pub lock: Vec<u8>,
     pub unlock: Vec<Word>,
+    /// The coin its signatures name, so the other signer signs for the same one. See
+    /// [`olc_core::CoinConfig::signing_id_at`].
+    pub coin: Option<Hash>,
+    /// The lock's language, beta or gamma.
+    pub language: u8,
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -52,28 +60,39 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
 }
 
 impl LockSpend {
-    /// Sends the coin at `previous`, less `fee`, to `to`.
+    /// Sends the coin at `previous`, less `fee`, to `to`, signed for `signing`.
     pub fn new(
         previous: OutPoint,
         coin: &TxOut,
         to: Address,
         fee: u64,
         unlock: &str,
+        signing: Option<Hash>,
     ) -> Result<Self, LockError> {
         let value = coin.value.checked_sub(fee).filter(|value| *value > 0);
         let value = value.ok_or(LockError::TooSmall)?;
         let output = TxOut { value, language: ALPHA, lock: to.to_vec() };
+        let dialect = dialect_of(coin.language);
+        // A version 1 transaction carries no sequence.
+        let sequence = signing.map_or(SEQUENCE_FINAL, |_| sequence_for(dialect, &coin.lock));
         let tx = Tx {
-            version: 1,
-            inputs: vec![TxIn { previous, unlock: Vec::new() }],
+            version: version_for(signing.as_ref()),
+            inputs: vec![TxIn { previous, unlock: Vec::new(), sequence }],
             outputs: vec![output],
             coinbase_height: None,
+            lock_time: 0,
         };
-        Ok(Self { tx, lock: coin.lock.clone(), unlock: parse_words(unlock)? })
+        let unlock = parse_words_in(dialect, unlock)?;
+        Ok(Self { tx, lock: coin.lock.clone(), unlock, coin: signing, language: dialect.language() })
     }
 
-    fn digest(&self) -> Hash {
-        self.tx.signature_hash(0, &self.lock)
+    fn dialect(&self) -> Dialect {
+        dialect_of(self.language)
+    }
+
+    /// What every signature in this spend covers.
+    pub fn digest(&self) -> Hash {
+        self.tx.signature_hash(0, &self.lock, self.coin.as_ref())
     }
 
     /// Puts in every signature and key this wallet holds.
@@ -102,16 +121,23 @@ impl LockSpend {
 
     /// The finished transaction, once nothing is missing.
     pub fn finish(mut self) -> Result<Tx, LockError> {
-        let (unlock, _) = assemble(&self.unlock)?;
+        let (unlock, _) = assemble_in(self.dialect(), &self.unlock)?;
         let input = self.tx.inputs.first_mut().ok_or(LockError::BadText)?;
         input.unlock = unlock;
         Ok(self.tx)
     }
 
-    /// Text to hand to the other signer.
+    /// Text to hand to the other signer. The coin goes after what older builds read, and a gamma
+    /// lock's language after the coin.
     pub fn to_text(&self) -> String {
-        let bytes = postcard::to_allocvec(&(&self.tx, &self.lock)).unwrap_or_default();
-        format!("{TEXT_START}.{}.{}", to_hex(&bytes), text_of_words(&self.unlock))
+        let mut bytes = postcard::to_allocvec(&(&self.tx, &self.lock)).unwrap_or_default();
+        if let Some(coin) = &self.coin {
+            bytes.extend_from_slice(coin);
+            if self.language != BETA {
+                bytes.push(self.language);
+            }
+        }
+        format!("{TEXT_START}.{}.{}", to_hex(&bytes), text_of_words_in(self.dialect(), &self.unlock))
     }
 
     pub fn from_text(text: &str) -> Result<Self, LockError> {
@@ -121,9 +147,34 @@ impl LockSpend {
             return Err(LockError::BadText);
         };
         let bytes = from_hex(bytes).ok_or(LockError::BadText)?;
-        let (tx, lock): (Tx, Vec<u8>) = postcard::from_bytes(&bytes).map_err(|_| LockError::BadText)?;
-        Ok(Self { tx, lock, unlock: parse_words(words)? })
+        let read = postcard::take_from_bytes::<(Tx, Vec<u8>)>(&bytes);
+        let ((tx, lock), rest) = read.map_err(|_| LockError::BadText)?;
+        let (coin, language) = match rest {
+            [] => (None, BETA),
+            [coin @ .., language] if coin.len() == 32 => (coin.try_into().ok(), *language),
+            coin => (Some(coin.try_into().map_err(|_| LockError::BadText)?), BETA),
+        };
+        let unlock = parse_words_in(dialect_of(language), words)?;
+        Ok(Self { tx, lock, unlock, coin, language })
     }
+}
+
+fn dialect_of(language: u8) -> Dialect {
+    Dialect::of(language).unwrap_or(Dialect::Beta)
+}
+
+/// The sequence an input spending `lock` needs: the most blocks its CHECKSEQUENCEVERIFY words
+/// ask for, as BIP 112 reads them, and none for a lock without them.
+fn sequence_for(dialect: Dialect, lock: &[u8]) -> u32 {
+    if dialect != Dialect::Gamma {
+        return SEQUENCE_FINAL;
+    }
+    let words = parse_words_in(dialect, &olc_lang::words::words_of_in(dialect, lock)).unwrap_or_default();
+    let asked = words.windows(2).filter_map(|pair| match pair {
+        [number, Word::Op(CHECK_SEQUENCE)] => olc_lang::words::number_in(dialect, number),
+        _ => None,
+    });
+    asked.max().and_then(|blocks| u32::try_from(blocks).ok()).unwrap_or(SEQUENCE_FINAL)
 }
 
 impl Wallet {
@@ -172,9 +223,9 @@ mod tests {
 
     fn opens(spend: LockSpend, height: u64) -> bool {
         let lock = spend.lock.clone();
-        let digest = spend.tx.signature_hash(0, &lock);
+        let digest = spend.digest();
         let tx = spend.finish().unwrap();
-        Beta.check(&lock, &tx.inputs[0].unlock, &SpendContext { signature_hash: digest, height })
+        Beta.check(&lock, &tx.inputs[0].unlock, &SpendContext { signature_hash: digest, height, spending: None })
     }
 
     fn address(wallet: &Wallet) -> String {
@@ -184,7 +235,7 @@ mod tests {
     #[test]
     fn a_secret_opens_a_hash_lock_with_no_wallet() {
         let lock = coin(&hash_lock(&hash(b"secret")[..20]));
-        let spend = LockSpend::new(previous(), &lock, [1; 20], 10, "\"secret\"").unwrap();
+        let spend = LockSpend::new(previous(), &lock, [1; 20], 10, "\"secret\"", None).unwrap();
         assert!(spend.waiting_for().is_empty());
         assert_eq!(spend.tx.outputs[0].value, 990);
         assert!(opens(spend, 0));
@@ -197,7 +248,7 @@ mod tests {
         let lock = coin(&two_of_two(&keys.0, &keys.1));
         let unlock = format!("sig:{} sig:{}", address(&first), address(&second));
 
-        let mut spend = LockSpend::new(previous(), &lock, [1; 20], 10, &unlock).unwrap();
+        let mut spend = LockSpend::new(previous(), &lock, [1; 20], 10, &unlock, Some([8; 32])).unwrap();
         spend.fill(&first);
         assert_eq!(spend.waiting_for(), vec![address(&second)]);
         assert!(matches!(spend.clone().finish(), Err(LockError::Words(_))));
@@ -214,7 +265,7 @@ mod tests {
         let owner = wallet(4);
         let lock = coin(&time_lock(50, &owner.address()));
         let unlock = format!("sig:{0} key:{0}", address(&owner));
-        let mut spend = LockSpend::new(previous(), &lock, [1; 20], 10, &unlock).unwrap();
+        let mut spend = LockSpend::new(previous(), &lock, [1; 20], 10, &unlock, Some([8; 32])).unwrap();
         spend.fill(&owner);
         assert!(!opens(spend.clone(), 49));
         assert!(opens(spend, 50));
@@ -223,7 +274,7 @@ mod tests {
     #[test]
     fn a_coin_worth_its_fee_cannot_be_spent() {
         let lock = coin("1");
-        assert_eq!(LockSpend::new(previous(), &lock, [1; 20], 1_000, "1"), Err(LockError::TooSmall));
+        assert_eq!(LockSpend::new(previous(), &lock, [1; 20], 1_000, "1", None), Err(LockError::TooSmall));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::medium::{Keep, Medium, SECTOR};
 use crate::orphans::Orphans;
 use crate::headers::difficulty_after;
 use crate::plugin::Plugins;
-use crate::rules;
+use crate::rules::{self, AtHeight};
 use crate::shelf::Shelf;
 use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
@@ -45,6 +45,12 @@ pub enum ChainError {
     ReorgTooDeep,
     /// The block could not be written, so the node did not take it.
     StoreFailed,
+    /// A transaction version the coin takes only from its upgrade height.
+    NotYetAllowed,
+    /// A transaction whose lock time or relative lock has not come yet.
+    NotFinal,
+    /// A version 1 transaction on a fork from its height, where every payment names its coin.
+    NeedsNewVersion,
 }
 
 /// What a block spends on its header and mining reward, set aside when it is filled.
@@ -441,7 +447,12 @@ impl Chain {
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
     pub fn check_tx(&self, tx: &Tx, height: u64) -> Result<u64, ChainError> {
         let view = Overlay::new(&self.unspent);
-        rules::check_tx(tx, height, &view, self.config.rules_at(height), &self.plugins)
+        rules::check_tx(tx, &AtHeight::of(&self.config, height), &view, &self.plugins)
+    }
+
+    /// What a signature in a block at `height` names. A wallet signs with this.
+    pub fn signing_id(&self, height: u64) -> Option<Hash> {
+        self.config.signing_id_at(height)
     }
 
     /// The most signature checks `tx` can cost, read from its scripts without running them. An
@@ -486,11 +497,11 @@ impl Chain {
     /// Returns the ones that stay valid, then the rest with the reason each failed.
     pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
         let height = self.height() + 1;
-        let rules = self.config.rules_at(height);
+        let at = AtHeight::of(&self.config, height);
         let mut view = Overlay::new(&self.unspent);
         let (mut kept, mut refused) = (Vec::new(), Vec::new());
         for tx in txs {
-            match rules::check_tx(&tx, height, &view, rules, &self.plugins) {
+            match rules::check_tx(&tx, &at, &view, &self.plugins) {
                 Ok(_) => {
                     view.apply(&tx, height, None);
                     kept.push(tx);
@@ -532,7 +543,8 @@ impl Chain {
         note: &[u8],
     ) -> Block {
         let height = self.height() + 1;
-        let rules = self.config.rules_at(height);
+        let at = AtHeight::of(&self.config, height);
+        let rules = at.rules;
         let mut view = Overlay::new(&self.unspent);
         let mut chosen = Vec::new();
         let mut fees = 0u64;
@@ -542,7 +554,7 @@ impl Chain {
             if bytes + size > rules.max_block_bytes {
                 continue;
             }
-            if let Ok(fee) = rules::check_tx(tx, height, &view, rules, &self.plugins) {
+            if let Ok(fee) = rules::check_tx(tx, &at, &view, &self.plugins) {
                 view.apply(tx, height, None);
                 fees = fees.saturating_add(fee);
                 bytes += size;
@@ -562,6 +574,7 @@ impl Chain {
             inputs: Vec::new(),
             outputs,
             coinbase_height: Some(height),
+            lock_time: 0,
         };
         let mut txs = vec![coinbase];
         txs.append(&mut chosen);

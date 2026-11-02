@@ -93,7 +93,7 @@ pub fn signature_checks(script: &[u8]) -> usize {
 struct Machine<'a> {
     stack: Vec<Vec<u8>>,
     ops: usize,
-    context: &'a SpendContext,
+    context: &'a SpendContext<'a>,
 }
 
 fn is_true(value: &[u8]) -> bool {
@@ -276,16 +276,18 @@ mod tests {
     use super::*;
     use olc_crypto::{address_of, public_key, sign};
 
-    fn context(height: u64) -> SpendContext {
+    fn context(height: u64) -> SpendContext<'static> {
         SpendContext {
             signature_hash: hash(b"spend"),
             height,
+            spending: None,
         }
     }
 
     fn check(lock: &[u8], unlock: &[u8], height: u64) -> bool {
         Beta.check(lock, unlock, &context(height))
     }
+
 
     fn key(seed: u8) -> ([u8; 32], [u8; 33]) {
         let secret = [seed; 32];

@@ -76,6 +76,7 @@ mod tests {
                 lock: vec![0; 4_000],
             }],
             coinbase_height: None,
+            lock_time: 0,
         };
         let header = BlockHeader {
             version: 1,

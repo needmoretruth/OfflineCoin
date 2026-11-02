@@ -1,11 +1,12 @@
-//! Coins under a beta lock, from this node's side. Every step goes through the check each node
-//! runs on a transaction, so a person hears here what the network would say.
+//! Coins under a beta or gamma lock, from this node's side. From its upgrade a coin writes new
+//! locks in gamma, today's Bitcoin Script, and keeps spending beta locks made before. Every step
+//! goes through the check each node runs on a transaction, so a person hears here what the network
+//! would say.
 use crate::engine::Engine;
 use alloc::string::String;
 use alloc::vec::Vec;
 use olc_core::{Address, ChainError, Hash, OutPoint};
-use olc_lang::words::{lock_from_text, unlock_for, words_of, Cost, WordError};
-use olc_lang::BETA;
+use olc_lang::words::{lock_from_text_in, unlock_for_in, words_of_in, Cost, Dialect, WordError};
 use olc_wallet::locks::{LockError, LockSpend};
 use olc_wallet::WalletError;
 
@@ -54,10 +55,12 @@ pub struct LockedCoin {
 impl Engine {
     /// Puts `amount` from this wallet under the lock these words make.
     pub fn pay_to_lock(&mut self, words: &str, amount: u64) -> Result<(Hash, Cost), LockFailure> {
-        let (lock, cost) = lock_from_text(words)?;
+        let dialect = self.lock_dialect();
+        let (lock, cost) = lock_from_text_in(dialect, words)?;
         let reserved = self.reserved();
         let fee = self.rules().min_fee;
-        let tx = self.wallet().pay_lock(self.coins(), &lock, amount, fee, &reserved)?;
+        let wallet = self.wallet();
+        let tx = wallet.pay_lock_in(&self.paying(), dialect.language(), &lock, amount, fee, &reserved)?;
         Ok((self.send_payment(tx)?, cost))
     }
 
@@ -71,10 +74,11 @@ impl Engine {
         if self.light.is_some() {
             return Err(LockFailure::NeedsBlocks);
         }
-        let coin = self.chain.coin_at(&point).filter(|coin| coin.output.language == BETA);
+        let coin = self.chain.coin_at(&point).filter(|coin| Dialect::of(coin.output.language).is_some());
         let coin = coin.ok_or(LockFailure::NoCoin)?;
         let fee = self.rules().min_fee;
-        let mut spend = LockSpend::new(point, &coin.output, to, fee, unlock)?;
+        let signing = self.paying_signing();
+        let mut spend = LockSpend::new(point, &coin.output, to, fee, unlock, signing)?;
         spend.fill(self.wallet());
         Ok(spend)
     }
@@ -94,13 +98,25 @@ impl Engine {
         Ok(self.send_payment(tx)?)
     }
 
+    /// The words a new lock is written in: gamma once version 2 payments are signed here, beta for
+    /// version 1 ones.
+    pub fn lock_dialect(&self) -> Dialect {
+        match self.paying_signing() {
+            Some(_) => Dialect::Gamma,
+            None => Dialect::Beta,
+        }
+    }
+
     /// Coins under a lock, with their words, oldest first.
     pub fn locked_coins(&self) -> Vec<LockedCoin> {
-        let rows = self.chain.coins_under(BETA).take(MOST_LISTED).map(|(point, entry)| LockedCoin {
+        let under = |dialect: Dialect| self.chain.coins_under(dialect.language()).map(move |row| (dialect, row));
+        let mut rows: Vec<_> = under(Dialect::Beta).chain(under(Dialect::Gamma)).collect();
+        rows.sort_by_key(|(_, (_, entry))| entry.height);
+        let rows = rows.into_iter().take(MOST_LISTED).map(|(dialect, (point, entry))| LockedCoin {
             point: *point,
             value: entry.output.value,
-            words: words_of(&entry.output.lock),
-            unlock: unlock_for(&entry.output.lock),
+            words: words_of_in(dialect, &entry.output.lock),
+            unlock: unlock_for_in(dialect, &entry.output.lock),
             height: entry.height,
         });
         rows.collect()

@@ -114,6 +114,7 @@ fn a_branch_climbs_to_the_root_from_every_place_in_a_tree() {
             inputs: Vec::new(),
             outputs: Vec::new(),
             coinbase_height: Some(height.into()),
+            lock_time: 0,
         };
         let txs: Vec<Tx> = (0..count).map(tx).collect();
         let root = merkle_root(&txs);
@@ -179,7 +180,7 @@ fn a_forged_proof_is_refused() {
 fn a_data_output_holding_an_address_is_no_coin() {
     let owner = engine_of(2, test_coin()).address();
     let note = TxOut::data(owner.to_vec());
-    let tx = Tx { version: 1, inputs: Vec::new(), outputs: vec![note], coinbase_height: Some(1) };
+    let tx = Tx { version: 1, inputs: Vec::new(), outputs: vec![note], coinbase_height: Some(1), lock_time: 0 };
     let header = BlockHeader {
         version: 1,
         previous: [0; 32],

@@ -7,7 +7,7 @@ use olc_core::Chain;
 use olc_wallet::Wallet;
 use store::{flash, keep_on, plugins};
 use olc_core::chain::ChainError;
-use olc_core::coin::{Fork, COIN};
+use olc_core::coin::{Fork, COIN, NEVER};
 use olc_core::{Block, CoinConfig, Rules};
 use olc_node::Engine;
 
@@ -113,12 +113,19 @@ fn a_raised_floor_starts_at_the_fork() {
 
 #[test]
 fn a_coin_without_forks_keeps_its_exact_bytes() {
+    let ended = |coin: &CoinConfig| {
+        let mut bytes = postcard::to_allocvec(coin).unwrap();
+        let end = (coin.rules.min_difficulty, false, coin.rules.floor_from_height);
+        bytes.extend(postcard::to_allocvec(&end).unwrap());
+        bytes
+    };
+    let mut old = test_coin();
+    old.upgrade_from = NEVER;
+    assert_eq!(old.to_bytes(), ended(&old), "not a byte more than before forks");
+    assert_eq!(CoinConfig::from_bytes(&ended(&old)), Some(old));
+    // OLC's bytes from before its upgrade still read as OLC, which takes the upgrade at its height.
     let olc = CoinConfig::olc();
-    let old_end = postcard::to_allocvec(&(olc.rules.min_difficulty, false, olc.rules.floor_from_height)).unwrap();
-    let mut expected = postcard::to_allocvec(&olc).unwrap();
-    expected.extend(old_end);
-    assert_eq!(olc.to_bytes(), expected, "not a byte more than before forks");
-    assert_eq!(CoinConfig::from_bytes(&expected), Some(olc));
+    assert_eq!(CoinConfig::from_bytes(&ended(&olc)), Some(olc));
 }
 
 #[test]
