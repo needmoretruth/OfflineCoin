@@ -196,7 +196,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coins.devices", "Devices around you"),
     ("found.device", "Device"),
     ("found.keeps", "Keeps"),
-    ("found.work", "Doing"),
+    ("found.work", "Status"),
     ("coins.found_about", "{}, {} found"),
     ("coins.none", "Nothing found yet"),
     ("coins.none_body", "Coins on this network appear here by themselves."),
