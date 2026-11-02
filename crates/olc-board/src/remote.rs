@@ -73,7 +73,7 @@ pub fn command(fleet: &SharedFleet, board: BoardId, line: &str) -> Result<Option
                 sent = 0;
                 resend = Instant::now();
             }
-            Some(reason) => return Err(format!("refused: {reason:?}")),
+            Some(reason) => return Err(format!("refused: {reason}")),
             None => {}
         }
         thread::sleep(POLL);
@@ -105,7 +105,7 @@ fn wait_for_progress(
         match with(fleet, |fleet| fleet.take_refusal(board))? {
             // A copy of an earlier try came in late. The next try has a fresh counter.
             Some(Refusal::Replayed) => {}
-            Some(reason) => return Err(format!("refused: {reason:?}")),
+            Some(reason) => return Err(format!("refused: {reason}")),
             None => {}
         }
         let next = with(fleet, |fleet| fleet.progress(session))?;

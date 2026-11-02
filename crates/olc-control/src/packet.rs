@@ -236,3 +236,19 @@ pub enum Refusal {
     FlashFailed,
     NoUpdateRunning,
 }
+
+impl core::fmt::Display for Refusal {
+    fn fmt(&self, out: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        out.write_str(match self {
+            Self::NoKey => "the board has no control key yet",
+            Self::BadSignature => "the order was not signed with this computer's control key",
+            Self::WrongBoard => "the order was meant for another board",
+            Self::Replayed => "the order came twice",
+            Self::CableOnly => "only the board's own cable may do this",
+            Self::TooLarge => "the build does not fit the board's update space",
+            Self::BadImage => "the build arrived damaged, so the board kept the one it runs",
+            Self::FlashFailed => "the board could not write the build, so it kept the one it runs",
+            Self::NoUpdateRunning => "no update was under way",
+        })
+    }
+}

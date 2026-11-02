@@ -183,7 +183,7 @@ fn wait_for_word(
         match with(fleet, |fleet| fleet.take_refusal(board))? {
             // A copy of an earlier try came in late. The next try has a fresh counter.
             Some(Refusal::Replayed) | None => {}
-            Some(reason) => return Err(format!("refused: {reason:?}")),
+            Some(reason) => return Err(format!("refused: {reason}")),
         }
         let word = with(fleet, |fleet| fleet.take_missing(session))?;
         if word.is_some() {
