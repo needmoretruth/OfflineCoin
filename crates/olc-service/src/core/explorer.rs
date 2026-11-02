@@ -178,3 +178,56 @@ pub fn explore(chain: &Chain, text: &str) -> Explored {
         coins: chain.unspent_of(&address).len(),
     })
 }
+
+fn hex(hash: &Hash) -> String {
+    hash.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A payment as lines: its id, where its coins came from, and each output.
+fn tx_lines(tx: &TxRow, lines: &mut Vec<String>) {
+    let source = if tx.is_coinbase { "mined".to_string() } else { format!("{} coins in", tx.inputs) };
+    lines.push(format!("payment     {}  {source}", hex(&tx.id)));
+    for output in &tx.outputs {
+        let amount = super::coins::format_coins(output.value);
+        let line = match (&output.note, &output.lock) {
+            (Some(note), _) => format!("  note {note}"),
+            (None, Some(lock)) => format!("  {amount} under the lock {lock}"),
+            (None, None) if output.to.is_empty() => format!("  {amount} under a lock"),
+            (None, None) => format!("  {amount} to {}", output.to),
+        };
+        lines.push(line);
+    }
+}
+
+impl Explored {
+    /// What was found, as lines a person reads. `asked` is what they typed.
+    pub fn text(&self, asked: &str) -> String {
+        let mut lines = Vec::new();
+        match self {
+            Self::Nothing => lines.push(format!("Nothing here is called {}.", asked.trim())),
+            Self::Pruned { height, oldest } => lines.push(format!(
+                "Block {height} is no longer kept here. The oldest kept is {oldest}."
+            )),
+            Self::Block(block) => {
+                let row = &block.row;
+                lines.push(format!("block       {}", row.height));
+                lines.push(format!("id          {}", hex(&row.id)));
+                lines.push(format!("previous    {}", hex(&block.previous)));
+                lines.push(format!("time_ms     {}", row.time_ms));
+                lines.push(format!("difficulty  {}", row.difficulty));
+                lines.push(format!("payments    {}", row.payments));
+                block.txs.iter().for_each(|tx| tx_lines(tx, &mut lines));
+            }
+            Self::Tx { height, tx } => {
+                tx_lines(tx, &mut lines);
+                lines.push(format!("in block    {height}"));
+            }
+            Self::Address { address, balance, coins } => {
+                lines.push(format!("address     {address}"));
+                lines.push(format!("balance     {}", super::coins::format_coins(*balance)));
+                lines.push(format!("coins       {coins}"));
+            }
+        }
+        lines.join("\n")
+    }
+}

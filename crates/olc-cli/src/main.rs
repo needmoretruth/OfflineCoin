@@ -16,13 +16,14 @@ OfflineCoin
 
   olc start   --data DIR --wallet DIR --coin FILE --port 7000 [--bind HOST] [--connect HOST:PORT]...
               [--cap HASHES] [--mine]      a node through the core
-  olc node    [--coin FILE] [--data DIR] [--port 7000] [--bind HOST] [--connect HOST:PORT]...
+  olc node    [--coin FILE] [--data DIR] [--root DIR] [--port 7000] [--bind HOST] [--connect HOST:PORT]...
               [--serial <port>]... [--name NAME] [--links ORDER] [--ble] [--espnow CARD]
               [--mine] [--hash-limit HASHES_PER_SECOND]
               a node in this terminal: type the words below to act on it
   olc devnet  [--nodes 3] [--coin FILE] [--hash-limit HASHES_PER_SECOND]
   olc logo    [--once]
 
+Without --data, olc and olc node use the wallet of OLC Core.
 Each of these also takes --data DIR, --root DIR and --serial PORT:
 
 ";
@@ -44,8 +45,19 @@ fn asked_password() -> Result<String, String> {
     Ok(line.trim_end().to_string())
 }
 
+/// The folder of the one wallet this run reads, with a word for anyone whose wallet sits where
+/// `olc` kept it before.
+pub fn wallet_folder(args: &Args) -> Result<PathBuf, String> {
+    let root = args.value("root").map(PathBuf::from);
+    let directory = Terminal::wallet_folder(args.value("data"), root.as_deref())?;
+    if args.value("data").is_none() {
+        Terminal::old_wallet_here(&directory).iter().for_each(|line| eprintln!("{line}"));
+    }
+    Ok(directory)
+}
+
 fn terminal(args: &Args) -> Result<Terminal, String> {
-    let directory = PathBuf::from(args.value("data").unwrap_or(".olc/node"));
+    let directory = wallet_folder(args)?;
     let mut terminal = Terminal::new(Folder { directory });
     terminal.root = args.value("root").map(PathBuf::from);
     terminal.ports = args.values("serial");
