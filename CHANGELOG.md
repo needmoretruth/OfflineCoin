@@ -13,9 +13,9 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - Links over jumper wires and Bluetooth. A Linux computer with the right Wi-Fi card can use ESP-NOW.
 - One link for each neighbour, chosen from the links that are alive, in an order you can change.
 - A pool and a 51% attack lab, both outside the coin and built from ordinary node operations.
-- Radio updates that reach boards with no data cable, once a board on a cable has proved the build.
+- Radio updates for boards with no data cable. OLC Core first tries the build on a board with a cable, once by cable and once by radio.
 - Installers: a setup program for Windows, disk images for macOS on Apple silicon and on Intel, and .deb packages for Linux on x86-64 and ARM.
-- A board that gets hot mines at 100 hashes a second until it cools, and its page in OLC Core says why.
+- A board that gets hot mines at 100 hashes a second until it cools. OLC Core says why on the board's page and in the Activity column.
 - A board screen set brighter than the default dims back after an hour with nobody touching the board. A board with no screen keeps running, and a board whose program stops restarts on its own.
 - A board on a coin's earlier rules shows as other rules in OLC Core. It can move to the app's rules and keeps its wallet and its blocks up to where the rules differ.
 - Home says when nobody nearby has the old blocks, and what to do about it.
@@ -54,3 +54,8 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - A board moved late onto other rules kept blocks from both sides and never split from the coin it left.
 - `ignore` silenced a board only on ESP-NOW. It now covers every link.
 - A long board name stopped mid-word on the board screen. It now ends in two dots.
+- An address added by hand was never dialed, so a node on the same computer could not be reached. It is now dialed at start, when the coin changes and when it is added.
+- `olc keys` and `olc lock-sign` read different wallets. Every `olc` command now uses the OLC Core wallet unless `--data` names another folder.
+- `olc node` lacked `lock-pay`, `lock-spend`, `lock-sign`, `scan`, `new-coin` and `save-coin`.
+- `olc update --firmware FILE` ignored the file.
+- `olc explore`, failed payments, some expert-mode notices and refused board orders showed internal names such as `KnownKey`. They now read as sentences.
