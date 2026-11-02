@@ -90,6 +90,13 @@ fn general(ui: &mut Ui, cx: &mut Cx) {
 }
 
 impl SettingsPage {
+    fn about(&mut self, ui: &mut Ui, cx: &Cx) {
+        group(ui, cx.say("settings.about"));
+        if opening_row(ui, cx.t, cx, ("note.title", "settings.note_about", "settings.note_go")) {
+            self.tools.open(Tool::Note);
+        }
+    }
+
     fn wallet(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         group(ui, cx.say("settings.wallet"));
@@ -193,6 +200,7 @@ impl Page for SettingsPage {
         speed_row(ui, cx);
         Extras { values: &mut self.extras }.show(ui, cx);
         this_computer(ui, cx);
+        self.about(ui, cx);
         self.tools.show(ui, cx);
     }
 }

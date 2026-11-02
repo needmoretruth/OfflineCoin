@@ -131,9 +131,15 @@ mod tests {
         "스냅샷", "포크", "명령어", "반감기", "전파",
     ];
 
+    /// The developer's note is one person talking, in that person's words.
+    const OWN_VOICE: &str = "note.body";
+
     #[test]
     fn plain_words_have_no_expert_terms() {
         for (key, words) in rows(en::WORDS, en_more::WORDS) {
+            if key == OWN_VOICE {
+                continue;
+            }
             let lower = format!(" {} ", words.to_lowercase());
             let spaced: String =
                 lower.chars().map(|c| if c.is_alphanumeric() || "/_-".contains(c) { c } else { ' ' }).collect();
@@ -142,6 +148,9 @@ mod tests {
             }
         }
         for (key, words) in rows(ko::WORDS, ko_more::WORDS) {
+            if key == OWN_VOICE {
+                continue;
+            }
             for term in BANNED_KOREAN {
                 assert!(!words.contains(term), "{key}: {words} says {term}");
             }

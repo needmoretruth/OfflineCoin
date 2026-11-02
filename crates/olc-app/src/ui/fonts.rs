@@ -7,6 +7,8 @@ const INTER: &[u8] = include_bytes!("../../fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../fonts/Inter-Medium.ttf");
 const INTER_STRONG: &[u8] = include_bytes!("../../fonts/Inter-SemiBold.ttf");
 const NOTO: &[u8] = include_bytes!("../../fonts/NotoSansKR-Regular.otf");
+/// Only the few emoji the developer's note uses, so the program stays small.
+const EMOJI: &[u8] = include_bytes!("../../fonts/NotoEmoji-Subset.ttf");
 const NOTO_MEDIUM: &[u8] = include_bytes!("../../fonts/NotoSansKR-Medium.otf");
 const NOTO_STRONG: &[u8] = include_bytes!("../../fonts/NotoSansKR-SemiBold.otf");
 const MONO: &[u8] = include_bytes!("../../fonts/PlexMono-Regular.ttf");
@@ -32,10 +34,11 @@ pub fn definitions() -> FontDefinitions {
     for (name, bytes) in hangul {
         fonts.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
     }
+    fonts.font_data.insert("emoji".into(), Arc::new(FontData::from_static(EMOJI)));
     let family = |faces: &[&str]| faces.iter().map(|face| (*face).to_string()).collect::<Vec<_>>();
-    fonts.families.insert(FontFamily::Proportional, family(&["inter", "noto"]));
-    fonts.families.insert(medium(), family(&["inter-medium", "noto-medium", "noto"]));
-    fonts.families.insert(strong(), family(&["inter-strong", "noto-strong", "noto"]));
+    fonts.families.insert(FontFamily::Proportional, family(&["inter", "noto", "emoji"]));
+    fonts.families.insert(medium(), family(&["inter-medium", "noto-medium", "noto", "emoji"]));
+    fonts.families.insert(strong(), family(&["inter-strong", "noto-strong", "noto", "emoji"]));
     fonts.families.insert(FontFamily::Monospace, family(&["mono", "noto"]));
     fonts
 }
