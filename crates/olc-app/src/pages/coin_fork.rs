@@ -16,6 +16,8 @@ const HEIGHT_KEY: &str = "from_height";
 
 pub struct ForkForm {
     from: String,
+    /// The height the form offered last, to tell it from one a person typed.
+    offered: String,
     typed: HashMap<&'static str, String>,
     /// What each rule held when the form opened, to tell what a person changed.
     before: HashMap<&'static str, String>,
@@ -28,7 +30,16 @@ impl ForkForm {
         draft.rules = coin.rules_at(from).clone();
         let rules = COIN_FIELDS.iter().filter(|field| field.is_rule());
         let before: HashMap<_, _> = rules.map(|field| (field.key, text_of(field, &draft))).collect();
-        Self { from: from.to_string(), typed: before.clone(), before }
+        Self { from: from.to_string(), offered: from.to_string(), typed: before.clone(), before }
+    }
+
+    /// Keeps the offered height ahead of a chain that grows while the form is open.
+    fn follow(&mut self, coin: &CoinConfig, tip: u64) {
+        let first = first_fork_height(coin, tip).to_string();
+        if self.from == self.offered {
+            self.from.clone_from(&first);
+        }
+        self.offered = first;
     }
 
     fn changes(&self) -> Vec<(String, String)> {
@@ -52,6 +63,7 @@ impl ForkForm {
 
     pub fn show(&mut self, ui: &mut Ui, cx: &Cx, coin: &CoinConfig, tip: u64) {
         ui.spacing_mut().item_spacing.y = 0.0;
+        self.follow(coin, tip);
         let bad = self.order(coin, tip).err();
         row(ui, cx.t, cx.say("pro.fork_from"), cx.say("pro.fork_from_about"), |ui| {
             field(ui, &mut self.from, cx.say("pro.fork_from"), ui.available_width().min(HEIGHT_FIELD));
@@ -91,6 +103,17 @@ mod tests {
 
     fn change(form: &mut ForkForm, key: &'static str, text: &str) {
         form.typed.insert(key, text.to_string());
+    }
+
+    #[test]
+    fn the_height_follows_the_chain_until_a_person_types_one() {
+        let coin = CoinConfig::olc();
+        let mut form = ForkForm::new(&coin, 41);
+        form.follow(&coin, 50);
+        assert_eq!(form.from, "51");
+        form.from = "900".into();
+        form.follow(&coin, 60);
+        assert_eq!(form.from, "900");
     }
 
     #[test]
