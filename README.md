@@ -24,7 +24,9 @@
 
 A Bitcoin-style coin for networks with no internet. It runs on computers and on ESP32-S3 boards.
 
-The coin is OLC, the chain is OLCC, and OLCL is its contract language: alpha pays an address, beta is a stack language like early Bitcoin Script, and omega is reserved for later.
+- **OLC**: OfflineCoin, the coin.
+- **OLCC**: OLC Chain, the blockchain.
+- **OLCL**: OLC Language, the contract languages. Alpha pays an address, beta is a stack language like early Bitcoin Script, and omega is reserved for later.
 
 Everything is a module. Swap one out or add your own and use it however you like. Keys are stored unencrypted and anyone with more hash power can rewrite the chain, so keep it a toy.
 
