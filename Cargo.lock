@@ -2889,6 +2889,7 @@ name = "olc-link-tcp"
 version = "0.1.0"
 dependencies = [
  "olc-node",
+ "olc-platform",
 ]
 
 [[package]]
@@ -2920,6 +2921,7 @@ dependencies = [
  "olc-link-espnow",
  "olc-node",
  "serial2",
+ "socket2",
  "sysinfo",
  "win32job",
  "winreg",

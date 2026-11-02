@@ -3,7 +3,7 @@ use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
 use super::radios::{self, Running};
 pub use super::host_parts::Plan;
-use super::host_parts::{carry_pool, engine_with, fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
+use super::host_parts::{carry_pool, engine_with, fresh_id, hear_router, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
@@ -111,6 +111,7 @@ impl Host {
         let control = tcp.control();
         let mut runner = Runner::new(engine);
         runner.set_id(fresh_id()?);
+        hear_router(&tcp, &plan, runner.id());
         runner.card = Card {
             port: port.unwrap_or(0),
             ..plan.card.clone()

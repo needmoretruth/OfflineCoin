@@ -16,6 +16,7 @@ olc-link-espnow = { path = "../olc-link-espnow", features = ["card"] }
 
 [dependencies]
 olc-node.workspace = true
+socket2 = { version = "0.6", features = ["all"] }
 serial2 = "0.2"
 
 [target.'cfg(unix)'.dependencies]

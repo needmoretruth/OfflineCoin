@@ -10,7 +10,7 @@ const RESTARTING_LINES: [&str; 6] = ["power", "clock", "full", "network", "wifi"
 const WAIT: Duration = Duration::from_secs(120);
 /// What the Boards page shows for such a board, the same word an update uses.
 const RESTARTING: &str = "restarting";
-const FAILED: &str = "update_failed";
+const FAILED: [&str; 2] = ["update_failed", "went_back"];
 
 struct Expected {
     since: Instant,
@@ -50,7 +50,7 @@ impl Returning {
 
 /// Whether a board that says nothing has a good reason to.
 pub fn is_returning(row: &BoardRow) -> bool {
-    !row.seen.online && row.job.as_deref().is_some_and(|job| job != FAILED)
+    !row.seen.online && row.job.as_deref().is_some_and(|job| !FAILED.contains(&job))
 }
 
 #[cfg(test)]
@@ -100,7 +100,9 @@ mod tests {
         let mut returning = Returning::default();
         returning.note_line(BOARD, "limit 1000");
         assert!(!is_returning(&after(&mut returning, false)));
-        let failed = BoardRow { job: Some(FAILED.into()), ..row(false) };
-        assert!(!is_returning(&failed));
+        for job in FAILED {
+            let failed = BoardRow { job: Some(job.into()), ..row(false) };
+            assert!(!is_returning(&failed), "{job}");
+        }
     }
 }

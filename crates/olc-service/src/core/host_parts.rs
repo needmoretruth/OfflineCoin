@@ -85,6 +85,15 @@ pub fn listen_somewhere(tcp: &TcpLink, plan: &Plan) -> Option<u16> {
     listen_from(tcp, &plan.bind_host, plan.port, plan.port_tries)
 }
 
+/// Boards on the same router broadcast their ids, and this node dials the ones it hears. A node
+/// that keeps to this computer does not.
+pub fn hear_router(tcp: &TcpLink, plan: &Plan, me: u64) {
+    let local: Option<std::net::IpAddr> = plan.bind_host.parse().ok();
+    if !local.is_some_and(|ip| ip.is_loopback()) {
+        let _ = tcp.hear_neighbours(olc_link_tcp::lan::PORT, me);
+    }
+}
+
 /// Tries the ports in turn, then any port the system has free. A node that others cannot find by
 /// its usual port can still be reached by the app that started it.
 fn listen_from(tcp: &TcpLink, host: &str, first: u16, tries: u16) -> Option<u16> {

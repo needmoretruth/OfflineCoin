@@ -79,8 +79,8 @@ fn speak(shared: &Shared) {
 }
 
 fn listen(shared: &Shared) {
-    // A second app on this computer has the port already and only speaks.
-    let Ok(socket) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, PORT)) else {
+    // The node of this app, and a second app on this computer, hear broadcasts on the same port.
+    let Ok(socket) = olc_link_tcp::lan::shared_udp(PORT) else {
         return;
     };
     let _ = socket.set_read_timeout(Some(SHOUT_EVERY));
