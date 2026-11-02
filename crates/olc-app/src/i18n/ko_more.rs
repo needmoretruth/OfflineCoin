@@ -218,6 +218,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.restored", "주소 {}개를 복원했습니다."),
     ("notice.miner_set", "채굴한 코인은 {}로 갑니다."),
     ("notice.saved", "저장했습니다."),
+    ("notice.held", "기록을 여는 중입니다. 다 열리면 바로 처리합니다."),
     ("notice.noted", "메모를 보냈습니다: {}"),
     ("notice.snapshot_taking", "코인 목록을 받는 중입니다."),
     ("notice.key_failed", "주소를 바꾸지 못했습니다. 다시 해 주세요."),

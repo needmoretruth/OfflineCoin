@@ -256,6 +256,20 @@ impl BoardDetail {
                 }
             });
         }
+        if board.other_rules {
+            row(ui, t, cx.say("boards.other_rules"), cx.say("boards.other_rules_about"), |ui| {
+                if button(ui, t, cx.say("boards.move_rules"), Kind::Plain).clicked() {
+                    slip = Some(cx.slip_for(Slipping {
+                        what: cx.say("boards.move_rules"),
+                        rows: vec![(cx.say("boards.name"), beacon.name.clone())],
+                        warning: cx.say("boards.move_rules_warning"),
+                        sign: cx.say("boards.move_yes"),
+                        danger: true,
+                        order: vec![Command::MoveBoard(id)],
+                    }));
+                }
+            });
+        }
         row(ui, t, cx.say("boards.mine_to"), cx.say("boards.mine_to_about"), |ui| {
             let mine = cx.snap.node.address.clone();
             if button(ui, t, cx.say("boards.mine_to_me"), Kind::Plain).clicked() {

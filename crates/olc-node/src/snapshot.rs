@@ -30,7 +30,8 @@ pub struct Serving {
 #[derive(Clone, Copy)]
 struct Stuck {
     peer: PeerId,
-    height: u64,
+    /// How high the peer stands, which this node has to reach for the offer to end.
+    ahead: u64,
     heard_ms: u64,
     /// This node's tip when the peer last spoke. The peer's word holds until this moves.
     tip: Hash,
@@ -51,8 +52,8 @@ impl History {
         }
         self.pruned.insert(peer, oldest);
         let first_time = self.stuck.is_none();
-        let height = self.stuck.map_or(oldest, |stuck| stuck.height);
-        self.stuck = Some(Stuck { peer, height, heard_ms: now, tip });
+        let ahead = self.stuck.map_or(oldest, |stuck| stuck.ahead);
+        self.stuck = Some(Stuck { peer, ahead, heard_ms: now, tip });
         first_time
     }
 
@@ -61,7 +62,7 @@ impl History {
         let (height, tip) = own;
         let lacks = self.pruned.get(&peer).is_some_and(|oldest| *oldest > height + 1);
         if lacks {
-            self.stuck = Some(Stuck { peer, height: peer_height, heard_ms: now, tip });
+            self.stuck = Some(Stuck { peer, ahead: peer_height, heard_ms: now, tip });
         }
         lacks
     }
@@ -71,7 +72,7 @@ impl History {
     pub fn tick(&mut self, own: (u64, Hash), now: u64) {
         let (height, tip) = own;
         let over = |stuck: &Stuck| {
-            (height >= stuck.height && tip != stuck.tip)
+            (height >= stuck.ahead && tip != stuck.tip)
                 || now.saturating_sub(stuck.heard_ms) >= QUIET_MS
         };
         if self.stuck.as_ref().is_some_and(over) {
@@ -79,8 +80,11 @@ impl History {
         }
     }
 
+    /// The peer that can help, and the oldest block anyone said it still holds. That one number
+    /// is what a person reads, whichever message a peer sent last.
     pub fn stuck(&self) -> Option<(PeerId, u64)> {
-        self.stuck.map(|stuck| (stuck.peer, stuck.height))
+        let stuck = self.stuck?;
+        Some((stuck.peer, self.pruned.values().min().copied().unwrap_or(stuck.ahead)))
     }
 }
 

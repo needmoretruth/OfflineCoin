@@ -7,6 +7,7 @@ use olc_control::BoardId;
 use olc_core::CoinConfig;
 use olc_node::Rank;
 use olc_store::coin_file::NewCoin;
+use std::sync::mpsc::Sender;
 
 /// Which coin the first screen settled on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +87,8 @@ impl Personal {
 }
 
 pub enum Command {
+    /// Closes the app. The answer comes once nothing a person asked for is still waiting.
+    Finish(Sender<()>),
     Own(Personal),
     FinishSetup(Box<Settings>, StartCoin),
     /// Saves the settings and applies what can change at once.
@@ -168,6 +171,28 @@ pub enum Command {
         amount: String,
     },
     Lock(LockOrder),
+}
+
+impl Command {
+    /// Whether this acts on the running node or the coin it runs. Such an order waits while a
+    /// chain is on its way in, because the engine there then is thrown away.
+    pub(super) fn needs_the_chain(&self) -> bool {
+        matches!(
+            self,
+            Self::Own(_)
+                | Self::FinishSetup(..)
+                | Self::Join { .. }
+                | Self::JoinCoinFile(_)
+                | Self::Pay { .. }
+                | Self::SetLinks(_)
+                | Self::Fork { .. }
+                | Self::ForkBack
+                | Self::MoveBoard(_)
+                | Self::StartPool { .. }
+                | Self::StopPool
+                | Self::Lock(_)
+        )
+    }
 }
 
 /// Something to do with coins under a beta lock.

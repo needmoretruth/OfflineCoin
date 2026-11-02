@@ -317,19 +317,26 @@ impl Node {
         let chain = self.runner.engine.chain();
         let coin = chain.config();
         let line = format!(
-            "coin {} {} {}",
+            "coin {} {} {} rules={}",
             coin.name,
             coin.ticker,
-            hex(&chain.genesis_id())
+            hex(&chain.genesis_id()),
+            coin.rules_id()
         );
         self.say(line);
     }
 
-    /// One coin's blocks sit in the log, so a different coin asks first. The keys stay.
+    /// One coin's blocks sit in the log, so a different coin asks first. The keys stay. The same
+    /// coin on other rules keeps its blocks: a fork leaves everything before its height valid.
     fn change_coin(&mut self, coin: CoinConfig) {
         let chain = self.runner.engine.chain();
         if coin.genesis().id() == chain.genesis_id() {
-            self.say("coin already running".into());
+            if coin.rules_id() == chain.config().rules_id() {
+                self.say("coin already running".into());
+            } else {
+                self.waiting_coin = Some(coin);
+                self.say("coin asks confirm: rules change, blocks stay".into());
+            }
         } else if chain.height() == 0 {
             self.switch_to(&coin);
         } else {

@@ -218,6 +218,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.restored", "{} addresses restored."),
     ("notice.miner_set", "Mined coins go to {}"),
     ("notice.saved", "Saved."),
+    ("notice.held", "Your records are still opening. This happens as soon as they are in."),
     ("notice.noted", "Note sent: {}"),
     ("notice.snapshot_taking", "Receiving the list of coins."),
     ("notice.key_failed", "The address did not change. Try again."),

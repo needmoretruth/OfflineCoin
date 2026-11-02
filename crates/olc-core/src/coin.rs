@@ -242,6 +242,16 @@ impl<'de> Deserialize<'de> for SpokenAdded {
     }
 }
 
+/// The start of `bytes`'s hash, for reading.
+fn short_name(bytes: &[u8]) -> String {
+    let hash = olc_crypto::hash(bytes);
+    let mut text = String::new();
+    for byte in &hash[..4] {
+        let _ = fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
+    }
+    text
+}
+
 impl CoinConfig {
     /// The default coin. Its first difficulty is in the genesis block and stays. From there the
     /// retarget follows the hash power present, down to one device at 1,000 hashes per second
@@ -290,12 +300,16 @@ impl CoinConfig {
             return String::new();
         }
         let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
-        let hash = olc_crypto::hash(&postcard::to_allocvec(&forks).unwrap_or_default());
-        let mut text = String::new();
-        for byte in &hash[..4] {
-            let _ = fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
-        }
-        text
+        short_name(&postcard::to_allocvec(&forks).unwrap_or_default())
+    }
+
+    /// A short name for every rule this coin runs by, now and at later heights. Two nodes on one
+    /// genesis with different names leave each other at the height their rules part. Words a
+    /// person sees, such as the coin's name, do not count.
+    pub fn rules_id(&self) -> String {
+        let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
+        let rules = (&self.rules, self.rules.min_difficulty, self.rules.floor_from_height, forks);
+        short_name(&postcard::to_allocvec(&rules).unwrap_or_default())
     }
 
     /// Fills in a floor left open by a file or answer from before floors. OLC takes its own, and

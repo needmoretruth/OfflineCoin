@@ -86,7 +86,8 @@ pub struct Status {
     pub peers: usize,
     /// The height being caught up to, while well behind it.
     pub syncing_to: Option<u64>,
-    /// The peer ahead of this node that no longer holds the blocks it needs, and the peer's height.
+    /// The peer ahead of this node that no longer holds the blocks it needs, and the oldest block
+    /// a peer here still holds.
     pub needs_history: Option<(PeerId, u64)>,
     /// The peer this chain's unspent set came from, when it did not come from blocks.
     pub assumed_from: Option<u32>,

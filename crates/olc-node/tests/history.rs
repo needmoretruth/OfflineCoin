@@ -45,7 +45,7 @@ fn a_new_node_hears_plainly_when_nobody_has_the_history() {
 
     assert_eq!(nodes[1].chain().height(), 0);
     let status = nodes[1].status();
-    assert_eq!(status.needs_history, Some((0, nodes[0].chain().height())));
+    assert_eq!(status.needs_history, Some((0, nodes[0].chain().oldest_held())));
     assert!(events(&mut nodes[1]).contains(&Event::NeedsHistory { peer: 0 }));
     // Nothing happens by itself: the unspent set stays the node's own.
     assert_eq!(status.assumed_from, None);
@@ -88,6 +88,7 @@ fn a_node_on_its_own_branch_hears_when_nobody_can_bring_it_over() {
 #[test]
 fn the_offer_stays_while_a_person_reads_it() {
     let mut nodes = [pruned_engine(1, 2_400), engine(2)];
+    let oldest = nodes[0].chain().oldest_held();
     let start = 2_400_000;
     talk(&mut nodes, start, 2);
     for round in 2..40 {
@@ -95,7 +96,7 @@ fn the_offer_stays_while_a_person_reads_it() {
         nodes[1].tick(start + round * 2_100 + 100);
         assert_eq!(
             nodes[1].status().needs_history,
-            Some((0, 2_400)),
+            Some((0, oldest)),
             "gone {} ms after it came up",
             round * 2_100
         );
@@ -106,6 +107,23 @@ fn the_offer_stays_while_a_person_reads_it() {
         silence(&mut nodes[1]);
     }
     assert_eq!(nodes[1].status().needs_history, None);
+}
+
+/// The number on the screen means one thing. It stayed on the peer's first block for two seconds
+/// and then read as the peer's height when the next hello came.
+#[test]
+fn the_offer_names_the_same_block_from_the_first_answer_on() {
+    let mut nodes = [pruned_engine(1, 2_400), engine(2)];
+    let oldest = nodes[0].chain().oldest_held();
+    assert!(oldest < nodes[0].chain().height());
+    let start = 2_400_000;
+    let mut seen = Vec::new();
+    for round in 0..8 {
+        talk(&mut nodes, start + round * 1_000, 1);
+        seen.extend(nodes[1].status().needs_history.map(|(_, block)| block));
+    }
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|block| *block == oldest), "{seen:?} and the first block is {oldest}");
 }
 
 #[test]

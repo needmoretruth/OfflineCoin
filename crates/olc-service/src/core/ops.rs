@@ -15,7 +15,6 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-const STOPPED: &str = "The node stopped";
 pub(super) const NO_NODE: &str = "No node runs here";
 
 /// Writes `text` for the next computer, or gives it back when no file was asked for.
@@ -271,7 +270,7 @@ pub trait Book {
 
 impl Host {
     fn on_runner<R>(&self, job: impl FnOnce(&mut Runner) -> R) -> Result<R, String> {
-        let mut runner = self.runner.lock().map_err(|_| STOPPED.to_string())?;
+        let mut runner = self.ready()?;
         Ok(job(&mut runner))
     }
 
@@ -320,9 +319,8 @@ impl Book for Host {
     }
 
     fn change_settings(&self, change: impl FnOnce(&mut NodeSettings)) -> Result<(), String> {
-        let Some(folder) = self.chain_folder() else {
-            return Ok(());
-        };
+        // A chain that never opened has nowhere to keep this, and saying so beats losing it.
+        let folder = self.chain_folder().ok_or(NO_NODE)?;
         let mut settings = NodeSettings::load(&folder);
         change(&mut settings);
         settings.save(&folder)

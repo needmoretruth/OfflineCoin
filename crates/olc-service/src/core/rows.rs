@@ -4,7 +4,7 @@ use super::found::link_of;
 use crate::discovery::{Entry, Identity, Reach, Work};
 use crate::fleet::BoardRow;
 use crate::local::{Holding, LocalView};
-use olc_core::Hash;
+use olc_core::{CoinConfig, Hash};
 use super::returning::is_returning;
 use olc_platform::platform;
 use olc_node::{Hello, Keeps, Medium};
@@ -112,9 +112,30 @@ pub fn reach_of_board(row: &BoardRow, link: Option<Medium>) -> Reach {
 
 /// The coin a board's signed beacon names. An answer counts only if it agrees with the beacon,
 /// and a coin known here needs no answer at all. Any other coin stays unknown until one comes.
-pub fn coin_of_board(genesis: Hash, said: Option<Identity>, known: &[Identity]) -> Option<Identity> {
-    let answered = said.filter(|coin| coin.genesis == genesis);
-    answered.or_else(|| known.iter().find(|coin| coin.genesis == genesis).cloned())
+/// `rules` is what the board said it runs by: one genesis can carry a fork and the coin it left.
+pub fn coin_of_board(
+    (genesis, rules): (Hash, Option<&str>),
+    said: Option<Identity>,
+    known: &[Identity],
+) -> Option<Identity> {
+    let fits = |coin: &Identity| {
+        coin.genesis == genesis && rules.is_none_or(|id| coin.coin.rules_id() == id)
+    };
+    said.filter(fits).or_else(|| known.iter().find(|coin| fits(coin)).cloned())
+}
+
+/// True when a board on the coin this app runs goes by other rules, so it will part from this
+/// node at the height they differ. A board that has not said stays the same coin.
+pub fn on_other_rules(board: (Hash, Option<&str>), own: Option<&CoinConfig>) -> bool {
+    let (genesis, rules) = board;
+    let same_coin = own.is_some_and(|coin| coin.genesis().id() == genesis);
+    same_coin && own.zip(rules).is_some_and(|(coin, id)| coin.rules_id() != id)
+}
+
+/// The rules this coin ran by before each of its forks, which a board may still be on.
+pub fn earlier_rules(coin: &CoinConfig) -> Vec<Identity> {
+    let earlier = std::iter::successors(coin.before_last_fork(), CoinConfig::before_last_fork);
+    earlier.map(Identity::of).collect()
 }
 
 /// What a board holds, by its own hello.
@@ -151,7 +172,6 @@ pub fn board_entry(row: &BoardRow, coin: Option<Identity>, said: Option<&Hello>)
 mod tests {
     use super::*;
     use crate::local::{ChildStatus, Enforcement, Preset};
-    use olc_core::CoinConfig;
 
     fn found(coin: &CoinConfig) -> Entry {
         Entry {
@@ -196,14 +216,60 @@ mod tests {
         let other = Identity::of(other);
         let known = [ours.clone()];
 
-        let silent = coin_of_board(ours.genesis, None, &known);
+        let silent = coin_of_board((ours.genesis, None), None, &known);
         assert_eq!(silent.map(|coin| coin.genesis), Some(ours.genesis));
-        assert!(coin_of_board(other.genesis, None, &known).is_none());
+        assert!(coin_of_board((other.genesis, None), None, &known).is_none());
 
-        let answered = coin_of_board(other.genesis, Some(other.clone()), &known);
+        let answered = coin_of_board((other.genesis, None), Some(other.clone()), &known);
         assert_eq!(answered.map(|coin| coin.genesis), Some(other.genesis));
-        let lied = coin_of_board(ours.genesis, Some(other), &[]);
+        let lied = coin_of_board((ours.genesis, None), Some(other), &[]);
         assert!(lied.is_none());
+    }
+
+    fn forked() -> CoinConfig {
+        let mut coin = CoinConfig::olc();
+        let mut rules = coin.rules.clone();
+        rules.min_fee += 1;
+        coin.forks.push(olc_core::coin::Fork { from_height: 9_000, rules });
+        coin
+    }
+
+    /// One genesis carries both sides of a fork, so the genesis alone called them the same coin.
+    #[test]
+    fn a_board_on_old_rules_is_not_the_fork_it_shares_a_genesis_with() {
+        let (base, fork) = (CoinConfig::olc(), forked());
+        let genesis = base.genesis().id();
+        assert_eq!(genesis, fork.genesis().id());
+        assert_ne!(base.rules_id(), fork.rules_id());
+
+        let board = (genesis, Some(base.rules_id()));
+        let board = (board.0, board.1.as_deref());
+        assert!(on_other_rules(board, Some(&fork)));
+        assert!(!on_other_rules(board, Some(&base)));
+        assert!(!on_other_rules((genesis, None), Some(&fork)), "a board that has not said");
+
+        let other = CoinConfig { message: "Another genesis".into(), ..CoinConfig::olc() };
+        assert!(!on_other_rules((other.genesis().id(), Some("00000000")), Some(&base)));
+
+        let known = [Identity::of(fork.clone()), Identity::of(base.clone())];
+        let seen = coin_of_board(board, None, &known).expect("the coin it left is known");
+        assert_eq!(seen.coin, base);
+        let on_the_fork = fork.rules_id();
+        let seen = coin_of_board((genesis, Some(on_the_fork.as_str())), None, &known);
+        assert_eq!(seen.map(|found| found.coin), Some(fork.clone()));
+        let unheard = coin_of_board((genesis, Some("00000000")), None, &known);
+        assert!(unheard.is_none(), "rules nobody here runs must not read as one of these");
+        assert_eq!(earlier_rules(&fork), [Identity::of(base)]);
+    }
+
+    #[test]
+    fn a_name_is_not_a_rule() {
+        let base = CoinConfig::olc();
+        let renamed = CoinConfig { name: "Other words".into(), ticker: "OTH".into(), ..base.clone() };
+        assert_eq!(base.rules_id(), renamed.rules_id());
+        let mut cheaper = base.clone();
+        cheaper.rules.min_fee = 1;
+        assert_ne!(base.rules_id(), cheaper.rules_id());
     }
 
     #[test]
