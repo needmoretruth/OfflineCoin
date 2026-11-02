@@ -6,7 +6,7 @@ mod store;
 mod wallet_file;
 
 pub use files::{keep_in, Segments};
-pub use hold::{hold_folder, node_runs_on, FolderHold, NODE_ON_FOLDER};
+pub use hold::{hold_folder, hold_wallet, node_runs_on, FolderHold, WalletHold, NODE_ON_FOLDER};
 pub use store::{load_headers, open_chain, replace_file, save_headers, NodeSettings};
 pub use wallet_file::{
     back_up, format_secret, load_wallet, new_secret, parse_secret, restore, save_wallet,

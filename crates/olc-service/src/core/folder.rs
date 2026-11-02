@@ -71,8 +71,7 @@ mod tests {
     #[test]
     fn a_key_made_beside_a_running_node_is_refused_instead_of_lost() {
         let book = folder("held");
-        let mut held = None;
-        olc_store::hold_folder(&mut held, &book.directory).unwrap();
+        let held = olc_store::hold_wallet(&book.directory).unwrap();
         assert_eq!(book.carry_out(Personal::NewKey).err().as_deref(), Some(NODE_ON_FOLDER));
         drop(held);
         assert!(book.carry_out(Personal::NewKey).is_ok());

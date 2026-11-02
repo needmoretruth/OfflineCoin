@@ -9,7 +9,8 @@ use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
 use olc_store::{
-    hold_folder, load_headers, load_wallet, open_chain, save_headers, FolderHold, NodeSettings,
+    hold_folder, hold_wallet, load_headers, load_wallet, open_chain, save_headers, FolderHold,
+    NodeSettings, WalletHold,
 };
 use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
@@ -109,6 +110,7 @@ impl Host {
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
         let mut held = None;
         hold_folder(&mut held, &plan.folder)?;
+        let wallet_held = hold_wallet(&plan.wallet_folder)?;
         let wallet = load_wallet(&plan.wallet_folder)?;
         let engine = Engine::new(plan.coin.clone(), plugins(), wallet);
         let tcp = TcpLink::new();
@@ -163,6 +165,7 @@ impl Host {
             radios: Running::default(),
             wants_bluetooth: false,
             held,
+            _wallet_held: wallet_held,
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -312,6 +315,7 @@ struct Worker {
     radios: Running,
     wants_bluetooth: bool,
     held: Option<FolderHold>,
+    _wallet_held: WalletHold,
 }
 
 impl Worker {
