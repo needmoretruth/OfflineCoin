@@ -200,6 +200,20 @@ pub fn platform() -> &'static dyn Platform {
     &os::Os
 }
 
+/// A UDP socket on `port` that other sockets, in this program or another, may bind as well. Each
+/// of them hears the broadcasts that arrive there.
+pub fn shared_udp(port: u16) -> std::io::Result<std::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_address(true)?;
+    // Linux and Windows share a port on the address alone; the BSDs and macOS want this as well.
+    #[cfg(unix)]
+    socket.set_reuse_port(true)?;
+    let any = std::net::SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, port));
+    socket.bind(&any.into())?;
+    Ok(socket.into())
+}
+
 /// A helper program: beside the app, in [`Platform::tool_folders`], or on the search path.
 pub fn tool(name: &str) -> PathBuf {
     let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);

@@ -55,7 +55,7 @@ A node listens on every link it has turned on and keeps a table of its neighbour
 |---|---|---|
 | Wired | Boards | GPIO 17, GPIO 18 and ground. Straight or crossed, the boards work it out |
 | ESP-NOW | Boards, and Linux with a Wi-Fi card in monitor mode | On by default |
-| Wi-Fi | Boards and computers | `network on` starts the board's own network, OLC-XXXX. `wifi SSID PASSWORD` joins a router, where boards broadcast their id on UDP 7000 every 2 s and dial the boards they hear |
+| Wi-Fi | Boards and computers | `network on` starts the board's own network, OLC-XXXX. `wifi SSID PASSWORD` joins a router, where boards broadcast their id on UDP 7000 every 2 s and dial the boards they hear. A computer's node on that network hears them too and dials them, once its firewall lets UDP 7000 in there |
 | Bluetooth | Boards, and Linux computers | On by default |
 | USB | A computer and its board | `olc node --serial PORT` |
 | TCP | Computers | A home network, a VPN or the internet |

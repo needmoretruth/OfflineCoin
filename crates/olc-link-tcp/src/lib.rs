@@ -1,4 +1,6 @@
 //! TCP for computers, on a home network, a VPN or the internet. Boards speak the same framing.
+pub mod lan;
+
 use olc_node::frame::{encode, Decoder};
 use olc_node::network;
 use olc_node::{Link, Medium, News, Target};
@@ -154,6 +156,12 @@ impl TcpLink {
 
     pub fn control(&self) -> TcpControl {
         TcpControl(self.shared.clone())
+    }
+
+    /// Hears the ids boards broadcast to `port` on a router's network and reports them, so the
+    /// node dials them. `me` is this node's id, which it hears from itself and ignores.
+    pub fn hear_neighbours(&self, port: u16, me: u64) -> std::io::Result<()> {
+        lan::start(self.shared.clone(), port, me)
     }
 
     /// Accepts peers on `address`, for example `0.0.0.0:7000`. Returns the address it got.
