@@ -93,7 +93,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.light", "Light node"),
     ("pro.light_about", "Headers only."),
     ("pro.links", "Link order"),
-    ("pro.links_about", "Such as wire,espnow,bluetooth,wifi."),
+    ("pro.links_about", "Such as wired,espnow,wifi,bluetooth."),
     ("pro.looked", "Scanned {} s ago: {} addresses on {} subnets."),
     ("pro.looked_local", "Scanned {} s ago on this computer."),
     ("pro.looking", "Scanning."),

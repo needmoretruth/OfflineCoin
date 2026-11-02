@@ -12,7 +12,12 @@ impl Node {
     pub fn run_links_command(&mut self, line: &str) {
         let mut words = line.split_whitespace();
         match (words.next(), words.next()) {
-            (Some("espnow"), Some(state)) => radio::ENABLED.store(state == "on", Ordering::Relaxed),
+            (Some("espnow"), Some(state)) => {
+                radio::ENABLED.store(state == "on", Ordering::Relaxed);
+                if state != "on" {
+                    self.runner.link_off(Medium::EspNow);
+                }
+            }
             (Some("bluetooth"), Some(state @ ("on" | "off"))) => {
                 self.restart_with(|settings| settings.bluetooth = state.into());
             }

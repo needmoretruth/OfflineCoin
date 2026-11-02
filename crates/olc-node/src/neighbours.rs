@@ -189,6 +189,16 @@ impl Neighbours {
         }
     }
 
+    /// A link was turned off here, so nobody can be reached by it from now on.
+    pub fn lost_link(&mut self, medium: Medium) {
+        for path in self.list.iter_mut().flat_map(|one| &mut one.paths) {
+            if self.media.get(path.link) == Some(&medium) {
+                path.live = false;
+                path.closed = true;
+            }
+        }
+    }
+
     /// Picks each neighbour's link, and says where traffic moved.
     pub fn settle(&mut self, now: u64) -> Vec<Move> {
         let mut moves = Vec::new();

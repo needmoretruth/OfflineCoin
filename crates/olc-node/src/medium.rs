@@ -46,7 +46,7 @@ impl Rank {
         self.0.iter().position(|one| *one == medium).unwrap_or(usize::MAX)
     }
 
-    /// Reads `wired,espnow,bluetooth,wifi`. Each must appear once.
+    /// Reads `wired,espnow,wifi,bluetooth`. Each must appear once.
     pub fn parse(text: &str) -> Option<Self> {
         let list: Option<Vec<Medium>> = text.split(',').map(|name| Medium::from_name(name.trim())).collect();
         let list: [Medium; 4] = list?.try_into().ok()?;

@@ -132,6 +132,11 @@ impl Runner {
     }
 
     /// The order links are preferred in. Traffic follows it as soon as a better link is steady.
+    /// Moves traffic off a link that was just turned off, without waiting for it to go quiet.
+    pub fn link_off(&mut self, medium: Medium) {
+        self.table.lost_link(medium);
+    }
+
     pub fn set_rank(&mut self, rank: Rank) {
         self.table.rank = rank;
     }

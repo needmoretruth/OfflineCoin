@@ -93,7 +93,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.light", "라이트 노드"),
     ("pro.light_about", "헤더만 보관합니다."),
     ("pro.links", "링크 순서"),
-    ("pro.links_about", "예: wire,espnow,bluetooth,wifi"),
+    ("pro.links_about", "예: wired,espnow,wifi,bluetooth"),
     ("pro.looked", "{}초 전 스캔: 주소 {}개, 서브넷 {}개"),
     ("pro.looked_local", "{}초 전 이 컴퓨터를 스캔했습니다."),
     ("pro.looking", "스캔 중"),

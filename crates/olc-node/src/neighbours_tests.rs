@@ -96,6 +96,16 @@ fn a_closed_connection_moves_traffic_at_once() {
 }
 
 #[test]
+fn a_link_turned_off_here_moves_traffic_at_once() {
+    let mut table = table();
+    run(&mut table, 0, 60_000, &[WIRE, RADIO]);
+    table.lost_link(Medium::Wire);
+    table.settle(60_000);
+    assert_eq!(table.count_on(RADIO), 1);
+    assert_eq!(table.count_on(WIRE), 0);
+}
+
+#[test]
 fn the_order_is_a_choice() {
     let mut table = table();
     table.rank = Rank::parse("bluetooth,espnow,wired,wifi").unwrap();
