@@ -1,6 +1,7 @@
 //! A pool running on this app's node: its workers are real node processes and boards, reached
 //! with the same generic work lines anyone could send them.
-use super::host::{unix_ms, Host};
+use super::host::Host;
+use super::host_parts::unix_ms;
 use crate::fleet::{FleetPort, LineError};
 use crate::local::{NodeSpec, Supervisor};
 use olc_control::BoardId;

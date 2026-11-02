@@ -8,6 +8,9 @@ use std::fs;
 use std::path::PathBuf;
 
 const FILE: &str = "known-boards";
+/// Boards learned over the air. New keys cost nothing to make, and each one is a line in a file.
+/// The cable can always add one more.
+const MOST_PINS: usize = 1_024;
 
 #[derive(Default)]
 pub struct Pins {
@@ -57,6 +60,9 @@ impl Pins {
         if known.is_some() && !on_cable {
             return false;
         }
+        if self.addresses.len() >= MOST_PINS && !on_cable {
+            return false;
+        }
         self.addresses.insert(board, address);
         self.save();
         true
@@ -72,7 +78,10 @@ impl Pins {
             .map(|(board, address)| format!("{} {}\n", hex(board), hex(address)))
             .collect();
         // Losing this only means learning the boards again.
-        let _ = fs::write(file, lines.concat());
+        let fresh = file.with_extension("new");
+        if fs::write(&fresh, lines.concat()).is_ok() {
+            let _ = fs::rename(&fresh, file);
+        }
     }
 }
 
@@ -88,6 +97,18 @@ mod tests {
         assert!(pins.accept(BOARD, [1; 20], false));
         assert!(pins.accept(BOARD, [1; 20], false));
         assert!(!pins.accept(BOARD, [2; 20], false));
+    }
+
+    #[test]
+    fn the_air_cannot_fill_the_file_without_end() {
+        let mut pins = Pins::default();
+        for number in 0..MOST_PINS as u32 {
+            let mut board = [0; 6];
+            board[..4].copy_from_slice(&number.to_le_bytes());
+            assert!(pins.accept(board, [1; 20], false));
+        }
+        assert!(!pins.accept([9; 6], [1; 20], false));
+        assert!(pins.accept([9; 6], [1; 20], true));
     }
 
     #[test]

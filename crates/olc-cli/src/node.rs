@@ -46,7 +46,7 @@ fn chosen_limit(args: &Args, directory: &Path) -> Result<u64, String> {
 
 /// A choice that cannot be saved still holds for this run.
 fn save_limit(directory: &Path, limit: u64) {
-    let _ = fs::write(directory.join(LIMIT_FILE), limit.to_string());
+    let _ = olc_store::replace_file(&directory.join(LIMIT_FILE), limit.to_string().as_bytes());
 }
 
 fn start_host(args: &Args, directory: PathBuf) -> Result<Host, String> {

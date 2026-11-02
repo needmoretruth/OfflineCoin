@@ -14,6 +14,8 @@ use esp_println::println;
 use olc_node::{Link, Medium, Target};
 
 const MAX_LINE: usize = 20_000;
+/// Whole lines waiting for the main loop. A program on the far end can always send faster.
+const MOST_WAITING: usize = 64;
 
 /// The clock when a line was last in progress, which keeps mining out of its way: the cable's
 /// buffer is small, so a long line would crawl at one buffer per mining batch.
@@ -142,12 +144,17 @@ impl UsbLink {
                 self.bridged = true;
                 HOST_SPOKE.store(true, Ordering::Relaxed);
                 if let Some(message) = decode_hex(hex) {
-                    self.messages.push_back(message);
+                    if self.messages.len() < MOST_WAITING {
+                        self.messages.push_back(message);
+                    }
                 }
             }
             Some(_) => {
                 if let Ok(text) = core::str::from_utf8(&line) {
-                    self.commands.borrow_mut().push_back(text.into());
+                    let mut commands = self.commands.borrow_mut();
+                    if commands.len() < MOST_WAITING {
+                        commands.push_back(text.into());
+                    }
                 }
             }
             None => {}

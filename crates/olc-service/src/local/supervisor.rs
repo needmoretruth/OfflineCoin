@@ -40,7 +40,6 @@ pub struct ChildStatus {
     pub port: Option<u16>,
     pub stored_bytes: u64,
     pub storage_full: bool,
-    pub loading: bool,
     /// Headers held, on a node that holds nothing else.
     pub headers: Option<u64>,
     /// Proofs and headers that did not pass.
@@ -71,7 +70,6 @@ impl ChildStatus {
             port: view.port,
             stored_bytes: view.stored_bytes,
             storage_full: view.storage_full,
-            loading: view.loading.is_some(),
             headers: view.light.map(|light| light.held_headers as u64),
             refused: view.light.map_or(0, |light| light.refused),
             reorganized: view.light.map_or(0, |light| light.reorganized),
