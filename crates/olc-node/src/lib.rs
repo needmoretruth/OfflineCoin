@@ -12,6 +12,7 @@ pub mod frame;
 pub mod hello;
 pub mod light;
 pub mod line;
+pub mod locks;
 pub mod medium;
 pub mod message;
 pub mod neighbours;

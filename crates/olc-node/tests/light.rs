@@ -74,7 +74,7 @@ fn every_real_header_passes_as_it_did_for_a_full_node() {
     let best = chain.blocks_from(1, chain.height() as usize);
     for page in best.chunks(16) {
         let page: Vec<BlockHeader> = page.iter().map(|block| block.header).collect();
-        headers.offer(&page, chain.rules(), consensus).unwrap();
+        headers.offer(&page, chain.config(), consensus).unwrap();
     }
     assert!(headers.height() > 2_000);
     assert_eq!(headers.height(), chain.height());
@@ -93,7 +93,7 @@ fn a_header_that_breaks_a_rule_is_refused() {
     let consensus = chain.plugins().consensus.as_ref();
     let start = || HeaderChain::new(coin.genesis().header, EVERYTHING);
     let first = blocks[0].header;
-    let offer = |header: BlockHeader| start().offer(&[header], chain.rules(), consensus);
+    let offer = |header: BlockHeader| start().offer(&[header], chain.config(), consensus);
 
     assert!(offer(first).is_ok());
     let bad_seal = BlockHeader { nonce: first.nonce.wrapping_add(1), ..first };

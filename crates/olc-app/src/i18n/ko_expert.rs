@@ -47,8 +47,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.mine_to_about", "이 보드의 코인베이스 주소입니다."),
     ("boards.mine_to_hint", "코인베이스 주소"),
     ("boards.move_warning", "보드의 체인은 사라집니다. 키는 남습니다."),
-    ("coin.block", "블록 시간 (초)"),
-    ("coin.block_about", "블록 사이 목표 시간입니다."),
     ("coin.reward", "블록 보상"),
     ("coin.reward_about", "반감기 전 블록당 코인입니다."),
     ("coins.split", "포크: 같은 제네시스, 다른 규칙"),

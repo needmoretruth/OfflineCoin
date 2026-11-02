@@ -1,5 +1,7 @@
 //! Blocks, payments, addresses and notes, read from the node's own chain.
-use olc_core::{Block, Chain, Hash};
+use olc_core::{Block, Chain, Hash, ADDRESS_LANGUAGE};
+use olc_lang::words::words_of;
+use olc_lang::BETA;
 use olc_wallet::{format_address, parse_address};
 
 /// Enough to fill a screen, and little enough to read at every new tip.
@@ -20,6 +22,8 @@ pub struct OutputRow {
     pub to: String,
     /// The words of a data output.
     pub note: Option<String>,
+    /// The words of a beta lock.
+    pub lock: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,10 +80,12 @@ fn tx_row(tx: &olc_core::Tx) -> TxRow {
     let outputs = tx.outputs.iter().map(|output| {
         let data = output.is_data();
         let address = <[u8; 20]>::try_from(output.lock.as_slice()).ok();
+        let plain = address.filter(|_| output.language == ADDRESS_LANGUAGE);
         OutputRow {
             value: output.value,
-            to: address.filter(|_| !data).map(|to| format_address(&to)).unwrap_or_default(),
+            to: plain.map(|to| format_address(&to)).unwrap_or_default(),
             note: data.then(|| text_of(&output.lock)),
+            lock: (output.language == BETA).then(|| words_of(&output.lock)),
         }
     });
     TxRow {
@@ -146,7 +152,7 @@ fn by_hash(chain: &Chain, id: &Hash) -> Explored {
     })
 }
 
-fn parse_hash(text: &str) -> Option<Hash> {
+pub(crate) fn parse_hash(text: &str) -> Option<Hash> {
     let mut hash = [0; 32];
     if text.len() != 64 || !text.is_ascii() {
         return None;

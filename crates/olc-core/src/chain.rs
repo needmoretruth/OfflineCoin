@@ -367,9 +367,19 @@ impl Chain {
     pub fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
         self.unspent
             .iter()
-            .filter(|(_, entry)| entry.output.lock.as_slice() == address.as_slice())
+            .filter(|(_, entry)| entry.output.pays(address))
             .map(|(point, entry)| (*point, entry.clone()))
             .collect()
+    }
+
+    /// The unspent coin at `point`.
+    pub fn coin_at(&self, point: &OutPoint) -> Option<&Unspent> {
+        self.unspent.get(point)
+    }
+
+    /// Unspent coins under a lock of `language`.
+    pub fn coins_under(&self, language: u8) -> impl Iterator<Item = (&OutPoint, &Unspent)> {
+        self.unspent.iter().filter(move |(_, entry)| entry.output.language == language)
     }
 
     /// A hash of the whole unspent set. Two nodes with the same one agree on every coin.
@@ -388,7 +398,7 @@ impl Chain {
         let next = self.height() + 1;
         self.unspent
             .values()
-            .filter(|entry| entry.output.lock.as_slice() == address.as_slice())
+            .filter(|entry| entry.output.pays(address))
             .filter(|entry| self.is_mature(entry, next))
             .map(|entry| entry.output.value)
             .sum()

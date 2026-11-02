@@ -1,4 +1,6 @@
 //! A node's files on a computer, shared by the command line and the desktop app.
+pub mod amount;
+pub mod coin_fields;
 pub mod coin_file;
 mod files;
 mod store;

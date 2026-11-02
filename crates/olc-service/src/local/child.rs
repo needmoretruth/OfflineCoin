@@ -3,9 +3,11 @@
 //! node outlives the app that started it.
 use crate::core::Book;
 use super::supervisor::ChildStatus;
+use crate::core::host_locks::LockDone;
 use crate::core::{parse_coins, Host, Plan};
 use crate::settings::PORT_TRIES;
 use olc_core::BlockHeader;
+use olc_node::locks::LockFailure;
 use olc_node::Card;
 use olc_store::coin_file;
 use std::io::{BufRead, Write};
@@ -109,9 +111,28 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
             }
             return Some(status);
         }
+        ["lockpay", amount, words @ ..] => {
+            let paid = host.pay_lock(&words.join(" "), amount).map(|(id, _)| LockDone::Sent(id));
+            return Some(lock_answer(host, paid));
+        }
+        ["lockspend", coin, to, unlock @ ..] => {
+            let to = if *to == "own" { "" } else { to };
+            return Some(lock_answer(host, host.spend_lock(coin, to, &unlock.join(" "))));
+        }
+        ["locksign", text] => return Some(lock_answer(host, host.sign_lock(text))),
         _ => {}
     }
     None
+}
+
+fn lock_answer(host: &Host, done: Result<LockDone, LockFailure>) -> ChildStatus {
+    let mut status = ChildStatus::from_view(&host.view());
+    match done {
+        Ok(LockDone::Sent(id)) => status.paid = Some(hex(&id)),
+        Ok(LockDone::Waiting { text, .. }) => status.half = Some(text),
+        Err(failure) => status.error = Some(format!("{failure:?}")),
+    }
+    status
 }
 
 fn hex(bytes: &[u8]) -> String {

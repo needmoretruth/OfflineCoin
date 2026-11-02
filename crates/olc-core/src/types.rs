@@ -28,6 +28,8 @@ pub struct TxOut {
 /// The language byte of a data output. No language has it, so under the existing rules nothing
 /// can ever spend such an output, and no node needs to remember one.
 pub const DATA_LANGUAGE: u8 = 0xFF;
+/// The language of a plain payment, whose lock is an address.
+pub const ADDRESS_LANGUAGE: u8 = 0;
 
 impl TxOut {
     /// An output that carries bytes and no value, like Bitcoin's OP_RETURN.
@@ -41,6 +43,12 @@ impl TxOut {
 
     pub fn is_data(&self) -> bool {
         self.language == DATA_LANGUAGE
+    }
+
+    /// True for a plain payment to `address`. Any other language may hold the same bytes by
+    /// chance or on purpose, and pays nobody by address.
+    pub fn pays(&self, address: &[u8]) -> bool {
+        self.language == ADDRESS_LANGUAGE && self.lock == address
     }
 }
 

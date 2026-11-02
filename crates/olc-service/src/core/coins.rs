@@ -1,65 +1,13 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
 use crate::settings::Paths;
-use olc_core::coin::COIN;
 use olc_core::CoinConfig;
 use olc_store::coin_file;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-const DECIMALS: usize = 8;
+pub use olc_store::amount::{format_coins, group_thousands, parse_coins};
+
 const COIN_FILE: &str = "coin.json";
-
-/// `1,234` as `1234`. A comma that does not group thousands is refused, because `2,5` may mean 2.5.
-fn without_groups(whole: &str) -> Option<String> {
-    let mut groups = whole.split(',');
-    let first = groups.next()?;
-    let rest_fits = groups.all(|group| group.len() == 3);
-    let first_fits = !whole.contains(',') || (1..=3).contains(&first.len());
-    (rest_fits && first_fits).then(|| whole.replace(',', ""))
-}
-
-/// Reads `1.5` or `1,234.5` as base units, without passing through a float.
-pub fn parse_coins(text: &str) -> Option<u64> {
-    let text = text.trim();
-    let (whole, part) = text.split_once('.').unwrap_or((text, ""));
-    let whole = without_groups(whole)?;
-    let whole = whole.as_str();
-    if part.len() > DECIMALS || (whole.is_empty() && part.is_empty()) {
-        return None;
-    }
-    let digits = |word: &str| word.is_empty() || word.bytes().all(|byte| byte.is_ascii_digit());
-    if !digits(whole) || !digits(part) {
-        return None;
-    }
-    let whole: u64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
-    let scale = 10u64.pow((DECIMALS - part.len()) as u32);
-    let part: u64 = if part.is_empty() { 0 } else { part.parse().ok()? };
-    whole.checked_mul(COIN)?.checked_add(part * scale)
-}
-
-/// `1234567` as `1,234,567`.
-pub fn group_thousands(value: u128) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-/// How an amount reads anywhere a person sees it: thousands grouped, and only the decimals it has.
-pub fn format_coins(units: u64) -> String {
-    let whole = group_thousands((units / COIN).into());
-    let part = units % COIN;
-    if part == 0 {
-        return whole;
-    }
-    let text = format!("{whole}.{part:08}");
-    text.trim_end_matches('0').to_string()
-}
 
 /// The folder name of a coin: the start of its genesis id, then its rule changes. A fork keeps a
 /// chain of its own, so the coin it left stays whole and the way back stays open.
@@ -69,6 +17,24 @@ pub fn coin_folder(coin: &CoinConfig) -> String {
         forks if forks.is_empty() => start,
         forks => format!("{start}-{forks}"),
     }
+}
+
+/// Gives a fork's folder the chain it leaves from, with this node's settings. What a folder holds
+/// already stays, so a fork a person returns to keeps the blocks it made.
+pub fn copy_chain(from: &Path, to: &Path) -> Result<(), String> {
+    let failed = |error: std::io::Error| error.to_string();
+    fs::create_dir_all(to).map_err(failed)?;
+    let Ok(files) = fs::read_dir(from) else {
+        return Ok(());
+    };
+    for file in files.flatten() {
+        let name = file.file_name();
+        let target = to.join(&name);
+        if file.path().is_file() && name != COIN_FILE && !target.exists() {
+            fs::copy(file.path(), target).map_err(failed)?;
+        }
+    }
+    Ok(())
 }
 
 /// Writes the coin next to its chain and returns the file, which a node process reads.

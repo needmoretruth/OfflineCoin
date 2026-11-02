@@ -3,7 +3,9 @@
 mod board_detail;
 mod board_more;
 mod boards;
+mod coin_fork;
 mod coin_new;
+mod coin_rows;
 mod coins;
 mod console;
 mod home;

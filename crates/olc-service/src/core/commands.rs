@@ -102,6 +102,14 @@ pub enum Command {
         choices: NewCoin,
         path: String,
     },
+    /// New rules on the running coin, keeping its genesis and history. `at` is the height they
+    /// start from, and without it the next block. `changes` are coin field keys and their text.
+    Fork {
+        at: Option<u64>,
+        changes: Vec<(String, String)>,
+    },
+    /// Back to the rules before the last fork.
+    ForkBack,
     /// Joins the coin a file describes.
     JoinCoinFile(String),
     /// Writes the running coin to a file someone else can join from.
@@ -147,4 +155,16 @@ pub enum Command {
         to: String,
         amount: String,
     },
+    Lock(LockOrder),
+}
+
+/// Something to do with coins under a beta lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LockOrder {
+    /// Puts coins from this wallet under the lock these words make.
+    Pay { words: String, amount: String },
+    /// Spends the coin named `coin` with these unlock words. An empty `to` is this wallet.
+    Spend { coin: String, to: String, unlock: String },
+    /// Adds this wallet's signatures to a spend another signer passed on.
+    Sign { text: String },
 }

@@ -36,11 +36,14 @@ fn show_tx(ui: &mut Ui, cx: &Cx, tx: &TxRow, ticker: &str) {
     ui.label(mono(full_hex(&tx.id)));
     meta(ui, &kind, t);
     for output in &tx.outputs {
-        match &output.note {
-            Some(note) => {
+        match (&output.note, &output.lock) {
+            (Some(note), _) => {
                 ui.label(cx.fill("records.note_line", &[note]));
             }
-            None => {
+            (None, Some(words)) => {
+                ui.label(mono(format!("{}  {words}", format::coins(output.value, ticker))));
+            }
+            (None, None) => {
                 let text = format!("{}  {}", format::coins(output.value, ticker), output.to);
                 ui.label(mono(text));
             }

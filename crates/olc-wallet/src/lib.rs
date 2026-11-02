@@ -8,7 +8,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use olc_core::{Address, Coins, OutPoint, Tx, TxIn, TxOut};
 use olc_crypto::{address_of, public_key, sign, PublicKey};
-use olc_lang::{alpha, ALPHA};
+use olc_lang::{alpha, ALPHA, BETA};
+
+pub mod locks;
 
 /// A key with this many coins ready gets them merged into one.
 pub const MERGE_FROM: usize = 16;
@@ -150,6 +152,24 @@ impl Wallet {
         self.spend(chain, payments, &[], fee, reserved)
     }
 
+    /// Puts `amount` under a beta lock, which is what the lock's words open.
+    pub fn pay_lock(
+        &self,
+        chain: &dyn Coins,
+        lock: &[u8],
+        amount: u64,
+        fee: u64,
+        reserved: &[OutPoint],
+    ) -> Result<Tx, WalletError> {
+        if amount == 0 {
+            return Err(WalletError::ZeroAmount);
+        }
+        let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
+        let locked = TxOut { value: amount, language: BETA, lock: lock.to_vec() };
+        let order = Order { payments: &[], data: &[], locked: Some(locked), fee, change: self.address() };
+        self.sign(&prepare(chain, &owners, &order, reserved)?)
+    }
+
     /// A transaction that carries `data` and pays nobody.
     pub fn note(
         &self,
@@ -170,7 +190,7 @@ impl Wallet {
         reserved: &[OutPoint],
     ) -> Result<Tx, WalletError> {
         let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
-        let order = Order { payments, data, fee, change: self.address() };
+        let order = Order { payments, data, locked: None, fee, change: self.address() };
         self.sign(&prepare(chain, &owners, &order, reserved)?)
     }
 
@@ -242,6 +262,8 @@ pub type Unsigned = (Tx, Vec<Address>);
 pub struct Order<'a> {
     pub payments: &'a [(Address, u64)],
     pub data: &'a [u8],
+    /// An output of its own, for coins going under a lock.
+    pub locked: Option<TxOut>,
     pub fee: u64,
     pub change: Address,
 }
@@ -255,7 +277,9 @@ pub fn prepare(
 ) -> Result<Unsigned, WalletError> {
     let next = chain.height() + 1;
     let mut amounts = order.payments.iter();
+    let locked = order.locked.as_ref().map_or(0, |output| output.value);
     let total = amounts.try_fold(order.fee, |sum, (_, amount)| sum.checked_add(*amount));
+    let total = total.and_then(|total| total.checked_add(locked));
     let needed = total.ok_or(WalletError::NotEnoughCoins)?;
     let mut chosen = Vec::new();
     let mut gathered = 0u64;
@@ -274,6 +298,7 @@ pub fn prepare(
         return Err(WalletError::NotEnoughCoins);
     }
     let mut outputs: Vec<TxOut> = order.payments.iter().map(plain).collect();
+    outputs.extend(order.locked.clone());
     if !order.data.is_empty() {
         outputs.push(TxOut::data(order.data.to_vec()));
     }

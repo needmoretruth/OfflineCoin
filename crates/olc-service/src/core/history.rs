@@ -93,7 +93,7 @@ impl History {
                         time_ms: block.header.time_ms,
                         text: text_of(&output.lock),
                     });
-                } else if me.iter().any(|own| output.lock.as_slice() == own.as_slice()) {
+                } else if me.iter().any(|own| output.pays(own)) {
                     to_me += output.value;
                     self.mine.insert(OutPoint {
                         txid,

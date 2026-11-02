@@ -1,4 +1,5 @@
 //! One consistent picture of the app for the screen.
+use olc_node::locks::LockedCoin;
 use olc_node::LightStatus;
 use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
@@ -64,6 +65,10 @@ pub struct NodeView {
     pub blocks: Vec<BlockRow>,
     pub notes: Vec<NoteRow>,
     pub explored: Explored,
+    /// Coins under a beta lock.
+    pub locks: Vec<LockedCoin>,
+    /// A spend waiting for another signer, and whose signatures it needs.
+    pub half_spend: Option<(String, Vec<String>)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

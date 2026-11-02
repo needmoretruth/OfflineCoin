@@ -96,7 +96,7 @@ impl Engine {
     pub fn prepare(&self, to: Address, amount: u64, fee: u64) -> Result<Unsigned, WalletError> {
         let change = *self.watched.first().ok_or(WalletError::NoSuchKey)?;
         let payments = [(to, amount)];
-        let order = Order { payments: &payments, data: &[], fee, change };
+        let order = Order { payments: &payments, data: &[], locked: None, fee, change };
         prepare(self.coins(), &self.watched, &order, &[])
     }
 

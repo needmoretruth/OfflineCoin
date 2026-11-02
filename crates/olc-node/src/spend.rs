@@ -41,7 +41,7 @@ impl Engine {
         Ok(self.send_signed(tx))
     }
 
-    fn reserved(&self) -> Vec<OutPoint> {
+    pub(crate) fn reserved(&self) -> Vec<OutPoint> {
         let signing = self.signing.iter().map(|signing| &signing.tx);
         let inputs = self.pool.iter().chain(signing).flat_map(|tx| &tx.inputs);
         inputs.map(|input| input.previous).collect()

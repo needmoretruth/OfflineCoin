@@ -47,8 +47,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.mine_to_about", "Coinbase address of this board."),
     ("boards.mine_to_hint", "Coinbase address"),
     ("boards.move_warning", "The board's chain goes. Its keys stay."),
-    ("coin.block", "Block time (s)"),
-    ("coin.block_about", "Target seconds between blocks."),
     ("coin.reward", "Block reward"),
     ("coin.reward_about", "Whole coins per block before halving."),
     ("coins.split", "Fork: same genesis, other rules"),

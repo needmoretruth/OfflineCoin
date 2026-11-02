@@ -8,6 +8,7 @@ extern crate alloc;
 pub mod alpha;
 pub mod beta;
 pub mod omega;
+pub mod words;
 
 use alloc::boxed::Box;
 use alloc::vec;

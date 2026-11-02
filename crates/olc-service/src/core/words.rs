@@ -5,7 +5,7 @@ use super::commands::{Command, Personal};
 use super::snapshot::BoardView;
 use olc_board::Args;
 use olc_control::BoardId;
-use olc_store::coin_file::NewCoin;
+use olc_store::coin_fields::{new_coin, CoinField, NewCoin, COIN_FIELDS};
 
 /// Where actions land: the app's running core, or a terminal.
 pub trait Desk {
@@ -52,10 +52,21 @@ pub const WORDS: &[Word] = &[
     Word { name: "scan", usage: "scan                 look for nodes now", run: scan },
     Word {
         name: "new-coin",
-        usage: "new-coin FILE [--name NAME] [--ticker TICKER] [--block-time-ms MS]\n              \
-                [--reward COINS] [--halving BLOCKS] [--difficulty N] [--min-difficulty N]",
+        usage: "new-coin FILE [--name NAME] [--ticker TICKER] [--message TEXT] [--message-in-block on|off]\n              \
+                [--genesis-time-ms MS] [--difficulty N] [--premine \"ADDRESS AMOUNT; ...\"]\n              \
+                [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
+                [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
+                [--min-difficulty N] [--floor-from-height HEIGHT]",
         run: make_coin,
     },
+    Word {
+        name: "fork",
+        usage: "fork [--at HEIGHT] [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
+                [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
+                [--min-difficulty N] [--floor-from-height HEIGHT]   new rules on this same chain",
+        run: fork,
+    },
+    Word { name: "fork-back", usage: "fork-back            go back to the rules before the last fork", run: fork_back },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
     Word { name: "save-coin", usage: "save-coin FILE       write this coin to a file", run: save_coin },
     Word { name: "boards", usage: "boards               list boards", run: boards },
@@ -264,25 +275,33 @@ fn scan(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
     desk.command(Command::Rescan)
 }
 
+/// The `--flags` of the coin fields `pick` keeps, as field keys and their text.
+fn coin_values(args: &Args, pick: fn(&CoinField) -> bool) -> Vec<(String, String)> {
+    let fields = COIN_FIELDS.iter().filter(|field| pick(field));
+    let given = fields.flat_map(|field| {
+        args.values(field.flag).into_iter().map(|text| (field.key.to_string(), text))
+    });
+    given.collect()
+}
+
 fn make_coin(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
-    fn chosen(args: &Args, name: &str) -> Result<Option<u64>, String> {
-        args.value(name).map(|word| number(Some(word))).transpose()
-    }
-    let text = |name: &str| args.value(name).map(str::to_string);
-    let choices = NewCoin {
-        name: text("name"),
-        message: text("message"),
-        message_in_block: true,
-        ticker: text("ticker"),
-        block_time_ms: chosen(args, "block-time-ms")?,
-        reward: chosen(args, "reward")?,
-        halving: chosen(args, "halving")?,
-        difficulty: chosen(args, "difficulty")?,
-        floor: chosen(args, "min-difficulty")?,
-        ..NewCoin::default()
-    };
+    let choices = NewCoin { values: coin_values(args, |_| true) };
+    new_coin(&choices).map_err(|bad| bad.to_string())?;
     let path = first(args, "Name the file: olc new-coin my-coin.json")?.to_string();
     desk.command(Command::NewCoinFile { choices, path })
+}
+
+fn fork(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let at = args.value("at").map(|word| number(Some(word))).transpose()?;
+    let changes = coin_values(args, CoinField::is_rule);
+    if changes.is_empty() {
+        return Err("Say which rule changes, like olc fork --reward 25".into());
+    }
+    desk.command(Command::Fork { at, changes })
+}
+
+fn fork_back(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
+    desk.command(Command::ForkBack)
 }
 
 fn join(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {

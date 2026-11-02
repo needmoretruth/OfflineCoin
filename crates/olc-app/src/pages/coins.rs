@@ -1,5 +1,6 @@
 //! This coin, the coins found around, and starting or joining another. Nothing joins until a
 //! person picks it.
+use super::coin_fork::ForkForm;
 use super::coin_new::CoinForm;
 use super::{Cx, Page, Slipping};
 use crate::core::{Command, Personal};
@@ -12,12 +13,14 @@ use crate::ui::widgets::{
     Columns, Kind,
 };
 use crate::ui::{format, Icon};
-use egui::{Align, Layout, Ui};
+use egui::{Align, Layout, ScrollArea, Ui};
 use olc_core::CoinConfig;
 use olc_node::Medium;
 
 const WEIGHTS: [f32; 7] = [1.5, 2.3, 0.9, 1.4, 0.8, 1.8, 0.8];
 const COIN_ENDING: &str = "coin";
+/// A sheet's margins, title and buttons.
+const SHEET_FRAME: f32 = 220.0;
 
 enum Filing {
     Join(Picker),
@@ -29,6 +32,7 @@ pub struct Coins {
     address: String,
     by_address: bool,
     new_coin: Option<CoinForm>,
+    fork: Option<ForkForm>,
     filing: Option<Filing>,
 }
 
@@ -211,7 +215,8 @@ fn found_in(group: &CoinGroup) -> Option<Found<'_>> {
     let around: Vec<&Entry> = others().flat_map(|chain| &chain.entries).collect();
     let first = around.first()?;
     Some(Found {
-        coin: &identity.coin,
+        // Joining a split takes its rules, not those of the first one found.
+        coin: others().find_map(|chain| chain.coin.as_ref()).unwrap_or(&identity.coin),
         count: around.len(),
         address: first.address.clone(),
         split: others().any(|chain| chain.relation == Relation::Split),
@@ -222,22 +227,81 @@ impl Coins {
     fn this_coin(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         let node = &cx.snap.node;
+        let mut back = false;
         card(ui, t, |ui| {
             ui.horizontal(|ui| {
                 dot(ui, t.good);
                 if let Some(coin) = &node.coin {
                     section(ui, &coin.name);
                     tag(ui, &coin.ticker, t.muted, t);
+                    if !coin.forks.is_empty() {
+                        tag(ui, cx.say("coins.split"), t.warn, t);
+                    }
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if button(ui, t, cx.say("coins.save_file"), Kind::Quiet).clicked() {
                         let picker = Picker::save("coins.save_file", "coin", COIN_ENDING, cx.folder.as_deref());
                         self.filing = Some(Filing::Save(picker));
                     }
+                    if let Some(coin) = node.coin.as_ref().filter(|_| cx.expert()) {
+                        if button(ui, t, cx.say("pro.fork"), Kind::Quiet).clicked() {
+                            self.fork = Some(ForkForm::new(coin, node.height));
+                        }
+                    }
+                    if node.coin.as_ref().is_some_and(|coin| !coin.forks.is_empty())
+                        && button(ui, t, cx.say("coins.fork_back"), Kind::Quiet).clicked()
+                    {
+                        back = true;
+                    }
                 });
             });
             meta(ui, &cx.fill("coins.this_line", &[&format::number(node.height.into()), &node.peers.to_string()]), t);
+            if let Some(fork) = node.coin.as_ref().and_then(|coin| coin.forks.last()) {
+                meta(ui, &cx.fill("coins.forked_line", &[&format::number(fork.from_height.into())]), t);
+            }
         });
+        if back {
+            let name = node.coin.as_ref().map_or(String::new(), |coin| coin.name.clone());
+            *cx.slip = Some(cx.slip_for(Slipping {
+                what: cx.say("coins.fork_back"),
+                rows: vec![(cx.say("coin.name"), name)],
+                warning: cx.say("coins.fork_back_warning"),
+                sign: cx.say("coins.fork_back"),
+                danger: false,
+                order: vec![Command::ForkBack],
+            }));
+        }
+    }
+
+    fn fork_sheet(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        let (Some(form), Some(coin)) = (&mut self.fork, &cx.snap.node.coin) else {
+            return;
+        };
+        let height = cx.snap.node.height;
+        let (slip, outside) = sheet(ui, t, "fork", tokens::SHEET_WIDE, |ui| {
+            sheet_head(ui, cx.say("pro.fork"));
+            ScrollArea::vertical().max_height(sheet_room(ui)).show(ui, |ui| form.show(ui, cx, coin, height));
+            ui.add_space(tokens::GAP_WIDE);
+            let order = form.order(coin, height);
+            let mut next = None;
+            let mut cancel = false;
+            ui.horizontal(|ui| {
+                let go = button_on(ui, t, cx.say("pro.fork_go"), Kind::Main, order.is_ok());
+                if let Some(order) = order.ok().filter(|_| go.clicked()) {
+                    next = Some(form.slip(cx, coin, height, order));
+                }
+                cancel = button(ui, t, cx.say("common.cancel"), Kind::Plain).clicked();
+            });
+            (next, cancel)
+        });
+        let (next, cancel) = slip;
+        if let Some(next) = next {
+            *cx.slip = Some(next);
+        }
+        if cancel || outside || cx.slip.is_some() {
+            self.fork = None;
+        }
     }
 
     fn found(&self, ui: &mut Ui, cx: &mut Cx) {
@@ -326,7 +390,7 @@ impl Coins {
         };
         let (done, outside) = sheet(ui, t, "new-coin", tokens::SHEET_WIDE, |ui| {
             sheet_head(ui, cx.say("coins.new"));
-            form.show(ui, cx);
+            ScrollArea::vertical().max_height(sheet_room(ui)).show(ui, |ui| form.show(ui, cx));
             ui.add_space(tokens::GAP_WIDE);
             let coin = form.coin(cx);
             let mut done = false;
@@ -403,8 +467,14 @@ impl Page for Coins {
             meta(ui, &scan_line(cx), t);
         }
         self.new_coin_sheet(ui, cx);
+        self.fork_sheet(ui, cx);
         self.file_sheet(ui, cx);
     }
+}
+
+/// How tall the rows of a sheet can stand with its title and buttons still on the screen.
+fn sheet_room(ui: &Ui) -> f32 {
+    ui.ctx().content_rect().height() - SHEET_FRAME
 }
 
 fn scan_line(cx: &Cx) -> String {

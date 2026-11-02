@@ -67,7 +67,7 @@ impl Coins for Light {
     }
 
     fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
-        let mine = |(_, coin): &(&OutPoint, &Unspent)| coin.output.lock.as_slice() == address;
+        let mine = |(_, coin): &(&OutPoint, &Unspent)| coin.output.pays(address);
         let free = |(point, _): &(&OutPoint, &Unspent)| !self.spent.contains(point);
         let held = self.coins.iter().filter(mine).filter(free);
         held.map(|(point, coin)| (*point, coin.clone())).collect()

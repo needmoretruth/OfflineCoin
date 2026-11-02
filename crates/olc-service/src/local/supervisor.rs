@@ -47,6 +47,10 @@ pub struct ChildStatus {
     pub reorganized: u32,
     pub paid: Option<String>,
     pub error: Option<String>,
+    /// A spend under a lock that waits for another signer.
+    pub half: Option<String>,
+    /// The public key of the node's wallet, for a lock that names it.
+    pub public: String,
     /// Headers found on work from outside since the last line.
     #[serde(default)]
     pub shares: Vec<String>,
@@ -76,6 +80,8 @@ impl ChildStatus {
             reorganized: view.light.map_or(0, |light| light.reorganized),
             paid: None,
             error: None,
+            half: None,
+            public: view.keys.first().map_or_else(String::new, |key| key.public.clone()),
             shares: Vec::new(),
         }
     }
@@ -128,7 +134,8 @@ fn read_status(
             let Ok(parsed) = serde_json::from_str::<ChildStatus>(&line) else {
                 continue;
             };
-            if parsed.paid.is_some() || parsed.error.is_some() || !parsed.shares.is_empty() {
+            let answer = parsed.paid.is_some() || parsed.error.is_some() || parsed.half.is_some();
+            if answer || !parsed.shares.is_empty() {
                 if let Ok(mut answers) = answers.lock() {
                     answers.push((id, parsed.clone()));
                 }

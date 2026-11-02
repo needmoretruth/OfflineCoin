@@ -2,7 +2,7 @@
 use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
 use super::radios::{self, Running};
-use super::host_parts::{fresh_id, listen_somewhere, plugins, stored_bytes, watched_view};
+use super::host_parts::{fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const MINING_BATCH: u32 = 5_000;
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
@@ -28,24 +28,6 @@ const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
 const MAX_HEARD: usize = 64;
 const HEADERS_SAVED_EVERY: Duration = Duration::from_secs(30);
 
-pub fn unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |time| time.as_millis() as u64)
-}
-
-/// How many hashes this computer does in a second on one core.
-pub fn full_rate() -> u64 {
-    const ROUNDS: u32 = 20_000;
-    let started = Instant::now();
-    let mut seed = [0u8; 80];
-    for _ in 0..ROUNDS {
-        let digest = olc_crypto::hash(&seed);
-        seed[..32].copy_from_slice(&digest);
-    }
-    let micros = started.elapsed().as_micros().max(1) as u64;
-    u64::from(ROUNDS) * 1_000_000 / micros
-}
 
 pub struct Plan {
     pub coin: CoinConfig,
@@ -66,6 +48,8 @@ struct Switch {
     coin: CoinConfig,
     folder: PathBuf,
     peers: Vec<String>,
+    /// The chain a fork carries on from. It is copied while nothing writes to it.
+    keep_from: Option<PathBuf>,
 }
 
 /// A payment waiting in the pool, until a block holds it.
@@ -95,6 +79,8 @@ struct State {
     shares: Mutex<Vec<BlockHeader>>,
     /// The last thing a person looked up.
     explored: Mutex<Explored>,
+    /// A spend waiting for another signer, and who that is.
+    half_spend: Mutex<Option<(String, Vec<String>)>>,
 }
 
 pub struct Host {
@@ -147,6 +133,7 @@ impl Host {
                 coin: plan.coin,
                 folder: plan.folder,
                 peers: plan.peers,
+                keep_from: None,
             })),
             view: Mutex::new(NodeView::default()),
             heard: Mutex::default(),
@@ -158,6 +145,7 @@ impl Host {
             work: Mutex::default(),
             shares: Mutex::default(),
             explored: Mutex::default(),
+            half_spend: Mutex::default(),
         });
         let worker = Worker {
             runner: runner.clone(),
@@ -199,6 +187,12 @@ impl Host {
 
     pub(super) fn chain_folder(&self) -> Option<PathBuf> {
         self.state.folder.lock().ok().and_then(|folder| folder.clone())
+    }
+
+    pub(super) fn set_half_spend(&self, half: Option<(String, Vec<String>)>) {
+        if let Ok(mut slot) = self.state.half_spend.lock() {
+            *slot = half;
+        }
     }
 
     pub(super) fn set_explored(&self, explored: Explored) {
@@ -257,13 +251,9 @@ impl Host {
     }
 
     /// Moves this node to another coin, which keeps the same links.
-    pub fn switch(&self, coin: CoinConfig, folder: PathBuf, peers: Vec<String>) {
+    pub fn switch(&self, coin: CoinConfig, folder: PathBuf, peers: Vec<String>, keep_from: Option<PathBuf>) {
         if let Ok(mut switch) = self.state.switch.lock() {
-            *switch = Some(Switch {
-                coin,
-                folder,
-                peers,
-            });
+            *switch = Some(Switch { coin, folder, peers, keep_from });
         }
     }
 
@@ -436,6 +426,9 @@ impl Worker {
         let Ok(wallet) = load_wallet(&self.wallet_folder) else {
             return;
         };
+        if let Some(from) = &switch.keep_from {
+            let _ = super::coins::copy_chain(from, &switch.folder);
+        }
         let opened = open_chain(&switch.folder, switch.coin, plugins(), self.state.storage);
         let chain = match opened {
             Ok(chain) => chain,
@@ -577,6 +570,8 @@ impl Worker {
             blocks: self.blocks.clone(),
             notes: self.history.notes().cloned().collect(),
             explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
+            locks: engine.locked_coins(),
+            half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

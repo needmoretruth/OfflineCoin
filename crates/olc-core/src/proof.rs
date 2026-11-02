@@ -83,8 +83,8 @@ impl CoinProof {
             return None;
         }
         let output = self.tx.outputs.get(self.output as usize)?;
-        // A data output may hold any bytes, an address too, and pays nobody.
-        if output.is_data() || output.lock.as_slice() != address.as_slice() {
+        // A data output or a lock may hold any bytes, an address too, and pays nobody.
+        if !output.pays(address) {
             return None;
         }
         let coin = Unspent {

@@ -9,7 +9,8 @@ use olc_store::coin_file::new_coin;
 use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
-use super::host::{full_rate, Host, PayError, Plan};
+use super::host::{Host, PayError, Plan};
+use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
 use super::rows::{
@@ -92,6 +93,8 @@ fn bind_host(settings: &Settings) -> String {
 /// Notices from threads the service started: key, detail, and whether it went well.
 pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
+mod forks;
+mod locks;
 mod listen;
 mod orders;
 
@@ -257,11 +260,15 @@ impl Service {
             }
             Command::Board { id, action } => self.board_action(id, action),
             Command::NewCoinFile { choices, path } => {
-                match write_coin_file(&new_coin(choices), &path) {
+                let made = new_coin(&choices).map_err(|bad| bad.to_string());
+                match made.and_then(|coin| write_coin_file(&coin, &path)) {
                     Ok(()) => self.say("notice.coin_saved", path, true),
                     Err(detail) => self.say("notice.coin_file", detail, false),
                 }
             }
+            Command::Fork { at, changes } => self.fork(at, &changes),
+            Command::ForkBack => self.fork_back(),
+            Command::Lock(order) => self.lock_order(order),
             Command::JoinCoinFile(path) => match read_coin_file(&path) {
                 Ok(coin) => self.join(coin, None),
                 Err(detail) => self.say("notice.coin_file", detail, false),
@@ -439,7 +446,7 @@ impl Service {
         match settings.save(&folder) {
             Ok(()) => {
                 let coin = current_coin(&self.paths, &self.settings);
-                self.host.switch(coin, folder, self.settings.peers.clone());
+                self.host.switch(coin, folder, self.settings.peers.clone(), None);
             }
             Err(error) => self.say("notice.save_failed", error, false),
         }
@@ -447,8 +454,7 @@ impl Service {
 
     /// Moves this app to a coin a person picked. Every node process follows it.
     fn join(&mut self, coin: CoinConfig, address: Option<String>) {
-        let name = coin_folder(&coin);
-        if self.settings.coin.as_deref() == Some(name.as_str()) {
+        if self.settings.coin.as_deref() == Some(coin_folder(&coin).as_str()) {
             if let Some(address) = address {
                 self.settings.peers.push(address.clone());
                 self.save();
@@ -456,23 +462,34 @@ impl Service {
             }
             return;
         }
+        let name = coin.name.clone();
+        if self.move_to(coin, address.into_iter().collect(), None) {
+            self.say("notice.joined", name, true);
+        }
+    }
+
+    /// Takes this node and its local nodes to `coin`. A fork names the folder it `leaves`, whose
+    /// chain it carries on from.
+    fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
+        let name = coin_folder(&coin);
         if let Err(error) = save_coin(&self.paths, &coin) {
             self.say("notice.save_failed", error, false);
-            return;
+            return false;
         }
         self.settings.coin = Some(name.clone());
-        self.settings.peers = address.into_iter().collect();
+        self.settings.peers = peers;
         self.save();
-        self.host.switch(
-            coin.clone(),
-            self.paths.coin(&name),
-            self.settings.peers.clone(),
-        );
+        let keep_from = leaves.as_ref().map(|old| self.paths.coin(old));
+        let (folder, peers) = (self.paths.coin(&name), self.settings.peers.clone());
+        self.host.switch(coin, folder, peers, keep_from);
         self.local.stop_all();
         // Their ports stay taken until the old processes have gone.
         thread::sleep(Duration::from_millis(100));
+        if let Some(old) = &leaves {
+            self.carry_local_chains(old, &name);
+        }
         self.start_nodes();
-        self.say("notice.joined", coin.name, true);
+        true
     }
 
     fn pay(&mut self, to: &str, amount: &str) {

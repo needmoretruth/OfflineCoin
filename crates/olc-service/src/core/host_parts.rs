@@ -5,6 +5,26 @@ use olc_link_tcp::TcpLink;
 use olc_node::Engine;
 use olc_pow::ProofOfWork;
 use olc_wallet::format_address;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+pub fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |time| time.as_millis() as u64)
+}
+
+/// How many hashes this computer does in a second on one core.
+pub fn full_rate() -> u64 {
+    const ROUNDS: u32 = 20_000;
+    let started = Instant::now();
+    let mut seed = [0u8; 80];
+    for _ in 0..ROUNDS {
+        let digest = olc_crypto::hash(&seed);
+        seed[..32].copy_from_slice(&digest);
+    }
+    let micros = started.elapsed().as_micros().max(1) as u64;
+    u64::from(ROUNDS) * 1_000_000 / micros
+}
 
 /// What this run goes by on the links. Nothing about it needs to last.
 pub fn fresh_id() -> Result<u64, String> {
