@@ -1,0 +1,8 @@
+# ESP32 boards: Espressif's own USB, and the Silicon Labs CP210x, WCH CH34x and FTDI bridges other
+# boards carry. The person at this computer may use them, with no group to join.
+# uaccess works only before 73-seat-late.rules, so this file keeps a lower number.
+# ModemManager would otherwise take a new serial port for a modem and send it commands.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"

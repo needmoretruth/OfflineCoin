@@ -22,5 +22,7 @@
   <string>11.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>OLC Core looks for your other computers and boards on this network.</string>
 </dict>
 </plist>
