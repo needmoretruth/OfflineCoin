@@ -53,7 +53,7 @@ pub fn rule_row(ui: &mut Ui, cx: &Cx, setting: &CoinField, text: &mut String, hi
         }
         _ => {
             let width = ui.available_width().min(RULE_FIELD);
-            changed = field(ui, text, hint, width).changed();
+            changed = field(ui, text, hint, width).accessible_name(cx.say(name)).changed();
         }
     });
     changed

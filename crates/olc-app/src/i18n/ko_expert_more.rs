@@ -183,7 +183,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.fork_go", "포크 시작"),
     ("pro.fork_from", "시작 높이"),
     ("pro.fork_from_about", "이 높이부터 새 규칙을 씁니다. 이전 블록은 그대로입니다."),
-    ("pro.fork_change", "{}에서 {}로"),
+    ("pro.fork_change", "지금 {}, 새 값 {}"),
     ("page.locks", "잠금"),
     ("lock.write", "잠금 만들기"),
     ("lock.own", "직접 쓰기"),

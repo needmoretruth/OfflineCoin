@@ -123,6 +123,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.receive", "Receive address"),
     ("boards.show_code", "QR code"),
     ("boards.keeps_about", "How many blocks this board keeps."),
+    ("boards.keeps_line", "Keeps: {}"),
     ("boards.returning_about", "It comes back by itself."),
     ("boards.state", "State"),
     ("boards.gone_about", "The rest comes back when the board answers. Check its cable and power."),

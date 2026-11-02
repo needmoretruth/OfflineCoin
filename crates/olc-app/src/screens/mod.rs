@@ -3,6 +3,7 @@
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
 mod readings;
 mod scenes;
+mod rule_shots;
 mod shots;
 mod steady;
 

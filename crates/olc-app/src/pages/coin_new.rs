@@ -151,6 +151,11 @@ impl CoinForm {
         if cx.expert() {
             self.expert_rows(ui, cx, made.as_ref().unwrap_or(&olc));
         }
+    }
+
+    /// What stops the coin from starting. It sits beside the button, outside the rows that scroll.
+    pub fn problem(&self, ui: &mut Ui, cx: &Cx) {
+        let made = self.made(&cx.snap.node.address, unix_ms());
         slot(ui, |ui| bad_line(ui, cx, made.as_ref().err()));
     }
 

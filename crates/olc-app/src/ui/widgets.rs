@@ -175,8 +175,9 @@ fn input<'a>(text: &'a mut String, hint: &'a str, width: f32) -> TextEdit<'a> {
         .min_size(vec2(width, tokens::CONTROL))
 }
 
+/// `hint` also names the field for a screen reader, which reads it once the field is filled in.
 pub fn field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
-    ui.add(input(text, hint, width))
+    ui.add(input(text, hint, width)).accessible_name(hint)
 }
 
 /// A field for words of a script: fixed-width letters, and room for a few lines.
@@ -187,12 +188,12 @@ pub fn words_box(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Resp
         .desired_width(width)
         .desired_rows(3)
         .margin(vec2(10.0, 8.0));
-    ui.add(edit)
+    ui.add(edit).accessible_name(hint)
 }
 
 /// A field whose text stays hidden, for secret keys and passwords.
 pub fn secret_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
-    ui.add(input(text, hint, width).password(true))
+    ui.add(input(text, hint, width).password(true)).accessible_name(hint)
 }
 
 /// A number typed as text and taken when it reads as one. `name` is what a screen reader says,

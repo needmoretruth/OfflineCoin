@@ -158,7 +158,7 @@ impl Console {
                 .lock_focus(true)
                 .desired_width(width)
                 .id_salt("console-line");
-            let line = ui.add(edit);
+            let line = ui.add(edit).accessible_name(cx.say("console.hint"));
             let focused = line.has_focus();
             let (enter, tab, up, down) = ui.input_mut(|input| {
                 (

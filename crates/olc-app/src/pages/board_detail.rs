@@ -293,7 +293,7 @@ impl BoardDetail {
             ui.label(balance_of(cx, board));
         });
         let address = format_address(&board.seen.beacon.address);
-        row(ui, t, cx.say("boards.receive"), &address, |ui| {
+        row(ui, t, cx.say("boards.receive"), &format::short_address(&address), |ui| {
             if button(ui, t, cx.say("receive.copy"), Kind::Plain).clicked() {
                 ui.ctx().copy_text(address.clone());
             }

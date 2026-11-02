@@ -123,6 +123,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.receive", "받는 주소"),
     ("boards.show_code", "QR 코드"),
     ("boards.keeps_about", "이 보드가 보관하는 블록입니다."),
+    ("boards.keeps_line", "{} 보관"),
     ("boards.returning_about", "곧 스스로 돌아옵니다."),
     ("boards.state", "상태"),
     ("boards.gone_about", "보드가 응답하면 나머지가 다시 나옵니다. 케이블과 전원을 확인하세요."),

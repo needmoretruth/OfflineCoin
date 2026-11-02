@@ -106,6 +106,7 @@ fn age_text(cx: &Cx, seconds: u64) -> String {
 fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
     let t = cx.t;
     let (colour, text) = match entry.work {
+        Work::Mining(0) => (t.good, cx.say("state.mining").to_string()),
         Work::Mining(rate) => (t.good, cx.fill("work.mining", &[&format::rate(cx.voice(), rate)])),
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
@@ -346,7 +347,7 @@ impl Coins {
         let snap = cx.snap;
         let found: Vec<Found> = snap.groups.iter().filter_map(found_in).collect();
         let entries = other_devices(cx);
-        if !entries.is_empty() {
+        if !entries.is_empty() && !cx.expert() {
             section(ui, cx.say("coins.devices"));
             plain_rows(ui, cx, &entries);
             ui.add_space(tokens::GAP_WIDE);
@@ -434,6 +435,7 @@ impl Coins {
         let (done, outside) = sheet(ui, t, "new-coin", tokens::SHEET_WIDE, |ui| {
             sheet_head(ui, cx.say("coins.new"));
             ScrollArea::vertical().max_height(sheet_room(ui)).show(ui, |ui| form.show(ui, cx));
+            form.problem(ui, cx);
             ui.add_space(tokens::GAP_WIDE);
             let coin = form.coin(cx);
             let mut done = false;

@@ -215,11 +215,12 @@ impl Locks {
             ui.add_space(4.0);
             ui.add(egui::Label::new(mono(spending.words.as_str())).wrap());
             ui.add_space(tokens::GAP);
-            words_box(ui, &mut spending.unlock, cx.say("lock.unlock_hint"), f32::INFINITY);
+            let width = ui.available_width();
+            words_box(ui, &mut spending.unlock, cx.say("lock.unlock_hint"), width);
             ui.add_space(4.0);
             meta(ui, cx.say("lock.unlock_about"), t);
             ui.add_space(8.0);
-            field(ui, &mut spending.to, cx.say("lock.to_hint"), f32::INFINITY);
+            field(ui, &mut spending.to, cx.say("lock.to_hint"), width);
             ui.add_space(tokens::GAP_WIDE);
             let mut pressed = (false, false);
             ui.horizontal(|ui| {

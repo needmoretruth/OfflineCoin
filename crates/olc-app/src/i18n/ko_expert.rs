@@ -91,6 +91,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.keeping", "저장소"),
     ("settings.keep", "노드 종류"),
     ("found.keeps", "종류"),
+    ("boards.keeps_line", "{}"),
     ("local.keep_all", "풀 노드"),
     ("local.keep_recent", "프루닝 노드"),
     ("local.keep_headers", "라이트 노드"),

@@ -91,6 +91,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.keeping", "Storage"),
     ("settings.keep", "Node type"),
     ("found.keeps", "Kind"),
+    ("boards.keeps_line", "{}"),
     ("local.keep_all", "Full node"),
     ("local.keep_recent", "Pruned node"),
     ("local.keep_headers", "Light node"),

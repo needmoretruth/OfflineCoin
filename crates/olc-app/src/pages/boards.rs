@@ -1,5 +1,6 @@
 //! The hardware that mines: boards, the nodes on this computer, working together, and the lab.
 use super::board_detail::BoardDetail;
+use super::coins::keeps_text;
 use super::money::balance_of;
 use super::lab::Lab;
 use super::local::Local;
@@ -11,6 +12,7 @@ use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, segm
 use crate::ui::{format, Icon};
 use egui::{vec2, Align, Label, Layout, RichText, Ui};
 use olc_control::BoardId;
+use olc_node::Keeps;
 
 const LIST_WIDTH: f32 = 248.0;
 const LIST_ROW: f32 = 54.0;
@@ -65,17 +67,27 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
         () => cx.say("boards.resting").to_string(),
     };
     let line = format!("{line}  {}", balance_of(cx, board));
+    let quiet = |text: String| Label::new(RichText::new(text).size(tokens::META).color(t.muted)).selectable(false);
     let clicked = pick_row(ui, t, LIST_ROW, current, &beacon.name, |ui| {
         dot(ui, state_colour(t, board));
         ui.vertical(|ui| {
             ui.add_space(9.0);
             ui.spacing_mut().item_spacing.y = 1.0;
-            ui.add(Label::new(beacon.name.as_str()).truncate().selectable(false));
-            ui.add(Label::new(RichText::new(line).size(tokens::META).color(t.muted)).truncate().selectable(false));
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if board.keeps != Keeps::Unsaid {
+                        ui.add(quiet(cx.fill("boards.keeps_line", &[&keeps_text(cx, board.keeps)])));
+                    }
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.add(Label::new(beacon.name.as_str()).truncate().selectable(false));
+                    });
+                });
+            });
+            ui.add(quiet(line).truncate());
         });
     })
     .clicked();
-    if let Some(job) = &board.job {
+    if let Some(job) = board.job.as_deref().filter(|job| !(board.returning && *job == "restarting")) {
         meta(ui, job_text(cx, job), t);
     }
     clicked
