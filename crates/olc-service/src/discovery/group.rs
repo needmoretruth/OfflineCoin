@@ -23,6 +23,8 @@ impl Identity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Work {
     Mining(u64),
+    /// Mining slower, at this rate, until its chip cools.
+    Cooling(u64),
     Idle,
     Offline,
     Silent,

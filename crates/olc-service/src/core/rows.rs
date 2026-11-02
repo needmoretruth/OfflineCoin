@@ -142,7 +142,7 @@ pub fn keeps_of(said: Option<&Hello>) -> Keeps {
     said.map_or(Keeps::Unsaid, |hello| hello.card.keeps)
 }
 
-pub fn board_entry(row: &BoardRow, coin: Option<Identity>, said: Option<&Hello>) -> Entry {
+pub fn board_entry(row: &BoardRow, coin: Option<Identity>, said: Option<&Hello>, cooling: bool) -> Entry {
     let beacon = &row.seen.beacon;
     Entry {
         reach: reach_of_board(row, said.and_then(link_of)),
@@ -159,6 +159,7 @@ pub fn board_entry(row: &BoardRow, coin: Option<Identity>, said: Option<&Hello>)
             (false, _, _) if is_returning(row) => Work::Restarting,
             (false, _, _) => Work::Silent,
             (true, true, _) => Work::Offline,
+            (true, false, true) if cooling => Work::Cooling(u64::from(beacon.hashrate)),
             (true, false, true) => Work::Mining(u64::from(beacon.hashrate)),
             (true, false, false) => Work::Idle,
         },
@@ -311,5 +312,22 @@ mod tests {
         merge_local(&mut entries, &running(), Some(&identity));
         assert_eq!(entries[0].name, "node-0");
         assert_eq!(entries[0].height, Some(40));
+    }
+
+    /// A board its heat guard slowed says so where the activity of every device is read.
+    #[test]
+    fn a_board_slowed_by_its_heat_says_so_in_the_activity() {
+        let beacon = olc_control::Beacon { mining: true, hashrate: 100, ..Default::default() };
+        let seen = olc_board::fleet::Seen {
+            id: [3; 6],
+            beacon,
+            connection: olc_board::Connection::Direct { link: 0 },
+            online: true,
+            silent_for: std::time::Duration::ZERO,
+            old_format: false,
+        };
+        let row = BoardRow { seen, on_cable: true, through: None, job: None };
+        assert_eq!(board_entry(&row, None, None, true).work, Work::Cooling(100));
+        assert_eq!(board_entry(&row, None, None, false).work, Work::Mining(100));
     }
 }

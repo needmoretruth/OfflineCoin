@@ -13,9 +13,13 @@ pub struct RealFleet {
 }
 
 impl RealFleet {
-    /// `ports` are the only USB ports to use. Empty finds every board by itself.
-    pub fn new(ports: Vec<String>) -> Result<Self, String> {
-        let manager = Manager::new(carried::firmware_path(None), ports)?;
+    /// `ports` are the only USB ports to use. Empty finds every board by itself. `firmware` is a
+    /// file to put on boards in place of the build this program carries.
+    pub fn new(ports: Vec<String>, firmware: Option<&str>) -> Result<Self, String> {
+        if let Some(file) = firmware.filter(|file| !std::path::Path::new(file).is_file()) {
+            return Err(format!("There is no firmware file at {file}."));
+        }
+        let manager = Manager::new(carried::firmware_path(firmware), ports)?;
         let picked = Picked::default();
         Ok(Self { manager, picked })
     }

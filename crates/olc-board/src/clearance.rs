@@ -85,6 +85,14 @@ impl Ledger {
         self.lines().contains(&wanted)
     }
 
+    /// Whether the last image this board was seen to take is this one, so one more delivery by
+    /// radio would prove it.
+    pub fn last_ran(&self, board: BoardId, hash: &Hash) -> bool {
+        let ran = format!("ran {} ", hex(&board));
+        let last = self.lines().into_iter().rfind(|line| line.starts_with(&ran));
+        last == Some(format!("{ran}{}", hex(hash)))
+    }
+
     pub fn clear(&self, board: BoardId, hash: Hash) -> Result<Cleared, String> {
         if self.has_cable(board) || self.is_proven(&hash) {
             Ok(Cleared { board, hash })
@@ -205,7 +213,9 @@ mod tests {
     fn the_same_image_reaching_a_running_board_by_radio_is_the_proof() {
         let ledger = ledger("proof", true);
         let hash = [2; 32];
+        assert!(!ledger.last_ran(BOARD, &hash));
         ledger.landed(&delivery(false, hash)).unwrap();
+        assert!(ledger.last_ran(BOARD, &hash), "the first delivery is what the second must match");
         assert!(!ledger.is_proven(&hash), "one delivery proves nothing");
         ledger.landed(&delivery(true, hash)).unwrap();
         assert!(ledger.is_proven(&hash));

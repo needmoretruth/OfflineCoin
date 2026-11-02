@@ -346,7 +346,7 @@ fn window_icon() -> IconData {
 fn fleet_of(launch: &Launch) -> Option<Arc<dyn FleetPort>> {
     launch
         .usb
-        .then(|| RealFleet::new(launch.ports.clone()).ok())
+        .then(|| RealFleet::new(launch.ports.clone(), None).ok())
         .flatten()
         .map(|fleet| Arc::new(fleet) as Arc<dyn FleetPort>)
 }

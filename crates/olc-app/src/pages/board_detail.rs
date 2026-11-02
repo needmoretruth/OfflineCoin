@@ -149,7 +149,7 @@ impl BoardDetail {
         row(ui, t, cx.say("boards.update"), &about, |ui| {
             match &board.job {
                 Some(job) => {
-                    meta(ui, super::boards::job_text(cx, job), t);
+                    meta(ui, &super::boards::job_text(cx, job), t);
                 }
                 None => {
                     if button(ui, t, cx.say("boards.update"), Kind::Plain).clicked() {
@@ -360,7 +360,7 @@ impl BoardDetail {
             let about = if board.returning { "boards.returning_about" } else { "boards.gone_about" };
             row(ui, t, cx.say("boards.state"), cx.say(about), |ui| {
                 let quiet = cx.say(if board.returning { "boards.restarting" } else { "boards.gone" });
-                let line = board.job.as_deref().map_or(quiet, |job| super::boards::job_text(cx, job));
+                let line = board.job.as_deref().map_or_else(|| quiet.to_string(), |job| super::boards::job_text(cx, job));
                 ui.label(line);
             });
             return;

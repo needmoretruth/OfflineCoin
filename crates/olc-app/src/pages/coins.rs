@@ -110,6 +110,7 @@ fn work_cell(ui: &mut Ui, cx: &Cx, entry: &Entry) {
     let (colour, text) = match entry.work {
         Work::Mining(0) => (t.good, cx.say("state.mining").to_string()),
         Work::Mining(rate) => (t.good, cx.fill("work.mining", &[&format::rate(cx.voice(), rate)])),
+        Work::Cooling(rate) => (t.warn, cx.fill("work.cooling", &[&format::rate(cx.voice(), rate)])),
         Work::Idle => (t.muted, cx.say("work.idle").to_string()),
         Work::Offline => (t.warn, cx.say("work.offline").to_string()),
         Work::Silent => (t.bad, cx.say("work.silent").to_string()),
