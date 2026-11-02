@@ -12,6 +12,9 @@ $waitSeconds = 60
 
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 
+# The runner's small screen cuts the window off. A failure here only leaves the picture smaller.
+try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { "Screen stays small: $_" }
+
 $manifest = Select-String -Path $Setup -SimpleMatch 'level="asInvoker"' -Quiet
 if (-not $manifest) { throw 'The installer asks for more than an ordinary user has.' }
 

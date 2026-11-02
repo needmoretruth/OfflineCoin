@@ -77,6 +77,26 @@ import -window root "$shots/mining.png"
 kill "$app"
 wait "$app" || true
 
+# Ubuntu's own desktop is Wayland. Weston stands in for it, with no X11 display to fall back on.
+sudo apt-get install -y -q weston
+wayland=$(mktemp -d)
+chmod 700 "$wayland"
+(
+  cd "$wayland"
+  export XDG_RUNTIME_DIR=$wayland WAYLAND_DISPLAY=olc
+  unset DISPLAY
+  weston --backend=headless --renderer=gl --width=1280 --height=800 --socket=olc --debug --idle-time=0 &
+  compositor=$!
+  sleep 4
+  $start &
+  app=$!
+  sleep 15
+  grep -q libwayland-client "/proc/$app/maps"
+  weston-screenshooter
+  mv wayland-screenshot-*.png "$shots/wayland.png"
+  kill "$app" "$compositor"
+)
+
 # Only the package and what it asks for: nothing the runner happens to have can help it here. The
 # screen stays outside, so no test tool brings a library in.
 bare() {
@@ -107,3 +127,9 @@ bare() {
 
 bare ubuntu:22.04
 bare debian:12
+
+sudo apt-get remove -y -q olc-core
+test ! -e /usr/bin/olc-core
+test ! -e "$rule"
+test -f "$HOME/.olc/node/wallet.json"
+echo 'Removed the app, and the wallet stayed.' | tee "$shots/removed.txt"

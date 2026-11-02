@@ -2,7 +2,7 @@ Download the file for your computer and open it. Plug in a board and the app fin
 
 **Windows.** Download `OLC-Core-windows-x86_64-setup.exe` and open it. Windows shows "Windows protected your PC", because this app has no paid signature. Click More info, then Run anyway. Click Next until it finishes. You need no administrator password. OLC Core is now on your desktop and in the Start menu.
 
-**Mac.** Download `OLC-Core-macos-apple-silicon.dmg` for a Mac with an Apple chip, or `OLC-Core-macos-intel.dmg` for an Intel Mac. Open it and drag OLC Core onto Applications. Open OLC Core from Applications. macOS says it cannot check the app, because this app has no paid signature. Open System Settings, go to Privacy & Security, and click Open Anyway.
+**Mac.** Download `OLC-Core-macos-apple-silicon.dmg` for a Mac with an Apple chip, or `OLC-Core-macos-intel.dmg` for an Intel Mac. Open it and drag OLC Core onto Applications. Open OLC Core from Applications. macOS says it cannot check the app, because this app has no paid signature. Open System Settings, go to Privacy & Security, and click Open Anyway. When macOS asks to let OLC Core find devices on your network, click Allow.
 
 **Ubuntu, Debian and Mint.** Download `OLC-Core-linux-x86_64.deb`, double-click it and click Install. OLC Core is now in your app menu.
 
