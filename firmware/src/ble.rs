@@ -176,9 +176,12 @@ fn free_slot(hub: &SharedHub, slot: usize) {
 async fn serve(stack: &'static BleStack, channel: L2capChannel<'static, Pool>, hub: &SharedHub, slot: usize) {
     let (mut writer, mut reader) = channel.split();
     let hearing = async {
-        let mut decoder = Decoder::default();
+        let mut decoder = Decoder::at_most(crate::links::most_message());
         let mut bytes = [0u8; PIECE + 16];
         loop {
+            while hub.borrow().received.len() >= QUEUE_LIMIT {
+                Timer::after(SEND_CHECK).await;
+            }
             let Ok(size) = reader.receive(stack, &mut bytes).await else {
                 return;
             };

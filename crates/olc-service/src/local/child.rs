@@ -49,7 +49,9 @@ fn parse(words: Vec<String>) -> Result<Words, String> {
             "--wallet" => parsed.wallet = value.into(),
             "--coin" => parsed.coin = value.into(),
             "--bind" => parsed.bind = value,
-            "--port" => parsed.port = number(&value)? as u16,
+            "--port" => {
+                parsed.port = value.parse().map_err(|_| format!("{word}: {value}"))?;
+            }
             "--connect" => parsed.connect.push(value),
             "--cap" => parsed.cap = number(&value)?,
             "--storage" => parsed.storage = Some(number(&value)?),

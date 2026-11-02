@@ -7,6 +7,7 @@ import boards
 
 
 def main():
+    boards.needs(2, __doc__)
     board, path = sys.argv[1], sys.argv[2]
     last, at = None, time.time()
     with open(path, "a", encoding="ascii") as log:

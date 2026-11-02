@@ -27,7 +27,7 @@ pub fn difficulty_after(
     consensus.next_difficulty(&RetargetInput {
         parent_difficulty: parent.difficulty,
         actual_ms: parent.time_ms.saturating_sub(first_time()),
-        expected_ms: rules.block_time_ms * (interval - 1),
+        expected_ms: rules.block_time_ms.saturating_mul(interval - 1),
         min_difficulty: rules.floor_at(next_height),
     })
 }

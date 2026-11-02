@@ -191,3 +191,16 @@ fn a_link_that_only_lost_a_hello_is_taken_at_its_next_word() {
     assert_eq!(table.settle(64_100).len(), 1);
     assert_eq!(table.route(peer), Some((RADIO, 7)));
 }
+
+/// Anyone can repeat a neighbour's name from as many made-up addresses as it likes.
+#[test]
+fn one_name_from_many_addresses_keeps_few_paths() {
+    let mut table = Neighbours::default();
+    table.add_link(Medium::EspNow);
+    for number in 0..10_000 {
+        table.name(0, number, 7, u64::from(number));
+    }
+    let known: Vec<_> = table.list().iter().filter(|one| one.node == Some(7)).collect();
+    assert_eq!(known.len(), 1);
+    assert!(known[0].paths.len() <= MOST_PATHS, "{} paths", known[0].paths.len());
+}

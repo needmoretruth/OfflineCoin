@@ -9,8 +9,7 @@ loader whether it is there, and prints one verdict line:
 A ROM wait is then ended with the same no-hands wake the app uses.
 """
 import glob, os, subprocess, sys, time
-names = sys.argv[1:]
-out = open('cold-start.log', 'a', buffering=1)
+out = None
 def say(*w):
     line = time.strftime('%H:%M:%S ') + ' '.join(str(x) for x in w)
     print(line, flush=True); out.write(line + '\n')
@@ -53,13 +52,21 @@ def probe(name, port):
         say(name, 'VERDICT STARTED: our program is talking.')
     else:
         say(name, 'VERDICT AFTER-ROM: the ROM left and nothing answers.')
-seen = {name: path(name) for name in names}
-say('watching', seen)
-while True:
-    for name in names:
-        now = path(name)
-        if now and not seen[name]:
-            say(name, 'appeared'); seen[name] = now; probe(name, now)
-        elif not now and seen[name]:
-            say(name, 'gone'); seen[name] = None
-    time.sleep(0.01)
+def main():
+    global out
+    names = sys.argv[1:]
+    if not names:
+        sys.exit(__doc__.strip())
+    out = open('cold-start.log', 'a', buffering=1)
+    seen = {name: path(name) for name in names}
+    say('watching', seen)
+    while True:
+        for name in names:
+            now = path(name)
+            if now and not seen[name]:
+                say(name, 'appeared'); seen[name] = now; probe(name, now)
+            elif not now and seen[name]:
+                say(name, 'gone'); seen[name] = None
+        time.sleep(0.01)
+if __name__ == '__main__':
+    main()

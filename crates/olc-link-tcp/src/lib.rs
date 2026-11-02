@@ -3,22 +3,40 @@ use olc_node::frame::{encode, Decoder};
 use olc_node::network;
 use olc_node::{Link, Medium, News, Target};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const READ_SIZE: usize = 16 * 1024;
 const ACCEPT_POLL: Duration = Duration::from_millis(100);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(4);
-/// A peer that went out of range takes nothing, and the node must not wait for it.
+/// A peer that went out of range takes nothing, and its writer gives up on it after this long.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Connections taken from outside at once. Anyone can open one, and each costs two threads and up
+/// to a whole message of memory. What this node dials itself does not count.
+const MOST_ACCEPTED: usize = 32;
+/// Whole messages waiting for the node. Past this the readers stop, and the far ends wait on
+/// their own sockets.
+const INBOX: usize = 1_024;
+/// Frames waiting to go to one peer. One this far behind is not keeping up, and goes.
+const OUTBOX: usize = 256;
+/// A connection that brings no whole message for this long goes. Every node speaks each second,
+/// so this only ends one that went away without saying, or one that only takes up a place.
+const IDLE: Duration = if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(30) };
 
-type Peers = Arc<Mutex<BTreeMap<u32, TcpStream>>>;
-type Inbox = Sender<(u32, Vec<u8>)>;
+type Frame = Arc<[u8]>;
+type Peers = Arc<Mutex<BTreeMap<u32, Peer>>>;
+type Inbox = SyncSender<(u32, Vec<u8>)>;
+
+struct Peer {
+    stream: TcpStream,
+    frames: SyncSender<Frame>,
+    accepted: bool,
+}
 
 /// What threads share with the link.
 #[derive(Clone)]
@@ -49,7 +67,7 @@ impl TcpControl {
     /// The address of a peer, which a person may want to reach again.
     pub fn ip_of(&self, peer: u32) -> Option<IpAddr> {
         let peers = self.0.peers.lock().ok()?;
-        peers.get(&peer)?.peer_addr().ok().map(|found| found.ip())
+        peers.get(&peer)?.stream.peer_addr().ok().map(|found| found.ip())
     }
 
     /// Peers connected right now.
@@ -61,8 +79,8 @@ impl TcpControl {
     pub fn drop_peers(&self) {
         self.0.round.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut peers) = self.0.peers.lock() {
-            for stream in peers.values() {
-                let _ = stream.shutdown(Shutdown::Both);
+            for peer in peers.values() {
+                let _ = peer.stream.shutdown(Shutdown::Both);
             }
             peers.clear();
         }
@@ -83,7 +101,7 @@ impl Default for TcpLink {
 
 impl TcpLink {
     pub fn new() -> Self {
-        let (sender, incoming) = channel();
+        let (sender, incoming) = sync_channel(INBOX);
         let (news_sender, news) = channel();
         let shared = Shared {
             peers: Peers::default(),
@@ -122,7 +140,7 @@ impl TcpLink {
         thread::spawn(move || {
             while !shared.closed.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((stream, _)) if stream.set_nonblocking(false).is_ok() => {
+                    Ok((stream, _)) if has_room(&shared) && stream.set_nonblocking(false).is_ok() => {
                         attach(stream, &shared, refused.clone(), None);
                     }
                     _ => thread::sleep(ACCEPT_POLL),
@@ -131,6 +149,11 @@ impl TcpLink {
         });
         Ok(local)
     }
+}
+
+fn has_room(shared: &Shared) -> bool {
+    let accepted = |peers: &BTreeMap<u32, Peer>| peers.values().filter(|peer| peer.accepted).count();
+    shared.peers.lock().is_ok_and(|peers| accepted(&peers) < MOST_ACCEPTED)
 }
 
 /// One try. The answer comes back as news.
@@ -150,23 +173,56 @@ fn dial(shared: Shared, address: String) {
     }
 }
 
+/// Starts the two threads of a connection, or says that it failed. Running out of threads is
+/// the one thing here a flood could still reach, and it must not end the listener with a panic.
 fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, address: Option<String>) {
-    let peer = shared.next_peer.fetch_add(1, Ordering::Relaxed);
+    let accepted = address.is_none();
+    let failed = |address: Option<String>| {
+        if let Some(address) = address {
+            let _ = shared.news.send(News::Failed { address });
+        }
+    };
+    let (Ok(mut writer), Ok(kept)) = (stream.try_clone(), stream.try_clone()) else {
+        return failed(address);
+    };
     let _ = stream.set_nodelay(true);
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
-    let writer = stream.try_clone();
-    if let (Ok(writer), Ok(mut peers)) = (writer, shared.peers.lock()) {
-        peers.insert(peer, writer);
+    let _ = stream.set_read_timeout(Some(IDLE / 4));
+    let (frames, to_send) = sync_channel(OUTBOX);
+    if thread::Builder::new().spawn(move || write_frames(&mut writer, &to_send)).is_err() {
+        return failed(address);
+    }
+    let peer = shared.next_peer.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut peers) = shared.peers.lock() {
+        peers.insert(peer, Peer { stream: kept, frames, accepted });
     }
     let _ = shared.news.send(News::Opened { number: peer, address });
-    let shared = shared.clone();
-    thread::spawn(move || {
-        read_messages(stream, peer, &shared.sender, &no_control);
+    let reading = shared.clone();
+    let end = move |shared: &Shared| {
         if let Ok(mut peers) = shared.peers.lock() {
             peers.remove(&peer);
         }
         let _ = shared.news.send(News::Closed { number: peer });
+    };
+    let spawned = thread::Builder::new().spawn(move || {
+        read_messages(stream, peer, &reading.sender, &no_control);
+        end(&reading);
     });
+    if spawned.is_err() {
+        end(shared);
+    }
+}
+
+/// Runs on its own thread, so a peer that reads slowly costs only itself. It ends when the peer
+/// leaves the list.
+fn write_frames(stream: &mut TcpStream, frames: &Receiver<Frame>) {
+    for frame in frames {
+        if stream.write_all(&frame).is_err() {
+            // Half a frame may have left, so this connection can never be read again.
+            let _ = stream.shutdown(Shutdown::Both);
+            return;
+        }
+    }
 }
 
 fn is_control(message: &[u8]) -> bool {
@@ -176,13 +232,22 @@ fn is_control(message: &[u8]) -> bool {
 fn read_messages(mut stream: TcpStream, peer: u32, sender: &Inbox, no_control: &AtomicBool) {
     let mut decoder = Decoder::default();
     let mut bytes = vec![0u8; READ_SIZE];
+    let mut whole_ms = Instant::now();
     loop {
+        if whole_ms.elapsed() >= IDLE {
+            return;
+        }
         let size = match stream.read(&mut bytes) {
-            Ok(0) | Err(_) => return,
+            Ok(0) => return,
             Ok(size) => size,
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                continue;
+            }
+            Err(_) => return,
         };
         decoder.push(&bytes[..size]);
         while let Some(message) = decoder.next_message() {
+            whole_ms = Instant::now();
             if no_control.load(Ordering::Relaxed) && is_control(&message) {
                 continue;
             }
@@ -205,18 +270,17 @@ impl Link for TcpLink {
         let Ok(mut peers) = self.shared.peers.lock() else {
             return;
         };
-        let frame = encode(message);
-        peers.retain(|peer, stream| {
+        let frame: Frame = encode(message).into();
+        peers.retain(|number, peer| {
             let wanted = match target {
-                Target::Peer(one) => *peer == one,
+                Target::Peer(one) => *number == one,
                 Target::All => true,
-                Target::AllExcept(other) => *peer != other,
+                Target::AllExcept(other) => *number != other,
             };
-            if !wanted || stream.write_all(&frame).is_ok() {
+            if !wanted || peer.frames.try_send(frame.clone()).is_ok() {
                 return true;
             }
-            // Half a frame may have left, so this connection can never be read again.
-            let _ = stream.shutdown(Shutdown::Both);
+            let _ = peer.stream.shutdown(Shutdown::Both);
             false
         });
     }
@@ -240,8 +304,8 @@ impl Link for TcpLink {
     }
 
     fn close(&mut self, number: u32) {
-        if let Some(stream) = self.shared.peers.lock().ok().and_then(|mut peers| peers.remove(&number)) {
-            let _ = stream.shutdown(Shutdown::Both);
+        if let Some(peer) = self.shared.peers.lock().ok().and_then(|mut peers| peers.remove(&number)) {
+            let _ = peer.stream.shutdown(Shutdown::Both);
         }
     }
 
@@ -322,6 +386,95 @@ mod tests {
         assert_eq!(dialled, address);
         drop(far_end);
         assert_eq!(next_news(&mut link), News::Closed { number });
+    }
+
+    fn wait_for(what: &str, check: impl Fn() -> bool) {
+        let until = Instant::now() + Duration::from_secs(5);
+        while !check() {
+            assert!(Instant::now() < until, "{what}");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A socket's buffers fill and then a write waits. The node must never be the one waiting.
+    #[test]
+    fn a_peer_that_stops_reading_never_holds_up_the_node() {
+        let mut link = TcpLink::new();
+        let address = link.listen("127.0.0.1:0").unwrap();
+        let control = link.control();
+        let never_reads = TcpStream::connect(address).unwrap();
+        wait_for("it connects", || control.count() == 1);
+
+        let message = stamp(OPEN, &[7; 4_000]);
+        let mut slowest = Duration::ZERO;
+        for _ in 0..20_000 {
+            let started = Instant::now();
+            link.send(Target::All, &message);
+            slowest = slowest.max(started.elapsed());
+        }
+        assert!(slowest < Duration::from_millis(500), "a send took {slowest:?}");
+        wait_for("the peer goes", || control.count() == 0);
+        drop(never_reads);
+    }
+
+    #[test]
+    fn connections_from_outside_stop_at_the_limit_and_dials_still_go_out() {
+        let mut link = TcpLink::new();
+        let address = link.listen("127.0.0.1:0").unwrap();
+        let held: Vec<_> =
+            (0..MOST_ACCEPTED + 8).map(|_| TcpStream::connect(address).unwrap()).collect();
+        thread::sleep(Duration::from_millis(300));
+        assert_eq!(link.control().count(), MOST_ACCEPTED);
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let outside = listener.local_addr().unwrap().to_string();
+        while link.news().is_some() {}
+        Link::dial(&mut link, &outside);
+        let (far_end, _) = listener.accept().unwrap();
+        assert!(matches!(next_news(&mut link), News::Opened { address: Some(_), .. }));
+        drop((held, far_end));
+    }
+
+    /// Memory stays flat when a node falls behind: the far end ends up waiting on its own socket.
+    #[test]
+    fn a_node_that_falls_behind_stops_taking_bytes() {
+        let link = TcpLink::new();
+        let address = link.listen("127.0.0.1:0").unwrap();
+        let mut stranger = TcpStream::connect(address).unwrap();
+        stranger.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let frame = encode(&stamp(OPEN, &[1; 1_000]));
+        let mut written = 0;
+        while written < 256 * 1024 * 1024 && stranger.write_all(&frame).is_ok() {
+            written += frame.len();
+        }
+        assert!(written < 64 * 1024 * 1024, "{written} bytes went in");
+    }
+
+    /// One byte now and then keeps a socket busy and a place taken, and brings nothing.
+    #[test]
+    fn a_connection_that_never_finishes_a_message_goes() {
+        let link = TcpLink::new();
+        let address = link.listen("127.0.0.1:0").unwrap();
+        let control = link.control();
+        let mut stranger = TcpStream::connect(address).unwrap();
+        wait_for("it connects", || control.count() == 1);
+        stranger.write_all(&100u32.to_le_bytes()).unwrap();
+        let started = Instant::now();
+        while control.count() == 1 {
+            assert!(started.elapsed() < IDLE * 3, "it stayed");
+            let _ = stranger.write_all(&[1]);
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn a_quiet_connection_goes_and_says_so() {
+        let mut link = TcpLink::new();
+        let address = link.listen("127.0.0.1:0").unwrap();
+        let quiet = TcpStream::connect(address).unwrap();
+        assert!(matches!(next_news(&mut link), News::Opened { address: None, .. }));
+        assert!(matches!(next_news(&mut link), News::Closed { .. }));
+        drop(quiet);
     }
 
     #[test]

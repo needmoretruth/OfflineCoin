@@ -73,6 +73,18 @@ pub enum Personal {
     Explore(String),
 }
 
+impl Personal {
+    /// Whether this order needs a node running. The others also work on a node's folder.
+    pub(super) fn needs_a_node(&self) -> bool {
+        matches!(self, Self::Prepare { .. } | Self::Broadcast(_) | Self::WriteNote(_))
+    }
+
+    /// Whether this order is only done once it has left this computer.
+    pub(super) fn goes_out(&self) -> bool {
+        matches!(self, Self::Broadcast(_) | Self::WriteNote(_))
+    }
+}
+
 pub enum Command {
     Own(Personal),
     FinishSetup(Box<Settings>, StartCoin),

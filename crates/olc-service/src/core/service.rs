@@ -9,7 +9,8 @@ use olc_store::coin_file::new_coin;
 use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::{link_of, Found};
-use super::host::{full_rate, Host, PayError, Plan};
+use super::host::{Host, PayError, Plan};
+use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
 use super::rows::{

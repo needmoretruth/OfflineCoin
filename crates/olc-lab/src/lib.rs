@@ -24,10 +24,6 @@ impl Extra for Lab {
         attack::run(args)
     }
 
-    fn script(&self) -> &'static str {
-        include_str!("panel.js")
-    }
-
     fn run_on(
         &self,
         boards: Vec<Box<dyn BoardLink>>,

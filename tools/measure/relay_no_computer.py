@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A payment and a block along A-B-C with no app running: relay_no_computer.py A B C AMOUNT PORT_A."""
+"""A payment and a block along A-B-C with no node on the computer: relay_no_computer.py A B C AMOUNT."""
 import re
 import sys
 import time
@@ -8,14 +8,14 @@ import boards
 
 
 def main():
-    a, b, c, amount, port = sys.argv[1:6]
+    boards.needs(4, __doc__)
+    a, b, c, amount = sys.argv[1:5]
     to = boards.status(c)["address"]
-    boards.line(a, f"ignore {c}")
-    boards.line(c, f"ignore {a}")
+    boards.line(a, f"ignore {boards.status(c)['id']}")
+    boards.line(c, f"ignore {boards.status(a)['id']}")
     for board in (a, b):
         boards.line(board, "mine off")
-    input("Stop the app now, then press enter.\n")
-    cable = boards.Cable(port)
+    cable = boards.cable_on(boards.port_of(a))
     cable.say("near")
     print(cable.hear(1.5).strip())
     cable.say(f"pay {to} {amount}")

@@ -8,6 +8,9 @@ use alloc::vec::Vec;
 use olc_crypto::Hash;
 
 const CLOSE_TO_THE_TIP: usize = 6;
+/// Past this a list names no more blocks. A real one doubles its steps, so it stays well below
+/// this on any chain, and each name costs the one answering a look into its store.
+pub const MOST_NAMED: usize = 64;
 
 /// A node's answer to a locator.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +25,7 @@ pub enum Served {
 pub(crate) fn shared_height(chain: &Chain, locator: &[(u64, Hash)]) -> u64 {
     locator
         .iter()
+        .take(MOST_NAMED)
         .find(|(height, id)| chain.id_at(*height).as_ref() == Some(id))
         .map_or(0, |(height, _)| *height)
 }
@@ -65,13 +69,15 @@ impl Chain {
     }
 
     /// The same for a peer that named its blocks without heights, as older builds do. Only a walk
-    /// down the held headers can place those, and genesis says nothing about how far it got.
+    /// down the held headers can place those, and genesis says nothing about how far it got. The
+    /// caller rations this: it reads the store once for each block walked.
     pub fn blocks_after_ids(&self, ids: &[Hash], most: usize) -> Served {
         let shared = self.newest_named(ids).unwrap_or((0, self.genesis));
         self.blocks_after(&[shared], most)
     }
 
     fn newest_named(&self, ids: &[Hash]) -> Option<(u64, Hash)> {
+        let ids = &ids[..ids.len().min(MOST_NAMED)];
         if ids.iter().all(|id| *id == self.genesis) {
             return None;
         }

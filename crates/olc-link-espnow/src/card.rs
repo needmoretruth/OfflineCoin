@@ -6,7 +6,8 @@ use olc_node::network::{self, Mark};
 use olc_node::{Link, Medium, Target};
 use pnet_datalink::{channel, interfaces, Channel, Config, DataLinkSender};
 use std::collections::BTreeMap;
-use std::sync::mpsc::{channel as queue, Receiver};
+use std::sync::mpsc::{sync_channel as queue, Receiver};
+use std::sync::mpsc::TrySendError;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -20,6 +21,12 @@ pub struct EspNowCard {
     macs: Macs,
     next_message: u16,
 }
+
+/// Whole messages waiting for the node. When it falls behind, the card's frames are lost as the
+/// air loses any.
+const INBOX: usize = 256;
+/// Senders remembered. An address costs nothing to make up.
+const MOST_MACS: usize = 256;
 
 /// The same number a board gives a sender.
 fn number_of(mac: &[u8; 6]) -> u32 {
@@ -43,7 +50,7 @@ impl EspNowCard {
             Ok(_) => return Err("the card offers no raw frames".into()),
             Err(error) => return Err(format!("{interface}: {error}")),
         };
-        let (heard, from_card) = queue();
+        let (heard, from_card) = queue(INBOX);
         let macs = Macs::default();
         let known = macs.clone();
         thread::spawn(move || {
@@ -64,10 +71,13 @@ impl EspNowCard {
                 }
                 let number = number_of(&from);
                 if let Ok(mut known) = known.lock() {
+                    if known.len() >= MOST_MACS && !known.contains_key(&number) {
+                        known.pop_first();
+                    }
                     known.insert(number, from);
                 }
                 if let Some(message) = joiner.push(number, body) {
-                    if heard.send((number, message)).is_err() {
+                    if matches!(heard.try_send((number, message)), Err(TrySendError::Disconnected(_))) {
                         return;
                     }
                 }

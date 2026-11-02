@@ -14,6 +14,15 @@ const DIRECT_FOR: Duration = Duration::from_secs(14);
 /// A little longer than a board waits between two beacons.
 const LATELY: Duration = Duration::from_secs(6);
 const MAX_LINES: usize = 256;
+/// Boards and sessions kept in mind. Packets on the air name any board they like, so one more
+/// made-up name must not cost one more thing to keep. A real board comes back with its next beacon.
+const MOST_BOARDS: usize = 256;
+
+fn room_for<K: Ord, V>(list: &mut BTreeMap<K, V>, key: &K) {
+    if list.len() >= MOST_BOARDS && !list.contains_key(key) {
+        list.pop_first();
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Connection {
@@ -151,6 +160,14 @@ impl Fleet {
             direct,
             link,
         };
+        // Unproved words give way to each other, never to push out a board that proved itself.
+        if self.boards.len() >= MOST_BOARDS && !self.boards.contains_key(&from) {
+            let unproved = self.boards.iter().find(|(_, known)| known.old_format);
+            let Some(oldest) = unproved.map(|(id, _)| *id) else {
+                return;
+            };
+            self.boards.remove(&oldest);
+        }
         self.boards.insert(from, known);
     }
 
@@ -169,13 +186,16 @@ impl Fleet {
                     direct: direct.or(old),
                     link,
                 };
+                room_for(&mut self.boards, &from);
                 self.boards.insert(from, known);
             }
             Body::Line(line) => {
                 if let Some(counter) = line.strip_prefix("done ") {
                     let counter = counter.parse().unwrap_or(0);
+                    room_for(&mut self.finished, &from);
                     self.finished.insert(from, counter);
                 }
+                room_for(&mut self.lines, &from);
                 let lines = self.lines.entry(from).or_default();
                 if lines.len() >= MAX_LINES {
                     lines.pop_front();
@@ -183,6 +203,7 @@ impl Fleet {
                 lines.push_back(line);
             }
             Body::Progress { session, next } => {
+                room_for(&mut self.progress, &session);
                 self.progress.insert(session, next);
             }
             Body::Missing {
@@ -190,10 +211,16 @@ impl Fleet {
                 done,
                 runs,
             } => {
+                room_for(&mut self.missing, &session);
                 self.missing.insert(session, (done, runs));
             }
             Body::Refused(reason) => {
-                self.refusals.entry(from).or_default().push_back(reason);
+                room_for(&mut self.refusals, &from);
+                let refusals = self.refusals.entry(from).or_default();
+                if refusals.len() >= MAX_LINES {
+                    refusals.pop_front();
+                }
+                refusals.push_back(reason);
             }
             _ => {}
         }
@@ -393,6 +420,53 @@ mod tests {
         let mut frame = OldBeacon::decode(&beacon(1, hops, from)).unwrap().encode();
         frame.extend_from_slice(&[0, 0, 0]);
         frame
+    }
+
+    #[test]
+    fn made_up_boards_stay_on_a_short_list() {
+        let mut fleet = fleet("made-up");
+        for number in 0..2_000u32 {
+            let mut from = [9; 6];
+            from[..4].copy_from_slice(&number.to_le_bytes());
+            let session = number;
+            let bodies = [
+                Body::Line(format!("done {number}")),
+                Body::Refused(Refusal::Replayed),
+                Body::Progress { session, next: 1 },
+                Body::Missing { session, done: 0, runs: Vec::new() },
+            ];
+            for (at, body) in bodies.into_iter().enumerate() {
+                let id = number * 4 + at as u32;
+                fleet.hear(1, &Packet { from, to: None, id, hops: 0, body }.encode());
+            }
+            fleet.hear(1, &old_frame(from, 1));
+        }
+        assert!(fleet.boards.len() <= MOST_BOARDS, "{} boards", fleet.boards.len());
+        assert!(fleet.lines.len() <= MOST_BOARDS, "{} line lists", fleet.lines.len());
+        assert!(fleet.finished.len() <= MOST_BOARDS);
+        assert!(fleet.refusals.len() <= MOST_BOARDS);
+        assert!(fleet.progress.len() <= MOST_BOARDS);
+        assert!(fleet.missing.len() <= MOST_BOARDS);
+
+        let from = [8; 6];
+        for id in 0..2_000 {
+            let body = Body::Refused(Refusal::Replayed);
+            fleet.hear(1, &Packet { from, to: None, id, hops: 0, body }.encode());
+        }
+        assert!(fleet.refusals[&from].len() <= MAX_LINES);
+    }
+
+    #[test]
+    fn made_up_old_boards_cannot_push_out_a_proved_one() {
+        let mut fleet = fleet("pushed");
+        fleet.hear(1, &beacon(1, 1, BOARD));
+        for number in 0..2_000u32 {
+            let mut from = [7; 6];
+            from[..4].copy_from_slice(&number.to_le_bytes());
+            fleet.hear(1, &old_frame(from, 1));
+        }
+        assert!(fleet.boards.contains_key(&BOARD));
+        assert!(!fleet.boards[&BOARD].old_format);
     }
 
     #[test]

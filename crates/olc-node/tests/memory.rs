@@ -81,6 +81,19 @@ fn memory_barely_moves_as_the_chain_grows() {
 fn memory_is_flat_once_the_payment_index_is_full() {
     let (mut node, _drive) = node_on_flash();
     grow(&mut node, 4_400, true);
-    // Live bytes wander by about 300 KB as caches turn over, so the span is long.
-    assert!(bytes_per_block(&mut node, 24_000, true) < 4.0);
+    let coins = node.chain().unspent_count();
+    // Live bytes wander by about 300 KB as caches turn over, so two readings prove nothing.
+    // The middles of two long runs of readings do.
+    let live: Vec<f64> = (0..24)
+        .map(|_| {
+            grow(&mut node, 1_000, true);
+            LIVE.load(Ordering::Relaxed) as f64
+        })
+        .collect();
+    let (early, late) = live.split_at(12);
+    let middle = |readings: &[f64]| readings.iter().sum::<f64>() / readings.len() as f64;
+    let per_block = (middle(late) - middle(early)) / 12_000.0;
+    println!("{per_block:.2} bytes a block, live {}", middle(late));
+    assert!(per_block < 4.0, "{per_block:.2} bytes a block");
+    assert!(node.chain().unspent_count() <= coins + 16, "merging keeps a miner's coins few");
 }

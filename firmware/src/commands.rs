@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use esp_hal::rng::Rng;
 use esp_println::println;
-use olc_core::coin::COIN;
+use olc_core::coin::parse_coins;
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
 
@@ -48,10 +48,7 @@ pub struct Work {
 
 impl Node {
     pub fn pay(&mut self, address: &str, amount: &str) {
-        let units = amount
-            .parse::<f64>()
-            .map(|value| (value * COIN as f64) as u64);
-        let (Some(to), Ok(units)) = (parse_address(address), units) else {
+        let (Some(to), Some(units)) = (parse_address(address), parse_coins(amount)) else {
             self.say("error pay ADDRESS AMOUNT".into());
             return;
         };
@@ -65,7 +62,7 @@ impl Node {
     /// Runs `line` when it is one of these commands.
     pub fn run_chain_command(&mut self, line: &str) -> bool {
         let mut words = line.split_whitespace();
-        let rest = |word: &str| line[word.len()..].trim();
+        let rest = |word: &str| line.trim_start().strip_prefix(word).unwrap_or_default().trim();
         match (words.next(), words.next(), words.next()) {
             (Some("keys"), _, _) => self.print_keys(),
             (Some("key"), Some("new"), _) => self.new_key(),

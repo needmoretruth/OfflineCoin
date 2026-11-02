@@ -14,6 +14,11 @@ const FORGET_AFTER: Duration = Duration::from_secs(600);
 const SILENT_AFTER: Duration = Duration::from_secs(120);
 /// A connected node answers every two seconds. Older than this, a row says how old it is.
 const LIVE_WITHIN: Duration = Duration::from_secs(5);
+/// Rows for nodes heard or passed on. Anyone can claim any address, so the one heard longest ago
+/// gives way. What a person added stays whatever the count.
+const MOST_KNOWN: usize = 512;
+/// Boards and computers heard over links. Anyone in radio reach can make these up too.
+const MOST_ON_LINKS: usize = 128;
 
 struct Known {
     hello: Option<Hello>,
@@ -31,6 +36,12 @@ pub struct Found {
     computers: BTreeMap<Address, (Hello, Instant)>,
 }
 
+fn room_for<T>(list: &mut BTreeMap<Address, T>, address: &Address) {
+    if list.len() >= MOST_ON_LINKS && !list.contains_key(address) {
+        list.pop_first();
+    }
+}
+
 /// The link the board that passed this on hears it over.
 pub fn link_of(hello: &Hello) -> Option<Medium> {
     Medium::from_name(&hello.card.via.0)
@@ -44,6 +55,17 @@ fn device_ip(address: &str) -> Option<std::net::IpAddr> {
 }
 
 impl Found {
+    fn room_for_one_more(&mut self, address: &str) {
+        if self.known.len() < MOST_KNOWN || self.known.contains_key(address) {
+            return;
+        }
+        let strangers = self.known.iter().filter(|(_, known)| !known.added);
+        let oldest = strangers.min_by_key(|(_, known)| known.heard);
+        if let Some(oldest) = oldest.map(|(address, _)| address.clone()) {
+            self.known.remove(&oldest);
+        }
+    }
+
     pub fn added(&mut self, address: &str) {
         self.known.entry(address.to_string()).or_insert(Known {
             hello: None,
@@ -66,6 +88,7 @@ impl Found {
             .take(MAX_KNOWN)
             .map(|known| (known.clone(), name.clone()))
             .collect();
+        self.room_for_one_more(address);
         let entry = self.known.entry(address.to_string()).or_insert(Known {
             hello: None,
             via: None,
@@ -78,10 +101,13 @@ impl Found {
     }
 
     pub fn board_said(&mut self, hello: Hello) {
-        match hello.card.device == BOARD_KIND {
-            true => self.boards.insert(hello.address, hello),
-            false => self.computers.insert(hello.address, (hello, Instant::now())).map(|(old, _)| old),
-        };
+        if hello.card.device == BOARD_KIND {
+            room_for(&mut self.boards, &hello.address);
+            self.boards.insert(hello.address, hello);
+        } else {
+            room_for(&mut self.computers, &hello.address);
+            self.computers.insert(hello.address, (hello, Instant::now()));
+        }
     }
 
     pub fn board(&self, address: &Address) -> Option<&Hello> {
@@ -90,6 +116,7 @@ impl Found {
 
     /// Notes who passed an address on, the first time.
     pub fn passed_on(&mut self, address: &str, via: &str) {
+        self.room_for_one_more(address);
         self.known.entry(address.to_string()).or_insert(Known {
             hello: None,
             via: Some(via.to_string()),
@@ -205,6 +232,28 @@ mod tests {
             heard,
             added: false,
         }
+    }
+
+    #[test]
+    fn made_up_names_stay_on_a_short_list_and_added_ones_stay() {
+        let mut found = Found::default();
+        found.added("10.0.0.1:7000");
+        for number in 0..5_000 {
+            let address = format!("10.1.{}.{}:7000", number / 256, number % 256);
+            found.passed_on(&address, "a stranger");
+        }
+        assert!(found.known.len() <= MOST_KNOWN, "{} rows", found.known.len());
+        assert!(found.known.contains_key("10.0.0.1:7000"));
+
+        let hello = known(Instant::now()).hello.unwrap();
+        for number in 0..5_000u32 {
+            let mut made_up = hello.clone();
+            made_up.address[..4].copy_from_slice(&number.to_le_bytes());
+            made_up.card.device = if number % 2 == 0 { BOARD_KIND.into() } else { "computer".into() };
+            found.board_said(made_up);
+        }
+        assert!(found.boards.len() <= MOST_ON_LINKS, "{} boards", found.boards.len());
+        assert!(found.computers.len() <= MOST_ON_LINKS, "{} computers", found.computers.len());
     }
 
     #[test]

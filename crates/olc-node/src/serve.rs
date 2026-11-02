@@ -22,6 +22,10 @@ const COINS_AT_ONCE: usize = 8;
 impl Engine {
     /// Up to a few blocks after the newest one the peer named.
     pub(crate) fn serve_blocks(&mut self, from: PeerId, ids: Vec<Hash>, heights: Vec<u64>) {
+        let named_heights = heights.len() == ids.len();
+        if !named_heights && self.walked {
+            return;
+        }
         let asked = (from, ids.first().copied());
         let repeated = self.answered.is_some_and(|(peer, newest, at)| {
             (peer, newest) == asked && self.now_ms.saturating_sub(at) < ANSWERED_FOR_MS
@@ -30,12 +34,15 @@ impl Engine {
             return;
         }
         self.answered = Some((asked.0, asked.1, self.now_ms));
-        let served = match heights.len() == ids.len() {
+        let served = match named_heights {
             true => {
                 let locator: Vec<_> = heights.into_iter().zip(ids).collect();
                 self.chain.blocks_after(&locator, BLOCKS_AT_ONCE)
             }
-            false => self.chain.blocks_after_ids(&ids, BLOCKS_AT_ONCE),
+            false => {
+                self.walked = true;
+                self.chain.blocks_after_ids(&ids, BLOCKS_AT_ONCE)
+            }
         };
         match served {
             Served::Blocks(blocks) => {

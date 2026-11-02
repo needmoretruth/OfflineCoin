@@ -3,6 +3,7 @@ use super::{Host, Personal, Plan};
 use olc_core::CoinConfig;
 use olc_node::Card;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 fn folder(name: &str) -> PathBuf {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.scratch/tests/ops").join(name);
@@ -30,6 +31,28 @@ fn host(root: &Path) -> Host {
 
 fn text(path: &Path) -> String {
     path.to_str().unwrap().to_string()
+}
+
+#[test]
+fn a_chain_on_its_way_in_shows_as_loading() {
+    let root = folder("loading");
+    let host = host(&root);
+    let seen = (0..20).any(|round| {
+        host.switch(CoinConfig::olc(), root.join(format!("chain-{round}")), Vec::new());
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(1) {
+            if host.view().loading {
+                return true;
+            }
+        }
+        false
+    });
+    assert!(seen, "the node opened its chains and never said so");
+    let started = Instant::now();
+    while host.view().loading && started.elapsed() < Duration::from_secs(10) {
+        std::thread::yield_now();
+    }
+    assert!(!host.view().loading, "the word stayed after the chain was in");
 }
 
 #[test]

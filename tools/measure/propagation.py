@@ -23,6 +23,7 @@ def listen(cable, name, seen, stop):
 
 
 def main():
+    boards.needs(3, __doc__)
     port_a, port_b, minutes = sys.argv[1], sys.argv[2], float(sys.argv[3])
     a, b = boards.Cable(port_a), boards.Cable(port_b)
     if len(sys.argv) > 4:

@@ -1,0 +1,24 @@
+[package]
+name = "olc-fuzz"
+description = "Throws random and damaged bytes at every parser that bytes from outside can reach"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+fastrand = "2"
+olc-board.workspace = true
+olc-control.workspace = true
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-lang.workspace = true
+olc-link-espnow = { path = "../olc-link-espnow" }
+olc-link-tcp.workspace = true
+olc-node.workspace = true
+olc-pool.workspace = true
+olc-pow.workspace = true
+olc-store.workspace = true
+olc-wallet.workspace = true
+postcard.workspace = true

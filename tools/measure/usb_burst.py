@@ -35,6 +35,8 @@ def round_of(fd, burst, gap, lines):
 
 
 def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__.strip())
     path = sys.argv[1]
     rounds = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     subprocess.run(["stty", "-F", path, "115200", "raw", "-echo", "-hupcl", "min", "0", "time", "0"],

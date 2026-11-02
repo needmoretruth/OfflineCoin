@@ -11,6 +11,8 @@ use std::time::Duration;
 const PORT: u16 = 7000;
 const SHOUT_EVERY: Duration = Duration::from_secs(15);
 const MAX_DATAGRAM: usize = 1_400;
+/// Hellos waiting for the next round. Anyone on the network can send as many as they like.
+const MOST_WAITING: usize = 64;
 
 #[derive(Default)]
 struct Shared {
@@ -95,7 +97,9 @@ fn listen(shared: &Shared) {
         }
         if let Some(Message::Hello(hello)) = Message::decode(body) {
             if let Ok(mut heard) = shared.heard.lock() {
-                heard.push((from, *hello));
+                if heard.len() < MOST_WAITING {
+                    heard.push((from, *hello));
+                }
             }
         }
     }

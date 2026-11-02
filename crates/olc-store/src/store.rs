@@ -10,7 +10,6 @@ const OLD_BLOCKS: &str = "blocks.log";
 const OLD_BLOCKS_DONE: &str = "blocks.log.imported";
 const SETTINGS: &str = "node.json";
 const HEADERS: &str = "headers.bin";
-const HEADERS_NEW: &str = "headers.new";
 
 /// What a person chose for this node.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,8 +56,19 @@ impl NodeSettings {
     pub fn save(&self, directory: &Path) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self).map_err(|error| error.to_string())?;
         fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        fs::write(directory.join(SETTINGS), text).map_err(|error| error.to_string())
+        replace_file(&directory.join(SETTINGS), text.as_bytes())
     }
+}
+
+/// Replaces a file in one step. Another process may be reading it and the power may go, so anyone
+/// who opens it finds the whole old file or the whole new one, never a cut one.
+pub fn replace_file(file: &Path, bytes: &[u8]) -> Result<(), String> {
+    if fs::read(file).is_ok_and(|held| held == bytes) {
+        return Ok(());
+    }
+    let fresh = file.with_extension("new");
+    fs::write(&fresh, bytes).map_err(|error| error.to_string())?;
+    fs::rename(&fresh, file).map_err(|error| error.to_string())
 }
 
 /// The headers a light node saved. Each one is checked again as it is taken back.
@@ -71,9 +81,7 @@ pub fn load_headers(directory: &Path) -> Vec<BlockHeader> {
 /// Replaces the saved headers whole, so a cut while saving leaves the last ones.
 pub fn save_headers(directory: &Path, headers: &[BlockHeader]) -> Result<(), String> {
     let bytes: Vec<u8> = headers.iter().flat_map(BlockHeader::encode).collect();
-    let fresh = directory.join(HEADERS_NEW);
-    fs::write(&fresh, bytes).map_err(|error| error.to_string())?;
-    fs::rename(&fresh, directory.join(HEADERS)).map_err(|error| error.to_string())
+    replace_file(&directory.join(HEADERS), &bytes)
 }
 
 /// Opens the chain in `directory`, with `limit` bytes of disk if it has a limit.

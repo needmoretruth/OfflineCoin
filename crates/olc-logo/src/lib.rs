@@ -1,5 +1,5 @@
 //! The logo: a real 3D coin, stamped with the Wi-Fi symbol crossed out. One renderer serves the
-//! terminal, the browser and the OLED, each of which only decides how to show the brightness.
+//! terminal, the app and the OLED, each of which only decides how to show the brightness.
 #![no_std]
 
 extern crate alloc;

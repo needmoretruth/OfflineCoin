@@ -8,6 +8,7 @@ import boards
 
 
 def main():
+    boards.needs(1, __doc__)
     ids = [board["id"] for board in boards.boards()]
     for power in sys.argv[1:]:
         for board in ids:

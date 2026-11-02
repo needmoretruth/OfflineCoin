@@ -21,9 +21,9 @@ jobs:
         os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install what the window needs on Linux
+      - name: Install what the window and Bluetooth need on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev mesa-vulkan-drivers
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libxkbcommon-dev mesa-vulkan-drivers pkg-config
       - name: Install Rust
         shell: bash
         run: |
@@ -39,5 +39,8 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Clippy with Bluetooth
+        if: runner.os == 'Linux'
+        run: cargo clippy -p olc-app -p olc-cli --all-targets --locked --features olc-app/ble,olc-cli/ble -- -D warnings
       - name: Tests
         run: cargo test --workspace --locked

@@ -24,6 +24,8 @@ pub enum WalletError {
     NoSuchKey,
     /// The node already holds this key.
     KnownKey,
+    /// The payment is signed, but the node's own pool would not take it.
+    Refused,
 }
 
 #[derive(Clone)]
@@ -117,7 +119,8 @@ impl Wallet {
     }
 
     pub fn balance(&self, chain: &dyn Coins) -> u64 {
-        self.keys.iter().map(|key| chain.balance(&key.address)).sum()
+        let balances = self.keys.iter().map(|key| chain.balance(&key.address));
+        balances.fold(0, u64::saturating_add)
     }
 
     /// Picks mature coins, pays `to` and returns the change to this wallet.
@@ -193,7 +196,7 @@ impl Wallet {
             }
             coins.sort_unstable_by_key(|(value, _)| *value);
             coins.truncate(MERGE_AT_ONCE);
-            let total: u64 = coins.iter().map(|(value, _)| *value).sum();
+            let total = coins.iter().map(|(value, _)| *value).fold(0, u64::saturating_add);
             let value = total.checked_sub(fee).filter(|value| *value > 0)?;
             let chosen: Vec<(Address, OutPoint)> =
                 coins.iter().map(|(_, point)| (key.address, *point)).collect();

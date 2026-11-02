@@ -7,10 +7,11 @@ import boards
 
 
 def main():
+    boards.needs(4, __doc__)
     a, b, c, amount = sys.argv[1:5]
     to = boards.status(c)["address"]
-    boards.line(a, f"ignore {c}")
-    boards.line(c, f"ignore {a}")
+    boards.line(a, f"ignore {boards.status(c)['id']}")
+    boards.line(c, f"ignore {boards.status(a)['id']}")
     for board in (a, b):
         boards.line(board, "mine off")
     print("a hears:", boards.line(a, "near"))
