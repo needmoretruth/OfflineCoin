@@ -12,9 +12,7 @@
   <a href="README.ko.md">한국어</a>
 </p>
 
-Bitcoin took digital money. Other coins took speed, privacy and everything else Bitcoin left behind. OfflineCoin went where nobody wanted to go: a coin that works with no internet at all.
-
-It is a real coin with a real chain, mined and checked by the people running it. It has no company behind it, no exchange and no price. It's made for fun, so treat it as a toy.
+OfflineCoin is a cryptocurrency that works with no internet. You mine it, check it and send it yourself.
 
 ## Download
 
@@ -28,7 +26,7 @@ It is a real coin with a real chain, mined and checked by the people running it.
 
 Other systems are on the [releases page](https://github.com/needmoretruth/OfflineCoin/releases/latest).
 
-Your computer will warn you the first time, because this app isn't signed.
+Your computer may warn you the first time you open it.
 
 - **Windows** says "Windows protected your PC". Choose **More info**, then **Run anyway**.
 - **Mac** says it can't check the app. Open **System Settings**, then **Privacy & Security**, and choose **Open Anyway**.
@@ -51,13 +49,32 @@ You can make your own coin too. On the **Coins** page, press **New coin**, then 
 
 ## Small boards
 
-OfflineCoin also runs on a tiny board with a small screen, with no computer once it's set up. It mines, keeps the whole chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core. The [technical guide](docs/technical.md) says which boards work.
+OfflineCoin also runs on ESP32 boards, with no computer once they're set up. A board mines, keeps the chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core.
 
 ## Keep your coins safe
 
 - Go to **Settings** and press **Back up**. If you lose your wallet with no backup, your coins are gone.
-- Anyone who gets your wallet file can spend your coins. It isn't encrypted.
-- Anyone with more mining power can rewrite the chain. On a coin like this, that's part of the fun.
+- Anyone who gets your wallet file can spend your coins, so keep it to yourself.
+
+## A word from the developer (more than a word)
+
+Hi, I'm NeedMoreTruth. I hope my name gets famous one day. (In a good way)
+
+I'm a nerd who really, really loves cryptocurrency. The technology, the ideas, the design, all of it. I've tried and read up on a lot of coins, but I don't have much money, they aren't easy to buy, and it was all a bit awkward.
+
+So I thought about running a real coin on my own computer. Cosmos SDK wasn't for me. Bitcoin Core's built-in test coins did too little. Nothing else out there satisfied me either. I'd already done most of what I could, and with no money and not much skill, I put together something simple: a coin you can make and try yourself, offline on your own network, very easily.
+
+It's nothing grand, but here's what matters. I don't like fake simulations, and I don't like things that are hard to run.
+
+So what do I want?
+
+- The code can differ, but the core ideas, design, structure and features are exactly those of a real cryptocurrency.
+- Nothing is fake. Real devices really compute, talk to each other, mine and verify.
+- You use it through a simple, clear app, with no complicated commands.
+
+If people take an interest in OfflineCoin later, I'd like to support it properly and build a site where you can try it right there. But I don't know yet if it's worth spending money on. I already have plenty of projects that will cost a lot, so I'll wait and see.
+
+(Spending money here would be for fun. I have no plans to make money from this. Normally I'd just spend it here, but right now I'm building something really important and the money has to go there. Then again, if this project gets attention, even that money won't beat my inner nerd)
 
 ## The coin
 

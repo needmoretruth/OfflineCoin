@@ -224,7 +224,7 @@ impl Engine {
             self.last_announce_ms = device_ms;
             self.announce(None);
         }
-        self.history.tick(self.chain.height(), device_ms);
+        self.history.tick((self.chain.height(), self.chain.tip()), device_ms);
         self.keep_fetching();
         self.sync.new_turn(device_ms);
         self.sign_a_little();
@@ -263,7 +263,8 @@ impl Engine {
                 if self.refused.has(&tip) || self.refused.has(&previous) {
                     return;
                 }
-                if self.history.lacks(from, self.chain.height(), height, self.now_ms) {
+                let own = (self.chain.height(), self.chain.tip());
+                if self.history.lacks(from, own, height, self.now_ms) {
                     return;
                 }
                 self.sync.heard(from, height, work, self.now_ms);
@@ -271,7 +272,8 @@ impl Engine {
             }
             Message::GetBlocks(ids, heights) => self.serve_blocks(from, ids, heights.0),
             Message::Pruned { oldest } => {
-                let first_time = self.history.pruned(from, oldest, self.now_ms);
+                let tip = self.chain.tip();
+                let first_time = self.history.pruned(from, oldest, tip, self.now_ms);
                 self.sync.drop_peer(from);
                 if first_time {
                     self.push_event(Event::NeedsHistory { peer: from });
@@ -402,7 +404,8 @@ impl Engine {
             Err(ChainError::ReorgTooDeep) => {
                 self.stop_following(from);
                 self.push_event(Event::ReorgRefused);
-                self.history.pruned(from, self.chain.height() + 2, self.now_ms);
+                let tip = self.chain.tip();
+                self.history.pruned(from, self.chain.height() + 2, tip, self.now_ms);
             }
             // The bytes do not match their own header, which a damaged line does as well as a
             // dishonest peer, and says nothing about the tip being followed.

@@ -24,6 +24,7 @@ pub enum Tool {
     Addresses,
     Watch,
     Offline,
+    Note,
 }
 
 /// What the file being chosen is for.
@@ -292,6 +293,7 @@ impl WalletTools {
             Tool::Addresses => self.addresses(ui, cx),
             Tool::Watch => self.watched(ui, cx),
             Tool::Offline => self.offline(ui, cx),
+            Tool::Note => super::note::show(ui, cx),
         });
         let finished = self.filing(ui, cx);
         if done || finished || (outside && self.filing.is_none()) {

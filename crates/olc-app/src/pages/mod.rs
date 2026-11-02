@@ -13,6 +13,7 @@ mod lab;
 mod local;
 mod locks;
 mod money;
+mod note;
 mod pool;
 mod records;
 pub mod reach;

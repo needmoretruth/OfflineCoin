@@ -262,6 +262,13 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
         None,
     )
     .unwrap();
+    // The host starts on an empty chain and puts the stored one in its place from its own thread.
+    // Blocks mined before that are lost with the empty chain, and the peer ends up with nothing.
+    let start = Instant::now();
+    while host.view().loading {
+        assert!(start.elapsed() < Duration::from_secs(30), "the chain never opened");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     host.set_recent(Some(FEWEST_RECENT)).unwrap();
     let block_time = coin.rules.block_time_ms;
     for _ in 0..blocks {
@@ -394,4 +401,22 @@ fn wait_until_seen(harness: &mut Window, text: &str) {
         std::thread::sleep(Duration::from_millis(100));
     }
     panic!("{text} never showed");
+}
+
+/// The note opens from Settings in both languages. The window is tall so the last row is on it.
+#[test]
+fn the_developers_note_opens_in_both_languages() {
+    for (language, read, name) in [(Lang::En, "Read", "note-en"), (Lang::Ko, "읽기", "note-ko")] {
+        let settings = Settings { port: port_of_scene(84), ..quiet_settings() };
+        let mut harness = harness(app(scratch(name), settings, None), (1280, 2600));
+        harness.state_mut().settings_mut().language = language;
+        harness.state_mut().open("page.settings");
+        harness.run_steps(SETTLE_STEPS);
+        click(&mut harness, read);
+        harness.run_steps(SETTLE_STEPS);
+        assert!(harness.query_by_label_contains("NeedMoreTruth").is_some(), "{name}");
+        if let Ok(folder) = std::env::var("OLC_SHOTS") {
+            super::shots::shot(&mut harness, std::path::Path::new(&folder), name);
+        }
+    }
 }

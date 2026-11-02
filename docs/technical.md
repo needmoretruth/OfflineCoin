@@ -27,11 +27,9 @@ cargo build --release -p olc-app -p olc-cli
 
 `cargo run` and `cargo test` leave USB alone so that a test never touches a board. Set `OLC_NO_USB=0` to reach boards from a source run.
 
-## ESP32-S3
+## Boards
 
-A board needs 16 MB of flash and 8 MB of PSRAM. An SH1106 OLED on I2C (SDA 8, SCL 9) is optional.
-
-Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
+An SH1106 OLED on I2C is optional. Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
 
 ```
 cd firmware
@@ -61,6 +59,14 @@ A node listens on every link it has turned on and keeps a table of its neighbour
 | TCP | Computers | A home network, a VPN or the internet |
 
 A computer on OLC-XXXX joins with `olc node --connect 192.168.4.1:7000`.
+
+## Contracts
+
+OLCL alpha pays an address. OLCL beta is a stack language at the level of early Bitcoin Script, written as words such as `HASH 0x... EQUAL`. Expert mode has a Locks page with worked examples of a hash lock, a two-of-two signature and a time lock, and `olc` has the same words. OLCL omega is reserved for later.
+
+## Changing the rules
+
+A coin's rules can change at a height with no new coin. Expert mode has Change rules on the Network page, and `olc` has the same word. Blocks before that height stay valid, so the chain keeps its history and splits from nodes on the old rules, as a fork does in Bitcoin. You can go back.
 
 ## Kinds of node
 
@@ -102,7 +108,7 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 These come from the rules, and changing them means a fork.
 
 - A block's time has no upper limit, because a board has no clock of its own.
-- A block has no limit on signature checks. Mining one that stalls a board takes real work.
+- A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 32, so stalling a board takes a mined block.
 - A transaction id covers its unlock data, as in Bitcoin before SegWit.
 - A 64-byte transaction could be mistaken for an inner node of the Merkle tree.
 

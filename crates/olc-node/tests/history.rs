@@ -51,6 +51,63 @@ fn a_new_node_hears_plainly_when_nobody_has_the_history() {
     assert_eq!(status.assumed_from, None);
 }
 
+/// A node that mined alone can stand above the peer's first block and still share nothing with
+/// it. The peer's answer is the same every time, so the node has to say so, and keep saying so.
+#[test]
+fn a_node_on_its_own_branch_hears_when_nobody_can_bring_it_over() {
+    let peer = pruned_engine(1, 2_400);
+    let oldest = peer.chain().oldest_held();
+    let mut alone = engine(2);
+    for height in 0..oldest + 3 {
+        mine(&mut alone, height * 1_000);
+    }
+    silence(&mut alone);
+    assert!(alone.chain().height() + 1 > oldest, "the height alone must not give it away");
+    let mut nodes = [peer, alone];
+    let start = 2_400_000;
+    talk(&mut nodes, start, 3);
+    // A running node ticks many times before its screen is drawn, so the answer must outlast one,
+    // and the node keeps asking, so it outlasts the wait for a quiet peer as well.
+    for round in 3..30 {
+        talk(&mut nodes, start + round * 2_100, 1);
+        nodes[1].tick(start + round * 2_100 + 100);
+        assert_eq!(
+            nodes[1].status().needs_history.map(|(peer, _)| peer),
+            Some(0),
+            "gone {} ms after the peer first spoke",
+            round * 2_100
+        );
+    }
+
+    nodes[1].accept_snapshot(0);
+    deliver(&mut nodes);
+    assert_eq!(nodes[1].status().tip, nodes[0].status().tip);
+}
+
+/// A person may read the offer for a minute. An idle peer only repeats its tip, and that holds it.
+#[test]
+fn the_offer_stays_while_a_person_reads_it() {
+    let mut nodes = [pruned_engine(1, 2_400), engine(2)];
+    let start = 2_400_000;
+    talk(&mut nodes, start, 2);
+    for round in 2..40 {
+        talk(&mut nodes, start + round * 2_100, 1);
+        nodes[1].tick(start + round * 2_100 + 100);
+        assert_eq!(
+            nodes[1].status().needs_history,
+            Some((0, 2_400)),
+            "gone {} ms after it came up",
+            round * 2_100
+        );
+    }
+    // The offer ends with the peer: nobody is left to take the list from.
+    for round in 0..8 {
+        nodes[1].tick(start + 90_000 + round * 2_100);
+        silence(&mut nodes[1]);
+    }
+    assert_eq!(nodes[1].status().needs_history, None);
+}
+
 #[test]
 fn a_person_can_take_a_peers_snapshot_and_the_chain_says_whose_it_is() {
     let mut nodes = [pruned_engine(1, 2_400), engine(2)];
