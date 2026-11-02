@@ -1,7 +1,8 @@
 //! The lines a board answers with when asked how it is doing.
 use crate::commands::opened_name;
 use crate::control::BUILD;
-use crate::node::{decode_hash, hex, Node, LINK_RADIO, LINK_USB, LINK_WIFI};
+use crate::flash;
+use crate::node::{decode_hash, device_ms, hex, Node, LINK_RADIO, LINK_USB, LINK_WIFI};
 use crate::radio;
 use crate::screen::{PAGES, WIDTH};
 use olc_core::amount::format_coins;
@@ -31,6 +32,17 @@ impl Node {
         println!("screen matches={same}");
     }
 
+    /// Flash erased since this start, for working out how long the chip lasts on this chain.
+    pub fn print_wear(&mut self) {
+        let [log, state, saves, meta, control, image] = flash::erased();
+        let height = self.runner.engine.status().height;
+        let up = device_ms();
+        self.say(format!(
+            "wear log={log} state={state} saves={saves} meta={meta} control={control} \
+             image={image} height={height} up_ms={up}"
+        ));
+    }
+
     pub fn print_tx(&mut self, text: &str) {
         let mut id: Hash = [0; 32];
         let engine = &self.runner.engine;
@@ -53,6 +65,7 @@ impl Node {
     }
 
     pub fn print_status(&mut self) {
+        let longest_turn = self.care.take_longest_turn();
         let status = self.runner.engine.status();
         let chain = self.runner.engine.chain();
         let held = chain.held();
@@ -64,7 +77,8 @@ impl Node {
              power={} rssi={} bright={} busy={} clock={} network={} boot_wdt={} strap={:#x} key={} \
              name={} opened={} oldest={} held={} fits={} keep={} unspent={} miner={} merge={} \
              needs={} assumed={} work_on={} near={} dials={} moves={} links={} light={} nearby={} \
-             bluetooth={} headers_only={} rules={} id={}",
+             bluetooth={} headers_only={} cooling={} shown_bright={} longest_turn_us={} rules={} \
+             id={}",
             status.height,
             hex(&status.tip),
             status.work,
@@ -132,6 +146,9 @@ impl Node {
             radio::ENABLED.load(Ordering::Relaxed),
             self.bluetooth,
             self.runner.engine.light().is_some(),
+            self.care.heat.cooling(),
+            self.care.shown_bright(),
+            longest_turn,
             chain.config().rules_id(),
             hex(&self.control.router.me()),
         );

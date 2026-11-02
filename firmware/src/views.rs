@@ -77,6 +77,7 @@ impl Language {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Updating(u8),
+    Cooling,
     Syncing(u64),
     MemoryFull,
     Offline,
@@ -298,6 +299,7 @@ pub fn loading(screen: &mut Screen, coins: &Coins, now_ms: u64, done: usize, tot
 
 fn draw_splash(screen: &mut Screen, coins: &Coins, now_ms: u64) {
     screen.clear();
+    screen.shift_for(now_ms);
     coins.draw_large(screen, now_ms);
     screen.text(68, 20, "Offline", Font::Regular);
     screen.text(68, 32, "Coin", Font::Regular);

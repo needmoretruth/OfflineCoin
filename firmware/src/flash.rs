@@ -4,8 +4,22 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use esp_storage::FlashStorage;
 use olc_core::medium::{Keep, Medium, SECTOR};
+use portable_atomic::{AtomicU32, Ordering};
 
 static FLASH: Mutex<RefCell<Option<FlashStorage<'static>>>> = Mutex::new(RefCell::new(None));
+
+/// Sectors erased since this start, by what they hold. See `store::Worn`.
+static ERASED: [AtomicU32; 6] = [const { AtomicU32::new(0) }; 6];
+
+fn count_erase(at: u32) {
+    for worn in crate::store::worn_by(at) {
+        ERASED[worn as usize].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn erased() -> [u32; 6] {
+    core::array::from_fn(|index| ERASED[index].load(Ordering::Relaxed))
+}
 
 pub fn give(flash: FlashStorage<'static>) {
     critical_section::with(|lock| *FLASH.borrow_ref_mut(lock) = Some(flash));
@@ -25,6 +39,7 @@ pub fn read(at: u32, bytes: &mut [u8]) -> bool {
 
 /// Writes through a read and an erase of the sector, for settings that fit one.
 pub fn replace(at: u32, bytes: &[u8]) -> bool {
+    count_erase(at);
     with(|flash| flash.write(at, bytes).is_ok()).unwrap_or(false)
 }
 
@@ -34,6 +49,7 @@ pub fn program(at: u32, bytes: &[u8]) -> bool {
 }
 
 pub fn erase(at: u32) -> bool {
+    count_erase(at);
     with(|flash| flash.erase(at, at + SECTOR as u32).is_ok()).unwrap_or(false)
 }
 

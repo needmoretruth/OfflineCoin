@@ -5,6 +5,7 @@
 extern crate alloc;
 
 mod ble;
+mod care;
 mod clock;
 mod commands;
 mod control;
@@ -138,7 +139,8 @@ async fn main(spawner: Spawner) -> ! {
     }
     let bright = settings.bright.parse().unwrap_or(screen::DEFAULT_BRIGHT);
     let mut screen = Screen::new(bus);
-    screen.set_bright(bright);
+    let start_bright = olc_control::panel::start_bright(bright);
+    screen.set_bright(start_bright);
     let mut coins = Coins::new();
     coins.first_frame();
     views::splash(&mut screen, &coins, 0);
@@ -161,6 +163,7 @@ async fn main(spawner: Spawner) -> ! {
 
     store.reach(Stage::Radio);
     rtc.rwdt.disable();
+    let watchdog = rtc.rwdt;
 
     let (secrets, receiving) = store.keys(|| {
         // The radio is on, so this is true hardware randomness.
@@ -261,6 +264,7 @@ async fn main(spawner: Spawner) -> ! {
         coins,
         bright,
         boot_watchdog,
+        care: care::Care::new(watchdog, start_bright),
         clock_mhz,
         restart_ms: None,
         busy_us: 0,
@@ -310,6 +314,7 @@ async fn main(spawner: Spawner) -> ! {
         let start = Instant::now();
         let worked = node.turn();
         node.busy_us += start.elapsed().as_micros();
+        node.care.timed_turn(start.elapsed().as_micros());
         if worked {
             yield_now().await;
         } else {

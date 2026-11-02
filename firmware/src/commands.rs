@@ -128,6 +128,12 @@ impl Node {
             }),
             (Some("wifi"), _, _) => self.wifi_from(line),
             (Some("check-time"), _, _) => self.time_one_check(),
+            (Some("wear"), _, _) => self.print_wear(),
+            (Some("heat"), Some("default"), _) => {
+                self.care.heat.usual_limits();
+                self.say("heat default".into());
+            }
+            (Some("heat"), Some(hot), Some(cool)) => self.set_heat(hot, cool),
             (Some("keys"), _, _) => self.print_keys(),
             (Some("key"), Some("new"), _) => self.new_key(),
             (Some("key"), Some("use"), Some(index)) => self.choose_key(index),
