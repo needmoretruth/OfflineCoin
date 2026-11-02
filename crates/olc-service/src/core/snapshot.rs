@@ -1,9 +1,10 @@
 //! One consistent picture of the app for the screen.
 use olc_node::locks::LockedCoin;
-use olc_node::LightStatus;
+use olc_node::{Keeps, LightStatus};
 use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
 use super::pool_run::PoolView;
+use super::radios::NoBluetooth;
 use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
 use olc_board::{BoardState, Seen};
@@ -18,6 +19,7 @@ pub struct NodeView {
     pub height: u64,
     pub work: u128,
     pub difficulty: u64,
+    pub keeps: Keeps,
     pub peers: usize,
     pub pool: usize,
     pub hashrate: u64,
@@ -50,6 +52,7 @@ pub struct NodeView {
     pub links: Rank,
     /// Whether this node uses Bluetooth. `None` where it cannot.
     pub bluetooth: Option<bool>,
+    pub no_bluetooth: Option<NoBluetooth>,
     /// The oldest block whose body is here.
     pub oldest: u64,
     pub recent: Option<u64>,
@@ -96,6 +99,8 @@ pub struct BoardView {
     pub job: Option<String>,
     /// The last answer to something a person asked of this board.
     pub answer: Option<String>,
+    /// What it holds of its chain, once it has said.
+    pub keeps: Keeps,
     /// Quiet because it is restarting, not because something is wrong.
     pub returning: bool,
     /// Its settings, once the board has said them.

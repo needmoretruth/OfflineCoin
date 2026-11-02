@@ -181,7 +181,7 @@ pub(super) fn staged_board(online: bool, returning: bool) -> BoardView {
         keep: Some(0),
         ..BoardState::default()
     };
-    BoardView { seen, job, answer: None, returning, reach: Reach::Usb, state }
+    BoardView { seen, job, answer: None, keeps: olc_node::Keeps::Everything, returning, reach: Reach::Usb, state }
 }
 
 pub(super) fn staged(boards: Vec<BoardView>) -> Snapshot {

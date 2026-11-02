@@ -8,10 +8,12 @@ use crate::local::{
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
-    self, button, card, dot, field, header_cell, meta, number_field, section, segments, strong_text,
+    self, button, button_on, card, dot, field, header_cell, meta, number_field, section, segments,
+    strong_text,
     switch_row, tag, Columns, Kind,
 };
 use egui::Ui;
+use std::collections::HashMap;
 
 const MIB: u64 = 1024 * 1024;
 
@@ -22,6 +24,7 @@ pub struct Local {
     mine_to: String,
     pay_amount: String,
     payer: Option<u32>,
+    caps: HashMap<u32, u64>,
 }
 
 impl Default for Local {
@@ -33,6 +36,7 @@ impl Default for Local {
             mine_to: String::new(),
             pay_amount: String::new(),
             payer: None,
+            caps: HashMap::new(),
         }
     }
 }
@@ -135,6 +139,22 @@ fn status_line(ui: &mut Ui, cx: &Cx, view: &LocalView) {
 }
 
 impl Local {
+    /// A running node takes a new cap at once. A stopped one starts with it.
+    fn cap_row(&mut self, ui: &mut Ui, cx: &Cx, view: &LocalView) {
+        let t = cx.t;
+        let id = view.spec.id;
+        let name = cx.say("local.hash_cap");
+        let cap = self.caps.entry(id).or_insert(view.spec.hash_cap);
+        ui.horizontal(|ui| {
+            meta(ui, name, t);
+            number_field(ui, cap, name, 120.0);
+            let changed = *cap != view.spec.hash_cap;
+            if button_on(ui, t, cx.say("common.save"), Kind::Plain, changed).clicked() {
+                cx.send(Command::NodeCap { id, cap: *cap });
+            }
+        });
+    }
+
     fn node_card(&mut self, ui: &mut Ui, cx: &mut Cx, view: &LocalView) {
         let t = cx.t;
         let id = view.spec.id;
@@ -151,6 +171,9 @@ impl Local {
             }
             status_line(ui, cx, view);
             budget(ui, cx, view);
+            if view.spec.holding != Holding::Headers {
+                self.cap_row(ui, cx, view);
+            }
             ui.horizontal(|ui| {
                 if running {
                     if button(ui, t, cx.say("local.stop"), Kind::Plain).clicked() {

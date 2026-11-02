@@ -15,9 +15,11 @@ use crate::ui::widgets::{
 use crate::ui::{format, Icon};
 use egui::{Align, Layout, ScrollArea, Ui};
 use olc_core::CoinConfig;
-use olc_node::Medium;
+use olc_node::{Keeps, Medium};
 
-const WEIGHTS: [f32; 7] = [1.5, 2.3, 0.9, 1.4, 0.8, 1.8, 0.8];
+const WEIGHTS: [f32; 8] = [1.4, 2.0, 1.0, 0.8, 1.2, 0.7, 1.7, 0.8];
+/// Device, what it keeps, what it does.
+const PLAIN_WEIGHTS: [f32; 3] = [2.2, 1.0, 1.4];
 const COIN_ENDING: &str = "coin";
 /// A sheet's margins, title and buttons.
 const SHEET_FRAME: f32 = 220.0;
@@ -121,6 +123,40 @@ fn dash(value: Option<String>) -> String {
     value.unwrap_or_else(|| "-".into())
 }
 
+/// What a node holds, in the words of the form that sets one up.
+pub(super) fn keeps_text(cx: &Cx, keeps: Keeps) -> String {
+    match keeps {
+        Keeps::Everything => cx.say("local.keep_all").to_string(),
+        Keeps::Recent => cx.say("local.keep_recent").to_string(),
+        Keeps::Headers => cx.say("local.keep_headers").to_string(),
+        Keeps::Unsaid => "-".to_string(),
+    }
+}
+
+/// Every device around, for a person who does not need the expert's table.
+fn plain_rows(ui: &mut Ui, cx: &Cx, entries: &[&Entry]) {
+    let columns = Columns::new(ui, &PLAIN_WEIGHTS);
+    columns.row(ui, |ui, index| {
+        let keys = ["found.device", "found.keeps", "found.work"];
+        header_cell(ui, cx.t, cx.say(keys[index]));
+    });
+    for entry in entries {
+        columns.row(ui, |ui, index| match index {
+            0 => cell(ui, device_text(cx, entry)),
+            1 => cell(ui, keeps_text(cx, entry.keeps)),
+            _ => work_cell(ui, cx, entry),
+        });
+    }
+}
+
+fn device_text(cx: &Cx, entry: &Entry) -> String {
+    let device = format::device(cx.voice(), &entry.device);
+    match entry.name.is_empty() {
+        true => device,
+        false => format!("{device}  {}", entry.name),
+    }
+}
+
 /// One thing found, for an expert.
 fn entry_row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, group: (Option<&Identity>, Relation)) {
     let (identity, relation) = group;
@@ -131,18 +167,12 @@ fn entry_row(ui: &mut Ui, cx: &Cx, columns: &Columns, entry: &Entry, group: (Opt
                 shown.on_hover_text(address);
             }
         }
-        1 => {
-            let device = format::device(cx.voice(), &entry.device);
-            let text = match entry.name.is_empty() {
-                true => device,
-                false => format!("{device}  {}", entry.name),
-            };
-            cell(ui, text);
-        }
-        2 => cell(ui, dash(entry.height.map(|height| format::number(height.into())))),
-        3 => cell(ui, dash(entry.work_done.map(format::number))),
-        4 => cell(ui, dash(Some(entry.build.clone()).filter(|build| !build.is_empty()))),
-        5 => work_cell(ui, cx, entry),
+        1 => cell(ui, device_text(cx, entry)),
+        2 => cell(ui, keeps_text(cx, entry.keeps)),
+        3 => cell(ui, dash(entry.height.map(|height| format::number(height.into())))),
+        4 => cell(ui, dash(entry.work_done.map(format::number))),
+        5 => cell(ui, dash(Some(entry.build.clone()).filter(|build| !build.is_empty()))),
+        6 => work_cell(ui, cx, entry),
         _ => connect_button(ui, cx, entry, identity, relation),
     });
 }
@@ -185,7 +215,7 @@ fn expert_table(ui: &mut Ui, cx: &Cx, group: &CoinGroup) {
     for chain in &group.chains {
         ui.horizontal(|ui| chain_tags(ui, cx, chain, many));
         columns.row(ui, |ui, index| {
-            let keys = ["pro.reach", "pro.device", "pro.height", "pro.work", "pro.build", "pro.activity"];
+            let keys = ["pro.reach", "pro.device", "found.keeps", "pro.height", "pro.work", "pro.build", "pro.activity"];
             if let Some(key) = keys.get(index) {
                 header_cell(ui, t, cx.say(key));
             }
@@ -199,6 +229,13 @@ fn expert_table(ui: &mut Ui, cx: &Cx, group: &CoinGroup) {
         let id = mono(format::short_id(&identity.genesis)).color(t.muted);
         ui.label(id).on_hover_text(cx.say("pro.genesis"));
     }
+}
+
+/// Everything found but this app itself, on any coin.
+fn other_devices<'a>(cx: &Cx<'a>) -> Vec<&'a Entry> {
+    let chains = cx.snap.groups.iter().flat_map(|group| &group.chains);
+    let entries = chains.flat_map(|chain| &chain.entries);
+    entries.filter(|entry| entry.reach != Reach::ThisApp).collect()
 }
 
 /// A coin that is not this one, with where to reach it.
@@ -308,6 +345,12 @@ impl Coins {
         let t = cx.t;
         let snap = cx.snap;
         let found: Vec<Found> = snap.groups.iter().filter_map(found_in).collect();
+        let entries = other_devices(cx);
+        if !entries.is_empty() {
+            section(ui, cx.say("coins.devices"));
+            plain_rows(ui, cx, &entries);
+            ui.add_space(tokens::GAP_WIDE);
+        }
         section(ui, cx.say("coins.found"));
         if found.is_empty() {
             let again = cx.say("coins.look_again");

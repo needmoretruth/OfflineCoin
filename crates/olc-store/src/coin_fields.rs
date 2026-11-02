@@ -149,84 +149,120 @@ pub const COIN_FIELDS: &[CoinField] = &[
         flag: "name",
         kind: FieldKind::Text,
         get: |coin| coin.name.clone(),
-        set: |coin, text| Ok(coin.name = words(text)?),
+        set: |coin, text| {
+            coin.name = words(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "ticker",
         flag: "ticker",
         kind: FieldKind::Text,
         get: |coin| coin.ticker.clone(),
-        set: |coin, text| Ok(coin.ticker = words(text)?),
+        set: |coin, text| {
+            coin.ticker = words(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "message",
         flag: "message",
         kind: FieldKind::Text,
         get: |coin| coin.message.clone(),
-        set: |coin, text| Ok(coin.message = words(text)?),
+        set: |coin, text| {
+            coin.message = words(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "message_in_block",
         flag: "message-in-block",
         kind: FieldKind::Switch,
         get: |coin| if coin.message_in_block { "on" } else { "off" }.to_string(),
-        set: |coin, text| Ok(coin.message_in_block = switch(text)?),
+        set: |coin, text| {
+            coin.message_in_block = switch(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "genesis_time_ms",
         flag: "genesis-time-ms",
         kind: FieldKind::Number,
         get: |coin| plain(coin.genesis_time_ms),
-        set: |coin, text| Ok(coin.genesis_time_ms = number(text)?),
+        set: |coin, text| {
+            coin.genesis_time_ms = number(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "initial_difficulty",
         flag: "difficulty",
         kind: FieldKind::Number,
         get: |coin| plain(coin.initial_difficulty),
-        set: |coin, text| Ok(coin.initial_difficulty = at_least(text, 1)?),
+        set: |coin, text| {
+            coin.initial_difficulty = at_least(text, 1)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "premine",
         flag: "premine",
         kind: FieldKind::Premine,
         get: premine_text,
-        set: |coin, text| Ok(coin.premine = premine_from(text)?),
+        set: |coin, text| {
+            coin.premine = premine_from(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.block_time_ms",
         flag: "block-time-ms",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.block_time_ms),
-        set: |coin, text| Ok(coin.rules.block_time_ms = at_least(text, 1)?),
+        set: |coin, text| {
+            coin.rules.block_time_ms = at_least(text, 1)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.retarget_interval",
         flag: "retarget",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.retarget_interval),
-        set: |coin, text| Ok(coin.rules.retarget_interval = number(text)?),
+        set: |coin, text| {
+            coin.rules.retarget_interval = number(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.reward",
         flag: "reward",
         kind: FieldKind::Coins,
         get: |coin| format_coins(coin.rules.reward),
-        set: |coin, text| Ok(coin.rules.reward = coins(text)?),
+        set: |coin, text| {
+            coin.rules.reward = coins(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.halving_interval",
         flag: "halving",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.halving_interval),
-        set: |coin, text| Ok(coin.rules.halving_interval = number(text)?),
+        set: |coin, text| {
+            coin.rules.halving_interval = number(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.coinbase_maturity",
         flag: "maturity",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.coinbase_maturity),
-        set: |coin, text| Ok(coin.rules.coinbase_maturity = number(text)?),
+        set: |coin, text| {
+            coin.rules.coinbase_maturity = number(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.max_block_bytes",
@@ -238,7 +274,8 @@ pub const COIN_FIELDS: &[CoinField] = &[
             if value > MOST_BLOCK_BYTES {
                 return Err(Why::AtMost(MOST_BLOCK_BYTES));
             }
-            Ok(coin.rules.max_block_bytes = value)
+            coin.rules.max_block_bytes = value;
+            Ok(())
         },
     },
     CoinField {
@@ -246,21 +283,30 @@ pub const COIN_FIELDS: &[CoinField] = &[
         flag: "min-fee",
         kind: FieldKind::Coins,
         get: |coin| format_coins(coin.rules.min_fee),
-        set: |coin, text| Ok(coin.rules.min_fee = coins(text)?),
+        set: |coin, text| {
+            coin.rules.min_fee = coins(text)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.min_difficulty",
         flag: "min-difficulty",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.min_difficulty),
-        set: |coin, text| Ok(coin.rules.min_difficulty = at_least(text, 1)?),
+        set: |coin, text| {
+            coin.rules.min_difficulty = at_least(text, 1)?;
+            Ok(())
+        },
     },
     CoinField {
         key: "rules.floor_from_height",
         flag: "floor-from-height",
         kind: FieldKind::Number,
         get: |coin| plain(coin.rules.floor_from_height),
-        set: |coin, text| Ok(coin.rules.floor_from_height = number(text)?),
+        set: |coin, text| {
+            coin.rules.floor_from_height = number(text)?;
+            Ok(())
+        },
     },
 ];
 

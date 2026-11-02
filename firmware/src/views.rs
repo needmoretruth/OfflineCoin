@@ -7,6 +7,7 @@ use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use core::net::Ipv4Addr;
+use olc_core::amount::format_coins;
 use olc_core::coin::COIN;
 use olc_logo::Reel;
 use olc_node::Event;
@@ -202,8 +203,17 @@ pub fn short(value: u64) -> String {
     }
 }
 
-pub fn coins(units: u64) -> String {
-    format!("{}.{:02}", units / COIN, units % COIN / (COIN / 100))
+/// An amount as the app writes it, with as many decimals as `room` pixels hold. 128 pixels take
+/// 21 letters of the regular font, so a line with a height beside it often loses a few. It cuts
+/// and never rounds up, and only an amount too long for its whole part shrinks to `1.2M`.
+pub fn coins_within(units: u64, font: Font, room: i32) -> String {
+    for unit in (0..=8).map(|power| 10u64.pow(power)) {
+        let text = format_coins(units - units % unit);
+        if screen::width(&text, font) <= room {
+            return text;
+        }
+    }
+    short(units / COIN)
 }
 
 /// Whether a pixel of the coin is lit. Bright metal is solid and the rest is a thin dither, which
@@ -306,7 +316,10 @@ fn basic(screen: &mut Screen, info: &Info, language: Language) {
         Language::English => format!("#{}", info.height),
         Language::Korean => format!("{}번", info.height),
     };
-    let money = format!("{number} {} {}", coins(info.balance), info.ticker);
+    let around = format!("{number}  {}", info.ticker);
+    let room = screen::ROOM - screen::width(&around, Font::Regular);
+    let amount = coins_within(info.balance, Font::Regular, room);
+    let money = format!("{number} {amount} {}", info.ticker);
     screen.text(0, LINE, &money, Font::Regular);
     let rate = match (language, info.limit) {
         (Language::English, _) => format!("{} d {}", info.rate_text(), short(info.difficulty)),
@@ -336,12 +349,7 @@ fn basic(screen: &mut Screen, info: &Info, language: Language) {
 
 fn easy(screen: &mut Screen, reels: &Coins, info: &Info, language: Language) {
     reels.draw_small(screen, info.now_ms);
-    let whole = info.balance / COIN;
-    let amount = if whole < 10_000 {
-        coins(info.balance)
-    } else {
-        short(whole)
-    };
+    let amount = coins_within(info.balance, Font::Big, screen::ROOM - 44);
     screen.text(44, 0, &amount, Font::Big);
     let end = screen.text(44, 21, info.ticker, Font::Regular);
     screen.text_before(end + 6, 21, info.name, Font::Regular, screen::ROOM);

@@ -75,7 +75,7 @@ impl Coins for Light {
 
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
         let maturity = self.coin.rules_at(spend_height).coinbase_maturity;
-        !entry.coinbase || spend_height >= entry.height + maturity
+        !entry.coinbase || spend_height >= entry.height.saturating_add(maturity)
     }
 }
 

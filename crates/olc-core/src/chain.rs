@@ -341,6 +341,11 @@ impl Chain {
         }
     }
 
+    /// How many recent blocks are kept. `None` keeps all that fit.
+    pub fn recent(&self) -> Option<u64> {
+        self.recent
+    }
+
     /// Changes how many recent blocks are kept. `None` keeps all that fit.
     pub fn set_recent(&mut self, recent: Option<u64>) {
         self.recent = recent.map(|blocks| blocks.max(FEWEST_RECENT));
@@ -406,7 +411,7 @@ impl Chain {
 
     pub fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
         let maturity = self.config.rules_at(spend_height).coinbase_maturity;
-        !entry.coinbase || spend_height >= entry.height + maturity
+        !entry.coinbase || spend_height >= entry.height.saturating_add(maturity)
     }
 
     /// The difficulty a block on top of `parent` must carry.

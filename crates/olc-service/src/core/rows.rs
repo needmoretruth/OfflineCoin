@@ -1,12 +1,13 @@
 //! This app's own node and the boards as rows of the Network page.
 use super::snapshot::NodeView;
+use super::found::link_of;
 use crate::discovery::{Entry, Identity, Reach, Work};
 use crate::fleet::BoardRow;
-use crate::local::LocalView;
+use crate::local::{Holding, LocalView};
 use olc_core::Hash;
 use super::returning::is_returning;
 use olc_platform::platform;
-use olc_node::Medium;
+use olc_node::{Hello, Keeps, Medium};
 
 pub const BOARD_KIND: &str = "esp32-s3";
 
@@ -38,6 +39,7 @@ pub fn own_entry(view: &NodeView, identity: Option<Identity>) -> Entry {
             true => Work::Mining(view.hashrate),
             false => Work::Idle,
         },
+        keeps: view.keeps,
         age_secs: None,
     }
 }
@@ -75,6 +77,11 @@ pub fn merge_local(entries: &mut Vec<Entry>, nodes: &[LocalView], coin: Option<&
                 true => Work::Mining(status.hashrate),
                 false => Work::Idle,
             },
+            keeps: match node.spec.holding {
+                Holding::Everything => Keeps::Everything,
+                Holding::Recent => Keeps::Recent,
+                Holding::Headers => Keeps::Headers,
+            },
             age_secs: None,
         };
         match entries.iter_mut().find(same_node) {
@@ -110,10 +117,15 @@ pub fn coin_of_board(genesis: Hash, said: Option<Identity>, known: &[Identity]) 
     answered.or_else(|| known.iter().find(|coin| coin.genesis == genesis).cloned())
 }
 
-pub fn board_entry(row: &BoardRow, coin: Option<Identity>, link: Option<Medium>) -> Entry {
+/// What a board holds, by its own hello.
+pub fn keeps_of(said: Option<&Hello>) -> Keeps {
+    said.map_or(Keeps::Unsaid, |hello| hello.card.keeps)
+}
+
+pub fn board_entry(row: &BoardRow, coin: Option<Identity>, said: Option<&Hello>) -> Entry {
     let beacon = &row.seen.beacon;
     Entry {
-        reach: reach_of_board(row, link),
+        reach: reach_of_board(row, said.and_then(link_of)),
         address: None,
         via: None,
         device: BOARD_KIND.into(),
@@ -130,6 +142,7 @@ pub fn board_entry(row: &BoardRow, coin: Option<Identity>, link: Option<Medium>)
             (true, false, true) => Work::Mining(u64::from(beacon.hashrate)),
             (true, false, false) => Work::Idle,
         },
+        keeps: keeps_of(said),
         age_secs: None,
     }
 }
@@ -153,6 +166,7 @@ mod tests {
             work_done: Some(90),
             build: String::new(),
             work: Work::Idle,
+            keeps: Keeps::Unsaid,
             age_secs: Some(20),
         }
     }

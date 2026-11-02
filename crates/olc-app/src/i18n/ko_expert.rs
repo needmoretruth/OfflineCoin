@@ -90,6 +90,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.links_first", "노드는 되는 링크 중 가장 위를 씁니다."),
     ("settings.keeping", "저장소"),
     ("settings.keep", "노드 종류"),
+    ("found.keeps", "종류"),
     ("local.keep_all", "풀 노드"),
     ("local.keep_recent", "프루닝 노드"),
     ("local.keep_headers", "라이트 노드"),

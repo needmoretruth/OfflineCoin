@@ -173,6 +173,7 @@ impl Node {
             hashrate: u64::from(self.rate),
             known: Vec::new(),
             via: Default::default(),
+            keeps: Default::default(),
         }
     }
 

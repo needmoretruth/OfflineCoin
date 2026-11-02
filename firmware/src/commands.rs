@@ -8,11 +8,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use esp_hal::rng::Rng;
 use esp_println::println;
+use olc_core::amount::parse_coins;
 use olc_control::line::{
     name_in, wifi_in, FEWEST_WIFI_PASSWORD_BYTES, MOST_NAME_BYTES, MOST_WIFI_NAME_BYTES,
     MOST_WIFI_PASSWORD_BYTES,
 };
-use olc_core::coin::COIN;
+
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
 
@@ -52,15 +53,13 @@ pub struct Work {
 
 impl Node {
     pub fn pay(&mut self, address: &str, amount: &str) {
-        let units = amount
-            .parse::<f64>()
-            .map(|value| (value * COIN as f64) as u64);
-        let (Some(to), Ok(units)) = (parse_address(address), units) else {
+        let (Some(to), Some(units)) = (parse_address(address), parse_coins(amount)) else {
             self.say("error pay ADDRESS AMOUNT".into());
             return;
         };
         let started = crate::node::device_ms();
-        match self.runner.engine.pay(to, units, 0) {
+        let fee = self.runner.engine.rules().min_fee;
+        match self.runner.engine.pay(to, units, fee) {
             Ok(id) => self.say(format!("paid {} in {}ms", hex(&id), crate::node::device_ms() - started)),
             Err(error) => self.say(format!("error {error:?}")),
         }

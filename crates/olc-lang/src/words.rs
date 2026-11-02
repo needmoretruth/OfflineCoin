@@ -83,7 +83,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 fn from_hex(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
     let pair = |pair: &[u8]| Some(hex_value(pair[0])? * 16 + hex_value(pair[1])?);
@@ -404,7 +404,6 @@ fn show_hex(bytes: &[u8], out: &mut String) {
 mod tests {
     use super::*;
     use crate::beta::{unlock_address, Beta};
-    use alloc::vec;
     use olc_core::{LockLanguage, SpendContext};
     use olc_crypto::{address_of, hash, public_key, sign};
 
@@ -506,7 +505,7 @@ mod tests {
     fn bytes_that_are_no_script_still_read() {
         assert_eq!(words_of(&[0xff, op::DUP]), "?ff DUP");
         assert_eq!(words_of(&[5, 1]), "?cut");
-        assert_eq!(words_of(&vec![]), "");
+        assert_eq!(words_of(&[]), "");
     }
 
     #[test]

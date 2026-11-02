@@ -37,14 +37,14 @@ impl ForkForm {
         changed.map(|field| (field.key.to_string(), self.typed[field.key].clone())).collect()
     }
 
-    fn from_height(&self) -> Result<u64, Bad> {
+    fn chosen_height(&self) -> Result<u64, Bad> {
         let bad = || Bad { key: HEIGHT_KEY.into(), why: Why::NotNumber };
         self.from.trim().replace(',', "").parse().map_err(|_| bad())
     }
 
     /// The command that makes the change, once the form holds a change that can be made.
     pub fn order(&self, coin: &CoinConfig, tip: u64) -> Result<Command, Bad> {
-        let from_height = self.from_height()?;
+        let from_height = self.chosen_height()?;
         let changes = self.changes();
         fork_coin(coin, from_height, tip, &changes)?;
         Ok(Command::Fork { at: Some(from_height), changes })
@@ -66,7 +66,7 @@ impl ForkForm {
 
     /// What a person reads before the node leaves everyone on the old rules.
     pub fn slip(&self, cx: &Cx, coin: &CoinConfig, tip: u64, order: Command) -> Slip {
-        let from = self.from_height().unwrap_or_else(|_| first_fork_height(coin, tip));
+        let from = self.chosen_height().unwrap_or_else(|_| first_fork_height(coin, tip));
         let mut rows = vec![(cx.say("pro.fork_from"), format::number(from.into()))];
         for (key, text) in self.changes() {
             let name = cx.say(words_of(&key).0);

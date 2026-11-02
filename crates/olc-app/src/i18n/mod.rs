@@ -202,7 +202,8 @@ mod tests {
         let mut seen = BTreeSet::new();
         for text in texts {
             for piece in text.split('"').skip(1).step_by(2) {
-                let shaped = piece != "coin.json" && piece.split_once('.').is_some_and(|(head, tail)| {
+                let file = piece == "coin.json" || piece.ends_with(".rs");
+                let shaped = !file && piece.split_once('.').is_some_and(|(head, tail)| {
                     prefixes.contains(head)
                         && !tail.is_empty()
                         && tail.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit())

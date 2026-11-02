@@ -1,11 +1,13 @@
 //! The two sheets that move money: one to receive with a code, one to send through a slip.
 use super::Cx;
-use crate::core::{parse_coins, Command};
+use crate::core::{parse_coins, BoardAction, BoardView, Command};
 use crate::ui::floating::{sheet_head, Slip};
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::widgets::{button, button_on, field, meta, mono, Kind};
+use crate::ui::widgets::{button, button_on, field, meta, mono, pick_row, Kind};
 use crate::ui::format;
-use egui::{vec2, Color32, CornerRadius, Label, Rect, Sense, Ui};
+use egui::{vec2, Align, Color32, CornerRadius, Label, Layout, Rect, Sense, Ui};
+use olc_control::BoardId;
+use olc_core::CoinConfig;
 use olc_service::qr::{qr_grid, QrGrid};
 use olc_wallet::parse_address;
 
@@ -66,24 +68,100 @@ impl ReceiveSheet {
     }
 }
 
+/// Which wallet a slip pays from. `None` is this app's.
 #[derive(Default)]
 pub struct SendSheet {
     to: String,
     amount: String,
     tried: bool,
+    payer: Option<BoardId>,
 }
 
 fn problem(ui: &mut Ui, t: &Tokens, text: &str) {
     ui.colored_label(t.bad, text);
 }
 
+/// A board that can hear an order to pay right now.
+fn can_pay(board: &BoardView) -> bool {
+    board.seen.online && !board.returning
+}
+
+/// The coin a board runs, when this app has heard of it.
+pub(super) fn coin_of<'a>(cx: &Cx<'a>, board: &BoardView) -> Option<&'a CoinConfig> {
+    let identities = cx.snap.groups.iter().filter_map(|group| group.identity.as_ref());
+    let genesis = board.seen.beacon.genesis;
+    identities.filter(|found| found.genesis == genesis).map(|found| &found.coin).next()
+}
+
+/// A board's balance in its own coin's letters.
+pub(super) fn balance_of(cx: &Cx, board: &BoardView) -> String {
+    let ticker = coin_of(cx, board).map_or_else(|| cx.ticker(), |coin| coin.ticker.as_str());
+    format::coins(board.seen.beacon.balance, ticker)
+}
+
+fn wallet_row(ui: &mut Ui, cx: &Cx, name: &str, balance: &str, current: bool) -> bool {
+    let row = pick_row(ui, cx.t, tokens::ROW, current, name, |ui| {
+        ui.add(Label::new(name).truncate().selectable(false));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| meta(ui, balance, cx.t));
+    });
+    row.clicked()
+}
+
 impl SendSheet {
+    /// The board paying, when one was picked and it can still hear.
+    fn board<'a>(&self, cx: &Cx<'a>) -> Option<&'a BoardView> {
+        let chosen = |board: &&BoardView| Some(board.seen.id) == self.payer && can_pay(board);
+        cx.snap.boards.iter().find(chosen)
+    }
+
+    /// One wallet needs no choosing, so a person with no boards sees no list.
+    fn wallet_rows(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        if cx.snap.boards.is_empty() {
+            return;
+        }
+        meta(ui, cx.say("send.from"), t);
+        let own = format::coins(cx.snap.node.spendable, cx.ticker());
+        let on_board = self.board(cx).is_some();
+        if wallet_row(ui, cx, cx.say("send.this_app"), &own, !on_board) {
+            self.payer = None;
+        }
+        for board in &cx.snap.boards {
+            let name = board.seen.beacon.name.as_str();
+            if can_pay(board) {
+                let current = self.board(cx).is_some_and(|paying| paying.seen.id == board.seen.id);
+                if wallet_row(ui, cx, name, &balance_of(cx, board), current) {
+                    self.payer = Some(board.seen.id);
+                }
+            } else {
+                let line = cx.fill("send.off_board", &[name]);
+                meta(ui, &line, t);
+            }
+        }
+        ui.add_space(tokens::GAP);
+    }
+
     fn slip(&self, cx: &Cx, units: u64, fee: u64) -> Slip {
         let ticker = cx.ticker();
-        let left = cx.snap.node.spendable.saturating_sub(units + fee);
-        let mut rows = vec![(cx.say("send.to").to_string(), self.to.trim().to_string())];
+        let to = self.to.trim().to_string();
+        let board = self.board(cx);
+        let have = board.map_or(cx.snap.node.spendable, |board| board.seen.beacon.balance);
+        let left = have.saturating_sub(units + fee);
+        let mut rows = Vec::new();
+        if let Some(board) = board {
+            rows.push((cx.say("send.from").to_string(), board.seen.beacon.name.clone()));
+        }
+        rows.push((cx.say("send.to").to_string(), to.clone()));
         rows.push((cx.say("send.fee").to_string(), format::coins(fee, ticker)));
         rows.push((cx.say("send.left").to_string(), format::coins(left, ticker)));
+        let amount = self.amount.trim().to_string();
+        let order = match board {
+            Some(board) => {
+                let action = BoardAction::Pay { to, amount: format::amount(units) };
+                Command::Board { id: board.seen.id, action }
+            }
+            None => Command::Pay { to, amount },
+        };
         Slip {
             what: cx.say("send.slip").to_string(),
             amount: Some(format::coins(units, ticker)),
@@ -92,10 +170,7 @@ impl SendSheet {
             sign: cx.say("send.sign").to_string(),
             cancel: cx.say("common.back").to_string(),
             danger: false,
-            order: vec![Command::Pay {
-                to: self.to.trim().to_string(),
-                amount: self.amount.trim().to_string(),
-            }],
+            order: vec![order],
         }
     }
 
@@ -104,12 +179,15 @@ impl SendSheet {
         let t = cx.t;
         let node = &cx.snap.node;
         let ticker = cx.ticker();
-        let fee = node.coin.as_ref().map_or(0, |coin| coin.rules.min_fee);
         sheet_head(ui, cx.say("send.title"));
         let width = ui.available_width();
-        let spendable = format::coins(node.spendable, ticker);
-        meta(ui, &cx.fill("send.have", &[&spendable]), t);
-        if node.spendable == 0 {
+        self.wallet_rows(ui, cx);
+        let board = self.board(cx);
+        let coin = board.map_or(node.coin.as_ref(), |board| coin_of(cx, board));
+        let fee = coin.map_or(0, |coin| coin.rules.min_fee);
+        let spendable = board.map_or(node.spendable, |board| board.seen.beacon.balance);
+        meta(ui, &cx.fill("send.have", &[&format::coins(spendable, ticker)]), t);
+        if spendable == 0 {
             meta(ui, cx.say("send.none"), t);
         }
         ui.add_space(4.0);
@@ -122,11 +200,11 @@ impl SendSheet {
             let hint = cx.say("send.amount_hint");
             field(ui, &mut self.amount, hint, width - 100.0);
             if button(ui, t, cx.say("send.all"), Kind::Plain).clicked() {
-                self.amount = format::amount(node.spendable.saturating_sub(fee));
+                self.amount = format::amount(spendable.saturating_sub(fee));
             }
         });
         let units = parse_coins(self.amount.trim()).filter(|units| *units > 0);
-        let enough = units.is_some_and(|units| units + fee <= node.spendable);
+        let enough = units.is_some_and(|units| units + fee <= spendable);
         if self.tried && units.is_none() {
             problem(ui, t, cx.say("send.bad_amount"));
         } else if self.tried && !enough {

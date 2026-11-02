@@ -218,6 +218,25 @@ impl<'de> Deserialize<'de> for CoinAdded {
     }
 }
 
+/// [`CoinAdded`] with its forks written even when there are none, so a message can go on after it
+/// without the next byte reading as forks.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpokenAdded(pub CoinAdded);
+
+impl Serialize for SpokenAdded {
+    fn serialize<S: Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
+        let added = &self.0;
+        (added.min_difficulty, added.message_in_block, added.floor_from_height, &added.forks)
+            .serialize(writer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SpokenAdded {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        CoinAdded::deserialize(reader).map(Self)
+    }
+}
+
 impl CoinConfig {
     /// The default coin. Its first difficulty is in the genesis block and stays. From there the
     /// retarget follows the hash power present, down to one device at 1,000 hashes per second

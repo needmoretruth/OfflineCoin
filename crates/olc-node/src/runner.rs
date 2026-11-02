@@ -245,7 +245,7 @@ impl Runner {
             height: status.height,
             work: status.work,
             address: self.engine.address(),
-            card: self.card.clone(),
+            card: Card { keeps: self.engine.keeps(), ..self.card.clone() },
         }
     }
 

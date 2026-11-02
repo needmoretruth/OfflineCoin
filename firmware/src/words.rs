@@ -1,7 +1,8 @@
 //! What the panel says, in English and Korean.
-use crate::views::{coins, Language, Note, State};
+use crate::views::{Language, Note, State};
 use alloc::format;
 use alloc::string::String;
+use olc_core::amount::format_coins;
 use olc_core::ChainError;
 use olc_node::Event;
 
@@ -61,10 +62,10 @@ fn event_text(event: Event, language: Language) -> String {
         Event::BlockAccepted { height } => format!("got block {height}"),
         Event::Reorganized { replaced, .. } if korean => format!("체인 교체 {replaced}블록"),
         Event::Reorganized { replaced, .. } => format!("chain replaced {replaced}"),
-        Event::PaymentReceived { amount } if korean => format!("{} 받음", coins(amount)),
-        Event::PaymentReceived { amount } => format!("received {}", coins(amount)),
-        Event::PaymentSent { amount } if korean => format!("{} 보냄", coins(amount)),
-        Event::PaymentSent { amount } => format!("sent {}", coins(amount)),
+        Event::PaymentReceived { amount } if korean => format!("{} 받음", format_coins(amount)),
+        Event::PaymentReceived { amount } => format!("received {}", format_coins(amount)),
+        Event::PaymentSent { amount } if korean => format!("{} 보냄", format_coins(amount)),
+        Event::PaymentSent { amount } => format!("sent {}", format_coins(amount)),
         Event::TxAccepted => language.pick("payment waiting", "송금 대기").into(),
         Event::TxReturned { .. } => language
             .pick("payment waiting again", "송금 다시 대기")

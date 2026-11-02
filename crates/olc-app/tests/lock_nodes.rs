@@ -71,7 +71,7 @@ fn told(core: &Core, order: LockOrder) -> (bool, String) {
 /// The answer of the node process to one line.
 fn answer(nodes: &mut Supervisor, id: u32, line: &str) -> ChildStatus {
     nodes.take_answers();
-    nodes.send(id, line);
+    nodes.send(id, line).unwrap();
     let mut answered = None;
     wait_for("the node said nothing", || {
         answered = nodes.take_answers().into_iter().find(|(from, _)| *from == id);

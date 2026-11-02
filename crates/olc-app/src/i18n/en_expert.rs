@@ -90,6 +90,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.links_first", "Nodes use the highest link that works."),
     ("settings.keeping", "Storage"),
     ("settings.keep", "Node type"),
+    ("found.keeps", "Kind"),
     ("local.keep_all", "Full node"),
     ("local.keep_recent", "Pruned node"),
     ("local.keep_headers", "Light node"),

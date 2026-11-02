@@ -2,6 +2,7 @@
 //! different rules is a split chain. Both the same is one network, even if its nodes compete.
 use super::Reach;
 use olc_core::{CoinConfig, Hash, Rules};
+use olc_node::Keeps;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The coin something runs, when it has said.
@@ -44,6 +45,7 @@ pub struct Entry {
     pub work_done: Option<u128>,
     pub build: String,
     pub work: Work,
+    pub keeps: Keeps,
     /// How old the row is, when it comes only from a past answer.
     pub age_secs: Option<u64>,
 }
@@ -238,6 +240,7 @@ mod tests {
             work_done: Some(1),
             build: "x".into(),
             work: Work::Idle,
+            keeps: Keeps::Unsaid,
             age_secs: None,
         }
     }

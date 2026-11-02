@@ -115,6 +115,18 @@ pub struct Usage {
 pub type Hold = Box<dyn Any + Send>;
 
 pub const NO_BLUETOOTH: &str = "This computer cannot use Bluetooth.";
+
+/// Why this computer cannot use Bluetooth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoBluetooth {
+    /// OLC has no Bluetooth link for this system yet.
+    System,
+    /// This program was built without it.
+    Build,
+    /// No adapter is plugged in or turned on.
+    Adapter,
+}
+
 pub const NO_ESP_NOW: &str = "This computer cannot use ESP-NOW.";
 
 pub trait Platform: Sync {
@@ -145,9 +157,13 @@ pub trait Platform: Sync {
         Vec::new()
     }
 
-    /// Whether nodes here can use Bluetooth. Only Linux can so far.
+    /// Why nodes here cannot use Bluetooth. Only Linux can so far.
+    fn no_bluetooth(&self) -> Option<NoBluetooth> {
+        Some(NoBluetooth::System)
+    }
+    /// Whether nodes here can use Bluetooth.
     fn has_bluetooth(&self) -> bool {
-        false
+        self.no_bluetooth().is_none()
     }
     /// A link over Bluetooth, for the node with this id.
     fn bluetooth_link(&self, _me: u64) -> Result<Box<dyn Link>, String> {

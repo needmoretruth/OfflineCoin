@@ -2,6 +2,7 @@
 //! chooses that. Nothing else about a node changes: same links, same keys, same commands.
 use crate::engine::{Engine, PeerId};
 use crate::event::{Outgoing, Status};
+use crate::hello::Keeps;
 use crate::light::Light;
 use crate::message::Message;
 use crate::sync::BLOCKS_AT_ONCE;
@@ -57,6 +58,15 @@ impl Engine {
         light.restore(saved, &self.chain);
         self.light = Some(Box::new(light));
         self.candidate = None;
+    }
+
+    /// What this node holds of its chain, for its card.
+    pub fn keeps(&self) -> Keeps {
+        match (&self.light, self.chain.recent()) {
+            (Some(_), _) => Keeps::Headers,
+            (None, Some(_)) => Keeps::Recent,
+            (None, None) => Keeps::Everything,
+        }
     }
 
     pub fn light(&self) -> Option<&Light> {

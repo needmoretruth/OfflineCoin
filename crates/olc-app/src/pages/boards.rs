@@ -1,5 +1,6 @@
 //! The hardware that mines: boards, the nodes on this computer, working together, and the lab.
 use super::board_detail::BoardDetail;
+use super::money::balance_of;
 use super::lab::Lab;
 use super::local::Local;
 use super::pool::PoolTab;
@@ -63,13 +64,14 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
         () if beacon.mining => format::rate(cx.voice(), beacon.hashrate.into()),
         () => cx.say("boards.resting").to_string(),
     };
+    let line = format!("{line}  {}", balance_of(cx, board));
     let clicked = pick_row(ui, t, LIST_ROW, current, &beacon.name, |ui| {
         dot(ui, state_colour(t, board));
         ui.vertical(|ui| {
             ui.add_space(9.0);
             ui.spacing_mut().item_spacing.y = 1.0;
             ui.add(Label::new(beacon.name.as_str()).truncate().selectable(false));
-            ui.add(Label::new(RichText::new(line).size(tokens::META).color(t.muted)).selectable(false));
+            ui.add(Label::new(RichText::new(line).size(tokens::META).color(t.muted)).truncate().selectable(false));
         });
     })
     .clicked();

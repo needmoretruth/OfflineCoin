@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+pub mod amount;
 pub mod chain;
 pub mod coin;
 mod connect;

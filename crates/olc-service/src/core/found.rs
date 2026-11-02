@@ -4,6 +4,7 @@ use crate::discovery::{reach_of, Entry, Identity, Reach, Work};
 use olc_core::Address;
 use olc_node::hello::MAX_KNOWN;
 use olc_node::{Hello, Medium};
+use olc_node::Keeps;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -166,6 +167,7 @@ fn entry_of(address: &str, known: &Known) -> Entry {
             work_done: Some(hello.work),
             build: hello.card.build.clone(),
             work: work(hello),
+            keeps: hello.card.keeps,
             age_secs,
         },
         None => Entry {
@@ -180,6 +182,7 @@ fn entry_of(address: &str, known: &Known) -> Entry {
             work_done: None,
             build: String::new(),
             work: Work::Silent,
+            keeps: Keeps::Unsaid,
             age_secs,
         },
     }

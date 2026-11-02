@@ -14,7 +14,7 @@ use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
 use super::rows::{
-    board_entry, coin_of_board, device_kind, hostname, merge_local, own_entry, reach_of_board,
+    board_entry, coin_of_board, device_kind, hostname, keeps_of, merge_local, own_entry, reach_of_board,
 };
 use super::radios::bluetooth_here;
 use super::returning::{is_returning, Returning};
@@ -524,12 +524,12 @@ impl Service {
         };
         let hellos: Vec<_> = rows.iter().map(said).collect();
         let links: Vec<_> = hellos.iter().map(|hello| hello.as_ref().and_then(link_of)).collect();
-        let answers = hellos.into_iter().map(|hello| hello.map(|hello| Identity::of(hello.coin)));
+        let answers = hellos.iter().map(|hello| hello.as_ref().map(|hello| Identity::of(hello.coin.clone())));
         let answers: Vec<_> = answers.collect();
         let mut known: Vec<_> = entries.iter().filter_map(|entry| entry.identity.clone()).collect();
         known.extend(answers.iter().flatten().cloned());
-        entries.extend(rows.iter().zip(answers).zip(&links).map(|((row, said), link)| {
-            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), *link)
+        entries.extend(rows.iter().zip(answers).zip(&hellos).map(|((row, said), hello)| {
+            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), hello.as_ref())
         }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;
@@ -543,7 +543,9 @@ impl Service {
         let boards = rows
             .into_iter()
             .zip(links)
-            .map(|(row, link)| BoardView {
+            .zip(hellos.iter().map(|hello| keeps_of(hello.as_ref())))
+            .map(|((row, link), keeps)| BoardView {
+                keeps,
                 returning: is_returning(&row),
                 reach: reach_of_board(&row, link),
                 state: told.get(&row.seen.id).map(|told| told.state.clone()).unwrap_or_default(),

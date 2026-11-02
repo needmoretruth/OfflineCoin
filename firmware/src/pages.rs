@@ -1,7 +1,7 @@
 //! The detail view: pages that turn by themselves. English fits seven lines in the small font,
 //! Korean six in the regular one, because its letters are taller.
 use crate::screen::{width, Font, Screen, ROOM};
-use crate::views::{coins, short, Info, Language, State};
+use crate::views::{coins_within, short, Info, Language, State};
 use crate::words::{note_text, seconds, state_word, uptime};
 use alloc::format;
 use alloc::string::String;
@@ -87,7 +87,12 @@ fn network_page(info: &Info, language: Language) -> Vec<String> {
 
 fn node_page(info: &Info, language: Language) -> Vec<String> {
     let (mined, waiting) = (info.mined, info.waiting);
-    let balance = format!("{} {}", coins(info.balance), info.ticker);
+    let (label, font) = match language {
+        Language::English => ("bal", Font::Small),
+        Language::Korean => ("잔액", Font::Regular),
+    };
+    let room = ROOM - width(&format!("{label}  {}", info.ticker), font);
+    let balance = format!("{} {}", coins_within(info.balance, font, room), info.ticker);
     let free = short(info.free_memory as u64);
     let log = short(u64::from(info.log_left));
     let time = uptime(info.now_ms, language);
