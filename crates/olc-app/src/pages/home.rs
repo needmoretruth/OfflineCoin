@@ -85,6 +85,7 @@ fn kind_key(item: &Activity) -> &'static str {
         ActivityKind::Mined => "home.mined",
         ActivityKind::Received => "home.received",
         ActivityKind::Sent => "home.sent",
+        ActivityKind::ToSelf => "home.to_self",
     }
 }
 
@@ -167,7 +168,8 @@ impl Home {
                 }
                 _ => {
                     let sign = match item.kind {
-                        // A payment to oneself moves nothing, and "-0" reads like an error.
+                        // Coins that stay in this wallet are neither gained nor lost.
+                        ActivityKind::ToSelf => "",
                         _ if item.amount == 0 => "",
                         ActivityKind::Sent => "-",
                         _ => "+",

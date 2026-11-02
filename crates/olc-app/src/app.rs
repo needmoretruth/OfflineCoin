@@ -21,6 +21,8 @@ use std::time::Duration;
 const APP_ID: &str = "olc-core";
 const WINDOW: [f32; 2] = [1280.0, 800.0];
 const WINDOW_MIN: [f32; 2] = [960.0, 620.0];
+/// The share of the screen a new window may take, leaving room for a taskbar or the Dock.
+const SCREEN_SHARE: f32 = 0.9;
 const ICON_PIXELS: usize = 128;
 const REPAINT_FOCUSED: Duration = Duration::from_secs(1);
 const REPAINT_AWAY: Duration = Duration::from_secs(3);
@@ -55,6 +57,8 @@ pub struct App {
     notice_until: Option<(u64, f64)>,
     instance: Option<Instance>,
     fonts_set: bool,
+    /// Whether the window has been checked against the screen it opened on.
+    fitted: bool,
     /// What is waiting to be read and signed.
     slip: Option<Slip>,
     /// What the pictures and tests show in place of the core's own view of boards.
@@ -79,6 +83,7 @@ impl App {
             notice_until: None,
             instance,
             fonts_set: false,
+            fitted: false,
             slip: None,
             #[cfg(test)]
             stage: None,
@@ -296,8 +301,28 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        if !self.fitted {
+            self.fitted = fit_to_screen(ui.ctx());
+        }
         self.draw(ui);
     }
+}
+
+/// A window taller or wider than the screen loses its edge under the taskbar or the Dock, so it
+/// shrinks to fit and moves to the middle. Returns true once the screen's size is known.
+fn fit_to_screen(ctx: &egui::Context) -> bool {
+    let Some(screen) = ctx.input(|input| input.viewport().monitor_size) else {
+        return false;
+    };
+    let full = egui::vec2(WINDOW[0], WINDOW[1]);
+    let least = egui::vec2(WINDOW_MIN[0], WINDOW_MIN[1]);
+    let size = full.min(screen * SCREEN_SHARE).max(least);
+    if size != full {
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        let corner = ((screen - size) / 2.0).max(egui::Vec2::ZERO);
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(corner.to_pos2()));
+    }
+    true
 }
 
 fn data_folder(launch: &Launch) -> Result<PathBuf, String> {

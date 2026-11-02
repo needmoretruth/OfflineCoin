@@ -38,6 +38,15 @@ fn ports_in(listing: &str, vendor: u16, product: u16) -> Vec<UsbPort> {
 }
 
 impl Platform for Os {
+    fn show_error(&self, title: &str, message: &str) {
+        // The text goes through the environment, so nothing in it is read as a script.
+        let script = "display alert (system attribute \"OLC_TITLE\") \
+            message (system attribute \"OLC_MESSAGE\") as critical";
+        let mut command = Command::new("osascript");
+        command.args(["-e", script]).env("OLC_TITLE", title).env("OLC_MESSAGE", message);
+        let _ = command.status();
+    }
+
     fn data_folder(&self) -> Option<PathBuf> {
         Some(unix::home()?.join(SUPPORT))
     }

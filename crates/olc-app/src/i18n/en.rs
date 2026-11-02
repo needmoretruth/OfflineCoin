@@ -53,6 +53,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("home.mined", "Mined"),
     ("home.received", "Received"),
     ("home.sent", "Sent"),
+    ("home.to_self", "To yourself"),
     ("home.waiting", "Waiting"),
     ("home.coin", "Coin"),
     ("home.height", "Blocks"),

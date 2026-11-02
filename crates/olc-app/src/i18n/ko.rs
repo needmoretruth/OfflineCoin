@@ -53,6 +53,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("home.mined", "채굴"),
     ("home.received", "받음"),
     ("home.sent", "보냄"),
+    ("home.to_self", "나에게"),
     ("home.waiting", "대기 중"),
     ("home.coin", "코인"),
     ("home.height", "블록"),

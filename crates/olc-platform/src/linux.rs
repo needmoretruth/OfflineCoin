@@ -108,6 +108,15 @@ fn in_address_space(limits: &Limits, program: &str, words: &[String]) -> Command
 }
 
 impl Platform for Os {
+    /// GNOME and most desktops carry zenity, and KDE carries kdialog.
+    fn show_error(&self, title: &str, message: &str) {
+        let zenity = ["--error", "--no-markup", "--title", title, "--text", message];
+        if Command::new("zenity").args(zenity).status().is_ok() {
+            return;
+        }
+        let _ = Command::new("kdialog").args(["--title", title, "--error", message]).status();
+    }
+
     fn no_bluetooth(&self) -> Option<NoBluetooth> {
         if !cfg!(feature = "ble") {
             return Some(NoBluetooth::Build);

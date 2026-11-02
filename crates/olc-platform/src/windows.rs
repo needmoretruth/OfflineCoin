@@ -93,6 +93,18 @@ impl Platform for Os {
         command.creation_flags(NO_WINDOW);
     }
 
+    fn show_error(&self, title: &str, message: &str) {
+        // Every supported Windows has PowerShell. The text goes through the environment, so
+        // nothing in it is read as a command.
+        let script = "Add-Type -AssemblyName PresentationFramework; \
+            [System.Windows.MessageBox]::Show($env:OLC_MESSAGE, $env:OLC_TITLE, 'OK', 'Error') | Out-Null";
+        let mut command = Command::new("powershell");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        command.env("OLC_TITLE", title).env("OLC_MESSAGE", message);
+        self.hide_window(&mut command);
+        let _ = command.status();
+    }
+
     fn process_exists(&self, pid: u32) -> bool {
         foreign::usage(pid).is_some()
     }

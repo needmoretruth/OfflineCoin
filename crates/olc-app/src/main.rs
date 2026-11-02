@@ -22,7 +22,13 @@ fn main() {
             }
         }
     }
-    finish(run(launch));
+    if let Err(message) = run(launch) {
+        eprintln!("{message}");
+        // Opened from a menu or a desktop icon, the app has no terminal to print to.
+        let shown = format!("OLC Core could not start.\n\n{message}");
+        olc_service::platform().show_error("OLC Core", &shown);
+        std::process::exit(1);
+    }
 }
 
 fn finish(result: Result<(), String>) {

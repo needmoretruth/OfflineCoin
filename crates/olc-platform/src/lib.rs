@@ -152,6 +152,8 @@ pub trait Platform: Sync {
     fn keep_lines_on_close(&self, _settings: &mut serial2::Settings) {}
     /// Keeps a helper program from opening a window of its own.
     fn hide_window(&self, _command: &mut Command) {}
+    /// Shows a message in a window of the system's own, for when the app's window cannot open.
+    fn show_error(&self, _title: &str, _message: &str) {}
     /// Folders beyond the app's own and the search path where a helper program may be.
     fn tool_folders(&self) -> Vec<PathBuf> {
         Vec::new()

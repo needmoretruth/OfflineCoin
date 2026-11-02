@@ -14,6 +14,8 @@ pub enum ActivityKind {
     Mined,
     Received,
     Sent,
+    /// Coins moved between this wallet's own addresses, as when small coins are merged.
+    ToSelf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -103,12 +105,9 @@ impl History {
                     to_others += output.value;
                 }
             }
-            let (kind, amount) = match (tx.is_coinbase(), spends_mine) {
-                (true, _) if to_me > 0 && height > 0 => (ActivityKind::Mined, to_me),
-                (true, _) if to_me > 0 => (ActivityKind::Received, to_me),
-                (false, true) => (ActivityKind::Sent, to_others),
-                (false, false) if to_me > 0 => (ActivityKind::Received, to_me),
-                _ => continue,
+            let spent = (tx.is_coinbase(), spends_mine);
+            let Some((kind, amount)) = kind_of(spent, (to_me, to_others), height) else {
+                continue;
             };
             if kind == ActivityKind::Mined {
                 self.blocks_mined += 1;
@@ -124,5 +123,32 @@ impl History {
                 id: txid,
             });
         }
+    }
+}
+
+/// What a transaction did to this wallet, from whether it is a coinbase, whether it spends the
+/// wallet's coins and where its outputs go. A genesis coinbase is received, since nobody mined it.
+fn kind_of(spent: (bool, bool), (to_me, to_others): (u64, u64), height: u64) -> Option<(ActivityKind, u64)> {
+    match spent {
+        (true, _) if to_me > 0 && height > 0 => Some((ActivityKind::Mined, to_me)),
+        (true, _) if to_me > 0 => Some((ActivityKind::Received, to_me)),
+        (false, true) if to_others == 0 => Some((ActivityKind::ToSelf, to_me)),
+        (false, true) => Some((ActivityKind::Sent, to_others)),
+        (false, false) if to_me > 0 => Some((ActivityKind::Received, to_me)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coins_kept_in_the_wallet_are_not_sent() {
+        assert_eq!(kind_of((false, true), (90, 0), 5), Some((ActivityKind::ToSelf, 90)));
+        assert_eq!(kind_of((false, true), (40, 50), 5), Some((ActivityKind::Sent, 50)));
+        assert_eq!(kind_of((false, false), (50, 0), 5), Some((ActivityKind::Received, 50)));
+        assert_eq!(kind_of((true, false), (50, 0), 5), Some((ActivityKind::Mined, 50)));
+        assert_eq!(kind_of((false, false), (0, 50), 5), None);
     }
 }
