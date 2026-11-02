@@ -79,6 +79,13 @@ One block and one payment each way between the desktop, a full node that does no
 
 Both block columns wait for someone to find a block at a hash cap of 1,000, so they measure mining more than the link.
 
+Through a router: a Wi-Fi access point on a Linux computer, standing in for a router, WPA2, with a network name holding spaces, handing out addresses by DHCP. Each board joined it as an ordinary client from OLC Core, got its address from it, and found the other by the broadcast boards send on a router's network, with nothing typed. Every other way between the two ends was shut: ESP-NOW and Bluetooth off, the wires at different speeds, and `ignore` on the board left out, so `near` showed Wi-Fi as the only way before and after ([router_links.py](../tools/measure/router_links.py)). The computer runs a full node that dials the board's address from the router. Times are seconds. A payment to a board counts once it waits in the board's pool; a payment to the computer counts once the computer holds it in a block. A block counts from the moment its miner holds it to the moment the other end does:
+
+| Ends, the first named first | Payment one way | Payment back | Block one way | Block back |
+|---|---|---|---|---|
+| First board and second board | 0.5 | 0.4 | 1.2 | 1.2 |
+| Second board and the computer | 17.5 | 0.5 | 0.3 | 0.4 |
+
 Two desktops over a VPN tunnel, through an SSH port forward, each node listening on its own computer only: 206 blocks synced in about 40 s, a payment each way in a block on the far side in 73.0 s and 8.2 s, and a block mined on one side reached the other in 27.8 s.
 
 Corrupted frames over jumpers in 30 seconds, in each direction:

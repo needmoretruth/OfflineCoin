@@ -10,6 +10,7 @@ mod event;
 pub mod fragment;
 pub mod frame;
 pub mod hello;
+pub mod lan;
 pub mod light;
 pub mod line;
 pub mod locks;

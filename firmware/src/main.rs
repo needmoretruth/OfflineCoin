@@ -79,6 +79,14 @@ fn own_network_name() -> String {
     format!("OLC-{:02X}{:02X}", mac[4], mac[5])
 }
 
+/// A board goes by its radio address, which nothing else has.
+fn own_id() -> u64 {
+    let mac = efuse::interface_mac_address(InterfaceMacAddress::Station);
+    let mut id = [0u8; 8];
+    id[..6].copy_from_slice(mac.as_bytes());
+    u64::from_le_bytes(id)
+}
+
 /// The cap the owner chose, if any. A saved 0 from before `cap` existed only meant unset.
 fn chosen_limit(settings: &store::Settings) -> Option<u32> {
     let old = settings.limit.parse().ok().filter(|limit| *limit != 0);
@@ -158,7 +166,7 @@ async fn main(spawner: Spawner) -> ! {
     Timer::after_millis(settle).await;
     store.reach(Stage::Panel);
     let (espnow, wifi_link, network) =
-        wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed);
+        wifi::start(spawner, peripherals.WIFI, &settings, &name, power_dbm, seed, own_id());
     let wired = uart::start(peripherals.UART1, peripherals.UART2, peripherals.GPIO17, peripherals.GPIO18);
 
     store.reach(Stage::Radio);
@@ -232,10 +240,7 @@ async fn main(spawner: Spawner) -> ! {
     runner.add_link(Box::new(usb));
     runner.add_link(Box::new(wifi_link));
     runner.add_link(Box::new(wired));
-    // A board goes by its radio address, which nothing else has.
-    let mut id = [0u8; 8];
-    id[..6].copy_from_slice(&me);
-    runner.set_id(u64::from_le_bytes(id));
+    runner.set_id(own_id());
     runner.set_ignores(radio::ignores_node);
     if settings.bluetooth_on() {
         let link = ble::start(spawner, peripherals.BT, runner.id(), me);
