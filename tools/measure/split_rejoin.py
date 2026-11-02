@@ -12,6 +12,7 @@ def row(kept, left):
 
 
 def main():
+    boards.needs(3, __doc__)
     kept, left, minutes = sys.argv[1], sys.argv[2], float(sys.argv[3])
     log = open(sys.argv[4] if len(sys.argv) > 4 else "split.log", "a", encoding="ascii")
     one, two = row(kept, left)

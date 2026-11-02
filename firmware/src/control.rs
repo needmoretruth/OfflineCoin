@@ -340,7 +340,7 @@ impl Node {
                         }
                         self.run_command(&line);
                         self.say(format!("done {}", signed.order.counter));
-                        // The page shows the change at once instead of at the next beacon.
+                        // The app shows the change at once instead of at the next beacon.
                         self.control.beacon_ms = 0;
                     }
                     Action::Burst {

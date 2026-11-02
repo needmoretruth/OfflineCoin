@@ -1,4 +1,4 @@
-//! The spinning coin, for the terminal and the browser.
+//! The spinning coin, for the terminal.
 use olc_board::Args;
 use olc_logo::{frame_angle, FRAMES, MAX_FPS};
 use std::io::Write;
@@ -9,7 +9,7 @@ const ROWS: usize = 21;
 const COLUMNS: usize = 42;
 const FRAME_TIME: Duration = Duration::from_millis(1_000 / MAX_FPS as u64);
 
-pub fn frame(index: usize, rows: usize, columns: usize) -> String {
+fn frame(index: usize, rows: usize, columns: usize) -> String {
     let angle = frame_angle(index);
     let mut text = String::with_capacity((columns + 1) * rows);
     for row in 0..rows {
@@ -17,11 +17,6 @@ pub fn frame(index: usize, rows: usize, columns: usize) -> String {
         text.push('\n');
     }
     text
-}
-
-/// Every frame of one turn, small enough for the browser's header.
-pub fn frames_for_page() -> Vec<String> {
-    (0..FRAMES).map(|index| frame(index, 11, 22)).collect()
 }
 
 pub fn run(args: &Args) -> Result<(), String> {

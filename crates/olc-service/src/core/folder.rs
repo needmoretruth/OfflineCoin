@@ -1,16 +1,12 @@
 //! A node's folder when no node runs on it. Keys and choices wait there for the next start.
-use super::ops::Book;
+use super::ops::{Book, NO_NODE};
 use olc_node::Runner;
 use olc_store::{load_wallet, save_wallet, NodeSettings};
 use olc_wallet::Wallet;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::PathBuf;
 
 pub struct Folder {
     pub directory: PathBuf,
-    /// Where a node on this computer takes notes.
-    pub web_port: u16,
 }
 
 impl Book for Folder {
@@ -37,25 +33,20 @@ impl Book for Folder {
         settings.save(&self.directory)
     }
 
-    fn write_note(&self, text: &str) -> Result<String, String> {
-        self.ask_node("note", &serde_json::json!({ "text": text }).to_string())
+    fn write_note(&self, _text: &str) -> Result<String, String> {
+        Err(NO_NODE.into())
     }
 
-    fn ask_node(&self, path: &str, body: &str) -> Result<String, String> {
-        let mut stream = TcpStream::connect(("127.0.0.1", self.web_port))
-            .map_err(|_| "No node runs on this computer.")?;
-        let request = format!(
-            "POST /api/{path} HTTP/1.0\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
-        stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-        let mut reply = String::new();
-        stream.read_to_string(&mut reply).map_err(|error| error.to_string())?;
-        Ok(reply.split("\r\n\r\n").nth(1).unwrap_or(&reply).to_string())
+    fn prepared(&self, _to: &str, _units: u64, _fee: u64) -> Result<String, String> {
+        Err(NO_NODE.into())
+    }
+
+    fn send_signed(&self, _signed: &str) -> Result<String, String> {
+        Err(NO_NODE.into())
     }
 
     fn show_explored(&self, _text: &str) -> Result<(), String> {
-        Err("That needs a running node.".into())
+        Err(NO_NODE.into())
     }
 }
 
@@ -70,7 +61,7 @@ mod tests {
     fn folder(name: &str) -> Folder {
         let directory = temp_dir().join(format!("olc-folder-{}-{name}", id()));
         fs::create_dir_all(&directory).unwrap();
-        Folder { directory, web_port: 1 }
+        Folder { directory }
     }
 
     #[test]

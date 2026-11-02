@@ -65,6 +65,7 @@ def turn(ids, state, minutes, log):
 
 
 def main():
+    boards.needs(2, __doc__)
     minutes, rounds = float(sys.argv[1]), int(sys.argv[2])
     log = open(sys.argv[3] if len(sys.argv) > 3 else "bluetooth.log", "a", encoding="ascii")
     ids = [board["id"] for board in boards.boards()]

@@ -1,6 +1,6 @@
 [package]
 name = "olc-cli"
-description = "The OfflineCoin program for computers: nodes, a test network and the browser screen."
+description = "The OfflineCoin command line: every action of the core, a node in a terminal and a test network."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,21 +16,16 @@ ble = ["olc-service/ble"]
 
 [dependencies]
 olc-core.workspace = true
-olc-crypto.workspace = true
-olc-pow.workspace = true
-olc-lang.workspace = true
-olc-wallet.workspace = true
 olc-node.workspace = true
-olc-platform.workspace = true
-olc-link-tcp.workspace = true
 olc-link-serial.workspace = true
 olc-logo.workspace = true
 olc-board.workspace = true
-olc-control.workspace = true
 olc-service.workspace = true
 olc-lab.workspace = true
 olc-store.workspace = true
-serde_json.workspace = true
-getrandom = "0.3"
-ctrlc = { version = "3.5", features = ["termination"] }
-tiny_http = "0.12"
+
+[dev-dependencies]
+olc-control.workspace = true
+olc-lang.workspace = true
+olc-pow.workspace = true
+olc-wallet.workspace = true

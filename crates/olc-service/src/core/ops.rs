@@ -11,12 +11,12 @@ use olc_store::{
 };
 use olc_platform::platform;
 use olc_wallet::{format_address, parse_address, Unsigned, Wallet};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 
 const STOPPED: &str = "The node stopped";
-const NO_NODE: &str = "No node runs here";
+pub(super) const NO_NODE: &str = "No node runs here";
 
 /// Writes `text` for the next computer, or gives it back when no file was asked for.
 fn deliver(text: String, save: Option<&str>) -> Result<String, String> {
@@ -25,15 +25,6 @@ fn deliver(text: String, save: Option<&str>) -> Result<String, String> {
     };
     fs::write(path, text).map_err(|error| format!("{path}: {error}"))?;
     Ok(path.to_string())
-}
-
-/// A node answers in JSON, and says so when it refused.
-fn checked(answer: String) -> Result<String, String> {
-    let error = serde_json::from_str::<Value>(&answer).ok().map(|value| value["error"].clone());
-    match error.as_ref().and_then(Value::as_str) {
-        Some(error) => Err(error.to_string()),
-        None => Ok(answer),
-    }
 }
 
 /// The notice that says in plain words that `order` failed. The raw reason stays in its detail.
@@ -68,8 +59,10 @@ pub trait Book {
     /// Writes a note into a block. The answer is what to show for it.
     fn write_note(&self, text: &str) -> Result<String, String>;
     fn show_explored(&self, text: &str) -> Result<(), String>;
-    /// Asks the node `olc node` runs on this computer.
-    fn ask_node(&self, path: &str, body: &str) -> Result<String, String>;
+    /// A payment from the watched addresses, built on this node's chain, as JSON.
+    fn prepared(&self, to: &str, units: u64, fee: u64) -> Result<String, String>;
+    /// Sends a signed payment, given as JSON. The answer says which payment left.
+    fn send_signed(&self, signed: &str) -> Result<String, String>;
 
     /// Follows an address without its key, now and after a restart.
     fn watch(&self, text: &str) -> Result<(), String> {
@@ -98,13 +91,12 @@ pub trait Book {
 
     /// A payment from the watched addresses, ready for a wallet elsewhere to sign.
     fn prepare(&self, to: &str, units: u64, fee: u64, save: Option<&str>) -> Result<String, String> {
-        let body = json!({ "to": to, "amount": units, "fee": fee }).to_string();
-        deliver(checked(self.ask_node("prepare", &body)?)?, save)
+        deliver(self.prepared(to, units, fee)?, save)
     }
 
     fn broadcast(&self, path: &str) -> Result<String, String> {
-        let body = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
-        checked(self.ask_node("broadcast", body.trim())?)
+        let signed = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        self.send_signed(signed.trim())
     }
 
     fn new_key(&self) -> Result<String, String> {
@@ -304,24 +296,6 @@ impl Host {
             }
         }
     }
-
-    /// A payment built on this node's chain from what it watches.
-    fn prepare_here(&self, body: &str) -> Result<String, String> {
-        let request: Value = serde_json::from_str(body).map_err(|error| error.to_string())?;
-        let to = request["to"].as_str().and_then(parse_address).ok_or("That is not an address.")?;
-        let amount = request["amount"].as_u64().filter(|amount| *amount > 0).ok_or("No amount")?;
-        let fee = request["fee"].as_u64().unwrap_or(0);
-        let unsigned = self
-            .on_runner(|runner| runner.engine.prepare(to, amount, fee))?
-            .map_err(|error| format!("{error:?}"))?;
-        Ok(json!({ "unsigned": unsigned }).to_string())
-    }
-
-    fn broadcast_here(&self, body: &str) -> Result<String, String> {
-        let tx: Tx = serde_json::from_str(body).map_err(|error| error.to_string())?;
-        let id = self.on_runner(|runner| runner.engine.send_signed(tx))?;
-        Ok(json!({ "id": id.iter().map(|byte| format!("{byte:02x}")).collect::<String>() }).to_string())
-    }
 }
 
 impl Book for Host {
@@ -360,12 +334,21 @@ impl Book for Host {
             .map_err(|error| format!("{error:?}"))
     }
 
-    fn ask_node(&self, path: &str, body: &str) -> Result<String, String> {
-        match path {
-            "prepare" => self.prepare_here(body),
-            "broadcast" => self.broadcast_here(body),
-            _ => Err(NO_NODE.to_string()),
+    fn prepared(&self, to: &str, units: u64, fee: u64) -> Result<String, String> {
+        let to = parse_address(to.trim()).ok_or("That is not an address.")?;
+        if units == 0 {
+            return Err("No amount".to_string());
         }
+        let unsigned = self
+            .on_runner(|runner| runner.engine.prepare(to, units, fee))?
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(json!({ "unsigned": unsigned }).to_string())
+    }
+
+    fn send_signed(&self, signed: &str) -> Result<String, String> {
+        let tx: Tx = serde_json::from_str(signed).map_err(|error| error.to_string())?;
+        let id = self.on_runner(|runner| runner.engine.send_signed(tx))?;
+        Ok(json!({ "id": id.iter().map(|byte| format!("{byte:02x}")).collect::<String>() }).to_string())
     }
 
     fn show_explored(&self, text: &str) -> Result<(), String> {

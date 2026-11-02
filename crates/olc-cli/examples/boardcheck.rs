@@ -1,4 +1,4 @@
-//! Proves on real boards what the page alone cannot: that a board refuses orders it should, and
+//! Proves on real boards what the app alone cannot: that a board refuses orders it should, and
 //! how long an update takes. Run with no app holding the port:
 //!   boardcheck PORT BOARD_ID refuse [FIRMWARE]
 //!   boardcheck PORT BOARD_ID update FIRMWARE

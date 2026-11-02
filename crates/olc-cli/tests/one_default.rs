@@ -8,12 +8,9 @@ fn source(path: &str) -> String {
 }
 
 #[test]
-fn the_board_page_is_told_the_default_cap() {
-    let script = source("crates/olc-cli/src/boards.js");
-    assert!(script.contains("board.default_cap"));
-    assert!(!script.contains("BOARD_RELAXED"));
-    assert!(source("crates/olc-cli/src/fleet_api.rs")
-        .contains("\"default_cap\": olc_control::defaults::BOARD_CAP"));
+fn the_app_reads_the_shared_cap() {
+    assert!(source("crates/olc-service/src/settings.rs")
+        .contains("BOARD_CAP: u64 = olc_control::defaults::BOARD_CAP"));
 }
 
 #[test]

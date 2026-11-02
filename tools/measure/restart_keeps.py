@@ -19,6 +19,7 @@ def restart(board):
 
 
 def main():
+    boards.needs(1, __doc__)
     board = sys.argv[1]
     show(board, "start")
     for lines, note in ((["limit 700"], "limit 700"), (["bright 30"], "bright 30"),
