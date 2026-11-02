@@ -12,6 +12,7 @@ pub enum Icon {
     Experiments,
     Settings,
     Keys,
+    Lock,
     Explorer,
     Pool,
 }
@@ -90,6 +91,10 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
             line(&[(8.5, 9.0), (15.5, 9.0)]);
             line(&[(12.5, 9.0), (12.5, 12.0)]);
             line(&[(15.5, 9.0), (15.5, 12.0)]);
+        }
+        Icon::Lock => {
+            boxed(4.0, 8.5, 14.0, 15.5, 1.5);
+            line(&[(6.0, 8.5), (6.0, 5.5), (7.0, 3.5), (9.0, 2.8), (11.0, 3.5), (12.0, 5.5), (12.0, 8.5)]);
         }
         Icon::Explorer => {
             painter.circle_stroke(at(7.5, 7.5), 4.5 * scale, stroke);

@@ -119,7 +119,9 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
             let to = if *to == "own" { "" } else { to };
             return Some(lock_answer(host, host.spend_lock(coin, to, &unlock.join(" "))));
         }
-        ["locksign", text] => return Some(lock_answer(host, host.sign_lock(text))),
+        ["locksign", text @ ..] => {
+            return Some(lock_answer(host, host.sign_lock(&text.join(" "))));
+        }
         _ => {}
     }
     None

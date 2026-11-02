@@ -2,6 +2,7 @@
 //! and naming it. A board's wallet and chain live in partitions flashing does not touch.
 use crate::board::{Board, UsbBoard};
 use crate::control_key::config_folder;
+use olc_control::line::{quoted, MOST_NAME_BYTES};
 use olc_link_serial::port_is_here;
 use olc_platform::{platform, tool, usb_is_off};
 use std::fs;
@@ -104,8 +105,11 @@ pub fn install(
     firmware: &Path,
     key: olc_crypto::PublicKey,
 ) -> Result<(), String> {
+    if name.trim().is_empty() || name.len() > MOST_NAME_BYTES {
+        return Err(format!("A board name has 1 to {MOST_NAME_BYTES} bytes."));
+    }
     flash(port, firmware)?;
     let mut board = started_board(port)?;
     board.command(&format!("trust {}", hex(&key)), "trusted")?;
-    board.command(&format!("name {name}"), "named")
+    board.command(&format!("name {}", quoted(name)), "named")
 }

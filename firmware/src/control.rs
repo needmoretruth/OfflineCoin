@@ -31,7 +31,7 @@ const UPDATE_GONE_MS: u64 = 15_000;
 const LISTEN_MS: u64 = 60_000;
 /// Lets the last packet leave before the restart.
 const FAREWELL_MS: u64 = 200;
-const MAX_NAME: usize = 32;
+const MAX_NAME: usize = olc_control::line::MOST_NAME_BYTES;
 
 /// From `build-id`, which goes up with every firmware change that should reach boards.
 /// `OLC_BUILD` overrides it for a build made by hand.

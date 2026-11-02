@@ -6,6 +6,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Write;
 use olc_core::Address;
+use olc_crypto::address_of;
 
 /// One step of a script as text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +29,20 @@ pub enum WordError {
     TooManyOps(usize),
     TooManyBytes(usize),
     Empty,
+}
+
+impl core::fmt::Display for WordError {
+    fn fmt(&self, out: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            Self::Unknown(word) => write!(out, "No word called {word}"),
+            Self::TooLong(word) => write!(out, "{word} is too long for one word"),
+            Self::OpenQuote => write!(out, "A quote is not closed"),
+            Self::OpenBranch => write!(out, "IF, ELSE and ENDIF do not match"),
+            Self::TooManyOps(count) => write!(out, "{count} words, and {MOST_OPS} is the most"),
+            Self::TooManyBytes(count) => write!(out, "{count} bytes, and {MOST_LOCK_BYTES} is the most"),
+            Self::Empty => write!(out, "No words"),
+        }
+    }
 }
 
 /// What a script costs to run. All nodes stop at the same limits.
@@ -341,6 +356,41 @@ pub fn time_lock(height: u64, address: &Address) -> String {
     show_hex(address, &mut out);
     out.push_str(" EQUALVERIFY CHECKSIG");
     out
+}
+
+/// A public key typed as hex.
+pub fn public_key_from_text(text: &str) -> Option<[u8; 33]> {
+    let text = text.trim();
+    from_hex(text.strip_prefix("0x").unwrap_or(text))?.try_into().ok()
+}
+
+fn signer(key: &[u8]) -> Option<String> {
+    let mut out = String::new();
+    for byte in address_of(key.try_into().ok()?) {
+        let _ = write!(out, "{byte:02x}");
+    }
+    Some(out)
+}
+
+/// The unlock words a lock of a preset's shape takes, with the signatures still to come. A hash
+/// lock's unlock is a person's own secret, so it has none to offer.
+pub fn unlock_for(lock: &[u8]) -> String {
+    use Word::{Data, Op};
+    let words = parse_words(&words_of(lock)).unwrap_or_default();
+    match words.as_slice() {
+        [Data(_), Data(first), Data(second), Data(_), Op(op::CHECK_MULTI_SIG)] => {
+            let first = signer(first).zip(signer(second));
+            first.map_or_else(String::new, |(a, b)| format!("sig:{a} sig:{b}"))
+        }
+        [Data(_), Op(op::CHECK_HEIGHT), Op(op::DROP), Op(op::DUP), Op(op::HASH), Data(address), ..] => {
+            let mut out = String::new();
+            for byte in address {
+                let _ = write!(out, "{byte:02x}");
+            }
+            format!("sig:{out} key:{out}")
+        }
+        _ => String::new(),
+    }
 }
 
 fn show_hex(bytes: &[u8], out: &mut String) {

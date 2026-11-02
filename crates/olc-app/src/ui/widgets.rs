@@ -179,6 +179,17 @@ pub fn field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response
     ui.add(input(text, hint, width))
 }
 
+/// A field for words of a script: fixed-width letters, and room for a few lines.
+pub fn words_box(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
+    let edit = TextEdit::multiline(text)
+        .hint_text(hint)
+        .code_editor()
+        .desired_width(width)
+        .desired_rows(3)
+        .margin(vec2(10.0, 8.0));
+    ui.add(edit)
+}
+
 /// A field whose text stays hidden, for secret keys and passwords.
 pub fn secret_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
     ui.add(input(text, hint, width).password(true))

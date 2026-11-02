@@ -1,10 +1,13 @@
 //! Every action by name. The command line and a typed console read words here, buttons send the
 //! same [`Command`] directly, and nothing behind it knows which of them asked.
 use super::board_action::BoardAction;
-use super::commands::{Command, Personal};
+use super::commands::{Command, LockOrder, Personal};
+use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
 use olc_board::Args;
+use olc_control::line::split;
 use olc_control::BoardId;
+use olc_lang::words::parse_words;
 use olc_store::coin_fields::{new_coin, CoinField, NewCoin, COIN_FIELDS};
 
 /// Where actions land: the app's running core, or a terminal.
@@ -67,6 +70,11 @@ pub const WORDS: &[Word] = &[
         run: fork,
     },
     Word { name: "fork-back", usage: "fork-back            go back to the rules before the last fork", run: fork_back },
+    Word { name: "lock-preset", usage: "lock-preset hash SECRET|two-of-two KEY KEY|time HEIGHT ADDRESS", run: lock_preset },
+    Word { name: "lock-check", usage: "lock-check WORDS     check a beta lock and say what it costs", run: lock_check },
+    Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a beta lock", run: lock_pay },
+    Word { name: "lock-spend", usage: "lock-spend COIN [--to ADDRESS] WORDS  spend a locked coin", run: lock_spend },
+    Word { name: "lock-sign", usage: "lock-sign TEXT       add your signature to a spend", run: lock_sign },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
     Word { name: "save-coin", usage: "save-coin FILE       write this coin to a file", run: save_coin },
     Word { name: "boards", usage: "boards               list boards", run: boards },
@@ -97,10 +105,30 @@ pub fn run_words(desk: &mut dyn Desk, args: &Args) -> Option<Result<String, Stri
     WORDS.iter().find(|word| word.name == name).map(|word| (word.run)(desk, args))
 }
 
-/// Runs a typed line, for a console.
+/// Runs a typed line, for a console. Double quotes hold spaces, as on a shell's command line.
 pub fn run_line(desk: &mut dyn Desk, line: &str) -> Result<String, String> {
-    let args = Args::parse(line.split_whitespace().map(str::to_string));
+    let args = Args::parse(split(line).into_iter());
     run_words(desk, &args).unwrap_or_else(|| Err(format!("No action called {line}")))
+}
+
+/// Why a board cannot take a value, in English for the command line.
+fn fault_text(fault: &str) -> &'static str {
+    match fault {
+        "notice.name_too_long" => "That name is too long. A board keeps 32 bytes, about 10 Korean letters.",
+        "notice.wifi_name_too_long" => "A Wi-Fi name has 32 bytes at most.",
+        "notice.wifi_password_bad" => "A Wi-Fi password has 8 to 63 bytes.",
+        _ => "A name cannot be empty or span lines.",
+    }
+}
+
+/// Words of a script from the command line. A shell takes quotes off, so an argument that reads
+/// as no script is text and gets them back.
+fn script(args: &Args, from: usize) -> String {
+    let words = (from..).map_while(|index| args.word(index)).map(|word| match parse_words(word) {
+        Ok(_) => word.to_string(),
+        Err(_) => format!("\"{}\"", word.replace('\\', "\\\\").replace('"', "\\\"")),
+    });
+    words.collect::<Vec<_>>().join(" ")
 }
 
 pub fn usage() -> String {
@@ -304,6 +332,38 @@ fn fork_back(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
     desk.command(Command::ForkBack)
 }
 
+fn lock_preset(_desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let words = match (args.word(1), args.word(2), args.word(3)) {
+        (Some("hash"), Some(_), _) => Some(hash_lock_for(&rest(args, 2))),
+        (Some("two-of-two"), Some(first), Some(second)) => two_of_two_for(first, second),
+        (Some("time"), Some(height), Some(address)) => time_lock_for(height, address),
+        _ => return Err("Use: olc lock-preset hash SECRET | two-of-two KEY KEY | time HEIGHT ADDRESS".into()),
+    };
+    words.ok_or_else(|| "A key or an address does not read right.".to_string())
+}
+
+fn lock_check(_desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let cost = check_lock(&script(args, 1)).map_err(|error| error.to_string())?;
+    Ok(format!("{} bytes, {} words, {} signature checks", cost.bytes, cost.ops, cost.signature_checks))
+}
+
+fn lock_pay(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let amount = first(args, "Say how much, then the words of the lock.")?.to_string();
+    desk.command(Command::Lock(LockOrder::Pay { words: script(args, 2), amount }))
+}
+
+fn lock_spend(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let coin = first(args, "Name the coin, as in olc locks.")?.to_string();
+    let to = args.value("to").unwrap_or_default().to_string();
+    desk.command(Command::Lock(LockOrder::Spend { coin, to, unlock: script(args, 2) }))
+}
+
+fn lock_sign(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    first(args, "Paste the spend someone passed you.")?;
+    let text = rest(args, 1);
+    desk.command(Command::Lock(LockOrder::Sign { text }))
+}
+
 fn join(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     desk.command(Command::JoinCoinFile(first(args, "Name the file.")?.into()))
 }
@@ -338,9 +398,12 @@ fn find_board(desk: &mut dyn Desk, word: Option<&str>) -> Result<BoardId, String
 
 fn board(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let id = find_board(desk, args.word(1))?;
-    let line = rest(args, 2);
-    let words: Vec<&str> = line.split(' ').collect();
+    let words: Vec<&str> = (2..).map_while(|index| args.word(index)).collect();
+    let line = words.join(" ");
     let action = BoardAction::parse(&words).ok_or_else(|| format!("A board has no {line}."))?;
+    if let Some(fault) = action.fault() {
+        return Err(fault_text(fault).to_string());
+    }
     desk.command(Command::Board { id, action })
 }
 

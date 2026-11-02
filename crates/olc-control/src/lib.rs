@@ -7,6 +7,7 @@ pub mod beacon;
 pub mod bootlog;
 pub mod defaults;
 pub mod gate;
+pub mod line;
 pub mod packet;
 pub mod router;
 pub mod sending;

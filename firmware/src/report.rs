@@ -112,7 +112,7 @@ impl Node {
             self.boot_watchdog,
             GPIO::regs().strap().read().bits(),
             self.control.gate.has_key(),
-            self.control.identity.name,
+            self.control.identity.name.replace(char::is_whitespace, "_"),
             opened_name(chain.opened()),
             held.oldest,
             held.bytes,

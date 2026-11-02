@@ -4,7 +4,7 @@ use crate::engine::Engine;
 use alloc::string::String;
 use alloc::vec::Vec;
 use olc_core::{Address, ChainError, Hash, OutPoint};
-use olc_lang::words::{lock_from_text, words_of, Cost, WordError};
+use olc_lang::words::{lock_from_text, unlock_for, words_of, Cost, WordError};
 use olc_lang::BETA;
 use olc_wallet::locks::{LockError, LockSpend};
 use olc_wallet::WalletError;
@@ -46,6 +46,8 @@ pub struct LockedCoin {
     pub point: OutPoint,
     pub value: u64,
     pub words: String,
+    /// The unlock words a preset's lock takes, empty for any other lock.
+    pub unlock: String,
     pub height: u64,
 }
 
@@ -98,6 +100,7 @@ impl Engine {
             point: *point,
             value: entry.output.value,
             words: words_of(&entry.output.lock),
+            unlock: unlock_for(&entry.output.lock),
             height: entry.height,
         });
         rows.collect()

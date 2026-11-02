@@ -2,7 +2,10 @@
 use super::host::Host;
 use super::{format_coins, parse_coins};
 use olc_core::{Hash, OutPoint};
-use olc_lang::words::{lock_from_text, Cost, WordError};
+use olc_crypto::hash;
+use olc_lang::words::{
+    hash_lock, lock_from_text, public_key_from_text, time_lock, two_of_two, Cost, WordError,
+};
 use olc_node::locks::{LockFailure, LockedCoin};
 use olc_wallet::locks::{LockError, LockSpend};
 use olc_wallet::{format_address, parse_address, WalletError};
@@ -25,6 +28,21 @@ fn coin_named(text: &str) -> Option<OutPoint> {
     let (id, index) = text.trim().rsplit_once(':')?;
     let txid = crate::core::explorer::parse_hash(id)?;
     Some(OutPoint { txid, index: index.parse().ok()? })
+}
+
+/// A lock these words open.
+pub fn hash_lock_for(secret: &str) -> String {
+    hash_lock(&hash(secret.as_bytes())[..20])
+}
+
+/// A lock that needs both of these public keys, given as hex.
+pub fn two_of_two_for(first: &str, second: &str) -> Option<String> {
+    Some(two_of_two(&public_key_from_text(first)?, &public_key_from_text(second)?))
+}
+
+/// A lock this address opens from `height` on.
+pub fn time_lock_for(height: &str, address: &str) -> Option<String> {
+    Some(time_lock(height.trim().parse().ok()?, &parse_address(address.trim())?))
 }
 
 /// What the words of a lock cost, or what is wrong with them.

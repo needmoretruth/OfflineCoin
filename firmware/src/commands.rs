@@ -8,6 +8,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use esp_hal::rng::Rng;
 use esp_println::println;
+use olc_control::line::{
+    name_in, wifi_in, FEWEST_WIFI_PASSWORD_BYTES, MOST_NAME_BYTES, MOST_WIFI_NAME_BYTES,
+    MOST_WIFI_PASSWORD_BYTES,
+};
 use olc_core::coin::COIN;
 use olc_core::{BlockHeader, CoinConfig, Hash, Opened};
 use olc_wallet::{format_address, parse_address};
@@ -62,11 +66,47 @@ impl Node {
         }
     }
 
+    fn name_from(&mut self, line: &str) {
+        match name_in(line) {
+            Some(name) if name.len() <= MOST_NAME_BYTES => {
+                self.rename(&name);
+                self.say("named".into());
+            }
+            Some(_) => self.say(format!("error name has {MOST_NAME_BYTES} bytes at most")),
+            None => self.say("error name NAME".into()),
+        }
+    }
+
+    fn wifi_from(&mut self, line: &str) {
+        let Some((ssid, password)) = wifi_in(line) else {
+            return self.say("error wifi \"NAME\" \"PASSWORD\"".into());
+        };
+        if ssid.len() > MOST_WIFI_NAME_BYTES {
+            return self.say(format!("error wifi name has {MOST_WIFI_NAME_BYTES} bytes at most"));
+        }
+        let fits = FEWEST_WIFI_PASSWORD_BYTES..=MOST_WIFI_PASSWORD_BYTES;
+        if !password.is_empty() && !fits.contains(&password.len()) {
+            return self.say(format!(
+                "error wifi password has {FEWEST_WIFI_PASSWORD_BYTES} to {MOST_WIFI_PASSWORD_BYTES} bytes"
+            ));
+        }
+        self.restart_with(|settings| {
+            settings.ssid = ssid;
+            settings.password = password;
+        });
+    }
+
     /// Runs `line` when it is one of these commands.
     pub fn run_chain_command(&mut self, line: &str) -> bool {
         let mut words = line.split_whitespace();
         let rest = |word: &str| line[word.len()..].trim();
         match (words.next(), words.next(), words.next()) {
+            (Some("name"), _, _) => self.name_from(line),
+            (Some("wifi"), Some("off"), _) => self.restart_with(|settings| {
+                settings.ssid.clear();
+                settings.password.clear();
+            }),
+            (Some("wifi"), _, _) => self.wifi_from(line),
             (Some("keys"), _, _) => self.print_keys(),
             (Some("key"), Some("new"), _) => self.new_key(),
             (Some("key"), Some("use"), Some(index)) => self.choose_key(index),

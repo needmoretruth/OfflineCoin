@@ -10,7 +10,7 @@ impl Service {
             LockOrder::Pay { words, amount } => match self.host.pay_lock(&words, &amount) {
                 Ok((id, amount)) => {
                     let coin = olc_core::OutPoint { txid: id, index: 0 };
-                    self.say("notice.lock_paid", format!("{amount} {}", name_of_coin(&coin)), true);
+                    self.say("lock.paid", format!("{amount} {}", name_of_coin(&coin)), true);
                     return;
                 }
                 Err(failure) => Err(failure),
@@ -22,11 +22,11 @@ impl Service {
             Ok(LockDone::Sent(id)) => {
                 let id: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
                 self.host.set_half_spend(None);
-                self.say("notice.lock_sent", id, true);
+                self.say("lock.sent", id, true);
             }
             Ok(LockDone::Waiting { text, who }) => {
                 self.host.set_half_spend(Some((text.clone(), who)));
-                self.say("notice.lock_waiting", text, true);
+                self.say("lock.waiting", text, true);
             }
             Err(failure) => {
                 let (key, detail) = fault_of_lock(&failure);
