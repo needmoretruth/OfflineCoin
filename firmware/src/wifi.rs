@@ -1,6 +1,7 @@
 //! Wi-Fi. A board can host an open network of its own, so a computer or phone can reach it with
-//! no router. A board can also join a router and dial a computer. Nodes speak the same TCP
-//! framing as `olc-link-tcp`: `olc node --connect 192.168.4.1:7000`.
+//! no router. A board can also join a router, where it says who it is by broadcast and dials the
+//! nodes it hears. Nodes speak the same TCP framing as `olc-link-tcp`:
+//! `olc node --connect 192.168.4.1:7000`.
 use crate::store::Settings;
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
@@ -9,13 +10,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::net::{Ipv4Addr, SocketAddrV4};
+use alloc::string::String;
 use edge_dhcp::io::{self, DEFAULT_SERVER_PORT};
 use edge_dhcp::server::{Server, ServerOptions};
 use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Cidr, Runner as NetRunner, Stack, StackResources, StaticConfigV4};
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{IpAddress, Ipv4Cidr, Runner as NetRunner, Stack, StackResources, StaticConfigV4};
 use embassy_time::{with_timeout, Duration, Timer};
 use esp_hal::peripherals::WIFI;
 use esp_radio::esp_now::EspNow;
@@ -25,6 +28,7 @@ use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, Interface, PowerSaveMode, WifiController,
 };
 use olc_node::frame::{encode, Decoder};
+use olc_node::lan;
 use olc_node::{Link, Medium, News, Target};
 use static_cell::StaticCell;
 
@@ -33,6 +37,13 @@ pub const PORT: u16 = 7000;
 pub const OWN_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 168, 4, 1);
 
 const SLOTS: usize = 5;
+/// Connections on the board's own network. The rest are on the router's.
+const OWN_SLOTS: usize = 2;
+/// Every stack also holds a DNS socket, which `edge-nal-embassy` turns on, and a DHCP one: the
+/// server's on the board's own network, the client's on the router's. The router's also holds
+/// the socket that finds neighbours. A stack with too few panics when a socket opens.
+const OWN_SOCKETS: usize = OWN_SLOTS + 2;
+const ROUTER_SOCKETS: usize = SLOTS - OWN_SLOTS + 3;
 const SOCKET_BUFFER: usize = 2_048;
 const QUEUE_LIMIT: usize = 32;
 const SEND_CHECK: Duration = Duration::from_millis(20);
@@ -50,8 +61,8 @@ struct Hub {
     /// Set to end a connection from the node's side.
     closing: [bool; SLOTS],
     news: VecDeque<News>,
-    /// The node asked for the one address this board dials.
-    dial_ordered: bool,
+    /// Addresses the node asked this board to dial, oldest first.
+    dials: VecDeque<String>,
 }
 
 type SharedHub = Rc<RefCell<Hub>>;
@@ -86,12 +97,15 @@ impl Link for WifiLink {
         self.0.borrow_mut().received.pop_front()
     }
 
-    fn dial(&mut self, _address: &str) {
-        self.0.borrow_mut().dial_ordered = true;
+    fn dial(&mut self, address: &str) {
+        let mut hub = self.0.borrow_mut();
+        if hub.dials.len() < QUEUE_LIMIT && !hub.dials.iter().any(|dial| dial == address) {
+            hub.dials.push_back(address.into());
+        }
     }
 
-    fn cancel(&mut self, _address: &str) {
-        self.0.borrow_mut().dial_ordered = false;
+    fn cancel(&mut self, address: &str) {
+        self.0.borrow_mut().dials.retain(|dial| dial != address);
     }
 
     fn close(&mut self, number: u32) {
@@ -161,47 +175,87 @@ async fn hand_out_addresses(stack: Stack<'static>) {
     }
 }
 
-/// Dials once, when the node asks. Says how it went.
-async fn dial_once(socket: &mut TcpSocket<'_>, stack: Stack<'static>, hub: &SharedHub, target: SocketAddrV4) -> bool {
-    while !core::mem::take(&mut hub.borrow_mut().dial_ordered) {
-        Timer::after(SEND_CHECK).await;
-    }
+/// Dials the next address the node asks for. Gives it back when connected.
+async fn dial_once(socket: &mut TcpSocket<'_>, stack: Stack<'static>, hub: &SharedHub) -> Option<String> {
+    let address = loop {
+        let next = hub.borrow_mut().dials.pop_front();
+        match next {
+            Some(address) => break address,
+            None => Timer::after(SEND_CHECK).await,
+        }
+    };
+    let target: Option<SocketAddrV4> = address.parse().ok();
     let reached = with_timeout(DIAL_TIMEOUT, async {
         stack.wait_config_up().await;
-        socket.connect((*target.ip(), target.port())).await.is_ok()
+        match target {
+            Some(target) => socket.connect((*target.ip(), target.port())).await.is_ok(),
+            None => false,
+        }
     });
-    let connected = reached.await.unwrap_or(false);
-    if !connected {
-        let address = alloc::format!("{target}");
-        hub.borrow_mut().news.push_back(News::Failed { address });
+    if reached.await.unwrap_or(false) {
+        return Some(address);
     }
-    connected
+    hub.borrow_mut().news.push_back(News::Failed { address });
+    None
 }
 
-/// One TCP connection, accepted on `PORT` or dialled when `dial` is set.
+/// Says this board is here on the router's network, and tells the node who else is. Only nodes on
+/// the same router hear it, and they dial the address it came from.
+#[embassy_executor::task]
+async fn find_neighbours(stack: Stack<'static>, hub: SharedHub, me: u64) {
+    let mut receive_meta = [PacketMetadata::EMPTY; 4];
+    let mut receive = [0u8; 512];
+    let mut send_meta = [PacketMetadata::EMPTY; 2];
+    let mut send = [0u8; 128];
+    let mut socket = UdpSocket::new(stack, &mut receive_meta, &mut receive, &mut send_meta, &mut send);
+    if socket.bind(PORT).is_err() {
+        return;
+    }
+    let said = lan::announcement(me);
+    let every = Duration::from_millis(lan::SAY_EVERY_MS);
+    let mut bytes = [0u8; 64];
+    loop {
+        stack.wait_config_up().await;
+        let _ = socket.send_to(&said, (Ipv4Addr::BROADCAST, PORT)).await;
+        let until = embassy_time::Instant::now() + every;
+        while let Ok(Ok((size, from))) =
+            with_timeout(until.saturating_duration_since(embassy_time::Instant::now()), socket.recv_from(&mut bytes)).await
+        {
+            let IpAddress::Ipv4(ip) = from.endpoint.addr else {
+                continue;
+            };
+            let sender = SocketAddrV4::new(ip, from.endpoint.port);
+            let Some((node, address)) = lan::heard(&bytes[..size.min(bytes.len())], sender, me) else {
+                continue;
+            };
+            let mut hub = hub.borrow_mut();
+            if hub.news.len() < QUEUE_LIMIT {
+                hub.news.push_back(News::Seen { node, address });
+            }
+        }
+    }
+}
+
+/// One TCP connection, accepted on `PORT` or dialled on the node's order when `dials` is set.
 #[embassy_executor::task(pool_size = SLOTS)]
-async fn connection(
-    stack: Stack<'static>,
-    hub: SharedHub,
-    slot: usize,
-    dial: Option<SocketAddrV4>,
-) {
+async fn connection(stack: Stack<'static>, hub: SharedHub, slot: usize, dials: bool) {
     let receive = Box::leak(vec![0u8; SOCKET_BUFFER].into_boxed_slice());
     let send = Box::leak(vec![0u8; SOCKET_BUFFER].into_boxed_slice());
     loop {
         let mut socket = TcpSocket::new(stack, &mut *receive, &mut *send);
         socket.set_timeout(Some(Duration::from_secs(30)));
         socket.set_keep_alive(Some(Duration::from_secs(10)));
-        let connected = match dial {
-            Some(target) => dial_once(&mut socket, stack, &hub, target).await,
-            None => socket.accept(PORT).await.is_ok(),
+        let (connected, address) = if dials {
+            let address = dial_once(&mut socket, stack, &hub).await;
+            (address.is_some(), address)
+        } else {
+            (socket.accept(PORT).await.is_ok(), None)
         };
         if connected {
             {
                 let mut hub = hub.borrow_mut();
                 hub.open[slot] = true;
                 hub.closing[slot] = false;
-                let address = dial.map(|target| alloc::format!("{target}"));
                 hub.news.push_back(News::Opened { number: slot as u32, address });
             }
             serve(&mut socket, &hub, slot).await;
@@ -211,7 +265,7 @@ async fn connection(
             hub.news.push_back(News::Closed { number: slot as u32 });
         }
         socket.abort();
-        if dial.is_none() {
+        if !dials {
             Timer::after(RETRY).await;
         }
     }
@@ -278,6 +332,7 @@ pub fn start(
     own_name: &str,
     power_dbm: i8,
     seed: u64,
+    me: u64,
 ) -> (EspNow, WifiLink, Network) {
     let mut controller = WifiController::new(device, Default::default()).expect("Wi-Fi starts");
     if settings.bluetooth_on() {
@@ -304,8 +359,8 @@ pub fn start(
     let espnow = controller.esp_now();
     let _ = espnow.set_channel(CHANNEL);
 
-    static OWN_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
-    static ROUTER_RESOURCES: StaticCell<StackResources<5>> = StaticCell::new();
+    static OWN_RESOURCES: StaticCell<StackResources<OWN_SOCKETS>> = StaticCell::new();
+    static ROUTER_RESOURCES: StaticCell<StackResources<ROUTER_SOCKETS>> = StaticCell::new();
     let own_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(OWN_ADDRESS, 24),
         gateway: None,
@@ -326,23 +381,16 @@ pub fn start(
     spawner.spawn(run_stack(own_runner).expect("one task per stack"));
     spawner.spawn(run_stack(router_runner).expect("one task per stack"));
     spawner.spawn(hand_out_addresses(own).expect("one address task"));
+    let hub = SharedHub::default();
     if joins_router {
         spawner.spawn(stay_on_router(controller).expect("one router task"));
+        spawner.spawn(find_neighbours(router, hub.clone(), me).expect("one finding task"));
     }
-
-    let hub = SharedHub::default();
-    let dial = settings.dial.parse().ok();
-    let listeners = [
-        (own, None),
-        (own, None),
-        (router, None),
-        (router, None),
-        (router, dial),
-    ];
-    for (slot, (stack, target)) in listeners.into_iter().enumerate() {
-        if slot < SLOTS - 1 || target.is_some() {
-            spawner.spawn(connection(stack, hub.clone(), slot, target).expect("a task per slot"));
-        }
+    // The last slot dials whoever the node asks for: a typed address or a neighbour it heard.
+    for slot in 0..SLOTS {
+        let stack = if slot < OWN_SLOTS { own } else { router };
+        let dials = slot == SLOTS - 1;
+        spawner.spawn(connection(stack, hub.clone(), slot, dials).expect("a task per slot"));
     }
     let network = Network {
         own_name: if settings.own_network == "on" {
