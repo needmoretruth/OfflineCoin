@@ -93,6 +93,7 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.backed_up", "Backed up to {}."),
     ("notice.backup_failed", "The backup was not saved."),
     ("notice.bad_address", "That address does not read right."),
+    ("notice.bad_key", "That key does not read right."),
     ("notice.bad_amount", "That amount does not read right. Write a number above zero."),
     ("notice.board_done", "The board did that."),
     ("notice.board_failed", "The board did not finish. Try again."),
@@ -116,12 +117,15 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.key_failed", "The address did not change."),
     ("notice.key_saved", "Saved to {}."),
     ("notice.keys", "{}"),
+    ("notice.known_key", "This wallet already holds that key."),
     ("notice.listen_failed", "Who may connect did not change."),
     ("notice.miner_set", "Mined coins go to {}."),
     ("notice.name_bad", "Type a name for the board."),
     ("notice.name_too_long", "That name is too long. A board keeps 32 bytes, about 10 Korean letters."),
     ("notice.needs_password", "This backup has a password. Add --password."),
     ("notice.no_bluetooth", "This computer cannot use Bluetooth."),
+    ("notice.no_such_key", "This wallet has no such key."),
+    ("notice.no_watched", "Watch an address first. The payment is made from its coins."),
     ("notice.node_failed", "The node did not start."),
     ("notice.node_paid", "Node {} sent the payment."),
     ("notice.not_a_backup", "That file is not a backup."),
@@ -146,6 +150,7 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.wifi_name_too_long", "That Wi-Fi name is too long. Wi-Fi allows 32 bytes."),
     ("notice.wifi_password_bad", "A Wi-Fi password has 8 to 63 bytes."),
     ("notice.wrong_password", "That password is wrong."),
+    ("notice.zero_amount", "The amount has to be more than zero."),
     ("lock.bad_text", "That text is not a spend."),
     ("lock.immature", "Mined coins can move only after more blocks."),
     ("lock.needs_blocks", "A node with headers only cannot read locks. Run olc light off."),
@@ -167,6 +172,11 @@ const SENTENCES: &[(&str, &str)] = &[
     ("lock.unknown_word", "No word called {}."),
     ("lock.waiting", "Your signature is in. Pass this to the other signer:\n{}"),
 ];
+
+/// The key a node of this app gave for its failure, when there are words for it.
+pub(crate) fn known_key(key: &str) -> Option<&'static str> {
+    SENTENCES.iter().map(|(known, _)| *known).find(|known| *known == key)
+}
 
 impl Notice {
     /// The notice as the command line says it: its sentence, with the detail where it belongs.

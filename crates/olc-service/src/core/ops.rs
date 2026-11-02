@@ -3,6 +3,7 @@ use super::commands::Personal;
 use super::radios;
 use super::explorer::{explore, Explored};
 use super::host::Host;
+use super::host_locks::{failure_key, wallet_key, NO_WATCHED};
 use olc_core::{BlockHeader, Tx};
 use olc_node::{Rank, Runner, Status};
 use olc_store::{
@@ -10,12 +11,17 @@ use olc_store::{
     NEEDS_PASSWORD, NOT_A_BACKUP, WRONG_PASSWORD,
 };
 use olc_platform::platform;
-use olc_wallet::{format_address, parse_address, Unsigned, Wallet};
+use olc_wallet::{format_address, parse_address, Unsigned, Wallet, WalletError};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 
 pub(super) const NO_NODE: &str = "No node runs here";
+
+/// A wallet's no, carried as the key of its sentence so every language can say it.
+fn said(error: &WalletError) -> String {
+    wallet_key(error).to_string()
+}
 
 /// Writes `text` for the next computer, or gives it back when no file was asked for.
 fn deliver(text: String, save: Option<&str>) -> Result<String, String> {
@@ -84,7 +90,7 @@ pub trait Book {
             .map_err(|error| format!("{path}: {error}"))?;
         let signed = self
             .wallet_view(|wallet| wallet.sign(&unsigned))?
-            .map_err(|error| format!("{error:?}"))?;
+            .map_err(|error| said(&error))?;
         deliver(serde_json::to_string(&signed).map_err(|error| error.to_string())?, save)
     }
 
@@ -108,14 +114,14 @@ pub trait Book {
 
     fn add_key(&self, secret: [u8; 32]) -> Result<String, String> {
         self.wallet_change(|wallet| {
-            let index = wallet.add_secret(secret).map_err(|e| format!("{e:?}"))?;
+            let index = wallet.add_secret(secret).map_err(|error| said(&error))?;
             let added = wallet.keys().nth(index).map(|(address, _)| address);
             Ok(added.map(|address| format_address(&address)).unwrap_or_default())
         })
     }
 
     fn use_key(&self, index: usize) -> Result<(), String> {
-        self.wallet_change(|wallet| wallet.set_receiving(index).map_err(|e| format!("{e:?}")))
+        self.wallet_change(|wallet| wallet.set_receiving(index).map_err(|error| said(&error)))
     }
 
     /// One line for each key, with a star on the one that receives.
@@ -289,7 +295,10 @@ impl Host {
                     WRONG_PASSWORD => "notice.wrong_password",
                     NEEDS_PASSWORD => "notice.needs_password",
                     NOT_A_BACKUP => "notice.not_a_backup",
-                    _ => failed,
+                    named => match failure_key(named) {
+                        Some(key) => return (key, String::new(), false),
+                        None => failed,
+                    },
                 };
                 (key, error, false)
             }
@@ -329,7 +338,7 @@ impl Book for Host {
     fn write_note(&self, text: &str) -> Result<String, String> {
         self.on_runner(|runner| runner.engine.write_note(text.as_bytes()))?
             .map(|_| text.to_string())
-            .map_err(|error| format!("{error:?}"))
+            .map_err(|error| said(&error))
     }
 
     fn prepared(&self, to: &str, units: u64, fee: u64) -> Result<String, String> {
@@ -339,7 +348,11 @@ impl Book for Host {
         }
         let unsigned = self
             .on_runner(|runner| runner.engine.prepare(to, units, fee))?
-            .map_err(|error| format!("{error:?}"))?;
+            .map_err(|error| match error {
+                // A payment prepared here is paid from the first watched address.
+                WalletError::NoSuchKey => NO_WATCHED.to_string(),
+                error => said(&error),
+            })?;
         Ok(json!({ "unsigned": unsigned }).to_string())
     }
 

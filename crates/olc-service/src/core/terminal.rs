@@ -29,6 +29,10 @@ const BOARDS_SETTLE: Duration = Duration::from_secs(4);
 const CHAIN_LOADS: Duration = Duration::from_secs(120);
 /// Time for a node nearby to answer.
 const PEERS_APPEAR: Duration = Duration::from_secs(15);
+/// Long enough for a node reached to say how far its chain goes.
+const HEARS_TIP: Duration = Duration::from_secs(2);
+/// Time for a chain that is behind to take the blocks the others have.
+const CATCHES_UP: Duration = Duration::from_secs(120);
 /// A payment is on its way out before this process ends.
 const LEAVING: Duration = Duration::from_secs(2);
 /// A board that takes this long with no change has stopped.
@@ -148,6 +152,9 @@ impl Terminal {
         if !wait_for(PEERS_APPEAR, || core.snapshot().node.peers > 0) {
             return Err(NOBODY_NEAR.to_string());
         }
+        // A wallet behind the others would spend from blocks they have moved past.
+        thread::sleep(HEARS_TIP);
+        wait_for(CATCHES_UP, || core.snapshot().node.syncing_to.is_none());
         let answer = answer_to(&|| core.snapshot(), &|one| core.send(one), command)?;
         thread::sleep(LEAVING);
         Ok(answer)

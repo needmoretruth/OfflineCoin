@@ -107,6 +107,9 @@ impl Service {
             self.settings.added.push(full.clone());
         }
         self.found.added(&full);
+        if self.settings.to_dial(self.host.port).contains(&full) {
+            self.host.connect(full);
+        }
         self.save();
         self.plan_scan();
         self.scanner.look_now();

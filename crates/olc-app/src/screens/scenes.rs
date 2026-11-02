@@ -308,7 +308,8 @@ fn a_snapshot_waits_for_the_person_in_the_window_at_home() {
     settings.device = Device::ThisComputer;
     settings.mine_on_start = false;
     settings.port = peer_port + 1;
-    settings.peers = vec![format!("127.0.0.1:{peer_port}")];
+    // Added by hand, as a person does on the Coins page: the app dials it like a joined node.
+    settings.added = vec![format!("127.0.0.1:{peer_port}")];
     let mut harness = harness(app(app_root, settings, Some(node_program())), SIZES[0]);
     harness.state_mut().settings_mut().language = Lang::En;
     harness.state_mut().open("page.home");
