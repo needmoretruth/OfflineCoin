@@ -24,6 +24,9 @@ use trouble_host::scan::Scanner;
 
 /// Connections at once. A board rarely needs more than one for each neighbour without ESP-NOW.
 const SLOTS: usize = 3;
+/// What the radio plans for: despite its name this setting counts advertising, scanning and
+/// connecting too. With too few, the radio refuses to connect for lack of memory.
+const ACTIVITIES: u8 = SLOTS as u8 + 3;
 const HCI_SLOTS: usize = 20;
 const QUEUE_LIMIT: usize = 32;
 const SEND_CHECK: Duration = Duration::from_millis(20);
@@ -33,6 +36,8 @@ const SEEN_EVERY_MS: u64 = 1_000;
 /// Advertising and listening, spaced out so ESP-NOW and mining keep the radio and the processor.
 const ADVERTISE_EVERY_MS: u64 = 250;
 const SCAN_EVERY_MS: u64 = 400;
+/// Long enough for the host to turn scanning off.
+const SCAN_STOPS: Duration = Duration::from_millis(100);
 const SCAN_WINDOW_MS: u64 = 40;
 /// One event every 30 to 50 ms. A quiet link stays up at the cost of a few short exchanges.
 const CONNECTION_MS: u64 = 40;
@@ -310,6 +315,8 @@ async fn dial_on_order(stack: &'static BleStack, hub: SharedHub, spawner: Spawne
             Timer::after(SEND_CHECK).await;
         }
         drop(session);
+        // The host stops scanning a moment later, and a connection cannot start before it has.
+        Timer::after(SCAN_STOPS).await;
         let mut central = scanner.into_inner();
         let address = hub.borrow_mut().dials.pop_front().unwrap_or_default();
         let slot = take_slot(&hub);
@@ -320,7 +327,14 @@ async fn dial_on_order(stack: &'static BleStack, hub: SharedHub, spawner: Spawne
                     scan_config: ScanConfig { filter_accept_list: &target, ..timing_for_connecting() },
                     connect_params: parameters(),
                 };
-                with_timeout(DIAL_TIMEOUT, central.connect(&config)).await.ok().and_then(Result::ok)
+                match with_timeout(DIAL_TIMEOUT, central.connect(&config)).await {
+                    Ok(Ok(conn)) => Some(conn),
+                    Ok(Err(error)) => {
+                        println!("bluetooth dial: {error:?}");
+                        None
+                    }
+                    Err(_) => None,
+                }
             }
             _ => None,
         };
@@ -362,7 +376,7 @@ async fn run_host(stack: &'static BleStack, listener: Listener) {
 
 /// Starts Bluetooth. Costs memory only on a board that asked for it.
 pub fn start(spawner: Spawner, device: BT<'static>, node: u64, address: [u8; 6]) -> BleLink {
-    let config = esp_radio::ble::Config::default().with_max_connections(SLOTS as u8);
+    let config = esp_radio::ble::Config::default().with_max_connections(ACTIVITIES);
     let connector = BleConnector::new(device, config).expect("Bluetooth starts");
     let controller = Controller::new(connector);
     static RESOURCES: StaticCell<HostResources<Controller, Pool, SLOTS, SLOTS>> = StaticCell::new();

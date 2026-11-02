@@ -205,11 +205,13 @@ impl Dialer {
             }
             self.places[at] = place;
         }
-        // A neighbour heard again owes nothing to its past failures.
-        for place in &mut self.places {
-            if place.node.is_some_and(|node| table.active_of(node).is_some()) {
-                place.wait_ms = FIRST_WAIT_MS;
-                place.next_ms = 0;
+        // A neighbour heard again owes nothing to its past failures, unless this way is one it
+        // still wants: that is the failing dial the wait is there to slow down.
+        for at in 0..self.places.len() {
+            let heard = self.places[at].node.is_some_and(|node| table.active_of(node).is_some());
+            if heard && !Self::useful(&self.places[at], table, now) {
+                self.places[at].wait_ms = FIRST_WAIT_MS;
+                self.places[at].next_ms = 0;
             }
         }
         orders
@@ -348,5 +350,24 @@ mod tests {
         assert_eq!(dials(&higher.step(&table, THEM, 0)), 0);
         higher.seen(BLUETOOTH, "ble".into(), ME, HIGHER_WAITS_MS);
         assert_eq!(dials(&higher.step(&table, THEM, HIGHER_WAITS_MS)), 1);
+    }
+
+    #[test]
+    fn a_better_way_that_keeps_failing_waits_longer_each_time() {
+        let mut table = table();
+        table.name(RADIO, 1, THEM, 0);
+        table.settle(0);
+        let mut dialer = Dialer::default();
+        let mut started = Vec::new();
+        for now in (0..30_000).step_by(100) {
+            table.name(RADIO, 1, THEM, now);
+            table.settle(now);
+            dialer.seen(BLUETOOTH, "here".into(), THEM, now);
+            if dials(&dialer.step(&table, ME, now)) > 0 {
+                started.push(now);
+                dialer.failed(BLUETOOTH, "here", now + 50);
+            }
+        }
+        assert!(started.len() <= 5, "{started:?}");
     }
 }

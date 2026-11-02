@@ -34,8 +34,10 @@ impl Medium {
 pub struct Rank(pub [Medium; 4]);
 
 impl Default for Rank {
+    /// From measurements between real boards. Wires lost nothing and need no radio, and Wi-Fi
+    /// carried eight times what Bluetooth did, while staying off until a person turns it on.
     fn default() -> Self {
-        Self([Medium::Wire, Medium::EspNow, Medium::Bluetooth, Medium::Wifi])
+        Self([Medium::Wire, Medium::EspNow, Medium::Wifi, Medium::Bluetooth])
     }
 }
 
