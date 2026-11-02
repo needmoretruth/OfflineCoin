@@ -117,6 +117,9 @@ impl DrawTarget for Canvas<'_> {
     }
 }
 
+/// What ends words cut short at the edge.
+const CUT: &str = "..";
+
 pub fn width(text: &str, font: Font) -> i32 {
     text.chars().map(|letter| width_of(letter, font)).sum()
 }
@@ -213,9 +216,18 @@ impl Screen {
         self.text_before(x, y, text, font, i32::MAX)
     }
 
-    /// Like [`Screen::text`], stopping at the letter that would pass `end`, for words of any
-    /// length such as a board's name.
-    pub fn text_before(&mut self, mut x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
+    /// Like [`Screen::text`], for words of any length such as a board's name: words that would
+    /// pass `end` stop early and end in two dots, so a person sees they were cut.
+    pub fn text_before(&mut self, x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
+        if x.saturating_add(width(text, font)) <= end {
+            return self.letters(x, y, text, font, end);
+        }
+        let dots = width(CUT, font);
+        let x = self.letters(x, y, text, font, end.saturating_sub(dots));
+        self.letters(x, y, CUT, font, end)
+    }
+
+    fn letters(&mut self, mut x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
         let style = MonoTextStyle::new(font.latin(), BinaryColor::On);
         let advance = font.latin().character_size.width as i32;
         let mut letter = [0u8; 4];
