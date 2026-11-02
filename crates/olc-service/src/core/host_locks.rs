@@ -1,7 +1,8 @@
 //! Coins under a beta lock, for a person or for a node's own command line.
-use super::host::Host;
+use super::host::{Host, PayError, Waiting};
+use super::host_parts::unix_ms;
 use super::{format_coins, parse_coins};
-use olc_core::{Hash, OutPoint};
+use olc_core::{ChainError, Hash, OutPoint};
 use olc_crypto::hash;
 use olc_lang::words::{
     hash_lock, lock_from_text, public_key_from_text, time_lock, two_of_two, Cost, WordError,
@@ -79,16 +80,38 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
         LockFailure::Lock(LockError::Wallet(error)) => ("lock.wallet", format!("{error:?}")),
         LockFailure::NoCoin => ("lock.no_coin", String::new()),
         LockFailure::NeedsBlocks => ("lock.needs_blocks", String::new()),
+        LockFailure::Refused(ChainError::BadLock) => ("lock.not_open", String::new()),
+        LockFailure::Refused(ChainError::FeeTooLow | ChainError::Overspend) => {
+            ("lock.too_small", String::new())
+        }
+        LockFailure::Refused(ChainError::MissingInput) => ("lock.spent", String::new()),
         LockFailure::Refused(error) => ("lock.refused", format!("{error:?}")),
     }
 }
 
 impl Host {
+    /// Pays at the lowest fee the coin allows.
+    pub fn pay(&self, to: &str, amount: u64) -> Result<Hash, PayError> {
+        let to = parse_address(to.trim()).ok_or(PayError::BadAddress)?;
+        let mut runner = self.ready().map_err(|_| PayError::Stopped)?;
+        let fee = runner.engine.rules().min_fee;
+        let id = runner.engine.pay(to, amount, fee).map_err(PayError::Wallet)?;
+        if let Ok(mut waiting) = self.state.waiting.lock() {
+            let time_ms = unix_ms();
+            waiting.push(Waiting {
+                id,
+                amount,
+                time_ms,
+            });
+        }
+        Ok(id)
+    }
+
     /// Puts coins from this wallet under the lock these words make.
     pub fn pay_lock(&self, words: &str, amount: &str) -> Result<(Hash, String), LockFailure> {
         let units = parse_coins(amount).filter(|units| *units > 0);
         let units = units.ok_or(LockFailure::Lock(LockError::TooSmall))?;
-        let mut runner = self.runner.lock().map_err(|_| LockFailure::NoCoin)?;
+        let mut runner = self.ready().map_err(|_| LockFailure::NoCoin)?;
         let (id, _) = runner.engine.pay_to_lock(words, units)?;
         Ok((id, format_coins(units)))
     }
@@ -96,7 +119,7 @@ impl Host {
     /// Spends a locked coin to `to`, or to this wallet when `to` is empty.
     pub fn spend_lock(&self, coin: &str, to: &str, unlock: &str) -> Result<LockDone, LockFailure> {
         let point = coin_named(coin).ok_or(LockFailure::NoCoin)?;
-        let mut runner = self.runner.lock().map_err(|_| LockFailure::NoCoin)?;
+        let mut runner = self.ready().map_err(|_| LockFailure::NoCoin)?;
         let to = match to.trim() {
             "" => runner.engine.wallet().address(),
             to => parse_address(to).ok_or(LockFailure::Lock(LockError::BadText))?,
@@ -107,7 +130,7 @@ impl Host {
 
     /// Adds this wallet's signatures to a spend that came as text.
     pub fn sign_lock(&self, text: &str) -> Result<LockDone, LockFailure> {
-        let mut runner = self.runner.lock().map_err(|_| LockFailure::NoCoin)?;
+        let mut runner = self.ready().map_err(|_| LockFailure::NoCoin)?;
         let spend = runner.engine.sign_lock(text)?;
         go_on(&mut runner.engine, spend)
     }
@@ -141,5 +164,13 @@ mod tests {
         let point = OutPoint { txid: [7; 32], index: 3 };
         assert_eq!(coin_named(&name_of_coin(&point)), Some(point));
         assert_eq!(coin_named("nothing"), None);
+    }
+
+    #[test]
+    fn a_lock_that_does_not_open_says_so_in_words() {
+        let (key, detail) = fault_of_lock(&LockFailure::Refused(ChainError::BadLock));
+        assert_eq!((key, detail.as_str()), ("lock.not_open", ""));
+        let (key, _) = fault_of_lock(&LockFailure::Refused(ChainError::MissingInput));
+        assert_eq!(key, "lock.spent");
     }
 }

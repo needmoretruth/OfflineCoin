@@ -128,6 +128,12 @@ impl Node {
             }),
             (Some("wifi"), _, _) => self.wifi_from(line),
             (Some("check-time"), _, _) => self.time_one_check(),
+            (Some("wear"), _, _) => self.print_wear(),
+            (Some("heat"), Some("default"), _) => {
+                self.care.heat.usual_limits();
+                self.say("heat default".into());
+            }
+            (Some("heat"), Some(hot), Some(cool)) => self.set_heat(hot, cool),
             (Some("keys"), _, _) => self.print_keys(),
             (Some("key"), Some("new"), _) => self.new_key(),
             (Some("key"), Some("use"), Some(index)) => self.choose_key(index),
@@ -317,19 +323,27 @@ impl Node {
         let chain = self.runner.engine.chain();
         let coin = chain.config();
         let line = format!(
-            "coin {} {} {}",
+            "coin {} {} {} rules={}",
             coin.name,
             coin.ticker,
-            hex(&chain.genesis_id())
+            hex(&chain.genesis_id()),
+            coin.rules_id()
         );
         self.say(line);
     }
 
-    /// One coin's blocks sit in the log, so a different coin asks first. The keys stay.
+    /// One coin's blocks sit in the log, so a different coin asks first. The keys stay. The same
+    /// coin on other rules keeps its blocks up to where the rules part.
     fn change_coin(&mut self, coin: CoinConfig) {
         let chain = self.runner.engine.chain();
         if coin.genesis().id() == chain.genesis_id() {
-            self.say("coin already running".into());
+            match chain.config().parts_from(&coin) {
+                Some(from) => {
+                    self.waiting_coin = Some(coin);
+                    self.say(format!("coin asks confirm: rules change at block {from}"));
+                }
+                None => self.say("coin already running".into()),
+            }
         } else if chain.height() == 0 {
             self.switch_to(&coin);
         } else {
@@ -344,13 +358,21 @@ impl Node {
     }
 
     fn confirm_coin(&mut self) {
-        match self.waiting_coin.take() {
-            Some(coin) => self.switch_to(&coin),
-            None => self.say("error no coin waiting".into()),
+        let Some(coin) = self.waiting_coin.take() else {
+            return self.say("error no coin waiting".into());
+        };
+        let chain = self.runner.engine.chain_mut();
+        let same_coin = coin.genesis().id() == chain.genesis_id();
+        if let Some(from) = chain.config().parts_from(&coin).filter(|_| same_coin) {
+            if chain.step_down_below(from).is_err() {
+                return self.say("error the rules part too far back".into());
+            }
         }
+        self.switch_to(&coin);
     }
 
-    /// A log written for another coin fails its checks, so the new coin starts clean.
+    /// A log written for another coin fails its checks, so the new coin starts clean. The same coin
+    /// on other rules goes on from its log.
     fn switch_to(&mut self, coin: &CoinConfig) {
         if self.store.save_coin(coin) {
             esp_hal::system::software_reset();

@@ -277,6 +277,7 @@ version = "0.1.0"
 dependencies = [
  "olc-core 0.1.0",
  "olc-crypto 0.1.0",
+ "olc-lang 0.1.0",
  "olc-wallet 0.1.0",
  "postcard",
  "serde",
@@ -316,6 +317,7 @@ dependencies = [
  "olc-core 0.1.0",
  "olc-crypto 0.1.0",
  "olc-lang 0.1.0",
+ "postcard",
 ]
 
 [[package]]

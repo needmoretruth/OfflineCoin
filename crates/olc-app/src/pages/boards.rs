@@ -48,6 +48,7 @@ pub fn job_text<'a>(cx: &Cx, job: &'a str) -> &'a str {
         "restarting" => cx.say("boards.job_restarting"),
         "installing" => cx.say("boards.job_installing"),
         "update_failed" => cx.say("boards.job_failed"),
+        "unproven" => cx.say("boards.job_unproven"),
         progress => progress,
     }
 }
@@ -71,6 +72,7 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
         () => cx.say("boards.resting").to_string(),
     };
     let line = format!("{line}  {}", balance_of(cx, board));
+    let line = if board.other_rules { format!("{}  {line}", cx.say("boards.other_rules")) } else { line };
     let quiet = |text: String| Label::new(RichText::new(text).size(tokens::META).color(t.muted)).selectable(false);
     let clicked = pick_row(ui, t, LIST_ROW, current, &beacon.name, |ui| {
         dot(ui, state_colour(t, board));

@@ -131,6 +131,16 @@ impl Neighbours {
         &self.list
     }
 
+    /// What the neighbour heard on this link and number calls itself, once it has said.
+    pub fn node_on(&self, link: usize, number: u32) -> Option<u64> {
+        self.holder(link, number).and_then(|at| self.list[at].node)
+    }
+
+    /// The id of the neighbour heard on this link and number.
+    pub fn peer_on(&self, link: usize, number: u32) -> Option<PeerId> {
+        self.holder(link, number).map(|at| self.list[at].peer)
+    }
+
     fn holder(&self, link: usize, number: u32) -> Option<usize> {
         let found = |one: &Neighbour| one.paths.iter().any(|path| (path.link, path.number) == (link, number));
         self.list.iter().position(found)

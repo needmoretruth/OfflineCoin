@@ -2,7 +2,8 @@
 use super::explorer::{recent_blocks, text_of, BlockRow, Explored};
 use super::history::{Activity, ActivityKind, History};
 use super::radios::{self, Running};
-use super::host_parts::{engine_with, fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
+pub use super::host_parts::Plan;
+use super::host_parts::{carry_pool, engine_with, fresh_id, listen_somewhere, plugins, stored_bytes, unix_ms, watched_view};
 use super::snapshot::{KeyView, NodeView};
 use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
@@ -12,12 +13,12 @@ use olc_store::{
     hold_folder, hold_wallet, load_wallet, open_chain, save_headers, FolderHold,
     NodeSettings, WalletHold,
 };
-use olc_wallet::{format_address, parse_address, WalletError};
+use olc_wallet::{format_address, WalletError};
 use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -30,21 +31,7 @@ const ASK_EVERY: Duration = Duration::from_secs(20);
 const ASK_PEERS_EVERY: Duration = Duration::from_secs(2);
 const MAX_HEARD: usize = 64;
 const HEADERS_SAVED_EVERY: Duration = Duration::from_secs(30);
-
-pub struct Plan {
-    pub coin: CoinConfig,
-    pub folder: PathBuf,
-    pub wallet_folder: PathBuf,
-    pub bind_host: String,
-    pub port: u16,
-    pub port_tries: u16,
-    pub peers: Vec<String>,
-    pub cap: u64,
-    pub mining: bool,
-    pub card: Card,
-    /// Bytes the chain may take on disk.
-    pub storage: Option<u64>,
-}
+const STILL_OPENING: &str = "The chain is still loading";
 
 struct Switch {
     coin: CoinConfig,
@@ -55,13 +42,13 @@ struct Switch {
 }
 
 /// A payment waiting in the pool, until a block holds it.
-struct Waiting {
-    id: Hash,
-    amount: u64,
-    time_ms: u64,
+pub(super) struct Waiting {
+    pub(super) id: Hash,
+    pub(super) amount: u64,
+    pub(super) time_ms: u64,
 }
 
-struct State {
+pub(super) struct State {
     mining: AtomicBool,
     cap: AtomicU64,
     hashrate: AtomicU64,
@@ -73,7 +60,7 @@ struct State {
     radio_notes: Mutex<Vec<String>>,
     heard: Mutex<VecDeque<(HeardFrom, Hello)>>,
     known: Mutex<Vec<String>>,
-    waiting: Mutex<Vec<Waiting>>,
+    pub(super) waiting: Mutex<Vec<Waiting>>,
     storage: Option<u64>,
     /// The folder of the coin this node runs.
     folder: Mutex<Option<PathBuf>>,
@@ -90,7 +77,7 @@ struct State {
 pub struct Host {
     pub runner: Arc<Mutex<Runner>>,
     tcp: TcpControl,
-    state: Arc<State>,
+    pub(super) state: Arc<State>,
     done: Option<thread::JoinHandle<()>>,
     wallet_folder: PathBuf,
     pub port: Option<u16>,
@@ -184,6 +171,21 @@ impl Host {
         })
     }
 
+    /// True from the moment a chain is asked for until it stands in the node. The engine there
+    /// now is thrown away then, and whatever was done to it with it.
+    pub fn opening(&self) -> bool {
+        self.state.opening.load(Ordering::Relaxed)
+    }
+
+    /// The running node, for work that must not land on an engine about to be replaced.
+    pub(super) fn ready(&self) -> Result<MutexGuard<'_, Runner>, String> {
+        let runner = self.runner.lock().map_err(|_| "The node stopped".to_string())?;
+        match self.opening() {
+            true => Err(STILL_OPENING.to_string()),
+            false => Ok(runner),
+        }
+    }
+
     pub fn address(&self) -> Address {
         self.runner
             .lock()
@@ -260,6 +262,8 @@ impl Host {
     /// Moves this node to another coin, which keeps the same links.
     pub fn switch(&self, coin: CoinConfig, folder: PathBuf, peers: Vec<String>, keep_from: Option<PathBuf>) {
         if let Ok(mut switch) = self.state.switch.lock() {
+            // Said before the thread can see it, so nothing lands on the old engine from here on.
+            self.state.opening.store(true, Ordering::Relaxed);
             *switch = Some(Switch { coin, folder, peers, keep_from });
         }
     }
@@ -271,21 +275,10 @@ impl Host {
         }
     }
 
-    /// Pays at the lowest fee the coin allows.
-    pub fn pay(&self, to: &str, amount: u64) -> Result<Hash, PayError> {
-        let to = parse_address(to.trim()).ok_or(PayError::BadAddress)?;
-        let mut runner = self.runner.lock().map_err(|_| PayError::Stopped)?;
-        let fee = runner.engine.rules().min_fee;
-        let id = runner.engine.pay(to, amount, fee).map_err(PayError::Wallet)?;
-        if let Ok(mut waiting) = self.state.waiting.lock() {
-            let time_ms = unix_ms();
-            waiting.push(Waiting {
-                id,
-                amount,
-                time_ms,
-            });
-        }
-        Ok(id)
+    /// Takes connections on another host, such as only this computer, on the same port.
+    pub fn listen_on(&self, host: &str) -> Result<(), String> {
+        let port = self.port.ok_or("This app is not taking connections.")?;
+        self.tcp.listen_again(&format!("{host}:{port}")).map(|_| ()).map_err(|error| error.to_string())
     }
 }
 
@@ -433,7 +426,10 @@ impl Worker {
         if let Some(switch) = switch {
             self.state.opening.store(true, Ordering::Relaxed);
             self.open_switch(switch);
-            self.state.opening.store(false, Ordering::Relaxed);
+            // Under the same lock as `Host::switch`, so a chain asked for just now keeps its word.
+            if let Ok(next) = self.state.switch.lock() {
+                self.state.opening.store(next.is_some(), Ordering::Relaxed);
+            }
         }
     }
 
@@ -441,6 +437,8 @@ impl Worker {
         let Ok(wallet) = load_wallet(&self.wallet_folder) else {
             return;
         };
+        #[cfg(test)]
+        super::ops_tests::wait_at_gate(&switch.folder);
         let held = hold_folder(&mut self.held, &switch.folder);
         if let Some(from) = switch.keep_from.as_ref().filter(|_| held.is_ok()) {
             let _ = super::coins::copy_chain(from, &switch.folder);
@@ -472,7 +470,7 @@ impl Worker {
             if let Ok(mut notes) = self.state.radio_notes.lock() {
                 notes.extend(problems);
             }
-            runner.set_engine(engine);
+            carry_pool(&mut runner, engine);
             runner.forget_addresses();
             for peer in switch.peers {
                 runner.add_address(TCP_LINK, peer);

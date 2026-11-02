@@ -9,6 +9,7 @@ mod steady;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};
+use olc_node::LightStatus;
 use crate::discovery::Reach;
 use crate::fleet::{BoardState, Connection, Seen};
 use crate::i18n::{Lang, Mode};
@@ -182,7 +183,7 @@ pub(super) fn staged_board(online: bool, returning: bool) -> BoardView {
         keep: Some(0),
         ..BoardState::default()
     };
-    BoardView { seen, job, answer: None, keeps: olc_node::Keeps::Everything, returning, reach: Reach::Usb, state }
+    BoardView { seen, job, answer: None, keeps: olc_node::Keeps::Everything, returning, reach: Reach::Usb, state, other_rules: false }
 }
 
 pub(super) fn staged(boards: Vec<BoardView>) -> Snapshot {
@@ -268,6 +269,55 @@ fn boards_show_what_they_do() {
     harness.run_steps(SETTLE_STEPS);
     assert!(harness.query_all_by_label("Restarting").count() > 0);
     assert!(harness.query_by_label("Dim").is_none());
+}
+
+/// The manager holds back a build no board with a cable has taken by radio, and the page says
+/// what a person can do about it instead of the manager's word.
+#[test]
+fn an_unproven_update_says_to_use_a_cable() {
+    let mut harness = harness(app(scratch("unproven"), quiet_settings(), None), SIZES[0]);
+    let board = BoardView { job: Some("unproven".into()), ..staged_board(true, false) };
+    harness.state_mut().set_stage(Some(staged(vec![board])));
+    harness.state_mut().open("page.boards");
+    harness.run_steps(SETTLE_STEPS);
+    let said = "This version has not yet updated a board by radio. Connect this board with a USB cable to update it.";
+    assert!(harness.query_all_by_label(said).count() > 0);
+    assert!(harness.query_by_label("unproven").is_none());
+}
+
+/// A peer that holds no old headers answers a light node with its first block, and only a small
+/// device does: a computer keeps them all. So this stands in for a board, as a stage.
+#[test]
+fn a_light_node_says_what_it_cannot_check() {
+    let mut harness = harness(app(scratch("light-limits"), quiet_settings(), None), SIZES[0]);
+    let mut stage = staged(Vec::new());
+    stage.node.light = Some(LightStatus {
+        pruned_from: Some(1_800),
+        unproven: 3,
+        ..LightStatus::default()
+    });
+    harness.state_mut().set_stage(Some(stage));
+    harness.state_mut().open("page.home");
+    harness.run_steps(SETTLE_STEPS);
+    let pruned = "Devices nearby no longer hold blocks before 1,800, so older coins cannot be checked.";
+    assert!(harness.query_by_label(pruned).is_some());
+    let unproven = "3 of your coins are too old to check. They count on another device's word.";
+    assert!(harness.query_by_label(unproven).is_some());
+}
+
+/// One genesis carries a fork and the coin it left, so only the rules tell them apart.
+#[test]
+fn a_board_on_other_rules_says_so_and_offers_to_change() {
+    let mut harness = harness(app(scratch("other-rules"), quiet_settings(), None), SIZES[0]);
+    let board = BoardView { other_rules: true, ..staged_board(true, false) };
+    let mut stage = staged(vec![board.clone()]);
+    stage.node.genesis = board.seen.beacon.genesis;
+    harness.state_mut().set_stage(Some(stage));
+    harness.state_mut().open("page.boards");
+    harness.run_steps(SETTLE_STEPS);
+    assert!(harness.query_all_by_label_contains("Other rules").count() > 0, "the list says it");
+    assert!(harness.query_by_label("Use this app's rules").is_some(), "the board offers the way out");
+    assert!(harness.query_by_label("Move to this app's coin").is_none(), "it is the same coin");
 }
 
 #[test]

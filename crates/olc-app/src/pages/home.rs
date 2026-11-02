@@ -1,4 +1,5 @@
 //! The cash book: how much there is, the three things a person does with it, and what happened.
+use super::coins::history_card;
 use super::money::{ReceiveSheet, SendSheet};
 use super::{Cx, Page};
 use crate::core::{unix_ms, Activity, ActivityKind, Command, NodeView};
@@ -209,12 +210,30 @@ fn light_or_full(ui: &mut Ui, cx: &Cx) -> bool {
         () => return false,
     };
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        dot(ui, cx.t.warn);
-        ui.label(cx.say(key));
-        button(ui, cx.t, cx.say("home.open_settings"), Kind::Quiet).clicked()
-    })
-    .inner
+    let open = ui
+        .horizontal(|ui| {
+            dot(ui, cx.t.warn);
+            ui.label(cx.say(key));
+            button(ui, cx.t, cx.say("home.open_settings"), Kind::Quiet).clicked()
+        })
+        .inner;
+    light_limits(ui, cx);
+    open
+}
+
+/// What a node without blocks cannot check, which decides how far its balance can be trusted.
+fn light_limits(ui: &mut Ui, cx: &Cx) {
+    let Some(light) = &cx.snap.node.light else {
+        return;
+    };
+    if let Some(oldest) = light.pruned_from {
+        ui.add_space(4.0);
+        meta(ui, &cx.fill("home.light_pruned", &[&format::number(oldest.into())]), cx.t);
+    }
+    if light.unproven > 0 {
+        ui.add_space(4.0);
+        meta(ui, &cx.fill("home.light_unproven", &[&format::number(light.unproven as u128)]), cx.t);
+    }
 }
 
 fn fact(ui: &mut Ui, t: &Tokens, name: &str, value: &str) {
@@ -277,6 +296,8 @@ impl Page for Home {
         ui.add_space(4.0);
         state_line(ui, cx);
         ui.add_space(tokens::GAP_PAGE - tokens::GAP);
+        // A person starts here, so what stops this node shows here.
+        widgets::slot(ui, |ui| history_card(ui, cx));
         if wide {
             let total = ui.available_width();
             let left = total - tokens::FACTS - tokens::GAP_PAGE;

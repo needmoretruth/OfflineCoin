@@ -10,7 +10,11 @@ use embedded_graphics::text::{Baseline, Text};
 use esp_hal::i2c::master::I2c;
 use esp_hal::Blocking;
 
-const ADDRESS: u8 = 0x3C;
+/// `OLC_NO_PANEL` builds a board that looks for a panel where none answers, which is how a board
+/// that still has its panel can prove it runs without one.
+const ADDRESS: u8 = if option_env!("OLC_NO_PANEL").is_some() { 0x3D } else { 0x3C };
+/// How often a board with no panel looks for one, so a panel plugged in later wakes up.
+const LOOK_EVERY_MS: u64 = 2_000;
 pub const WIDTH: usize = 128;
 pub const PAGES: usize = 8;
 const HEIGHT: usize = PAGES * 8;
@@ -71,6 +75,7 @@ pub struct Screen {
     shift: (i32, i32),
     spilled: u32,
     bright: u8,
+    look_ms: u64,
 }
 
 struct Canvas<'a> {
@@ -112,6 +117,9 @@ impl DrawTarget for Canvas<'_> {
     }
 }
 
+/// What ends words cut short at the edge.
+const CUT: &str = "..";
+
 pub fn width(text: &str, font: Font) -> i32 {
     text.chars().map(|letter| width_of(letter, font)).sum()
 }
@@ -140,6 +148,7 @@ impl Screen {
             shift: (0, 0),
             spilled: 0,
             bright: DEFAULT_BRIGHT,
+            look_ms: 0,
         }
     }
 
@@ -207,9 +216,18 @@ impl Screen {
         self.text_before(x, y, text, font, i32::MAX)
     }
 
-    /// Like [`Screen::text`], stopping at the letter that would pass `end`, for words of any
-    /// length such as a board's name.
-    pub fn text_before(&mut self, mut x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
+    /// Like [`Screen::text`], for words of any length such as a board's name: words that would
+    /// pass `end` stop early and end in two dots, so a person sees they were cut.
+    pub fn text_before(&mut self, x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
+        if x.saturating_add(width(text, font)) <= end {
+            return self.letters(x, y, text, font, end);
+        }
+        let dots = width(CUT, font);
+        let x = self.letters(x, y, text, font, end.saturating_sub(dots));
+        self.letters(x, y, CUT, font, end)
+    }
+
+    fn letters(&mut self, mut x: i32, y: i32, text: &str, font: Font, end: i32) -> i32 {
         let style = MonoTextStyle::new(font.latin(), BinaryColor::On);
         let advance = font.latin().character_size.width as i32;
         let mut letter = [0u8; 4];
@@ -274,8 +292,15 @@ impl Screen {
     /// Sends the rows that changed. Any failure forgets the panel, so the next frame starts it
     /// again from nothing, which is what a panel that was unplugged needs.
     pub fn flush(&mut self) {
-        if self.shown.is_none() && self.start().is_err() {
-            return;
+        if self.shown.is_none() {
+            let now = crate::node::device_ms();
+            if now < self.look_ms {
+                return;
+            }
+            self.look_ms = now + LOOK_EVERY_MS;
+            if self.start().is_err() {
+                return;
+            }
         }
         let Some(mut shown) = self.shown.take() else {
             return;

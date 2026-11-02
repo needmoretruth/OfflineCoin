@@ -51,6 +51,14 @@ struct Shared {
     no_control: Arc<AtomicBool>,
     /// Dials given up while they were still connecting.
     cancelled: Arc<Mutex<BTreeSet<String>>>,
+    /// The listener taking connections now, if any.
+    listening: Arc<Mutex<Option<Listening>>>,
+}
+
+/// One listener's thread, and the flag that ends it.
+struct Listening {
+    stop: Arc<AtomicBool>,
+    thread: thread::JoinHandle<()>,
 }
 
 pub struct TcpLink {
@@ -86,6 +94,23 @@ impl TcpControl {
         }
     }
 
+    /// Listens on `address` instead of where it listened before, for example when a person no
+    /// longer lets others on the network connect. Peers taken by the old listener go.
+    pub fn listen_again(&self, address: &str) -> std::io::Result<SocketAddr> {
+        let old = self.0.listening.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(old) = old {
+            old.stop.store(true, Ordering::Relaxed);
+            // The port is free again only once that thread has let go of its socket.
+            let _ = old.thread.join();
+        }
+        if let Ok(peers) = self.0.peers.lock() {
+            for peer in peers.values().filter(|peer| peer.accepted) {
+                let _ = peer.stream.shutdown(Shutdown::Both);
+            }
+        }
+        start_listening(&self.0, address)
+    }
+
     /// Stops listening as well.
     pub fn close(&self) {
         self.0.closed.store(true, Ordering::Relaxed);
@@ -112,6 +137,7 @@ impl TcpLink {
             closed: Arc::default(),
             no_control: Arc::default(),
             cancelled: Arc::default(),
+            listening: Arc::default(),
         };
         Self {
             shared,
@@ -132,23 +158,31 @@ impl TcpLink {
 
     /// Accepts peers on `address`, for example `0.0.0.0:7000`. Returns the address it got.
     pub fn listen(&self, address: &str) -> std::io::Result<SocketAddr> {
-        let listener = TcpListener::bind(address)?;
-        let local = listener.local_addr()?;
-        listener.set_nonblocking(true)?;
-        let shared = self.shared.clone();
-        let refused = Arc::new(AtomicBool::new(true));
-        thread::spawn(move || {
-            while !shared.closed.load(Ordering::Relaxed) {
-                match listener.accept() {
-                    Ok((stream, _)) if has_room(&shared) && stream.set_nonblocking(false).is_ok() => {
-                        attach(stream, &shared, refused.clone(), None);
-                    }
-                    _ => thread::sleep(ACCEPT_POLL),
-                }
-            }
-        });
-        Ok(local)
+        start_listening(&self.shared, address)
     }
+}
+
+fn start_listening(shared: &Shared, address: &str) -> std::io::Result<SocketAddr> {
+    let listener = TcpListener::bind(address)?;
+    let local = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let (taking, ends) = (shared.clone(), stop.clone());
+    let refused = Arc::new(AtomicBool::new(true));
+    let handle = thread::spawn(move || {
+        while !taking.closed.load(Ordering::Relaxed) && !ends.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((stream, _)) if has_room(&taking) && stream.set_nonblocking(false).is_ok() => {
+                    attach(stream, &taking, refused.clone(), None);
+                }
+                _ => thread::sleep(ACCEPT_POLL),
+            }
+        }
+    });
+    if let Ok(mut slot) = shared.listening.lock() {
+        *slot = Some(Listening { stop, thread: handle });
+    }
+    Ok(local)
 }
 
 fn has_room(shared: &Shared) -> bool {
@@ -415,6 +449,23 @@ mod tests {
         assert!(slowest < Duration::from_millis(500), "a send took {slowest:?}");
         wait_for("the peer goes", || control.count() == 0);
         drop(never_reads);
+    }
+
+    /// A person who stops letting others connect expects the door shut now, not at the next start.
+    #[test]
+    fn listening_elsewhere_shuts_the_old_door_and_drops_who_came_through_it() {
+        let link = TcpLink::new();
+        let first = link.listen("127.0.0.1:0").unwrap();
+        let control = link.control();
+        let guest = TcpStream::connect(first).unwrap();
+        wait_for("the guest connects", || control.count() == 1);
+
+        let second = control.listen_again("127.0.0.1:0").unwrap();
+        wait_for("the guest goes", || control.count() == 0);
+        assert!(TcpStream::connect(first).is_err(), "the old address still takes connections");
+        let newcomer = TcpStream::connect(second).unwrap();
+        wait_for("the new address takes one", || control.count() == 1);
+        drop((guest, newcomer));
     }
 
     #[test]

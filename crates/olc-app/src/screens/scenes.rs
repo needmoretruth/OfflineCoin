@@ -288,7 +288,7 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
 
 /// Nobody holds the first blocks, so the node asks, and goes on only after the person says yes.
 #[test]
-fn a_snapshot_waits_for_the_person_in_the_window() {
+fn a_snapshot_waits_for_the_person_in_the_window_at_home() {
     let root = scratch("history");
     let mut coin = CoinConfig::olc();
     coin.name = "Cut".into();
@@ -311,10 +311,13 @@ fn a_snapshot_waits_for_the_person_in_the_window() {
     settings.peers = vec![format!("127.0.0.1:{peer_port}")];
     let mut harness = harness(app(app_root, settings, Some(node_program())), SIZES[0]);
     harness.state_mut().settings_mut().language = Lang::En;
-    harness.state_mut().open("page.coins");
+    harness.state_mut().open("page.home");
     wait_until(&mut harness, |app| app.snapshot().node.needs_history.is_some());
     assert_eq!(harness.state().snapshot().node.height, 0, "nothing moves without a yes");
     harness.run_steps(SETTLE_STEPS);
+    assert!(harness.query_by_label("Missing old blocks").is_some(), "the rail says only Connected");
+    let todo = "Wait for a device that has every block, or take their list of coins if you trust them.";
+    assert!(harness.query_by_label(todo).is_some(), "Home must say what to do");
     click(&mut harness, "Read what this means");
     click(&mut harness, "Trust them");
     wait_until(&mut harness, |app| app.snapshot().node.height >= tip);

@@ -17,6 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 const STATUS_EVERY: Duration = Duration::from_secs(1);
+const OPENING_STEP: Duration = Duration::from_millis(10);
 
 #[derive(Default)]
 struct Words {
@@ -185,6 +186,10 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
         match lines.recv_timeout(STATUS_EVERY) {
             Ok(line) if line == "quit" => return Ok(()),
             Ok(line) => {
+                // The window holds its orders the same way: the engine there now will be replaced.
+                while host.opening() {
+                    thread::sleep(OPENING_STEP);
+                }
                 if let Some(status) = run_line(&host, &line) {
                     say(&status);
                 }

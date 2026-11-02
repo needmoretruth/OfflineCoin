@@ -119,6 +119,7 @@ pub struct Node {
     pub bluetooth: bool,
     /// The panel's contrast.
     pub bright: u8,
+    pub care: crate::care::Care,
     /// Whether the watchdog was running when this program got the chip.
     pub boot_watchdog: bool,
     pub clock_mhz: u32,
@@ -189,6 +190,7 @@ impl Node {
             self.attempts = 0;
             self.window_ms = now;
             self.frames.roll();
+            self.look_after(now);
         }
         if esp_alloc::HEAP.free() < MIN_FREE_HEAP {
             self.mining = false;
@@ -199,7 +201,7 @@ impl Node {
         } else {
             MINING_BATCH
         };
-        let batch = match self.limit {
+        let batch = match self.care.heat.cap(self.limit) {
             0 => longest,
             limit => longest.min(limit.saturating_sub(self.attempts)),
         };
@@ -244,7 +246,8 @@ impl Node {
     }
 
     fn coin_shows(&self, now: u64) -> bool {
-        (now < self.splash_until_ms || self.view == View::Easy) && !self.control.moving_image(now)
+        let wanted = now < self.splash_until_ms || self.view == View::Easy;
+        wanted && !self.control.moving_image(now) && self.screen.is_connected()
     }
 
     /// Keeps to the pace rather than restarting it, so waiting a moment costs no frame.
@@ -260,7 +263,10 @@ impl Node {
 
     fn read_button(&mut self, now: u64) {
         match (self.button.is_low(), self.pressed_ms) {
-            (true, None) => self.pressed_ms = Some(now),
+            (true, None) => {
+                self.pressed_ms = Some(now);
+                self.care.touched(now);
+            }
             (false, Some(pressed)) => {
                 self.pressed_ms = None;
                 let held = now.saturating_sub(pressed);
@@ -438,6 +444,7 @@ impl Node {
                 Ok(bright) => {
                     self.screen.set_bright(bright);
                     self.bright = bright;
+                    self.care.touched(device_ms());
                     self.save(|settings| settings.bright = format!("{bright}"));
                 }
                 _ => self.say("error bright 0 to 255".into()),
@@ -505,6 +512,8 @@ impl Node {
     fn state(&self, now: u64) -> State {
         if let Some(percent) = self.control.update_percent(now) {
             State::Updating(percent)
+        } else if self.care.heat.cooling() {
+            State::Cooling
         } else if let Some(height) = self.runner.engine.syncing_to() {
             State::Syncing(height)
         } else if self.memory_full {

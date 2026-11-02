@@ -58,10 +58,12 @@ pub struct Cost {
 }
 
 /// The most signature checks a node takes in one transaction. This is a node's policy, as Bitcoin's
-/// standard transactions are, and a block holding more is still valid. A board at 80 MHz took 2.5 s
-/// for a block of 8 merged coins, so a check costs it about 310 ms at most: 32 checks hold it for
-/// about 10 s, a third of the usual block time, and 32 plain inputs fill a usual block of 4,096 bytes.
-pub const MOST_SIGNATURE_CHECKS: usize = 32;
+/// standard transactions are, and a block holding more is still valid. A board at 80 MHz measured
+/// 115 ms for its slowest check, and it answers nobody while it checks. A neighbour counts as gone
+/// after 3,500 ms of silence with hellos a second apart, which leaves 2,500 ms: 20 checks take
+/// 2,300 ms and leave the rest for reading the transaction. So a stranger's payment cannot cost
+/// a board its links. It does not bound a block, which takes real work to make.
+pub const MOST_SIGNATURE_CHECKS: usize = 20;
 /// One lock with its unlock must fit in this many steps, as [`crate::beta`] counts them.
 pub const MOST_OPS: usize = 200;
 /// A lock travels inside a transaction output, and a board has to keep that coin.

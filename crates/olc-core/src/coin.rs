@@ -242,6 +242,16 @@ impl<'de> Deserialize<'de> for SpokenAdded {
     }
 }
 
+/// The start of `bytes`'s hash, for reading.
+fn short_name(bytes: &[u8]) -> String {
+    let hash = olc_crypto::hash(bytes);
+    let mut text = String::new();
+    for byte in &hash[..4] {
+        let _ = fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
+    }
+    text
+}
+
 impl CoinConfig {
     /// The default coin. Its first difficulty is in the genesis block and stays. From there the
     /// retarget follows the hash power present, down to one device at 1,000 hashes per second
@@ -285,17 +295,33 @@ impl CoinConfig {
 
     /// A short name for this coin's rule changes. Empty when it has none, so a coin without forks
     /// is named as it always was.
+    /// The first height where this coin and `other` go by different rules, if there is one. Blocks
+    /// below it mean the same to both, and blocks from it on belong to one side only.
+    pub fn parts_from(&self, other: &Self) -> Option<u64> {
+        if self.rules_id() == other.rules_id() {
+            return None;
+        }
+        let same = self.forks.iter().zip(&other.forks).take_while(|(ours, theirs)| ours == theirs);
+        let same = same.count();
+        let next = |coin: &Self| coin.forks.get(same).map(|fork| fork.from_height);
+        [next(self), next(other)].into_iter().flatten().min().or(Some(0))
+    }
+
     pub fn forks_id(&self) -> String {
         if self.forks.is_empty() {
             return String::new();
         }
         let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
-        let hash = olc_crypto::hash(&postcard::to_allocvec(&forks).unwrap_or_default());
-        let mut text = String::new();
-        for byte in &hash[..4] {
-            let _ = fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
-        }
-        text
+        short_name(&postcard::to_allocvec(&forks).unwrap_or_default())
+    }
+
+    /// A short name for every rule this coin runs by, now and at later heights. Two nodes on one
+    /// genesis with different names leave each other at the height their rules part. Words a
+    /// person sees, such as the coin's name, do not count.
+    pub fn rules_id(&self) -> String {
+        let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
+        let rules = (&self.rules, self.rules.min_difficulty, self.rules.floor_from_height, forks);
+        short_name(&postcard::to_allocvec(&rules).unwrap_or_default())
     }
 
     /// Fills in a floor left open by a file or answer from before floors. OLC takes its own, and

@@ -1,8 +1,7 @@
 //! The thread behind the window: it takes commands, keeps the node, the looks around and the node
 //! processes going, and publishes a fresh snapshot a few times a second.
 use super::coins::{
-    bring_old_blocks, coin_folder, format_coins, load_coin, parse_coins, read_coin_file,
-    save_coin, write_coin_file,
+    bring_old_blocks, coin_folder, load_coin, read_coin_file, save_coin, write_coin_file,
 };
 use super::board_action::BoardAction;
 use olc_store::coin_file::new_coin;
@@ -14,7 +13,8 @@ use super::host_parts::full_rate;
 use super::pool_run::{PoolSeat, PoolStart};
 use olc_platform::platform;
 use super::rows::{
-    board_entry, coin_of_board, device_kind, hostname, keeps_of, merge_local, own_entry, reach_of_board,
+    board_entry, coin_of_board, device_kind, earlier_rules, hostname, keeps_of, merge_local,
+    on_other_rules, own_entry, reach_of_board,
 };
 use super::radios::bluetooth_here;
 use super::returning::{is_returning, Returning};
@@ -27,13 +27,13 @@ use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Card;
 use olc_store::NodeSettings;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-
+use std::time::{Duration, Instant};
 
 const PUBLISH_EVERY: Duration = Duration::from_millis(400);
 
@@ -71,6 +71,14 @@ impl Core {
 
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    /// Waits until what a person asked for is done, so closing the window while a chain loads
+    /// takes nothing with it.
+    pub fn finish(&self) {
+        let (done, wait) = channel();
+        self.send(Command::Finish(done));
+        let _ = wait.recv();
     }
 }
 
@@ -112,6 +120,9 @@ struct Service {
     full_rate: u64,
     notice: Option<Notice>,
     notices: Arc<AtomicU64>,
+    asked_boards: Option<Instant>,
+    /// Orders that wait for a chain on its way in, oldest first.
+    held: VecDeque<Command>,
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
     pool: PoolSeat,
@@ -171,6 +182,8 @@ impl Service {
             full_rate: full_rate(),
             notice: None,
             notices: Arc::default(),
+            asked_boards: None,
+            held: VecDeque::new(),
             late: Arc::default(),
             pool: PoolSeat::default(),
             out,
@@ -189,7 +202,7 @@ impl Service {
         }
         loop {
             match commands.recv_timeout(PUBLISH_EVERY) {
-                Ok(command) => self.handle(command),
+                Ok(command) => self.take(command),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     self.local.stop_all();
@@ -197,8 +210,9 @@ impl Service {
                 }
             }
             while let Ok(command) = commands.try_recv() {
-                self.handle(command);
+                self.take(command);
             }
+            self.let_go();
             self.listen();
             self.publish();
         }
@@ -221,6 +235,7 @@ impl Service {
 
     fn handle(&mut self, command: Command) {
         match command {
+            Command::Finish(_) => {}
             Command::Own(Personal::SetLight(on)) => self.change_node(|node| node.light = on),
             Command::Own(Personal::SetBluetooth(on)) if on && !bluetooth_here() => {
                 self.say("notice.no_bluetooth", String::new(), false);
@@ -234,7 +249,15 @@ impl Service {
             }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => {
+                let was = bind_host(&self.settings);
                 self.settings.take_choices(&settings);
+                let now = bind_host(&self.settings);
+                // A person who shuts others out expects it now, not at the next start.
+                if now != was {
+                    if let Err(error) = self.host.listen_on(&now) {
+                        self.say("notice.listen_failed", error, false);
+                    }
+                }
                 self.host.set_cap(self.settings.hash_cap);
                 self.save();
                 self.plan_scan();
@@ -452,24 +475,9 @@ impl Service {
     }
 
     /// Moves this app to a coin a person picked. Every node process follows it.
-    fn join(&mut self, coin: CoinConfig, address: Option<String>) {
-        if self.settings.coin.as_deref() == Some(coin_folder(&coin).as_str()) {
-            if let Some(address) = address {
-                self.settings.peers.push(address.clone());
-                self.save();
-                self.host.connect(address);
-            }
-            return;
-        }
-        let name = coin.name.clone();
-        if self.move_to(coin, address.into_iter().collect(), None) {
-            self.say("notice.joined", name, true);
-        }
-    }
-
     /// Takes this node and its local nodes to `coin`. A fork names the folder it `leaves`, whose
     /// chain it carries on from.
-    fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
+    pub(super) fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
         let name = coin_folder(&coin);
         if let Err(error) = save_coin(&self.paths, &coin) {
             self.say("notice.save_failed", error, false);
@@ -489,21 +497,6 @@ impl Service {
         }
         self.start_nodes();
         true
-    }
-
-    fn pay(&mut self, to: &str, amount: &str) {
-        let Some(units) = parse_coins(amount).filter(|units| *units > 0) else {
-            self.say("notice.bad_amount", amount.to_string(), false);
-            return;
-        };
-        let result = match self.host.pay(to, units) {
-            Ok(_) => ("notice.sent", format_coins(units), true),
-            Err(error) => {
-                let (key, detail) = orders::pay_fault(&error);
-                (key, detail, false)
-            }
-        };
-        self.say(result.0, result.1, result.2);
     }
 
     fn publish(&mut self) {
@@ -526,8 +519,13 @@ impl Service {
         let answers: Vec<_> = answers.collect();
         let mut known: Vec<_> = entries.iter().filter_map(|entry| entry.identity.clone()).collect();
         known.extend(answers.iter().flatten().cloned());
+        known.extend(node.coin.iter().flat_map(earlier_rules));
+        let told = self.told.lock().map(|known| known.clone()).unwrap_or_default();
+        let said_rules = |row: &BoardRow| told.get(&row.seen.id).and_then(|told| told.state.rules.clone());
         entries.extend(rows.iter().zip(answers).zip(&hellos).map(|((row, said), hello)| {
-            board_entry(row, coin_of_board(row.seen.beacon.genesis, said, &known), hello.as_ref())
+            let rules = said_rules(row);
+            let coin = coin_of_board((row.seen.beacon.genesis, rules.as_deref()), said, &known);
+            board_entry(row, coin, hello.as_ref())
         }));
         if let Some(fleet) = &self.fleet {
             let auto = self.settings.auto_update;
@@ -537,12 +535,15 @@ impl Service {
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());
-        let told = self.told.lock().map(|known| known.clone()).unwrap_or_default();
         let boards = rows
             .into_iter()
             .zip(links)
             .zip(hellos.iter().map(|hello| keeps_of(hello.as_ref())))
             .map(|((row, link), keeps)| BoardView {
+                other_rules: on_other_rules(
+                    (row.seen.beacon.genesis, said_rules(&row).as_deref()),
+                    node.coin.as_ref(),
+                ),
                 keeps,
                 returning: is_returning(&row),
                 reach: reach_of_board(&row, link),

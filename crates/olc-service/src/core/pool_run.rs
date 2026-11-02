@@ -222,15 +222,18 @@ impl PoolSeat {
         };
         let boards = run.workers().filter(|w| matches!(w, Worker::Board(_))).collect();
         self.ask_boards(boards, fleet);
+        let Ok(mut runner) = host.ready() else {
+            // The shares wait: this engine's chain goes, and the next one takes them.
+            self.run = Some(run);
+            return;
+        };
         let mut shares = std::mem::take(&mut self.shares);
         if let Ok(mut found) = self.board_shares.lock() {
             shares.append(&mut found);
         }
-        let lines = host
-            .runner
-            .lock()
-            .map(|mut runner| run.step(&mut runner.engine, shares, unix_ms()));
-        for (worker, line) in lines.unwrap_or_default() {
+        let lines = run.step(&mut runner.engine, shares, unix_ms());
+        drop(runner);
+        for (worker, line) in lines {
             tell(worker, line, local, fleet);
         }
         self.view = run.view();

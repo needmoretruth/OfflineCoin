@@ -19,6 +19,7 @@ impl Language {
 pub fn state_word(state: State, language: Language) -> String {
     match state {
         State::Updating(percent) => format!("{} {percent}%", language.pick("UPDATE", "업데이트")),
+        State::Cooling => language.pick("COOLING", "식히는 중").into(),
         State::Syncing(height) => format!("{} {height}", language.pick("SYNC", "동기화")),
         State::MemoryFull => language.pick("FULL", "메모리 부족").into(),
         State::Offline => language.pick("OFFLINE", "연결 끊김").into(),
@@ -39,6 +40,7 @@ pub fn state_sentence(state: State, height: u64, language: Language) -> String {
         (State::Mining, Language::Korean) => format!("{next}번 블록 채굴 중"),
         (State::Idle, _) => language.pick("Mining is off", "채굴 꺼짐").into(),
         (State::Offline, _) => language.pick("Offline", "연결 끊김").into(),
+        (State::Cooling, _) => language.pick("Cooling down", "열을 식히는 중").into(),
         (State::MemoryFull, _) => language.pick("Memory is full", "메모리 부족").into(),
     }
 }

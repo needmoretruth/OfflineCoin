@@ -86,7 +86,8 @@ fn can_pay(board: &BoardView) -> bool {
     board.seen.online && !board.returning
 }
 
-/// The coin a board runs, when this app has heard of it.
+/// The coin a board runs, when this app has heard of it. A fork keeps its coin's name and letters,
+/// so the genesis is enough here.
 pub(super) fn coin_of<'a>(cx: &Cx<'a>, board: &BoardView) -> Option<&'a CoinConfig> {
     let identities = cx.snap.groups.iter().filter_map(|group| group.identity.as_ref());
     let genesis = board.seen.beacon.genesis;

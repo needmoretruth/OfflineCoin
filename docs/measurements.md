@@ -66,6 +66,21 @@ Sync between the Linux desktop and a board:
 
 Payments confirmed in both directions on each of the three.
 
+One block and one payment each way between the desktop, a full node that does not mine, and one USB board, with every other way between them shut by `ignore` on both ends ([desktop_links.py](../tools/measure/desktop_links.py)). On Wi-Fi the desktop joined the board's own access point. Times are seconds. A payment to the desktop counts once the desktop holds it in a block. A payment to the board counts once it waits in the board's pool, and the board's own block that follows holds it:
+
+| Link | Board | Payment to desktop | Block to board | Payment to board | Block to desktop |
+|---|---|---|---|---|---|
+| ESP-NOW | first | 9.3 | 33.6 | 0.7 | 189.5 |
+| ESP-NOW | second | 56.9 | 9.0 | 0.6 | 172.1 |
+| Bluetooth | first | 9.4 | 5.2 | 1.1 | 773.8 |
+| Bluetooth | second | 33.0 | 2.5 | 0.6 | 255.6 |
+| Wi-Fi | first | 9.4 | 14.7 | 0.5 | 113.9 |
+| Wi-Fi | second | 17.9 | 7.8 | 0.4 | 313.0 |
+
+Both block columns wait for someone to find a block at a hash cap of 1,000, so they measure mining more than the link.
+
+Two desktops over a VPN tunnel, through an SSH port forward, each node listening on its own computer only: 206 blocks synced in about 40 s, a payment each way in a block on the far side in 73.0 s and 8.2 s, and a block mined on one side reached the other in 27.8 s.
+
 Corrupted frames over jumpers in 30 seconds, in each direction:
 
 | Baud | Frames |

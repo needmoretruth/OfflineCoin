@@ -76,6 +76,7 @@ fn state_line(ui: &mut Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
     let node = &snap.node;
     let (colour, key) = match () {
         () if node.loading => (t.warn, "state.loading"),
+        () if node.needs_history.is_some() => (t.warn, "state.no_old_blocks"),
         () if node.syncing_to.is_some() => (t.warn, "state.catching_up"),
         () if node.mining => (t.good, "state.mining"),
         () if node.peers > 0 => (t.info, "state.connected"),

@@ -4,6 +4,10 @@ use crate::core::host::{HeardFrom, PayError};
 use crate::discovery::ScanPlan;
 use olc_node::Hello;
 use olc_wallet::WalletError;
+use std::time::{Duration, Instant};
+
+/// Long enough to leave a radio alone, short enough that a board's move shows soon after.
+const ASK_BOARDS_EVERY: Duration = Duration::from_secs(20);
 
 impl Service {
     pub(super) fn plan_scan(&self) {
@@ -71,11 +75,27 @@ impl Service {
                 _ => {}
             }
         }
+        self.ask_boards();
         self.local.reap();
         self.pool.step(&self.host, &mut self.local, self.fleet.as_ref());
     }
 
+    /// A board's rules change with no sign in its beacon, so each is asked now and then.
+    fn ask_boards(&mut self) {
+        if self.asked_boards.is_some_and(|asked| asked.elapsed() < ASK_BOARDS_EVERY) {
+            return;
+        }
+        self.asked_boards = Some(Instant::now());
+        let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows()).unwrap_or_default();
+        for row in rows.iter().filter(|row| row.seen.online && row.job.is_none()) {
+            self.read_state(row.seen.id);
+        }
+    }
+
     fn own_hello(&self) -> Option<Hello> {
+        if self.host.opening() {
+            return None;
+        }
         let runner = self.host.runner.try_lock().ok()?;
         let chain = runner.engine.chain();
         Some(Hello {

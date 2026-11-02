@@ -25,6 +25,10 @@ pub struct BoardState {
     pub links: Option<String>,
     /// Where its mined coins go.
     pub miner: Option<String>,
+    /// The short name of the rules it runs by. A build from before this word says nothing.
+    pub rules: Option<String>,
+    /// Slowed by its heat guard until it cools.
+    pub cooling: Option<bool>,
 }
 
 impl BoardState {
@@ -45,6 +49,8 @@ impl BoardState {
             keep: read(fields, "keep"),
             links: read(fields, "links"),
             miner: read(fields, "miner"),
+            rules: read(fields, "rules"),
+            cooling: read(fields, "cooling"),
         }
     }
 

@@ -1,13 +1,38 @@
 //! Small pieces of starting and showing one node.
-use super::host::Plan;
-use olc_core::{BlockHeader, Plugins};
+use olc_core::{BlockHeader, CoinConfig, Plugins, Tx};
 use olc_link_tcp::TcpLink;
-use olc_node::Engine;
+use olc_node::{Card, Engine, Runner};
 use olc_store::{load_headers, NodeSettings};
 use olc_pow::ProofOfWork;
 use olc_wallet::{format_address, parse_address};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+pub struct Plan {
+    pub coin: CoinConfig,
+    pub folder: PathBuf,
+    pub wallet_folder: PathBuf,
+    pub bind_host: String,
+    pub port: u16,
+    pub port_tries: u16,
+    pub peers: Vec<String>,
+    pub cap: u64,
+    pub mining: bool,
+    pub card: Card,
+    /// Bytes the chain may take on disk.
+    pub storage: Option<u64>,
+}
+
+/// Puts `engine` in the node. Payments still waiting stay with it on the same coin: a person sent
+/// them, and a change of settings must not take them back.
+pub(super) fn carry_pool(runner: &mut Runner, engine: Engine) {
+    let same_coin = runner.engine.chain().genesis_id() == engine.chain().genesis_id();
+    let waiting: Vec<Tx> = runner.engine.pool().to_vec();
+    runner.set_engine(engine);
+    for tx in waiting.into_iter().filter(|_| same_coin) {
+        runner.engine.send_signed(tx);
+    }
+}
 
 /// An engine set the way this chain's folder says.
 pub fn engine_with(mut engine: Engine, settings: &NodeSettings, folder: &Path) -> Engine {

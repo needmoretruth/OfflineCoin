@@ -379,10 +379,13 @@ pub fn run(launch: Launch) -> Result<(), String> {
         viewport,
         ..Default::default()
     };
-    eframe::run_native(
+    let closing = core.clone();
+    let ran = eframe::run_native(
         "OLC Core",
         options,
         Box::new(move |_| Ok(Box::new(App::new(core, settings, Some(instance))))),
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string());
+    closing.finish();
+    ran
 }

@@ -2,11 +2,15 @@
 use super::Service;
 use crate::core::board_action::BoardAction;
 use crate::core::board_lines::{read_state, run_action};
-use crate::core::commands::Personal;
+use crate::core::coins::{coin_folder, format_coins, parse_coins};
+use crate::core::commands::{Command, Personal};
 use crate::core::host::PayError;
 use olc_control::BoardId;
+use olc_core::CoinConfig;
 use olc_node::Rank;
 use olc_wallet::WalletError;
+use std::thread;
+use std::time::Duration;
 
 /// A failed payment as the key of a sentence and what to put in it.
 pub(super) fn pay_fault(error: &PayError) -> (&'static str, String) {
@@ -18,7 +22,70 @@ pub(super) fn pay_fault(error: &PayError) -> (&'static str, String) {
     }
 }
 
+/// How often a chain's loading is looked at while the app closes.
+const FINISH_STEP: Duration = Duration::from_millis(20);
+
 impl Service {
+    /// Runs an order now, or keeps it for when the chain is in. Nothing lands on an engine about
+    /// to be thrown away, and orders stay in the order they came.
+    pub(super) fn take(&mut self, command: Command) {
+        if let Command::Finish(done) = command {
+            while !self.held.is_empty() {
+                self.let_go();
+                thread::sleep(FINISH_STEP);
+            }
+            let _ = done.send(());
+            return;
+        }
+        if !command.needs_the_chain() || !(self.host.opening() || !self.held.is_empty()) {
+            return self.handle(command);
+        }
+        if self.held.is_empty() {
+            self.say("notice.held", String::new(), true);
+        }
+        self.held.push_back(command);
+    }
+
+    /// Runs what waited. An order that moves the node to a chain makes the rest wait for that one.
+    pub(super) fn let_go(&mut self) {
+        while !self.host.opening() {
+            let Some(command) = self.held.pop_front() else {
+                return;
+            };
+            self.handle(command);
+        }
+    }
+
+    pub(super) fn join(&mut self, coin: CoinConfig, address: Option<String>) {
+        if self.settings.coin.as_deref() == Some(coin_folder(&coin).as_str()) {
+            if let Some(address) = address {
+                self.settings.peers.push(address.clone());
+                self.save();
+                self.host.connect(address);
+            }
+            return;
+        }
+        let name = coin.name.clone();
+        if self.move_to(coin, address.into_iter().collect(), None) {
+            self.say("notice.joined", name, true);
+        }
+    }
+
+    pub(super) fn pay(&mut self, to: &str, amount: &str) {
+        let Some(units) = parse_coins(amount).filter(|units| *units > 0) else {
+            self.say("notice.bad_amount", amount.to_string(), false);
+            return;
+        };
+        let result = match self.host.pay(to, units) {
+            Ok(_) => ("notice.sent", format_coins(units), true),
+            Err(error) => {
+                let (key, detail) = pay_fault(&error);
+                (key, detail, false)
+            }
+        };
+        self.say(result.0, result.1, result.2);
+    }
+
     pub(super) fn add_address(&mut self, address: String) {
         let address = address.trim().to_string();
         if address.is_empty() {

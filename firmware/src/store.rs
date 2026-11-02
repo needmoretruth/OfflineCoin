@@ -118,6 +118,31 @@ pub struct Store {
     boot_word: Option<(u32, u8)>,
 }
 
+/// What a sector of flash holds, for counting how fast each part wears. `Saves` counts the first
+/// sector of a state, which is erased once for each whole state saved.
+#[derive(Clone, Copy)]
+pub enum Worn {
+    Log,
+    State,
+    Saves,
+    Meta,
+    Control,
+    Image,
+}
+
+/// The parts one erase at `at` counts for.
+pub fn worn_by(at: u32) -> impl Iterator<Item = Worn> {
+    let part = match at {
+        ..META => Worn::Control,
+        STATES..LOG => Worn::State,
+        LOG..KEYS => Worn::Log,
+        META..0xC0_0000 => Worn::Meta,
+        _ => Worn::Image,
+    };
+    let saved = matches!(part, Worn::State) && (at - STATES).is_multiple_of(STATE_SIZE);
+    core::iter::once(part).chain(saved.then_some(Worn::Saves))
+}
+
 /// The chip as the wear rings see it.
 struct Nor;
 

@@ -39,7 +39,7 @@ pub struct Coins {
 }
 
 /// Shown only when this node cannot go on by itself. Taking a peer's word is the person's call.
-fn history_card(ui: &mut Ui, cx: &mut Cx) {
+pub(super) fn history_card(ui: &mut Ui, cx: &mut Cx) {
     let t = cx.t;
     let node = &cx.snap.node;
     if node.assumed_from.is_some() {
@@ -56,6 +56,8 @@ fn history_card(ui: &mut Ui, cx: &mut Cx) {
     card(ui, t, |ui| {
         section(ui, cx.say("history.title"));
         ui.label(cx.fill("history.body", &[&oldest]));
+        ui.label(cx.say("history.todo"));
+        ui.add_space(tokens::GAP);
         if button(ui, t, cx.say("history.read"), Kind::Main).clicked() {
             slip = Some(cx.slip_for(Slipping {
                 what: cx.say("history.title"),

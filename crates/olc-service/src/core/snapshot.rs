@@ -59,7 +59,7 @@ pub struct NodeView {
     pub fits: Option<u64>,
     /// Unspent coins the whole node tracks.
     pub unspent: usize,
-    /// The peer ahead of this node whose blocks nobody can give it, and how far it is.
+    /// The peer ahead of this node whose blocks nobody can give it, and the oldest block one holds.
     pub needs_history: Option<(u32, u64)>,
     /// Set after a person chose to trust a peer's snapshot.
     pub assumed_from: Option<u32>,
@@ -105,6 +105,8 @@ pub struct BoardView {
     pub returning: bool,
     /// Its settings, once the board has said them.
     pub state: BoardState,
+    /// On the coin this app runs, by other rules.
+    pub other_rules: bool,
 }
 
 #[derive(Clone, Debug, Default)]

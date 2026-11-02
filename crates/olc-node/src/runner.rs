@@ -76,6 +76,13 @@ pub struct Runner {
     dialer: Dialer,
     hello_ms: u64,
     moves: VecDeque<Move>,
+    /// Nodes this one acts as if it cannot hear, on every link. A test lays real nodes out in a
+    /// line on one desk this way.
+    ignores: fn(u64) -> bool,
+}
+
+fn hears_everyone(_node: u64) -> bool {
+    false
 }
 
 fn id_of_address(address: &[u8]) -> u64 {
@@ -101,8 +108,16 @@ impl Runner {
             dialer: Dialer::default(),
             hello_ms: 0,
             moves: VecDeque::new(),
+            ignores: hears_everyone,
         }
     }
+
+    /// Chooses which nodes this one acts as if it cannot hear. A neighbour stays known by name,
+    /// so whatever link it moves to, its chain traffic is dropped unread and it is never dialled.
+    pub fn set_ignores(&mut self, ignores: fn(u64) -> bool) {
+        self.ignores = ignores;
+    }
+
 
     /// Moves this node to another coin. Links stay open and traffic of the old coin is dropped
     /// unread from now on.
@@ -407,9 +422,16 @@ impl Runner {
                             if let Some(gone) = self.table.name(index, number, node, device_ms) {
                                 self.engine.forget_peer(gone);
                             }
-                            self.dialer.learn(index, number, node);
+                            if (self.ignores)(node) {
+                                if let Some(peer) = self.table.peer_on(index, number) {
+                                    self.engine.forget_peer(peer);
+                                }
+                            } else {
+                                self.dialer.learn(index, number, node);
+                            }
                             continue;
                         }
+                        _ if self.table.node_on(index, number).is_some_and(self.ignores) => continue,
                         Some(Message::Who) => asked.push(from),
                         Some(Message::Hello(hello)) if self.hellos.len() < MAX_HELLOS => {
                             self.hellos.push_back((from, *hello));
@@ -417,7 +439,9 @@ impl Runner {
                         _ => {}
                     }
                     self.table.hear(index, number, device_ms);
-                } else if mark == self.mark && !self.offline {
+                } else if mark == self.mark && !self.offline 
+                    && !self.table.node_on(index, number).is_some_and(self.ignores)
+                {
                     let neighbour = self.table.hear(index, number, device_ms);
                     if let Some(message) = Message::decode(body) {
                         self.engine.on_message(neighbour, message);

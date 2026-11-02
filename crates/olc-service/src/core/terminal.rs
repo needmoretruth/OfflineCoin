@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 
 /// Time for boards to show up after the core starts.
 const BOARDS_APPEAR: Duration = Duration::from_secs(8);
+/// How long the list stays the same before it counts as whole.
+const BOARDS_SETTLE: Duration = Duration::from_secs(4);
 /// Time for a stored chain to load.
 const CHAIN_LOADS: Duration = Duration::from_secs(120);
 /// Time for a node nearby to answer.
@@ -170,9 +172,15 @@ impl Desk for Terminal {
     fn boards(&mut self) -> Result<Vec<BoardView>, String> {
         let core = self.core()?;
         let started = Instant::now();
+        let (mut seen, mut grew) = (0, Instant::now());
         loop {
             let boards = core.snapshot().boards.clone();
-            if !boards.is_empty() || started.elapsed() >= BOARDS_APPEAR {
+            if boards.len() != seen {
+                (seen, grew) = (boards.len(), Instant::now());
+            }
+            // The first to answer is rarely the one asked for: a radio's beacon beats a cable's.
+            let settled = seen > 0 && grew.elapsed() >= BOARDS_SETTLE;
+            if settled || started.elapsed() >= BOARDS_APPEAR {
                 return Ok(boards);
             }
             thread::sleep(LOOK_EVERY);
