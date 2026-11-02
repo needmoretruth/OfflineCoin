@@ -2,7 +2,7 @@
 
 버전마다 달라진 내용입니다. 숫자를 잰 방법은 [docs/measurements.md](docs/measurements.md)에 있습니다.
 
-## [Unreleased]
+## [0.1.0] - 2026-11-03
 
 ### 추가
 

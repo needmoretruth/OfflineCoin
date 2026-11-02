@@ -2,7 +2,7 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-03
 
 ### Added
 
