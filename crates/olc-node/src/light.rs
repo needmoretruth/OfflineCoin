@@ -11,7 +11,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
 use olc_core::{
-    Address, BlockHeader, Chain, CoinProof, HeaderChain, Offered, OutPoint, Tx, Unspent,
+    Address, BlockHeader, Chain, CoinConfig, CoinProof, HeaderChain, Offered, OutPoint, Tx, Unspent,
 };
 use olc_wallet::Wallet;
 
@@ -58,7 +58,7 @@ pub struct Light {
     status: LightStatus,
     outbox: VecDeque<Outgoing>,
     now_ms: u64,
-    maturity: u64,
+    coin: CoinConfig,
 }
 
 impl Coins for Light {
@@ -74,7 +74,8 @@ impl Coins for Light {
     }
 
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
-        !entry.coinbase || spend_height >= entry.height + self.maturity
+        let maturity = self.coin.rules_at(spend_height).coinbase_maturity;
+        !entry.coinbase || spend_height >= entry.height + maturity
     }
 }
 
@@ -93,7 +94,7 @@ impl Light {
             status: LightStatus::default(),
             outbox: VecDeque::new(),
             now_ms: 0,
-            maturity: chain.rules().coinbase_maturity,
+            coin: chain.config().clone(),
         }
     }
 
@@ -124,9 +125,8 @@ impl Light {
 
     /// Headers saved earlier. Each is checked again, so a damaged file costs only what follows.
     pub fn restore(&mut self, saved: &[BlockHeader], chain: &Chain) {
-        let rules = chain.rules();
         let consensus = chain.plugins().consensus.as_ref();
-        let _ = self.headers.offer(saved, rules, consensus);
+        let _ = self.headers.offer(saved, chain.config(), consensus);
     }
 
     pub fn take_outgoing(&mut self) -> Option<Outgoing> {
@@ -228,7 +228,7 @@ impl Light {
 
     fn take_headers(&mut self, batch: &[BlockHeader], chain: &Chain) -> bool {
         let consensus = chain.plugins().consensus.as_ref();
-        match self.headers.offer(batch, chain.rules(), consensus) {
+        match self.headers.offer(batch, chain.config(), consensus) {
             Ok(Offered::Reorganized { .. }) => {
                 self.status.reorganized += 1;
                 self.round = None;

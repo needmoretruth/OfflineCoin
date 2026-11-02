@@ -8,7 +8,7 @@ use crate::sync::BLOCKS_AT_ONCE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
-use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Served, Tx};
+use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Rules, Served, Tx};
 use olc_wallet::{prepare, Order, Unsigned, WalletError};
 
 /// A peer that asks again this soon has not had time to see the answer. Asks pile up while a slow
@@ -61,6 +61,12 @@ impl Engine {
 
     pub fn light(&self) -> Option<&Light> {
         self.light.as_deref()
+    }
+
+    /// The rules for the next block, by the headers when this node keeps no blocks.
+    pub fn rules(&self) -> &Rules {
+        let height = self.light.as_deref().map_or(self.chain.height(), |light| light.headers().height());
+        self.chain.config().rules_at(height + 1)
     }
 
     /// Where this node's wallet finds its coins.

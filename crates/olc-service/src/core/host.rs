@@ -278,7 +278,7 @@ impl Host {
     pub fn pay(&self, to: &str, amount: u64) -> Result<Hash, PayError> {
         let to = parse_address(to.trim()).ok_or(PayError::BadAddress)?;
         let mut runner = self.runner.lock().map_err(|_| PayError::Stopped)?;
-        let fee = runner.engine.chain().rules().min_fee;
+        let fee = runner.engine.rules().min_fee;
         let id = runner.engine.pay(to, amount, fee).map_err(PayError::Wallet)?;
         if let Ok(mut waiting) = self.state.waiting.lock() {
             let time_ms = unix_ms();

@@ -8,6 +8,8 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::Address;
+use core::fmt;
+use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// One coin is 100,000,000 base units, as in Bitcoin.
@@ -128,21 +130,91 @@ pub struct CoinConfig {
     /// coin's genesis came first, so it only hashes the message.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub message_in_block: bool,
+    /// Rule changes, oldest first. The genesis and history stay, and each applies from its height.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub forks: Vec<Fork>,
+}
+
+/// New rules from a height on, on the same genesis and history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fork {
+    pub from_height: u64,
+    pub rules: Rules,
+}
+
+/// A fork in binary, where [`Rules`] leaves out what came later: height, rules, floor, floor start.
+type ForkBytes = (u64, Rules, u64, u64);
+
+impl Fork {
+    fn bytes(&self) -> ForkBytes {
+        (self.from_height, self.rules.clone(), self.rules.min_difficulty, self.rules.floor_from_height)
+    }
+
+    fn from_bytes(read: ForkBytes) -> Self {
+        let (from_height, mut rules, min_difficulty, floor_from_height) = read;
+        rules.min_difficulty = min_difficulty;
+        rules.floor_from_height = floor_from_height;
+        Self { from_height, rules }
+    }
+
+    /// Added to the difficulty at the fork's first block. Both sides then refuse each other from
+    /// that height whichever rule changed, even a change only one side would notice, and a header
+    /// alone shows which side it is on.
+    pub fn mark(&self) -> u64 {
+        let bytes = postcard::to_allocvec(&self.bytes()).unwrap_or_default();
+        1 + u64::from(olc_crypto::hash(&bytes)[0])
+    }
 }
 
 /// What a coin gained after older builds fixed its binary layout. It travels after the end of
 /// a message, where they stop reading, and a message from one of them just ends before it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CoinAdded {
     min_difficulty: u64,
     message_in_block: bool,
     floor_from_height: u64,
+    forks: Vec<ForkBytes>,
+}
+
+impl Serialize for CoinAdded {
+    /// A coin without forks stays byte for byte what it was.
+    fn serialize<S: Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
+        let first = (self.min_difficulty, self.message_in_block, self.floor_from_height);
+        match self.forks.is_empty() {
+            true => first.serialize(writer),
+            false => (first.0, first.1, first.2, &self.forks).serialize(writer),
+        }
+    }
+}
+
+struct AddedFields;
+
+impl<'de> Visitor<'de> for AddedFields {
+    type Value = CoinAdded;
+
+    fn expecting(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        out.write_str("what a coin gained")
+    }
+
+    /// A message from an older build ends after the third field, or before the first.
+    fn visit_seq<A: SeqAccess<'de>>(self, mut fields: A) -> Result<CoinAdded, A::Error> {
+        let mut added = CoinAdded::default();
+        let first = fields.next_element().ok().flatten();
+        let second = first.and_then(|_| fields.next_element().ok().flatten());
+        let third = second.and_then(|_| fields.next_element().ok().flatten());
+        if let (Some(floor), Some(in_block), Some(from)) = (first, second, third) {
+            added.min_difficulty = floor;
+            added.message_in_block = in_block;
+            added.floor_from_height = from;
+            added.forks = fields.next_element().ok().flatten().unwrap_or_default();
+        }
+        Ok(added)
+    }
 }
 
 impl<'de> Deserialize<'de> for CoinAdded {
     fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
-        let read: (u64, bool, u64) = Deserialize::deserialize(reader).unwrap_or_default();
-        Ok(Self { min_difficulty: read.0, message_in_block: read.1, floor_from_height: read.2 })
+        Ok(reader.deserialize_tuple(4, AddedFields).unwrap_or_default())
     }
 }
 
@@ -160,7 +232,46 @@ impl CoinConfig {
             premine: Vec::new(),
             rules: Rules { floor_from_height: OLC_FLOOR_FROM_HEIGHT, ..Rules::default() },
             message_in_block: false,
+            forks: Vec::new(),
         }
+    }
+
+    /// The rules for a block at `height`.
+    pub fn rules_at(&self, height: u64) -> &Rules {
+        let fork = self.forks.iter().rev().find(|fork| height >= fork.from_height);
+        fork.map_or(&self.rules, |fork| &fork.rules)
+    }
+
+    /// The fork whose first block is at `height`.
+    pub fn fork_starting_at(&self, height: u64) -> Option<&Fork> {
+        self.forks.iter().find(|fork| fork.from_height == height)
+    }
+
+    /// Every set of rules this coin has had.
+    pub fn all_rules(&self) -> impl Iterator<Item = &Rules> {
+        core::iter::once(&self.rules).chain(self.forks.iter().map(|fork| &fork.rules))
+    }
+
+    /// The same coin without its last fork, which is the way back from it.
+    pub fn before_last_fork(&self) -> Option<Self> {
+        let mut coin = self.clone();
+        coin.forks.pop()?;
+        Some(coin)
+    }
+
+    /// A short name for this coin's rule changes. Empty when it has none, so a coin without forks
+    /// is named as it always was.
+    pub fn forks_id(&self) -> String {
+        if self.forks.is_empty() {
+            return String::new();
+        }
+        let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
+        let hash = olc_crypto::hash(&postcard::to_allocvec(&forks).unwrap_or_default());
+        let mut text = String::new();
+        for byte in &hash[..4] {
+            let _ = fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
+        }
+        text
     }
 
     /// Fills in a floor left open by a file or answer from before floors. OLC takes its own, and
@@ -174,6 +285,14 @@ impl CoinConfig {
                 self.rules.floor_from_height = olc.rules.floor_from_height;
             }
         }
+        self.forks.sort_by_key(|fork| fork.from_height);
+        let mut floor = self.rules.min_difficulty;
+        for fork in &mut self.forks {
+            if fork.rules.min_difficulty == 0 {
+                fork.rules.min_difficulty = floor;
+            }
+            floor = fork.rules.min_difficulty;
+        }
     }
 
     pub fn added(&self) -> CoinAdded {
@@ -181,6 +300,7 @@ impl CoinConfig {
             min_difficulty: self.rules.min_difficulty,
             message_in_block: self.message_in_block,
             floor_from_height: self.rules.floor_from_height,
+            forks: self.forks.iter().map(Fork::bytes).collect(),
         }
     }
 
@@ -188,6 +308,7 @@ impl CoinConfig {
         self.rules.min_difficulty = added.min_difficulty;
         self.rules.floor_from_height = added.floor_from_height;
         self.message_in_block = added.message_in_block;
+        self.forks = added.forks.into_iter().map(Fork::from_bytes).collect();
         self.settle_floor();
         self
     }

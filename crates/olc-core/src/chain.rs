@@ -112,8 +112,9 @@ impl Chain {
         &self.config
     }
 
+    /// The rules for the next block.
     pub fn rules(&self) -> &Rules {
-        &self.config.rules
+        self.config.rules_at(self.height() + 1)
     }
 
     pub fn plugins(&self) -> &Plugins {
@@ -164,7 +165,8 @@ impl Chain {
     }
 
     pub(crate) fn window(&self) -> u64 {
-        window(self.config.rules.retarget_interval)
+        let intervals = self.config.all_rules().map(|rules| rules.retarget_interval);
+        window(intervals.max().unwrap_or_default())
     }
 
     /// The block before `entry`, from memory or else from the log.
@@ -393,7 +395,8 @@ impl Chain {
     }
 
     pub fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
-        !entry.coinbase || spend_height >= entry.height + self.config.rules.coinbase_maturity
+        let maturity = self.config.rules_at(spend_height).coinbase_maturity;
+        !entry.coinbase || spend_height >= entry.height + maturity
     }
 
     /// The difficulty a block on top of `parent` must carry.
@@ -405,11 +408,10 @@ impl Chain {
     }
 
     pub(crate) fn difficulty_after(&self, entry: &Entry) -> u64 {
-        let rules = &self.config.rules;
         let consensus = self.plugins.consensus.as_ref();
-        difficulty_after(rules, consensus, &entry.header, entry.height + 1, || {
+        difficulty_after(&self.config, consensus, &entry.header, entry.height + 1, |interval| {
             let mut first = *entry;
-            for _ in 1..rules.retarget_interval {
+            for _ in 1..interval {
                 match self.parent_of(&first) {
                     Some(previous) => first = previous,
                     None => break,
@@ -422,7 +424,7 @@ impl Chain {
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
     pub fn check_tx(&self, tx: &Tx, height: u64) -> Result<u64, ChainError> {
         let view = Overlay::new(&self.unspent);
-        rules::check_tx(tx, height, &view, &self.config.rules, &self.plugins)
+        rules::check_tx(tx, height, &view, self.config.rules_at(height), &self.plugins)
     }
 
     /// False once `point` has been spent or was never made. Costs no signature checks.
@@ -456,7 +458,7 @@ impl Chain {
     /// Returns the ones that stay valid, then the rest with the reason each failed.
     pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
         let height = self.height() + 1;
-        let rules = &self.config.rules;
+        let rules = self.config.rules_at(height);
         let mut view = Overlay::new(&self.unspent);
         let (mut kept, mut refused) = (Vec::new(), Vec::new());
         for tx in txs {
@@ -496,7 +498,7 @@ impl Chain {
         note: &[u8],
     ) -> Block {
         let height = self.height() + 1;
-        let rules = &self.config.rules;
+        let rules = self.config.rules_at(height);
         let mut view = Overlay::new(&self.unspent);
         let mut chosen = Vec::new();
         let mut fees = 0u64;

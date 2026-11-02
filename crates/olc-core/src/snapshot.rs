@@ -71,9 +71,9 @@ impl Chain {
             return Err(SnapshotError::NotAhead);
         }
         let entries = self.check_headers(&snapshot)?;
-        let rules = &self.config.rules;
+        let reward = self.config.all_rules().map(|rules| rules.reward).max().unwrap_or_default();
         let premine: u64 = self.config.premine.iter().map(|(_, value)| *value).sum();
-        let most = rules.reward.saturating_mul(snapshot.height).saturating_add(premine);
+        let most = reward.saturating_mul(snapshot.height).saturating_add(premine);
         let coins = snapshot.unspent.values().map(|entry| entry.output.value);
         if coins.fold(0u64, u64::saturating_add) > most {
             return Err(SnapshotError::TooManyCoins);

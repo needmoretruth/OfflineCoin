@@ -36,7 +36,7 @@ impl Engine {
     /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
     pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
-        let fee = self.chain.rules().min_fee;
+        let fee = self.rules().min_fee;
         let tx = self.wallet.note(self.coins(), data, fee, &reserved)?;
         Ok(self.send_signed(tx))
     }

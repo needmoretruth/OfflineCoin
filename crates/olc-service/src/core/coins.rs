@@ -61,12 +61,14 @@ pub fn format_coins(units: u64) -> String {
     text.trim_end_matches('0').to_string()
 }
 
-/// The folder name of a coin: the start of its genesis id.
+/// The folder name of a coin: the start of its genesis id, then its rule changes. A fork keeps a
+/// chain of its own, so the coin it left stays whole and the way back stays open.
 pub fn coin_folder(coin: &CoinConfig) -> String {
-    coin.genesis().id()[..6]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let start: String = coin.genesis().id()[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+    match coin.forks_id() {
+        forks if forks.is_empty() => start,
+        forks => format!("{start}-{forks}"),
+    }
 }
 
 /// Writes the coin next to its chain and returns the file, which a node process reads.
