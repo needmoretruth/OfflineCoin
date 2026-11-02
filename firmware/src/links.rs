@@ -53,7 +53,7 @@ impl Node {
                 let ways: Vec<&str> =
                     neighbour.paths.iter().filter(|path| path.live).map(|path| medium(path.link)).collect();
                 format!(
-                    "near node={:016x} on={} ways={} moves={}",
+                    "node={:016x} on={} ways={} moves={}",
                     neighbour.node.unwrap_or(0),
                     neighbour.active.map_or("none", medium),
                     ways.join(","),
@@ -61,9 +61,8 @@ impl Node {
                 )
             })
             .collect();
-        for line in lines {
-            self.say(line);
-        }
+        // One line, because a screen or a remote asker gets one answer to one question.
+        self.say(format!("near {}", lines.join(" | ")));
     }
 
     /// Says when traffic left one link for another.

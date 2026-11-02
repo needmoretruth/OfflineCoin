@@ -433,10 +433,13 @@ impl Race<'_> {
             let attacker = self.attacker.status()?;
             let victim = self.victim.status_within(BRANCH_MOVE_WAIT)?;
             if attacker.tip == victim.tip {
-                if victim.reorg == earlier {
+                // The board counts a branch move just after it makes it, so give it one more look.
+                self.pause()?;
+                let settled = self.victim.status()?;
+                if settled.reorg == earlier {
                     return Err("the victim's own chain won the race.".into());
                 }
-                let (height, replaced) = victim.reorg;
+                let (height, replaced) = settled.reorg;
                 say!(
                     self,
                     "   the victim dropped {replaced} blocks at height {height}"

@@ -27,12 +27,17 @@ def _call(path, body=None):
 
 def boards():
     """Every board the app knows: name, id, kind, online, height, hashrate, build, limit."""
-    return _call("/api/boards")
+    return _call("/api/boards")["boards"]
 
 
 def line(board, text):
     """Runs a line on a board and returns its answer, or None."""
     return _call("/api/board", {"id": board, "line": text}).get("answer")
+
+
+def start_update(board):
+    """Asks the app to update a board to the build it carries."""
+    return _call("/api/update", {"id": board})
 
 
 def status(board):

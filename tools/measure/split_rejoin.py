@@ -29,7 +29,7 @@ def main():
           f"difficulty kept {one['difficulty']} left {two['difficulty']}", flush=True)
     boards.line(left, "offline off")
     start = time.time()
-    took = boards.wait_for(lambda: boards.status(left)["tip"] == boards.status(kept)["tip"], 240, 1)
+    took = boards.wait_for(lambda: boards.status(left).get("tip") == boards.status(kept).get("tip"), 240, 1)
     two = boards.status(left)
     print("same tip after", took, "seconds, height", two["height"], "reorg", two["reorg"], flush=True)
 
