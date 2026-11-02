@@ -447,7 +447,7 @@ impl Node {
                 }
             }
             (Some("offline"), Some(state), _) => self.runner.offline = state == "on",
-            (Some("espnow" | "bluetooth" | "links" | "near" | "wires"), _, _) => self.run_links_command(line),
+            (Some("espnow" | "bluetooth" | "links" | "near" | "wires" | "length"), _, _) => self.run_links_command(line),
             (Some("pay"), Some(address), Some(amount)) => self.pay(address, amount),
             (Some("pool"), Some("clear"), _) => self.runner.engine.clear_pool(),
             (Some("tx"), Some(id), _) => self.print_tx(id),

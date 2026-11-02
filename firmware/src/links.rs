@@ -37,6 +37,7 @@ impl Node {
             },
             (Some("wires"), None) => self.say(crate::uart::report()),
             (Some("near"), _) => self.print_neighbours(),
+            (Some("length"), _) => self.say(format!("length {}", line.len())),
             _ => self.say("error links".into()),
         }
     }

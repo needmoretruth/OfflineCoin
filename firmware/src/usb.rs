@@ -19,8 +19,8 @@ const MAX_LINE: usize = 20_000;
 /// buffer is small, so a long line would crawl at one buffer per mining batch.
 pub static LINE_IN_PROGRESS_MS: AtomicU32 = AtomicU32::new(0);
 
-/// Bytes wait here for the main loop. They come out of the cable's buffer only when a whole packet
-/// is in: reading while one arrives loses its first bytes, which damaged about one line in ten.
+/// Bytes wait here for the main loop. A full store leaves a packet in the cable's buffer and the
+/// computer waits. The main loop pulls too: a packet left there raises no second interrupt.
 const WAITING_BYTES: usize = 8 * 1024;
 const TAKEN_AT_ONCE: usize = 256;
 
@@ -29,8 +29,6 @@ struct Receiver {
     bytes: [u8; WAITING_BYTES],
     start: usize,
     size: usize,
-    /// The store filled up, so a packet stays in the cable's buffer and the computer waits.
-    held_back: bool,
 }
 
 impl Receiver {
@@ -42,20 +40,16 @@ impl Receiver {
             self.bytes[(self.start + self.size) % WAITING_BYTES] = byte;
             self.size += 1;
         }
-        self.held_back = true;
     }
 
     fn take(&mut self, out: &mut [u8; TAKEN_AT_ONCE]) -> usize {
+        self.pull();
         let count = self.size.min(TAKEN_AT_ONCE);
         for byte in &mut out[..count] {
             *byte = self.bytes[self.start];
             self.start = (self.start + 1) % WAITING_BYTES;
         }
         self.size -= count;
-        if self.held_back {
-            self.held_back = false;
-            self.pull();
-        }
         count
     }
 }
@@ -103,7 +97,6 @@ impl UsbLink {
                 bytes: [0; WAITING_BYTES],
                 start: 0,
                 size: 0,
-                held_back: false,
             };
             RECEIVER.replace(cs, Some(receiver));
         });

@@ -82,7 +82,8 @@ impl Control {
     /// A piece of an image is several radio frames and the radio holds only a few, so mining must
     /// not sit on them.
     pub fn moving_image(&self, now: u64) -> bool {
-        self.serving.is_some() || self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
+        let serving = self.serving.as_ref().is_some_and(crate::serve::Serving::moving);
+        serving || self.update.is_some() && now < self.chunk_ms + CHUNK_PAUSE_MS
     }
 
     pub fn new(

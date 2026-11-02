@@ -20,6 +20,12 @@ pub struct Serving {
     heard_ms: u64,
 }
 
+impl Serving {
+    pub fn moving(&self) -> bool {
+        self.sending.moving()
+    }
+}
+
 impl Node {
     /// Starts sending this board's own image, if it is the one the order names.
     pub fn start_serving(

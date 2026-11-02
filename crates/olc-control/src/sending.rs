@@ -11,6 +11,7 @@ pub struct Sending {
     /// Stretches still wanted, as (first piece, how many).
     runs: Vec<(u32, u32)>,
     credit: u32,
+    arrived: bool,
 }
 
 impl Sending {
@@ -20,11 +21,17 @@ impl Sending {
             size,
             runs: Vec::new(),
             credit: 0,
+            arrived: false,
         }
     }
 
     pub fn session(&self) -> u32 {
         self.session
+    }
+
+    /// True while pieces are still on their way. The other board then writes on its own.
+    pub fn moving(&self) -> bool {
+        !self.arrived
     }
 
     pub fn size(&self) -> u32 {
@@ -35,6 +42,7 @@ impl Sending {
     pub fn heard(&mut self, done: u32, runs: Vec<(u32, u32)>) -> bool {
         self.runs = runs;
         self.credit = WINDOW;
+        self.arrived = done >= self.size;
         done >= self.size.saturating_mul(2)
     }
 
@@ -106,7 +114,9 @@ mod tests {
     #[test]
     fn it_ends_when_the_whole_image_is_in_flash() {
         let mut sending = Sending::new(1, SIZE);
+        assert!(sending.moving());
         assert!(!sending.heard(SIZE, Vec::new()));
+        assert!(!sending.moving());
         assert!(sending.heard(SIZE * 2, Vec::new()));
     }
 }
