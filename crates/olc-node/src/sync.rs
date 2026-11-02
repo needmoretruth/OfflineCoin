@@ -12,6 +12,9 @@ const ASK_AGAIN_MS: u64 = 1_000;
 const TARGET_FORGOTTEN_MS: u64 = 15_000;
 /// How long such a peer's claims are not followed, so others get their turn.
 const DOUBTED_MS: u64 = 60_000;
+/// How long a peer that sent an invalid block is not followed. Peers on the same genesis with
+/// other rules keep announcing their tips.
+const INVALID_MS: u64 = 600_000;
 const MOST_DOUBTED: usize = 8;
 /// A heavy block can take a board this long, so catching up lasts this long past the last block.
 const MOVING_MS: u64 = 5_000;
@@ -20,7 +23,6 @@ const WELL_BEHIND: u64 = 4;
 
 struct Target {
     peer: PeerId,
-    tip: Hash,
     height: u64,
     work: u128,
     heard_ms: u64,
@@ -35,7 +37,7 @@ pub struct Sync {
     blocks_came: bool,
     /// When a block from the target last connected. Only this says the claim is real.
     moved_ms: Option<u64>,
-    /// Peers that claimed and did not deliver, and since when.
+    /// Peers that claimed and did not deliver, and until when their word goes unheard.
     doubted: Vec<(PeerId, u64)>,
     /// The newest block that came from the target, which may be on a branch the node has not
     /// moved to yet.
@@ -43,8 +45,8 @@ pub struct Sync {
 }
 
 impl Sync {
-    pub fn heard(&mut self, peer: PeerId, tip: Hash, height: u64, work: u128, now: u64) {
-        self.doubted.retain(|(_, at)| now.saturating_sub(*at) < DOUBTED_MS);
+    pub fn heard(&mut self, peer: PeerId, height: u64, work: u128, now: u64) {
+        self.doubted.retain(|(_, until)| now < *until);
         if self.doubted.iter().any(|(doubted, _)| *doubted == peer) {
             return;
         }
@@ -58,7 +60,6 @@ impl Sync {
         if replaces {
             self.target = Some(Target {
                 peer,
-                tip,
                 height,
                 work,
                 heard_ms: now,
@@ -85,11 +86,7 @@ impl Sync {
         }
         let waited_from = target.since_ms.max(self.moved_ms.unwrap_or(0));
         if now.saturating_sub(waited_from) >= TARGET_FORGOTTEN_MS {
-            self.stop();
-            if self.doubted.len() >= MOST_DOUBTED {
-                self.doubted.remove(0);
-            }
-            self.doubted.push((peer, now));
+            self.doubt(peer, now + DOUBTED_MS);
             return None;
         }
         let due = self.expected == 0 || now.saturating_sub(self.asked_ms) >= ASK_AGAIN_MS;
@@ -98,6 +95,15 @@ impl Sync {
             self.expected = BLOCKS_AT_ONCE;
             peer
         })
+    }
+
+    /// Stops following `peer`, and its claims go unheard until `until`.
+    fn doubt(&mut self, peer: PeerId, until: u64) {
+        self.stop();
+        if self.doubted.len() >= MOST_DOUBTED {
+            self.doubted.remove(0);
+        }
+        self.doubted.push((peer, until));
     }
 
     /// Everything about the target goes. What was learned about peers stays.
@@ -144,11 +150,12 @@ impl Sync {
         }
     }
 
-    /// `peer` sent something invalid. Returns its tip, which descends from it.
-    pub fn give_up_on(&mut self, peer: PeerId) -> Option<Hash> {
-        let tip = self.target.as_ref().filter(|t| t.peer == peer)?.tip;
-        self.stop();
-        Some(tip)
+    /// `peer` sent something invalid. The tip it named stays unjudged: anyone can name a true
+    /// block, so only the peer loses its turn, for long enough that a rival chain costs little.
+    pub fn give_up_on(&mut self, peer: PeerId, now: u64) {
+        if self.target.as_ref().is_some_and(|target| target.peer == peer) {
+            self.doubt(peer, now + INVALID_MS);
+        }
     }
 
     /// The height being caught up to, while the node is well behind it.

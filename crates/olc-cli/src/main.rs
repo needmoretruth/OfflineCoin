@@ -8,7 +8,7 @@ mod node;
 use olc_board::{Args, Extra};
 use olc_service::core::{run_words, usage, Folder, Terminal};
 use olc_service::local::run_node;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 const PROGRAMS: &str = "\
@@ -32,9 +32,13 @@ const CLOSING: &str = "\nA coin file is JSON. Edit it to change any rule.\n";
 /// Optional programs. Nothing else in this program names one.
 pub const EXTRAS: &[&dyn Extra] = &[&olc_lab::Lab];
 
+/// Typed at a terminal, a password does not show. A script can still pipe one in.
 fn asked_password() -> Result<String, String> {
     print!("Password: ");
     std::io::stdout().flush().map_err(|error| error.to_string())?;
+    if std::io::stdin().is_terminal() {
+        return rpassword::read_password().map_err(|error| error.to_string());
+    }
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).map_err(|error| error.to_string())?;
     Ok(line.trim_end().to_string())

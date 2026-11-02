@@ -1,7 +1,7 @@
 //! A node's folder when no node runs on it. Keys and choices wait there for the next start.
 use super::ops::{Book, NO_NODE};
 use olc_node::Runner;
-use olc_store::{load_wallet, save_wallet, NodeSettings};
+use olc_store::{load_wallet, node_runs_on, save_wallet, NodeSettings, NODE_ON_FOLDER};
 use olc_wallet::Wallet;
 use std::path::PathBuf;
 
@@ -18,6 +18,10 @@ impl Book for Folder {
         &self,
         job: impl FnOnce(&mut Wallet) -> Result<R, String>,
     ) -> Result<R, String> {
+        // A running node keeps its wallet in memory, and would write over this change.
+        if node_runs_on(&self.directory) {
+            return Err(NODE_ON_FOLDER.to_string());
+        }
         let mut wallet = load_wallet(&self.directory)?;
         let done = job(&mut wallet)?;
         save_wallet(&self.directory, &wallet).map(|()| done)
@@ -62,6 +66,16 @@ mod tests {
         let directory = temp_dir().join(format!("olc-folder-{}-{name}", id()));
         fs::create_dir_all(&directory).unwrap();
         Folder { directory }
+    }
+
+    #[test]
+    fn a_key_made_beside_a_running_node_is_refused_instead_of_lost() {
+        let book = folder("held");
+        let mut held = None;
+        olc_store::hold_folder(&mut held, &book.directory).unwrap();
+        assert_eq!(book.carry_out(Personal::NewKey).err().as_deref(), Some(NODE_ON_FOLDER));
+        drop(held);
+        assert!(book.carry_out(Personal::NewKey).is_ok());
     }
 
     #[test]

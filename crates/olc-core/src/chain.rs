@@ -47,6 +47,9 @@ pub enum ChainError {
     StoreFailed,
 }
 
+/// What a block spends on its header and mining reward, set aside when it is filled.
+const BLOCK_OVERHEAD: u64 = 256;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddOutcome {
     /// The block extended the best chain.
@@ -389,11 +392,11 @@ impl Chain {
             .filter(|entry| entry.output.lock.as_slice() == address.as_slice())
             .filter(|entry| self.is_mature(entry, next))
             .map(|entry| entry.output.value)
-            .sum()
+            .fold(0, u64::saturating_add)
     }
 
     pub fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
-        !entry.coinbase || spend_height >= entry.height + self.config.rules.coinbase_maturity
+        !entry.coinbase || spend_height >= self.config.rules.matures_at(entry.height)
     }
 
     /// The difficulty a block on top of `parent` must carry.
@@ -471,6 +474,12 @@ impl Chain {
         (kept, refused)
     }
 
+    /// True when a block could hold a payment of `size` bytes beside its mining reward. One that
+    /// cannot would wait in every pool for good.
+    pub fn fits_a_block(&self, size: usize) -> bool {
+        (size as u64).saturating_add(BLOCK_OVERHEAD) <= self.config.rules.max_block_bytes
+    }
+
     /// Takes the orphans waiting for `parent`, so the caller can add them again.
     pub fn take_orphans_of(&mut self, parent: &Hash) -> Vec<Block> {
         self.orphans.take_children(parent)
@@ -500,7 +509,7 @@ impl Chain {
         let mut view = Overlay::new(&self.unspent);
         let mut chosen = Vec::new();
         let mut fees = 0u64;
-        let mut bytes = 256 + note.len() as u64;
+        let mut bytes = BLOCK_OVERHEAD + note.len() as u64;
         for tx in pool {
             let size = tx.encode().len() as u64;
             if bytes + size > rules.max_block_bytes {

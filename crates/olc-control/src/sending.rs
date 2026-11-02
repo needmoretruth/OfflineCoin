@@ -38,9 +38,15 @@ impl Sending {
         self.size
     }
 
-    /// The other board's word on what it lacks. True when it holds the whole image in flash.
+    /// The other board's word on what it lacks, which arrives unsigned and may ask for nothing or
+    /// for pieces past the end. True when it holds the whole image in flash.
     pub fn heard(&mut self, done: u32, runs: Vec<(u32, u32)>) -> bool {
-        self.runs = runs;
+        let pieces = self.size.div_ceil(PIECE as u32);
+        let inside = |(first, count): (u32, u32)| {
+            let count = count.min(pieces.saturating_sub(first));
+            (count > 0).then_some((first, count))
+        };
+        self.runs = runs.into_iter().filter_map(inside).collect();
         self.credit = WINDOW;
         self.arrived = done >= self.size;
         done >= self.size.saturating_mul(2)
@@ -102,6 +108,24 @@ mod tests {
         }
         assert!(sending.must_ask());
         assert_eq!(sending.next_piece(), None);
+    }
+
+    /// The list comes over the air and is not signed.
+    #[test]
+    fn a_run_of_nothing_sends_nothing() {
+        let mut sending = Sending::new(1, SIZE);
+        sending.heard(0, alloc::vec![(0, 0), (1, 1)]);
+        assert_eq!(sending.next_piece(), Some((1, PIECE as u32, PIECE)));
+        assert_eq!(sending.next_piece(), None);
+    }
+
+    #[test]
+    fn a_run_stops_at_the_last_piece() {
+        let mut sending = Sending::new(1, SIZE);
+        sending.heard(0, alloc::vec![(3, u32::MAX), (u32::MAX, 2)]);
+        assert_eq!(sending.next_piece(), Some((3, PIECE as u32 * 3, 7)));
+        assert_eq!(sending.next_piece(), None);
+        assert!(sending.must_ask());
     }
 
     #[test]

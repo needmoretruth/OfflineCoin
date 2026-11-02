@@ -7,18 +7,19 @@ use crate::core::NodeView;
 use crate::settings::Paths;
 use olc_platform::{platform, Hold};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 const FIRST_PORT: u16 = 7100;
 const QUIT_WAIT: Duration = Duration::from_secs(2);
 const MIB: u64 = 1024 * 1024;
+const KEPT_ERROR_LINES: usize = 8;
 
 /// One status line of a node process.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +99,7 @@ struct Running {
     child: Child,
     input: ChildStdin,
     status: Arc<Mutex<Option<ChildStatus>>>,
+    errors: JoinHandle<VecDeque<String>>,
     meter: Meter,
     _hold: Option<Hold>,
 }
@@ -112,6 +114,28 @@ pub struct Supervisor {
 
 fn port_of(id: u32) -> u16 {
     FIRST_PORT + (id as u16 % 800)
+}
+
+/// Keeps the last lines a node wrote to its error stream, so a node that ended can say why.
+/// The pipe is always drained, so a node never stops on a full pipe.
+fn read_errors(child: &mut Child) -> Result<JoinHandle<VecDeque<String>>, String> {
+    let errors = child.stderr.take().ok_or("The node gave no error stream.")?;
+    Ok(thread::spawn(move || {
+        let mut kept = VecDeque::new();
+        for line in BufReader::new(errors).lines().map_while(Result::ok) {
+            if kept.len() == KEPT_ERROR_LINES {
+                kept.pop_front();
+            }
+            kept.push_back(line);
+        }
+        kept
+    }))
+}
+
+/// The exit as the system tells it, followed by what the node last said.
+fn how_it_ended(exit: &str, said: VecDeque<String>) -> String {
+    let said = Vec::from(said).join(" | ");
+    if said.is_empty() { exit.to_string() } else { format!("{exit}: {said}") }
 }
 
 fn read_status(
@@ -212,11 +236,12 @@ impl Supervisor {
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| error.to_string())?;
         let hold = platform().hold(how, &limits, &child);
         let input = child.stdin.take().ok_or("The node took no input.")?;
+        let errors = read_errors(&mut child)?;
         let status = Arc::new(Mutex::new(None));
         read_status(spec.id, &mut child, status.clone(), self.answers.clone());
         let meter = Meter::new(child.id());
@@ -227,6 +252,7 @@ impl Supervisor {
                 child,
                 input,
                 status,
+                errors,
                 meter,
                 _hold: hold,
             },
@@ -279,9 +305,13 @@ impl Supervisor {
                 gone.push((*id, exit.to_string()));
             }
         }
-        for (id, text) in gone {
-            self.running.remove(&id);
-            self.ended.insert(id, text);
+        for (id, exit) in gone {
+            let Some(node) = self.running.remove(&id) else {
+                continue;
+            };
+            // The process is gone, so its pipe has closed and this returns at once.
+            let said = node.errors.join().unwrap_or_default();
+            self.ended.insert(id, how_it_ended(&exit, said));
         }
     }
 

@@ -20,17 +20,19 @@ impl Engine {
     pub fn pay(&mut self, to: Address, amount: u64, fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
         let tx = self.wallet.pay(self.coins(), to, amount, fee, &reserved)?;
+        let id = self.send_payment(tx)?;
         self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_signed(tx))
+        Ok(id)
     }
 
     /// Pays many addresses in one transaction.
     pub fn pay_many(&mut self, payments: &[(Address, u64)], fee: u64) -> Result<Hash, WalletError> {
         let reserved = self.reserved();
         let tx = self.wallet.pay_many(self.coins(), payments, fee, &reserved)?;
-        let amount = payments.iter().map(|(_, amount)| *amount).sum();
+        let amount = payments.iter().map(|(_, amount)| *amount).fold(0, u64::saturating_add);
+        let id = self.send_payment(tx)?;
         self.push_event(Event::PaymentSent { amount });
-        Ok(self.send_signed(tx))
+        Ok(id)
     }
 
     /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
@@ -38,7 +40,17 @@ impl Engine {
         let reserved = self.reserved();
         let fee = self.chain.rules().min_fee;
         let tx = self.wallet.note(self.coins(), data, fee, &reserved)?;
-        Ok(self.send_signed(tx))
+        self.send_payment(tx)
+    }
+
+    /// Sends a payment this node signed. A person hears when its own pool would not take it,
+    /// because nobody else would ever see it then.
+    fn send_payment(&mut self, tx: Tx) -> Result<Hash, WalletError> {
+        let id = self.send_signed(tx);
+        match self.light.is_some() || self.in_pool(&id) {
+            true => Ok(id),
+            false => Err(WalletError::Refused),
+        }
     }
 
     fn reserved(&self) -> Vec<OutPoint> {

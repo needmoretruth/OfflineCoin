@@ -48,7 +48,7 @@ pub(crate) fn window(retarget_interval: u64) -> u64 {
 /// Keeps `window` headers below every branch end and drops the rest. The newest ends stay when
 /// there are too many, because anyone can send blocks and only the best few can matter.
 pub(crate) fn trim(entries: &mut Entries, window: u64, pinned: &[Hash]) {
-    let limit = (window * 4) as usize;
+    let limit = usize::try_from(window.saturating_mul(4)).unwrap_or(usize::MAX);
     if entries.len() < limit {
         return;
     }
@@ -59,7 +59,7 @@ pub(crate) fn trim(entries: &mut Entries, window: u64, pinned: &[Hash]) {
         .map(|(id, entry)| (entry.height, *id))
         .collect();
     ends.sort_unstable();
-    let most_ends = (window / 8).max(1) as usize;
+    let most_ends = usize::try_from((window / 8).max(1)).unwrap_or(usize::MAX);
     let dropped = ends.len().saturating_sub(most_ends);
     let mut wanted: BTreeSet<Hash> = pinned.iter().copied().collect();
     for (_, end) in ends.into_iter().skip(dropped) {

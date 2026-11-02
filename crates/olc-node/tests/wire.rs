@@ -54,6 +54,8 @@ fn a_far_behind_older_build_keeps_catching_up() {
     }
     let mut got = 0;
     while got < CHAIN {
+        time += 1_000;
+        node.tick(time);
         let asked = postcard::to_allocvec(&Older::GetBlocks(ids.clone())).unwrap();
         node.on_message(7, Message::decode(&asked).unwrap());
         let mut answered = false;

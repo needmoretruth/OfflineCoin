@@ -87,6 +87,11 @@ impl Default for Rules {
 }
 
 impl Rules {
+    /// The first height a mining reward from `height` may be spent at.
+    pub fn matures_at(&self, height: u64) -> u64 {
+        height.saturating_add(self.coinbase_maturity)
+    }
+
     /// The lowest difficulty a block at `height` may carry after a retarget.
     pub fn floor_at(&self, height: u64) -> u64 {
         match height >= self.floor_from_height {
@@ -238,5 +243,51 @@ impl CoinConfig {
             nonce: 0,
         };
         Block { header, txs }
+    }
+}
+
+/// Digits after the point of a whole coin.
+pub const DECIMALS: usize = 8;
+
+/// `1,234` as `1234`. A comma that does not group thousands is refused, because `2,5` may mean 2.5.
+fn without_groups(whole: &str) -> Option<String> {
+    let mut groups = whole.split(',');
+    let first = groups.next()?;
+    let rest_fits = groups.all(|group| group.len() == 3);
+    let first_fits = !whole.contains(',') || (1..=3).contains(&first.len());
+    (rest_fits && first_fits).then(|| whole.replace(',', ""))
+}
+
+/// Reads `1.5` or `1,234.5` as base units, without passing through a float.
+pub fn parse_coins(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let (whole, part) = text.split_once('.').unwrap_or((text, ""));
+    let whole = without_groups(whole)?;
+    let whole = whole.as_str();
+    if part.len() > DECIMALS || (whole.is_empty() && part.is_empty()) {
+        return None;
+    }
+    let digits = |word: &str| word.is_empty() || word.bytes().all(|byte| byte.is_ascii_digit());
+    if !digits(whole) || !digits(part) {
+        return None;
+    }
+    let whole: u64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
+    let scale = 10u64.pow((DECIMALS - part.len()) as u32);
+    let part: u64 = if part.is_empty() { 0 } else { part.parse().ok()? };
+    whole.checked_mul(COIN)?.checked_add(part * scale)
+}
+
+
+#[cfg(test)]
+mod amount_tests {
+    use super::*;
+
+    /// A float cannot hold 0.29, and a person paying 0.29 coins pays exactly that.
+    #[test]
+    fn an_amount_never_passes_through_a_float() {
+        assert_eq!(parse_coins("0.29"), Some(29_000_000));
+        assert_eq!(parse_coins("1.13"), Some(113_000_000));
+        assert_eq!(parse_coins("184467440737"), Some(18_446_744_073_700_000_000));
+        assert_eq!(parse_coins("184467440738"), None);
     }
 }

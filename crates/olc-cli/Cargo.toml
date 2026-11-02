@@ -23,6 +23,7 @@ olc-board.workspace = true
 olc-service.workspace = true
 olc-lab.workspace = true
 olc-store.workspace = true
+rpassword = "7.5"
 
 [dev-dependencies]
 olc-control.workspace = true

@@ -83,7 +83,7 @@ impl Status {
         lines
     }
 
-    fn parse(line: &str) -> Option<Self> {
+    pub fn parse(line: &str) -> Option<Self> {
         let fields: BTreeMap<&str, &str> = line
             .split_whitespace()
             .filter_map(|word| word.split_once('='))

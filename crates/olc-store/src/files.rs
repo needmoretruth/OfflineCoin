@@ -201,6 +201,7 @@ pub fn keep_in(directory: &Path, recent: Option<u64>, limit: Option<u64>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use olc_core::CoinConfig;
 
     #[test]

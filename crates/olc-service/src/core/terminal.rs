@@ -93,7 +93,7 @@ impl Terminal {
     }
 
     /// This process ends after the command, so what it sends needs someone to take it first.
-    fn to_the_network(&mut self, command: Command) -> Result<String, String> {
+    fn send_and_stay(&mut self, command: Command) -> Result<String, String> {
         let core = self.loaded_core()?;
         if !wait_for(PEERS_APPEAR, || core.snapshot().node.peers > 0) {
             return Err(NOBODY_NEAR.to_string());
@@ -149,10 +149,10 @@ impl Desk for Terminal {
     fn command(&mut self, command: Command) -> Result<String, String> {
         match command {
             Command::Own(Personal::Explore(text)) => Ok(looked_up(self.loaded_core()?, text)),
-            Command::Own(order) if order.goes_out() => self.to_the_network(Command::Own(order)),
+            Command::Own(order) if order.goes_out() => self.send_and_stay(Command::Own(order)),
             Command::Own(order) if order.needs_a_node() => self.through_core(Command::Own(order)),
             Command::Own(order) => self.folder.carry_out(order).map(|(_, detail)| detail),
-            Command::Pay { .. } => self.to_the_network(command),
+            Command::Pay { .. } => self.send_and_stay(command),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
                 write_coin_file(&new_coin(choices), &path).map(|()| path)

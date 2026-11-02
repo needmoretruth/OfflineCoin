@@ -7,8 +7,10 @@ use olc_platform::platform;
 use olc_wallet::Wallet;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
+const DAMAGED_WALLET: &str = "The wallet file is damaged.";
 const WALLET_FILE: &str = "wallet.json";
 const OLD_KEY_FILE: &str = "wallet.key";
 
@@ -90,9 +92,14 @@ pub fn new_secret() -> Result<[u8; 32], String> {
 /// becomes the wallet's first key.
 pub fn load_wallet(directory: &Path) -> Result<Wallet, String> {
     let path = directory.join(WALLET_FILE);
-    if let Ok(text) = fs::read_to_string(&path) {
-        let keys: Keys = serde_json::from_str(&text).map_err(|_| "The wallet file is damaged.")?;
-        return wallet_of(&keys);
+    match fs::read_to_string(&path) {
+        Ok(text) => {
+            let keys: Keys = serde_json::from_str(&text).map_err(|_| DAMAGED_WALLET)?;
+            return wallet_of(&keys);
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        // Anything else means keys may be there. Writing a new wallet would put an end to them.
+        Err(_) => return Err(DAMAGED_WALLET.to_string()),
     }
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let old = fs::read_to_string(directory.join(OLD_KEY_FILE)).ok();
@@ -178,6 +185,17 @@ pub fn restore(path: &Path, password: Option<&str>) -> Result<Wallet, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One bad sector must not turn into a new wallet and the end of the old keys.
+    #[test]
+    fn a_wallet_file_that_cannot_be_read_stays_as_it_is() {
+        let directory = folder("unreadable");
+        let path = directory.join(WALLET_FILE);
+        let damaged = [0xFF, 0xFE, 0x00, 0x7B];
+        fs::write(&path, damaged).unwrap();
+        assert!(load_wallet(&directory).is_err());
+        assert_eq!(fs::read(&path).unwrap(), damaged);
+    }
 
     fn folder(name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("olc-{name}-{}", std::process::id()));

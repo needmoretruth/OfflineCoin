@@ -8,7 +8,9 @@ use crate::fleet::FleetPort;
 use olc_core::{Address, BlockHeader, CoinConfig, Hash, Opened};
 use olc_link_tcp::{TcpControl, TcpLink};
 use olc_node::{Card, Engine, Hello, Light, Rank, Runner};
-use olc_store::{load_headers, load_wallet, open_chain, save_headers, NodeSettings};
+use olc_store::{
+    hold_folder, load_headers, load_wallet, open_chain, save_headers, FolderHold, NodeSettings,
+};
 use olc_wallet::{format_address, parse_address, WalletError};
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -122,6 +124,8 @@ struct Asked {
 impl Host {
     /// Returns at once. The chain loads on the host's own thread.
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
+        let mut held = None;
+        hold_folder(&mut held, &plan.folder)?;
         let wallet = load_wallet(&plan.wallet_folder)?;
         let engine = Engine::new(plan.coin.clone(), plugins(), wallet);
         let tcp = TcpLink::new();
@@ -174,6 +178,7 @@ impl Host {
             blocks: Vec::new(),
             radios: Running::default(),
             wants_bluetooth: false,
+            held,
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -325,6 +330,7 @@ struct Worker {
     blocks: Vec<BlockRow>,
     radios: Running,
     wants_bluetooth: bool,
+    held: Option<FolderHold>,
 }
 
 impl Worker {
@@ -427,7 +433,8 @@ impl Worker {
         }
     }
 
-    /// Loads the chain in small steps, so the node keeps its lock free and the screen can count.
+    /// Moves the node to the chain a person chose. The new chain opens before the old one goes,
+    /// so a chain that cannot open leaves the node where it was.
     fn take_switch(&mut self) {
         let switch = self.state.switch.lock().ok().and_then(|mut slot| slot.take());
         let Some(switch) = switch else {
@@ -436,7 +443,10 @@ impl Worker {
         let Ok(wallet) = load_wallet(&self.wallet_folder) else {
             return;
         };
-        let opened = open_chain(&switch.folder, switch.coin, plugins(), self.state.storage);
+        let held = hold_folder(&mut self.held, &switch.folder);
+        let opened = held.and_then(|()| {
+            open_chain(&switch.folder, switch.coin, plugins(), self.state.storage)
+        });
         let chain = match opened {
             Ok(chain) => chain,
             Err(error) => {

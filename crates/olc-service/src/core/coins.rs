@@ -1,41 +1,13 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
 use crate::settings::Paths;
+pub use olc_core::coin::parse_coins;
 use olc_core::coin::COIN;
 use olc_core::CoinConfig;
-use olc_store::coin_file;
+use olc_store::{coin_file, replace_file};
 use std::fs;
 use std::path::PathBuf;
 
-const DECIMALS: usize = 8;
 const COIN_FILE: &str = "coin.json";
-
-/// `1,234` as `1234`. A comma that does not group thousands is refused, because `2,5` may mean 2.5.
-fn without_groups(whole: &str) -> Option<String> {
-    let mut groups = whole.split(',');
-    let first = groups.next()?;
-    let rest_fits = groups.all(|group| group.len() == 3);
-    let first_fits = !whole.contains(',') || (1..=3).contains(&first.len());
-    (rest_fits && first_fits).then(|| whole.replace(',', ""))
-}
-
-/// Reads `1.5` or `1,234.5` as base units, without passing through a float.
-pub fn parse_coins(text: &str) -> Option<u64> {
-    let text = text.trim();
-    let (whole, part) = text.split_once('.').unwrap_or((text, ""));
-    let whole = without_groups(whole)?;
-    let whole = whole.as_str();
-    if part.len() > DECIMALS || (whole.is_empty() && part.is_empty()) {
-        return None;
-    }
-    let digits = |word: &str| word.is_empty() || word.bytes().all(|byte| byte.is_ascii_digit());
-    if !digits(whole) || !digits(part) {
-        return None;
-    }
-    let whole: u64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
-    let scale = 10u64.pow((DECIMALS - part.len()) as u32);
-    let part: u64 = if part.is_empty() { 0 } else { part.parse().ok()? };
-    whole.checked_mul(COIN)?.checked_add(part * scale)
-}
 
 /// `1234567` as `1,234,567`.
 pub fn group_thousands(value: u128) -> String {
@@ -74,7 +46,8 @@ pub fn save_coin(paths: &Paths, coin: &CoinConfig) -> Result<PathBuf, String> {
     let folder = paths.coin(&coin_folder(coin));
     fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let file = folder.join(COIN_FILE);
-    fs::write(&file, coin_file::to_json(coin)?).map_err(|error| error.to_string())?;
+    // Each node's start lands here while the node before it may still be reading this file.
+    replace_file(&file, coin_file::to_json(coin)?.as_bytes())?;
     Ok(file)
 }
 
@@ -109,6 +82,37 @@ pub fn write_coin_file(coin: &CoinConfig, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn a_starting_node_never_reads_a_coin_file_half_written() {
+        let root = std::env::temp_dir().join(format!("olc-coin-file-{}", std::process::id()));
+        let paths = Paths { root: root.clone() };
+        let mut coin = CoinConfig::olc();
+        let file = save_coin(&paths, &coin).unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let (file, done) = (file.clone(), done.clone());
+            thread::spawn(move || {
+                let mut cut = 0;
+                while !done.load(Ordering::Relaxed) {
+                    let text = fs::read_to_string(&file).unwrap_or_default();
+                    cut += usize::from(coin_file::from_json(&text).is_err());
+                }
+                cut
+            })
+        };
+        for turn in 0..3_000 {
+            coin.message = format!("{turn}");
+            replace_file(&file, coin_file::to_json(&coin).unwrap().as_bytes()).unwrap();
+        }
+        done.store(true, Ordering::Relaxed);
+        let cut = reader.join().unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(cut, 0, "a reader found a cut file");
+    }
 
     #[test]
     fn amounts_read_exactly() {

@@ -9,12 +9,15 @@ use futures::{pin_mut, Stream, StreamExt};
 use olc_node::bluetooth::{node_of, COMPANY, PSM};
 use olc_node::frame::{encode, Decoder};
 use olc_node::{Link, Medium, News, Target};
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::time::{timeout, Instant};
 
@@ -26,14 +29,20 @@ const PIECE: usize = 240;
 const SEEN_EVERY: Duration = Duration::from_secs(1);
 /// How soon listening restarts after Bluetooth came back.
 const LISTEN_AGAIN: Duration = Duration::from_secs(5);
+/// Frames waiting to go to one board. Whatever is lost here, the protocols above send again.
+const QUEUE_LIMIT: usize = 32;
+/// Whole messages waiting for the node. Past this a board waits on its own channel.
+const INBOX: usize = 256;
+/// Devices followed at once. Anyone in reach can show a new address every moment.
+const MOST_WATCHED: usize = 64;
 
-type Writers = Arc<Mutex<BTreeMap<u32, UnboundedSender<Vec<u8>>>>>;
+type Writers = Arc<Mutex<BTreeMap<u32, mpsc::Sender<Vec<u8>>>>>;
 
 /// What the Bluetooth thread shares with its tasks.
 #[derive(Clone)]
 struct Shared {
     writers: Writers,
-    received: Sender<(u32, Vec<u8>)>,
+    received: mpsc::Sender<(u32, Vec<u8>)>,
     news: Sender<News>,
     next: Arc<Mutex<u32>>,
 }
@@ -41,7 +50,7 @@ struct Shared {
 pub struct BleLink {
     writers: Writers,
     orders: UnboundedSender<Order>,
-    received: Receiver<(u32, Vec<u8>)>,
+    received: mpsc::Receiver<(u32, Vec<u8>)>,
     news: Receiver<News>,
 }
 
@@ -52,7 +61,7 @@ enum Order {
 impl BleLink {
     /// Starts Bluetooth on the computer's first adapter, and fails if there is none.
     pub fn start(me: u64) -> Result<Self, String> {
-        let (received_sender, received) = channel();
+        let (received_sender, received) = mpsc::channel(INBOX);
         let (news_sender, news) = channel();
         let (orders, order_receiver) = unbounded_channel();
         let writers = Writers::default();
@@ -93,7 +102,7 @@ impl Link for BleLink {
                 Target::AllExcept(peer) => peer != *number,
             };
             if wanted {
-                let _ = writer.send(frame.clone());
+                let _ = writer.try_send(frame.clone());
             }
         }
     }
@@ -144,6 +153,7 @@ async fn run(shared: Shared, mut orders: UnboundedReceiver<Order>, me: u64, read
         }
     };
     let _ = ready.send(Ok(()));
+    let watched = Rc::new(Cell::new(0));
     loop {
         let Ok(events) = listen(&adapter).await else {
             tokio::time::sleep(LISTEN_AGAIN).await;
@@ -158,8 +168,13 @@ async fn run(shared: Shared, mut orders: UnboundedReceiver<Order>, me: u64, read
         loop {
             tokio::select! {
                 event = events.next() => match event {
-                    Some(AdapterEvent::DeviceAdded(address)) => {
-                        tokio::task::spawn_local(watch(adapter.clone(), address, me, shared.news.clone()));
+                    Some(AdapterEvent::DeviceAdded(address)) if watched.get() < MOST_WATCHED => {
+                        watched.set(watched.get() + 1);
+                        let (adapter, news, watched) = (adapter.clone(), shared.news.clone(), watched.clone());
+                        tokio::task::spawn_local(async move {
+                            let _ = watch(adapter, address, me, news).await;
+                            watched.set(watched.get() - 1);
+                        });
                     }
                     Some(_) => {}
                     None => break,
@@ -223,7 +238,7 @@ async fn dial(shared: Shared, address: String) {
         *next += 1;
         *next
     };
-    let (writer, frames) = unbounded_channel();
+    let (writer, frames) = mpsc::channel(QUEUE_LIMIT);
     if let Ok(mut writers) = shared.writers.lock() {
         writers.insert(number, writer);
     }
@@ -236,7 +251,7 @@ async fn dial(shared: Shared, address: String) {
 }
 
 /// Moves frames both ways until the far end goes or the node closes this one.
-async fn serve(stream: l2cap::Stream, mut frames: UnboundedReceiver<Vec<u8>>, shared: &Shared, number: u32) {
+async fn serve(stream: l2cap::Stream, mut frames: mpsc::Receiver<Vec<u8>>, shared: &Shared, number: u32) {
     let (mut reader, mut writer) = stream.into_split();
     let hearing = async {
         let mut decoder = Decoder::default();
@@ -248,7 +263,7 @@ async fn serve(stream: l2cap::Stream, mut frames: UnboundedReceiver<Vec<u8>>, sh
             }
             decoder.push(&bytes[..size]);
             while let Some(message) = decoder.next_message() {
-                if shared.received.send((number, message)).is_err() {
+                if shared.received.send((number, message)).await.is_err() {
                     return;
                 }
             }
