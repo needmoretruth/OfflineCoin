@@ -203,8 +203,10 @@ impl Node {
             0 => longest,
             limit => longest.min(limit.saturating_sub(self.attempts)),
         };
-        let worked =
-            self.mining && batch > 0 && !cable_is_busy(now) && !self.control.moving_image(now);
+        // A board catching up does not hash, and must not say it does.
+        let catching_up = self.work.is_none() && self.runner.engine.syncing_to().is_some();
+        let held = cable_is_busy(now) || self.control.moving_image(now);
+        let worked = self.mining && batch > 0 && !held && !catching_up;
         if worked {
             if self.work.is_some() {
                 self.grind(batch);

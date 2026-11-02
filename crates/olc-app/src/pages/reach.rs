@@ -89,6 +89,7 @@ pub const BOARD_ROWS: &[Row] = &[
     row("espnow", BOARDS, "Board, nearby boards"),
     row("bluetooth", BOARDS, "Board, Bluetooth"),
     expert("links", BOARDS, "Board, radio", "Link order for one board; Settings sets the order for all"),
+    expert("length", BOARDS, "Terminal only", "It counts a cable's bytes for tools/measure, and no person asks for it"),
     expert("near", BOARDS, "Board, read", "A list of radio neighbours, for diagnosis"),
     expert("wires", BOARDS, "Board, radio", "Pin swap and wire speed are for wiring tests"),
     row("pay", BOARDS, "Board, pay"),

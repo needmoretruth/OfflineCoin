@@ -34,7 +34,7 @@ fn pick(ui: &mut Ui, cx: &Cx, label: &str, slot: &mut Option<BoardId>, optional:
             let name = &board.seen.beacon.name;
             let row = pick_row(ui, cx.t, 30.0, *slot == Some(id), name, |ui| cell(ui, name.as_str()));
             if row.clicked() {
-                *slot = Some(id).filter(|_| !optional || *slot != Some(id));
+                *slot = (!optional || *slot != Some(id)).then_some(id);
             }
         }
     });

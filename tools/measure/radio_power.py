@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Signal between boards at each radio power: radio_power.py SENDER LISTENER DBM [DBM...]."""
+"""Signal each board hears with all boards at one radio power, in turn: radio_power.py DBM [DBM...]."""
 import statistics
 import sys
 import time
@@ -8,18 +8,20 @@ import boards
 
 
 def main():
-    sender, listener = sys.argv[1], sys.argv[2]
-    for power in sys.argv[3:]:
-        boards.line(sender, f"power {power}")
+    ids = [board["id"] for board in boards.boards()]
+    for power in sys.argv[1:]:
+        for board in ids:
+            boards.line(board, f"power {power}")
         time.sleep(30)
-        values = []
+        values = {board: [] for board in ids}
         for _ in range(12):
-            value = boards.status(listener).get("rssi")
-            if value:
-                values.append(int(value))
-            time.sleep(5)
-        print(f"{power} dBm: rssi median {statistics.median(values)} "
-              f"low {min(values)} high {max(values)} readings {len(values)}", flush=True)
+            for board in ids:
+                value = boards.status(board).get("rssi")
+                if value:
+                    values[board].append(int(value))
+            time.sleep(4)
+        print(power, "dBm:", {board[-4:]: (statistics.median(found), min(found))
+                              for board, found in values.items() if found}, flush=True)
 
 
 if __name__ == "__main__":

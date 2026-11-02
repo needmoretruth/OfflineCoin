@@ -12,13 +12,18 @@ def main():
     if len(sys.argv) > 2:
         for board in ids:
             boards.line(board, sys.argv[2])
-        time.sleep(10)
+        time.sleep(25)
     first = {board: boards.status(board) for board in ids}
     rates = {board: [] for board in ids}
+    missed = {board: 0 for board in ids}
     start = time.time()
     while time.time() - start < minutes * 60:
         for board in ids:
-            rates[board].append(int(boards.status(board)["hashrate"]))
+            value = boards.status(board).get("hashrate")
+            if value:
+                rates[board].append(int(value))
+            else:
+                missed[board] += 1
         time.sleep(5)
     last = {board: boards.status(board) for board in ids}
     blocks = int(last[ids[0]]["height"]) - int(first[ids[0]]["height"])
@@ -26,7 +31,8 @@ def main():
     for board in ids:
         won = float(last[board]["balance"]) - float(first[board]["balance"])
         print(f"{board[-4:]} hash {sum(rates[board]) / len(rates[board]):.0f} "
-              f"balance +{won:.2f} temp {last[board]['temp']} clock {last[board]['clock']}")
+              f"balance +{won:.2f} temp {last[board]['temp']} clock {last[board]['clock']} "
+              f"no answer {missed[board]}")
 
 
 if __name__ == "__main__":
