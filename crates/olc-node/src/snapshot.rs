@@ -26,38 +26,53 @@ pub struct Serving {
     asked_ms: u64,
 }
 
+/// A node that cannot go on by itself, and what would end that.
+#[derive(Clone, Copy)]
+struct Stuck {
+    peer: PeerId,
+    height: u64,
+    heard_ms: u64,
+    /// This node's tip when the peer last spoke. The peer's word holds until this moves.
+    tip: Hash,
+}
+
 #[derive(Default)]
 pub struct History {
     /// Peers that said which blocks they no longer hold.
     pruned: BTreeMap<PeerId, u64>,
-    stuck: Option<(PeerId, u64, u64)>,
+    stuck: Option<Stuck>,
 }
 
 impl History {
     /// `peer` says `oldest` is its first block. True the first time this leaves the node stuck.
-    pub fn pruned(&mut self, peer: PeerId, oldest: u64, now: u64) -> bool {
+    pub fn pruned(&mut self, peer: PeerId, oldest: u64, tip: Hash, now: u64) -> bool {
         if self.pruned.len() >= MOST_PRUNED_PEERS && !self.pruned.contains_key(&peer) {
             self.pruned.pop_first();
         }
         self.pruned.insert(peer, oldest);
         let first_time = self.stuck.is_none();
-        let height = self.stuck.map_or(oldest, |(_, height, _)| height);
-        self.stuck = Some((peer, height, now));
+        let height = self.stuck.map_or(oldest, |stuck| stuck.height);
+        self.stuck = Some(Stuck { peer, height, heard_ms: now, tip });
         first_time
     }
 
-    /// True when `peer` cannot give a node at `own_height` what it needs. Remembers that.
-    pub fn lacks(&mut self, peer: PeerId, own_height: u64, peer_height: u64, now: u64) -> bool {
-        let lacks = self.pruned.get(&peer).is_some_and(|oldest| *oldest > own_height + 1);
+    /// True when `peer` cannot give a node at `own` what it needs. Remembers that.
+    pub fn lacks(&mut self, peer: PeerId, own: (u64, Hash), peer_height: u64, now: u64) -> bool {
+        let (height, tip) = own;
+        let lacks = self.pruned.get(&peer).is_some_and(|oldest| *oldest > height + 1);
         if lacks {
-            self.stuck = Some((peer, peer_height, now));
+            self.stuck = Some(Stuck { peer, height: peer_height, heard_ms: now, tip });
         }
         lacks
     }
 
-    pub fn tick(&mut self, own_height: u64, now: u64) {
-        let over = |(_, height, heard): &(PeerId, u64, u64)| {
-            own_height >= *height || now.saturating_sub(*heard) >= QUIET_MS
+    /// A height says nothing while the tip stands still: a node on a branch of its own can be
+    /// above a peer's first block and share nothing with it.
+    pub fn tick(&mut self, own: (u64, Hash), now: u64) {
+        let (height, tip) = own;
+        let over = |stuck: &Stuck| {
+            (height >= stuck.height && tip != stuck.tip)
+                || now.saturating_sub(stuck.heard_ms) >= QUIET_MS
         };
         if self.stuck.as_ref().is_some_and(over) {
             self.stuck = None;
@@ -65,7 +80,7 @@ impl History {
     }
 
     pub fn stuck(&self) -> Option<(PeerId, u64)> {
-        self.stuck.map(|(peer, height, _)| (peer, height))
+        self.stuck.map(|stuck| (stuck.peer, stuck.height))
     }
 }
 

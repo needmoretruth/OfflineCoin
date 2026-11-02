@@ -262,6 +262,13 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
         None,
     )
     .unwrap();
+    // The host starts on an empty chain and puts the stored one in its place from its own thread.
+    // Blocks mined before that are lost with the empty chain, and the peer ends up with nothing.
+    let start = Instant::now();
+    while host.view().loading {
+        assert!(start.elapsed() < Duration::from_secs(30), "the chain never opened");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     host.set_recent(Some(FEWEST_RECENT)).unwrap();
     let block_time = coin.rules.block_time_ms;
     for _ in 0..blocks {
