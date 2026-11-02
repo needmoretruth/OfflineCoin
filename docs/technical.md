@@ -29,7 +29,7 @@ cargo build --release -p olc-app -p olc-cli
 
 ## The ESP32 version
 
-OfflineCoin is a desktop program first. The ESP32 version in `firmware` is a separate program that follows the same rules. It needs 16 MB of flash and 8 MB of PSRAM, as on an ESP32-S3 N16R8. An SH1106 OLED on I2C (SDA 8, SCL 9) is optional.
+OfflineCoin is a desktop program first. The ESP32 version in `firmware` is a separate program that follows the same rules. It runs on an ESP32-S3 with 16 MB of flash and 8 MB of PSRAM. An SH1106 OLED on I2C (SDA 8, SCL 9) is optional.
 
 Plug the board in and press Set up in OLC Core. To flash from source, install [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash):
 
