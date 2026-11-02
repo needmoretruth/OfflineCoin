@@ -280,3 +280,36 @@ fn a_payment_is_refused_where_there_is_nothing_to_spend() {
     assert_eq!(host.obey(order).0, "notice.offline_failed");
     assert!(!root.join("out.payment").exists());
 }
+
+/// The address other computers on the network reach this one by, when it has one.
+fn address_on_the_network() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    // Nothing is sent: connecting a UDP socket only picks the way out.
+    socket.connect("192.0.2.1:9").ok()?;
+    Some(socket.local_addr().ok()?.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+}
+
+/// A person who stops letting others on the network connect expects it now, not at the next start.
+#[test]
+fn shutting_others_out_closes_the_door_at_once() {
+    let root = folder("shut-out");
+    let paths = Paths { root: root.clone() };
+    let settings = Settings { port: 7530, setup_done: false, listen_lan: true, ..Settings::default() };
+    let launch = CoreLaunch { paths, fleet: None, usb: false, node_program: Some("/bin/true".into()) };
+    let core = Core::start(launch, settings.clone()).unwrap();
+    until(&core, "a port", |snap| snap.node.port.is_some());
+    let port = core.snapshot().node.port.unwrap_or_default();
+    let Some(outside) = address_on_the_network() else {
+        return;
+    };
+    let reach = |ip: std::net::IpAddr| std::net::TcpStream::connect((ip, port)).is_ok();
+    assert!(reach(outside), "others cannot connect even with the switch on");
+
+    core.send(Command::Save(Box::new(Settings { listen_lan: false, ..settings })));
+    let started = Instant::now();
+    while reach(outside) {
+        assert!(started.elapsed() < WAIT, "the network still reaches this app");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(reach(std::net::Ipv4Addr::LOCALHOST.into()), "this computer lost its own way in");
+}

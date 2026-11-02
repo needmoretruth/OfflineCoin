@@ -249,7 +249,15 @@ impl Service {
             }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => {
+                let was = bind_host(&self.settings);
                 self.settings.take_choices(&settings);
+                let now = bind_host(&self.settings);
+                // A person who shuts others out expects it now, not at the next start.
+                if now != was {
+                    if let Err(error) = self.host.listen_on(&now) {
+                        self.say("notice.listen_failed", error, false);
+                    }
+                }
                 self.host.set_cap(self.settings.hash_cap);
                 self.save();
                 self.plan_scan();

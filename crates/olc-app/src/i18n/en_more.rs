@@ -190,6 +190,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.save_failed", "Settings were not saved. Check that the disk has room, then try again."),
     ("notice.install_refused", "That board is busy. Wait for it to finish, then try again."),
     ("notice.node_failed", "The miner did not start. Open Boards and try again."),
+    ("notice.listen_failed", "Who may connect did not change. Restart the app."),
     ("notice.joined", "Joined {}."),
     ("notice.bad_amount", "That amount cannot be read. Write a number."),
     ("notice.sent", "Sent {}."),

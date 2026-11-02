@@ -274,6 +274,12 @@ impl Host {
             runner.add_address(TCP_LINK, address);
         }
     }
+
+    /// Takes connections on another host, such as only this computer, on the same port.
+    pub fn listen_on(&self, host: &str) -> Result<(), String> {
+        let port = self.port.ok_or("This app is not taking connections.")?;
+        self.tcp.listen_again(&format!("{host}:{port}")).map(|_| ()).map_err(|error| error.to_string())
+    }
 }
 
 #[derive(Debug)]

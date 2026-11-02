@@ -190,6 +190,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.save_failed", "설정을 저장하지 못했습니다. 디스크 자리를 확인하고 다시 해 주세요."),
     ("notice.install_refused", "그 보드가 다른 일을 하고 있습니다. 끝나면 다시 해 주세요."),
     ("notice.node_failed", "채굴기가 시작되지 않았습니다. 보드 화면에서 다시 해 주세요."),
+    ("notice.listen_failed", "접속 허용이 바뀌지 않았습니다. 앱을 다시 켜 주세요."),
     ("notice.joined", "{}에 참여했습니다."),
     ("notice.bad_amount", "금액을 읽을 수 없습니다. 숫자로 적어 주세요."),
     ("notice.sent", "{} 보냈습니다."),

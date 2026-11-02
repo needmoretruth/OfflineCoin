@@ -154,6 +154,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.save_failed", "설정 저장 실패: {}"),
     ("notice.install_refused", "그 보드에 다른 작업이 있습니다: {}"),
     ("notice.node_failed", "노드 시작 실패: {}"),
+    ("notice.listen_failed", "새 주소에서 접속을 받지 못했습니다: {}"),
     ("notice.pay_failed", "결제 실패: {}"),
     ("notice.pay_refused", "노드의 대기열이 이 트랜잭션을 거절했습니다. 대기열이 찼거나 입력이나 서명 검사가 너무 많습니다. 금액을 줄이거나 다음 블록 뒤에 다시 보내세요."),
     ("notice.board_needs_cable", "USB가 필요합니다: {}"),
