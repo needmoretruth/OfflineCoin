@@ -118,6 +118,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.connection", "Connection"),
     ("boards.connection_about", "How this app reaches the board."),
     ("boards.mining", "Mining"),
+    ("boards.cooling", "{}. The board got hot, so it mines slower until it cools."),
     ("boards.resting", "Resting"),
     ("boards.gone", "No answer"),
     ("boards.balance", "Balance"),

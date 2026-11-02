@@ -127,6 +127,8 @@ pub const BOARD_ROWS: &[Row] = &[
     expert("links", BOARDS, "Board, radio", "BoardAction::Links", "Link order for one board; Settings sets the order for all"),
     expert("length", BOARDS, "Terminal only", "", "It counts a cable's bytes for tools/measure, and no person asks for it"),
     expert("check-time", BOARDS, "Terminal only", "", "It times one signature check for tools/measure, and a person never needs it."),
+    expert("wear", BOARDS, "Terminal only", "", "It counts flash erases for tools/measure, and a person never needs it."),
+    expert("heat", BOARDS, "Terminal only", "", "It lowers the heat limit until the next start to test the guard, which acts by itself."),
     expert("near", BOARDS, "Board, read", "BoardAction::Neighbours", "A list of radio neighbours, for diagnosis"),
     expert("wires", BOARDS, "Board, radio", "BoardAction::ReadWires", "Pin swap and wire speed are for wiring tests"),
     row("pay", BOARDS, "Board, pay", "BoardAction::Pay"),

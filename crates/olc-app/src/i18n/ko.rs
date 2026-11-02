@@ -118,6 +118,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("boards.connection", "연결"),
     ("boards.connection_about", "이 앱이 보드에 닿는 방법입니다."),
     ("boards.mining", "채굴"),
+    ("boards.cooling", "{}. 보드가 뜨거워져서 식을 때까지 천천히 캡니다."),
     ("boards.resting", "쉬는 중"),
     ("boards.gone", "응답 없음"),
     ("boards.balance", "잔액"),

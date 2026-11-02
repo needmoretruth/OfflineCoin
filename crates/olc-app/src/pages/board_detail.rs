@@ -100,7 +100,10 @@ impl BoardDetail {
         let t = cx.t;
         let id = board.seen.id;
         let beacon = &board.seen.beacon;
-        let line = format::rate(cx.voice(), beacon.hashrate.into());
+        let mut line = format::rate(cx.voice(), beacon.hashrate.into());
+        if board.state.cooling == Some(true) {
+            line = cx.fill("boards.cooling", &[&line]);
+        }
         row(ui, t, cx.say("boards.mining"), &line, |ui| {
             let mut on = beacon.mining;
             if switch(ui, t, &mut on, cx.say("boards.mining")).clicked() {
