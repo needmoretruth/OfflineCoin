@@ -141,7 +141,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     wallet(&window, WalletOrder::MakeShared { need: 2, keys });
     wait_until(&mut window, |app| !app.snapshot().node.wallet.shared.is_empty());
     let text = window.state().snapshot().node.wallet.shared[0].text.clone();
-    // The coins just moved are spendable once a block takes the move.
+    // The figure counts the coins a payment picks from, the move's output among them.
     wait_until(&mut window, |app| app.snapshot().node.spendable > 2_000_000_000);
     window.state().send(Command::Lock(LockOrder::Pay { words: text, amount: "12".into() }));
     wait_until(&mut window, |app| app.snapshot().node.wallet.shared.first().is_some_and(|shared| shared.balance > 0));

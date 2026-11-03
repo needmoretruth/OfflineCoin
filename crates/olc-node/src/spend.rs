@@ -20,6 +20,9 @@ pub(crate) struct Signing {
 pub(crate) struct Paying<'a> {
     coins: &'a dyn Coins,
     version_one: bool,
+    /// Outputs to this wallet of its own payments still waiting for a block. Bitcoin Core spends
+    /// its own change at once in the same way: nobody else can take it back.
+    waiting: Vec<(OutPoint, Unspent)>,
 }
 
 impl Coins for Paying<'_> {
@@ -28,7 +31,10 @@ impl Coins for Paying<'_> {
     }
 
     fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)> {
-        self.coins.unspent_of(address)
+        let mut found = self.coins.unspent_of(address);
+        let waiting = self.waiting.iter().filter(|(_, entry)| entry.output.lock.as_slice() == address.as_slice());
+        found.extend(waiting.cloned());
+        found
     }
 
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
@@ -46,7 +52,23 @@ impl Engine {
     pub(crate) fn paying(&self) -> Paying<'_> {
         let next = self.chain.height() + 1;
         let version_one = self.version_one && self.chain.config().takes_version_one_at(next);
-        Paying { coins: self.coins(), version_one }
+        Paying { coins: self.coins(), version_one, waiting: self.own_waiting() }
+    }
+
+    /// See [`Paying::waiting`]. A light node already counts what its payments leave.
+    fn own_waiting(&self) -> Vec<(OutPoint, Unspent)> {
+        if self.light.is_some() {
+            return Vec::new();
+        }
+        let height = self.chain.height() + 1;
+        let own = self.pool.iter().filter(|tx| self.sent.contains(&tx.id()));
+        let outputs = own.flat_map(|tx| {
+            let txid = tx.id();
+            let places = tx.outputs.iter().enumerate();
+            places.filter_map(move |(at, output)| Some((OutPoint { txid, index: u32::try_from(at).ok()? }, output)))
+        });
+        let mine = outputs.filter(|(_, output)| self.wallet.owns(&output.lock));
+        mine.map(|(point, output)| (point, Unspent { output: output.clone(), height, coinbase: false })).collect()
     }
 
     /// What a signature in this node's next payment names. See [`Engine::paying`].
@@ -89,6 +111,16 @@ impl Engine {
             true => Ok(id),
             false => Err(WalletError::Refused),
         }
+    }
+
+    /// What this wallet's next payment can spend, as a person sees it: the same coins a payment
+    /// picks from, so the figure never promises more than a payment finds.
+    pub fn spendable(&self) -> u64 {
+        let (coins, reserved) = (self.paying(), self.reserved());
+        let next = coins.height() + 1;
+        let mine = self.wallet.keys().flat_map(|(address, _)| coins.unspent_of(&address));
+        let free = mine.filter(|(point, entry)| coins.is_mature(entry, next) && !reserved.contains(point));
+        free.map(|(_, entry)| entry.output.value).fold(0, u64::saturating_add)
     }
 
     pub(crate) fn reserved(&self) -> Vec<OutPoint> {
