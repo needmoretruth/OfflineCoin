@@ -26,6 +26,7 @@ pub mod shared;
 mod serve;
 mod snapshot;
 mod spend;
+mod sweep;
 mod sync;
 mod work;
 

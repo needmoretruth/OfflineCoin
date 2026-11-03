@@ -208,8 +208,30 @@ impl Wallet {
     pub fn add_words(&mut self, words: &Mnemonic) -> Result<usize, SeedError> {
         let index = self.add_secret(words.key(0)?).map_err(|_| SeedError::BadKey)?;
         self.receiving = index;
-        self.seed = Some(words.record(1, false));
+        self.set_words(words.record(1, false));
         Ok(index)
+    }
+
+    /// Makes `record` this wallet's words. Words it had before, when they differ, go to
+    /// [`Wallet::earlier`], and words it had earlier come back from there.
+    pub fn set_words(&mut self, record: SeedRecord) {
+        self.earlier.retain(|old| old.entropy != record.entropy);
+        if let Some(old) = self.seed.take().filter(|old| old.entropy != record.entropy) {
+            self.earlier.push(old);
+        }
+        self.seed = Some(record);
+    }
+
+    /// The addresses of every key that words this wallet has, now or earlier, can bring back.
+    pub fn word_addresses(&self) -> Vec<olc_core::Address> {
+        let records = self.seed.iter().chain(&self.earlier);
+        let mut found = Vec::new();
+        for record in records {
+            if let Some(words) = record.mnemonic() {
+                found.extend(addresses(&words.seed(""), 0, record.next).unwrap_or_default());
+            }
+        }
+        found
     }
 
     /// The next key from the words, when there are words.
@@ -223,9 +245,10 @@ impl Wallet {
         Some(added)
     }
 
-    /// Takes in the keys these words give: the first, and every one up to the last that `used`
-    /// says has coins, looking `GAP` past it. The first becomes the one that receives, so this
-    /// computer shows the address the words were made with. Says how many keys were new.
+    /// Takes in the keys these words give: every one up to `GAP` past the last that `used` says
+    /// has coins, so coins on a chain still on its way in show up once it arrives. The first
+    /// becomes the one that receives, so this computer shows the address the words were made
+    /// with. Words this wallet had stay, as [`Wallet::earlier`]. Says how many keys were new.
     pub fn restore_words(&mut self, words: &Mnemonic, used: impl Fn(&olc_core::Address) -> bool) -> Result<usize, SeedError> {
         let seed = words.seed("");
         let mut secrets = Vec::new();
@@ -240,11 +263,10 @@ impl Wallet {
             secrets.push(secret);
             index += 1;
         }
-        secrets.truncate(last_used as usize + 1);
         let added = secrets.iter().filter(|secret| self.add_secret(**secret).is_ok()).count();
         let first = olc_crypto::public_key(&secrets[0]).map(|public| olc_crypto::address_of(&public));
         self.receiving = self.keys.iter().position(|key| Some(key.address) == first).unwrap_or(self.receiving);
-        self.seed = Some(words.record(last_used + 1, true));
+        self.set_words(words.record(last_used + GAP + 1, true));
         Ok(added)
     }
 }

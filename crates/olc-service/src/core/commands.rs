@@ -213,4 +213,7 @@ pub enum LockOrder {
     /// Speeds up the waiting payment with this id: replaced when sent from here, pulled along by
     /// a child when it pays here.
     SpeedUp { id: String },
+    /// Moves the coins on keys from before the seed words to the words, so the words alone
+    /// bring every coin back.
+    MoveToWords,
 }

@@ -29,7 +29,8 @@ pub(super) fn words(desk: &mut dyn Desk, args: &Args) -> Result<String, String> 
             Ok(format!("{made}\n{words}"))
         }
         Some("restore") if args.word(2).is_some() => own(desk, WalletOrder::RestoreWords(rest(args, 2))),
-        _ => Err("Use: olc words | words written | words new [korean] | words restore WORD...".into()),
+        Some("move") => desk.command(Command::Lock(LockOrder::MoveToWords)),
+        _ => Err("Use: olc words | words written | words new [korean] | words restore WORD... | words move".into()),
     }
 }
 

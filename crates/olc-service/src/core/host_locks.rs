@@ -2,7 +2,7 @@
 use super::commands::LockOrder;
 use super::host::{Host, PayError, Waiting};
 use super::host_parts::unix_ms;
-use super::{format_coins, parse_coins};
+use super::parse_coins;
 use olc_core::{ChainError, Hash, OutPoint};
 use olc_crypto::hash;
 use olc_lang::words::{
@@ -177,7 +177,7 @@ impl Host {
     pub fn carry_lock(&self, order: LockOrder) -> (&'static str, String, bool) {
         let done = match order {
             LockOrder::Pay { words, .. } if words.trim().trim_matches('"').starts_with(SHARED_START) && !self.shared_ready() => {
-                return ("notice.shared_not_yet", String::new(), false);
+                return ("notice.shared_not_yet", self.shared_from().to_string(), false);
             }
             LockOrder::Pay { words, amount } => {
                 return match self.pay_lock(&words, &amount) {
@@ -190,6 +190,7 @@ impl Host {
             }
             LockOrder::PayShared { wallet, to, amount } => return self.pay_shared(wallet, &to, &amount),
             LockOrder::SpeedUp { id } => return self.speed_up(&id),
+            LockOrder::MoveToWords => return self.move_to_words(),
             LockOrder::Sign { text } if text.trim().starts_with(SHARED_SPEND_START) => return self.sign_shared(&text),
             LockOrder::Spend { coin, to, unlock } => self.spend_lock(&coin, &to, &unlock),
             LockOrder::Sign { text } => self.sign_lock(&text),
@@ -238,7 +239,7 @@ impl Host {
         };
         let mut runner = self.ready().map_err(|_| LockFailure::NoCoin)?;
         let (id, _) = runner.engine.pay_to_lock(&words, units)?;
-        Ok((id, format_coins(units)))
+        Ok((id, super::host_wallet::amount_of(&runner.engine, units)))
     }
 
     /// Spends a locked coin to `to`, or to this wallet when `to` is empty.

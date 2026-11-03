@@ -7,6 +7,7 @@ mod rule_shots;
 mod shots;
 mod steady;
 mod wallet_shots;
+mod first_words;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};
@@ -109,7 +110,8 @@ pub(super) fn wait_until(harness: &mut Window, mut done: impl FnMut(&App) -> boo
 
 /// Waits for this notice, and fails at once on a notice that says something went wrong.
 #[track_caller]
-pub(super) fn wait_for_notice(harness: &mut Window, key: &str) {
+/// Waits for a good notice of `key` and gives its detail.
+pub(super) fn wait_for_notice(harness: &mut Window, key: &str) -> String {
     wait_until(harness, |app| {
         let snap = app.snapshot();
         let Some(notice) = &snap.notice else {
@@ -118,12 +120,28 @@ pub(super) fn wait_for_notice(harness: &mut Window, key: &str) {
         assert!(notice.good, "{notice:?}");
         notice.key == key
     });
+    harness.state().snapshot().notice.as_ref().map(|notice| notice.detail.clone()).unwrap_or_default()
 }
 
 pub(super) fn click(harness: &mut Window, label: &str) {
     // A row that is a button also holds its text as a label of the same name.
     let button = harness.query(By::new().role(Role::Button).label(label));
     button.unwrap_or_else(|| harness.get_by_label(label)).click();
+    harness.run_steps(2);
+}
+
+/// Types into one of the `count` last boxes of this kind, as a sheet drawn over a page holds
+/// them: `role` is a one line or a many line box.
+pub(super) fn type_into_last(harness: &mut Window, role: Role, count: usize, field: usize, text: &str) {
+    let total = harness.query_all_by_role(role).count();
+    let at = total.saturating_sub(count) + field;
+    if let Some(node) = harness.query_all_by_role(role).nth(at) {
+        node.focus();
+    }
+    harness.run_steps(2);
+    if let Some(node) = harness.query_all_by_role(role).nth(at) {
+        node.type_text(text);
+    }
     harness.run_steps(2);
 }
 

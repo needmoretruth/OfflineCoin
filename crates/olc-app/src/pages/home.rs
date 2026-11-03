@@ -113,12 +113,20 @@ impl Home {
         });
         // Words not yet written down are the one way back to this wallet, so they ask here. They
         // stand above what the node says, which comes and goes, so this button keeps its place.
-        if node.wallet.words_to_write.is_some() {
+        // Words not yet written down come first; then coins the words cannot bring back.
+        let words_line = match () {
+            () if node.wallet.words_to_write.is_some() => Some((cx.say("home.words_unwritten").to_string(), "home.words_write")),
+            () if node.wallet.outside_words > 0 => {
+                Some((cx.fill("home.words_outside", &[&format::coins(node.wallet.outside_words, cx.ticker())]), "common.open"))
+            }
+            () => None,
+        };
+        if let Some((line, open)) = words_line {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 dot(ui, t.warn);
-                ui.label(cx.say("home.words_unwritten"));
-                if button(ui, t, cx.say("home.words_write"), Kind::Quiet).clicked() {
+                ui.label(line);
+                if button(ui, t, cx.say(open), Kind::Quiet).clicked() {
                     self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
                 }
             });
@@ -226,14 +234,23 @@ impl Home {
 }
 
 /// The slip before a waiting payment goes again with a higher fee.
+/// Shows the fee now and the fee after, as Bitcoin Core's bump fee dialog does, worked out by the
+/// same code that then sends it. Expert mode also names the payment.
 fn speed_up_slip(cx: &Cx, item: &Activity) -> Slipping {
     let id: String = item.id.iter().map(|byte| format!("{byte:02x}")).collect();
+    let quote = cx.snap.node.wallet.speed.iter().find(|quote| quote.id == item.id);
+    let fee = |units: Option<u64>| units.map_or_else(|| "?".to_string(), |units| format::coins(units, cx.ticker()));
+    let mut rows = vec![
+        (cx.say("speed.amount"), format::coins(item.amount, cx.ticker())),
+        (cx.say("speed.fee_now"), fee(quote.map(|quote| quote.now))),
+        (cx.say("speed.fee_new"), fee(quote.map(|quote| quote.new))),
+    ];
+    if cx.expert() {
+        rows.push((cx.say("pro.speed_id"), format::short_id(&item.id)));
+    }
     Slipping {
         what: cx.say("speed.title"),
-        rows: vec![
-            (cx.say("speed.amount"), format::coins(item.amount, cx.ticker())),
-            (cx.say("speed.id"), format::short_id(&item.id)),
-        ],
+        rows,
         warning: cx.say("speed.warning"),
         sign: cx.say("speed.sign"),
         danger: false,

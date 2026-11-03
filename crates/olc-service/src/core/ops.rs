@@ -166,9 +166,15 @@ pub trait Book {
         self.wallet_change(|wallet| {
             let secrets = (0..backup.key_count()).filter_map(|index| backup.export_secret(index));
             let added = secrets.filter(|secret| wallet.add_secret(*secret).is_ok()).count();
-            // The backup's words and shared wallets come along, unless this wallet has its own words.
-            if wallet.seed.is_none() {
-                wallet.seed.clone_from(&backup.seed);
+            // The backup's words come along. When this wallet has words of its own, those stay its
+            // words and the backup's are kept beside them, so none are lost.
+            for record in backup.seed.iter().chain(&backup.earlier) {
+                match &wallet.seed {
+                    None => wallet.seed = Some(record.clone()),
+                    Some(own) if own.entropy == record.entropy => {}
+                    Some(_) if wallet.earlier.iter().any(|old| old.entropy == record.entropy) => {}
+                    Some(_) => wallet.earlier.push(record.clone()),
+                }
             }
             for shared in &backup.shared {
                 if !wallet.shared.contains(shared) {

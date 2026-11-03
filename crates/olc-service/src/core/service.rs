@@ -241,6 +241,8 @@ impl Service {
                 self.say("notice.no_bluetooth", String::new(), false);
             }
             Command::Own(Personal::SetBluetooth(on)) => self.change_node(|node| node.bluetooth = on),
+            // No node runs before the first run's questions are done; words go to the wallet's folder.
+            Command::Own(Personal::Wallet(order)) if self.host.ready().is_err() => self.wallet_in_folder(order),
             Command::Own(order) => {
                 let (key, detail, good) = self.host.obey(order);
                 if !key.is_empty() {

@@ -111,7 +111,17 @@ impl SharedSheet {
         section(ui, cx.say("shared.signing"));
         let waiting = cx.snap.node.half_spend.as_ref().filter(|(text, _)| text.starts_with("olcsharedspend1"));
         if let Some((text, who)) = waiting {
-            meta(ui, &cx.fill("shared.waiting", &[&who.join(", ")]), t);
+            // Signers by their place in the wallet, as "my place: 1" names this one.
+            let signers = cx.snap.node.wallet.shared.iter().find(|shared| who.iter().all(|address| shared.signers.contains(address)));
+            let places: Vec<String> = who
+                .iter()
+                .filter_map(|address| signers?.signers.iter().position(|signer| signer == address))
+                .map(|place| cx.fill("shared.place", &[&(place + 1).to_string()]))
+                .collect();
+            meta(ui, &cx.fill("shared.waiting", &[&places.join(", ")]), t);
+            if cx.expert() {
+                meta(ui, &who.join(", "), t);
+            }
             passing(ui, cx, text);
             ui.add_space(tokens::GAP);
         }
@@ -168,12 +178,20 @@ impl SharedSheet {
         // The title, the line under it and the close button keep their room; the rest scrolls.
         let room = (ui.ctx().content_rect().height() - 280.0).max(300.0);
         ScrollArea::vertical().max_height(room).show(ui, |ui| {
+            // A spend that waits for others is the thing to do next, so it comes first.
+            let waiting = cx.snap.node.half_spend.as_ref().is_some_and(|(text, _)| text.starts_with("olcsharedspend1"));
+            if waiting {
+                self.signatures(ui, cx);
+                ui.add_space(tokens::GAP);
+            }
             let wallets = cx.snap.node.wallet.shared.clone();
             for (index, shared) in wallets.iter().enumerate() {
                 self.one(ui, cx, index, shared);
                 ui.add_space(8.0);
             }
-            self.signatures(ui, cx);
+            if !waiting {
+                self.signatures(ui, cx);
+            }
             ui.add_space(tokens::GAP);
             self.make(ui, cx);
             ui.add_space(tokens::GAP);

@@ -43,8 +43,25 @@ impl Engine {
         (output.language == ALPHA && self.wallet.owns(&address)).then_some(address)
     }
 
+    /// What speeding up `id` would cost: the fee it pays now, and the fee it would pay. Nothing
+    /// is signed or sent, so a screen can show both before the person agrees.
+    pub fn speed_up_fees(&self, id: &Hash) -> Result<(u64, u64), WalletError> {
+        let at = self.pool.iter().position(|tx| tx.id() == *id).ok_or(WalletError::NoSuchKey)?;
+        let now = self.chain.waiting(&self.pool).get(at).map_or(0, |entry| entry.fee);
+        let (_, fee, _) = self.plan_speed_up(id, false)?;
+        Ok((now, fee))
+    }
+
     /// Speeds up the waiting payment `id`, sent by this wallet or paying it.
     pub fn speed_up(&mut self, id: &Hash) -> Result<SpedUp, WalletError> {
+        let (tx, fee, replaced) = self.plan_speed_up(id, true)?;
+        let id = self.send_payment(tx)?;
+        Ok(SpedUp { id, fee, replaced })
+    }
+
+    /// The payment that would take the place of `id`, or the child that would pull it along,
+    /// with its fee. Signed only when `sign` is set; the fee does not depend on it.
+    fn plan_speed_up(&self, id: &Hash, sign: bool) -> Result<(Tx, u64, bool), WalletError> {
         let at = self.pool.iter().position(|tx| tx.id() == *id).ok_or(WalletError::NoSuchKey)?;
         let tx = self.pool[at].clone();
         let owners: Option<Vec<Address>> = tx
@@ -53,14 +70,14 @@ impl Engine {
             .map(|input| self.chain.coin_at(&input.previous).and_then(|coin| self.owner_of(&coin.output)))
             .collect();
         match owners {
-            Some(owners) => self.replace(at, tx, owners),
-            None => self.pull_along(at, tx),
+            Some(owners) => self.replace(at, tx, owners, sign).map(|(tx, fee)| (tx, fee, true)),
+            None => self.pull_along(at, tx).map(|(tx, fee)| (tx, fee, false)),
         }
     }
 
     /// Signs `tx` again from the same coins with a higher fee, taken from its change, and from
     /// another coin of this wallet when the change is too small.
-    fn replace(&mut self, at: usize, mut tx: Tx, mut owners: Vec<Address>) -> Result<SpedUp, WalletError> {
+    fn replace(&self, at: usize, mut tx: Tx, mut owners: Vec<Address>, sign: bool) -> Result<(Tx, u64), WalletError> {
         let waiting = self.chain.waiting(&self.pool);
         let mut replaced = BTreeSet::from([at]);
         for (place, entry) in waiting.iter().enumerate() {
@@ -92,10 +109,10 @@ impl Engine {
                     None if change > 0 => tx.outputs.push(TxOut { value: change, language: ALPHA, lock: self.wallet.address().to_vec() }),
                     None => {}
                 }
-                let unsigned = Unsigned { tx, owners, coin };
-                let signed = self.wallet.sign(&unsigned)?;
-                let id = self.send_payment(signed)?;
-                return Ok(SpedUp { id, fee, replaced: true });
+                if !sign {
+                    return Ok((tx, fee));
+                }
+                return Ok((self.wallet.sign(&Unsigned { tx, owners, coin })?, fee));
             }
             let (point, owner) = extra_coins.next().ok_or(WalletError::NotEnoughCoins)?;
             tx.inputs.push(TxIn { previous: point, unlock: Vec::new(), sequence: SEQUENCE_FINAL });
@@ -119,7 +136,7 @@ impl Engine {
 
     /// Spends what the waiting payment at `at` pays this wallet back to it, with a fee that
     /// carries the payment and every waiting one it needs.
-    fn pull_along(&mut self, at: usize, parent: Tx) -> Result<SpedUp, WalletError> {
+    fn pull_along(&self, at: usize, parent: Tx) -> Result<(Tx, u64), WalletError> {
         let txid = parent.id();
         let reserved = self.reserved();
         let ours: Vec<(OutPoint, Address, u64)> = parent
@@ -157,8 +174,6 @@ impl Engine {
         let together = package_size + size;
         let front = self.front_of_line(&rest, together);
         let fee = front.saturating_sub(package_fee).max(INCREMENTAL_FEE.saturating_mul(size));
-        let tx = child(fee)?;
-        let id = self.send_payment(tx)?;
-        Ok(SpedUp { id, fee, replaced: false })
+        Ok((child(fee)?, fee))
     }
 }

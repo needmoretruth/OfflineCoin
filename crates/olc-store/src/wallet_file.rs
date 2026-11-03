@@ -25,6 +25,8 @@ struct Keys {
     seed: Option<SeedRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     shared: Vec<Shared>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    earlier: Vec<SeedRecord>,
 }
 
 /// What a backup file holds. With a password only the sealed fields are set.
@@ -69,6 +71,7 @@ fn keys_of(wallet: &Wallet) -> Keys {
         receiving: wallet.receiving(),
         seed: wallet.seed.clone(),
         shared: wallet.shared.clone(),
+        earlier: wallet.earlier.clone(),
     }
 }
 
@@ -78,6 +81,7 @@ fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
     let mut wallet = Wallet::from_secrets(&secrets, keys.receiving).map_err(|_| "A key is not valid.".to_string())?;
     wallet.seed = keys.seed.clone();
     wallet.shared = keys.shared.clone();
+    wallet.earlier = keys.earlier.clone();
     Ok(wallet)
 }
 

@@ -80,11 +80,14 @@ fn words_restore_the_same_address_and_every_key_with_coins() {
     let typed = Mnemonic::parse(&words.phrase()).unwrap();
     let mut second = Wallet::from_secret([77; 32]).unwrap();
     let added = second.restore_words(&typed, |address| *address == with_coins).unwrap();
-    assert_eq!(added, 4);
+    // Every key up to GAP past the last with coins, so coins a chain still on its way in holds
+    // show once it arrives.
+    let looked = 3 + GAP as usize + 1;
+    assert_eq!(added, looked);
     assert_eq!(second.address(), first.address());
     assert_eq!(second.keys().nth(4).unwrap().0, with_coins);
-    assert_eq!(second.key_count(), 5);
-    assert_eq!(second.seed.as_ref().unwrap().next, 4);
+    assert_eq!(second.key_count(), looked + 1);
+    assert_eq!(second.seed.as_ref().unwrap().next, looked as u32);
 
     // An older wallet keeps its key and receives on the new words' first key.
     let mut older = Wallet::from_secret([78; 32]).unwrap();
@@ -92,4 +95,38 @@ fn words_restore_the_same_address_and_every_key_with_coins() {
     older.add_words(&words).unwrap();
     assert_eq!(older.address(), first.address());
     assert_eq!(older.keys().next().unwrap().0, old_address);
+}
+
+#[test]
+fn restoring_other_words_keeps_the_words_and_keys_already_here() {
+    let a = Mnemonic::from_entropy(&[1; 16], WordList::English).unwrap();
+    let b = Mnemonic::from_entropy(&[2; 16], WordList::English).unwrap();
+    let mut wallet = Wallet::from_words(&a, true).unwrap();
+    wallet.next_word_key().unwrap().unwrap();
+    let a_keys: Vec<_> = wallet.keys().map(|(address, _)| address).collect();
+
+    wallet.restore_words(&b, |_| false).unwrap();
+    assert_eq!(wallet.seed.as_ref().and_then(SeedRecord::mnemonic).unwrap().phrase(), b.phrase());
+    let kept: Vec<String> = wallet.earlier.iter().filter_map(SeedRecord::mnemonic).map(|words| words.phrase()).collect();
+    assert_eq!(kept, [a.phrase()]);
+    assert!(a_keys.iter().all(|address| wallet.owns(address)));
+    assert_eq!(wallet.earlier[0].next, 2, "A's next key number stays too");
+
+    // Both sets of words name their keys; restoring A again makes A the words once more.
+    let named: BTreeSet<_> = wallet.word_addresses().into_iter().collect();
+    assert!(a_keys.iter().all(|address| named.contains(address)));
+    wallet.restore_words(&a, |_| false).unwrap();
+    assert_eq!(wallet.seed.as_ref().unwrap().entropy, a.entropy());
+    assert_eq!(wallet.earlier.len(), 1);
+}
+
+#[test]
+fn keys_from_before_the_words_are_not_named_by_them() {
+    let words = Mnemonic::from_entropy(&[3; 16], WordList::English).unwrap();
+    let mut older = Wallet::from_secret([79; 32]).unwrap();
+    let old_address = older.address();
+    older.add_words(&words).unwrap();
+    let named = older.word_addresses();
+    assert!(!named.contains(&old_address));
+    assert!(named.contains(&older.address()));
 }

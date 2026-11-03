@@ -20,7 +20,7 @@ mod records;
 pub mod reach;
 mod settings;
 mod settings_more;
-mod seed_words;
+pub(crate) mod seed_words;
 mod shared_wallets;
 pub mod setup;
 mod wallet_tools;

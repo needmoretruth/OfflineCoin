@@ -32,8 +32,13 @@ fn a_sped_up_payment_replaces_the_first_everywhere_and_is_mined_instead() {
     deliver(&mut nodes);
     assert!(nodes[1].in_pool(&first));
 
+    // What the screen shows before the button is what the speed up then pays.
+    let (now, new) = nodes[0].speed_up_fees(&first).unwrap();
+    assert!(nodes[0].in_pool(&first), "asking the fee sends nothing");
     let sped = nodes[0].speed_up(&first).unwrap();
     assert!(sped.replaced && sped.fee > 0);
+    assert!(new > now);
+    assert_eq!(new, sped.fee);
     deliver(&mut nodes);
     for node in &nodes {
         assert!(!node.in_pool(&first));
@@ -84,8 +89,10 @@ fn a_child_paying_well_takes_its_parent_into_a_full_block() {
     let alone = chain.block_template(&to, nodes[1].pool(), 1_000_000);
     assert!(alone.txs.iter().all(|tx| tx.id() != parent));
 
+    let (_, quoted) = nodes[1].speed_up_fees(&parent).unwrap();
     let child = nodes[1].speed_up(&parent).unwrap();
     assert!(!child.replaced);
+    assert_eq!(quoted, child.fee);
     deliver(&mut nodes);
     mine(&mut nodes[0], 100_000);
     deliver(&mut nodes);

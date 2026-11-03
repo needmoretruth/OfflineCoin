@@ -116,12 +116,33 @@ fn list_shared<B: Book + ?Sized>(book: &B) -> Result<String, String> {
     Ok(if rows.is_empty() { "No shared wallets yet.".to_string() } else { rows.join("\n") })
 }
 
+/// Does a wallet order on the wallet files in `directory`, as before the first run's questions
+/// are done, when no node runs. Gives the notice's key, detail and whether it went well.
+pub(super) fn carry_in_folder(directory: std::path::PathBuf, order: WalletOrder) -> (&'static str, String, bool) {
+    match carry_wallet(&super::folder::Folder { directory }, order) {
+        Ok((key, detail)) => (key, detail, true),
+        Err(error) => {
+            let (key, detail) = wallet_failure(&error).unwrap_or(("notice.key_failed", error));
+            (key, detail, false)
+        }
+    }
+}
+
 /// Does a wallet order and gives the notice's key and detail.
 pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Result<(&'static str, String), String> {
     match order {
         WalletOrder::ShowWords => {
-            let words = book.wallet_view(|wallet| wallet.seed.as_ref().and_then(|seed| seed.mnemonic()))?;
-            Ok(("notice.words", words.ok_or(NO_WORDS)?.phrase()))
+            let (words, earlier) = book.wallet_view(|wallet| {
+                let earlier: Vec<String> = wallet.earlier.iter().filter_map(|record| record.mnemonic()).map(|words| words.phrase()).collect();
+                (wallet.seed.as_ref().and_then(|seed| seed.mnemonic()), earlier)
+            })?;
+            let mut shown = words.ok_or(NO_WORDS)?.phrase();
+            // Words this wallet had before still bring their coins back, so they show too.
+            for phrase in earlier {
+                shown.push_str("\nEarlier words: ");
+                shown.push_str(&phrase);
+            }
+            Ok(("notice.words", shown))
         }
         WalletOrder::WordsWritten => book.wallet_change(|wallet| {
             let seed = wallet.seed.as_mut().ok_or(NO_WORDS)?;

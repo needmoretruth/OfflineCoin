@@ -77,7 +77,7 @@ pub const WORDS: &[Word] = &[
     Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a lock", run: lock_pay },
     Word { name: "lock-spend", usage: "lock-spend COIN [--to ADDRESS] WORDS  spend a locked coin", run: lock_spend },
     Word { name: "lock-sign", usage: "lock-sign TEXT       add your signature to a spend", run: lock_sign },
-    Word { name: "words", usage: "words [written|new [korean]|restore WORD...]  seed words to write down or restore from", run: words_wallet::words },
+    Word { name: "words", usage: "words [written|new [korean]|restore WORD...|move]  seed words to write down, restore from, or move older coins to", run: words_wallet::words },
     Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },
     Word { name: "verify-message", usage: "verify-message ADDRESS SIGNATURE TEXT  check a signed message", run: words_wallet::verify_message },
     Word { name: "shared", usage: "shared [new N KEY...|add TEXT|forget N|pay N ADDRESS AMOUNT]  wallets several people share", run: words_wallet::shared },

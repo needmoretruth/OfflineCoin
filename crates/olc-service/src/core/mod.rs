@@ -44,7 +44,7 @@ pub use explorer::{BlockRow, Explored, NoteRow, TxRow};
 pub use history::{Activity, ActivityKind};
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};
 pub use host_parts::{full_rate, unix_ms};
-pub use host_wallet::{SharedView, WalletView, Words};
+pub use host_wallet::{SharedView, SpeedQuote, WalletView, Words};
 pub use wallet_orders::WalletOrder;
 pub use host::{HeardFrom, Host, PayError, Plan};
 pub use pool_run::{shares_in, PoolRow, PoolRun, PoolView, Worker};

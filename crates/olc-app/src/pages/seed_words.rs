@@ -1,7 +1,9 @@
 //! The twelve seed words: shown until the person has written them down and typed two of them back,
-//! then never again. Words from elsewhere bring their wallet back here.
+//! then again only when asked and agreed to, as Electrum and Sparrow do. Words from elsewhere
+//! bring their wallet back here, and coins from before the words can move to them.
 use super::Cx;
-use crate::core::{Command, Personal, WalletOrder};
+use crate::core::{Command, LockOrder, Personal, WalletOrder};
+use crate::ui::format;
 use crate::i18n::Lang;
 use crate::ui::floating::sheet_head;
 use crate::ui::tokens;
@@ -13,6 +15,9 @@ enum Step {
     #[default]
     Show,
     Check,
+    /// Asks before showing written words again.
+    Ask,
+    Again,
 }
 
 #[derive(Default)]
@@ -29,7 +34,7 @@ fn wallet(cx: &Cx, order: WalletOrder) {
 
 /// The two places to ask back. They come from the words, so they stay the same while the sheet
 /// is open, and they are far apart so both halves of the list get a look.
-fn asked(words: &[String]) -> [usize; 2] {
+pub(crate) fn asked(words: &[String]) -> [usize; 2] {
     let count = words.len().max(2);
     let mix = words.iter().map(|word| word.chars().count()).sum::<usize>() + words.first().map_or(0, |word| word.len());
     let first = mix % (count / 2);
@@ -127,29 +132,102 @@ impl WordsSheet {
         }
     }
 
+    /// Written words once more, with any this wallet had before, which still work.
+    fn again(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        let view = &cx.snap.node.wallet;
+        meta(ui, cx.say("words.secret"), t);
+        if let Some(words) = &view.words {
+            word_grid(ui, cx, &words.0);
+        }
+        for words in &view.earlier_words {
+            ui.add_space(tokens::GAP);
+            section(ui, cx.say("words.earlier"));
+            meta(ui, cx.say("words.earlier_body"), t);
+            word_grid(ui, cx, &words.0);
+        }
+        ui.add_space(4.0);
+        if button(ui, t, cx.say("words.hide"), Kind::Plain).clicked() {
+            self.step = Step::Show;
+        }
+    }
+
+    /// Written words, shown again only after the person agrees.
+    fn written(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        match self.step {
+            Step::Again => self.again(ui, cx),
+            Step::Ask => {
+                meta(ui, cx.say("words.ask"), t);
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if button(ui, t, cx.say("words.show_go"), Kind::Main).clicked() {
+                        self.step = Step::Again;
+                    }
+                    if button(ui, t, cx.say("common.back"), Kind::Plain).clicked() {
+                        self.step = Step::Show;
+                    }
+                });
+            }
+            Step::Show | Step::Check => {
+                meta(ui, cx.say("words.kept"), t);
+                ui.add_space(4.0);
+                if button(ui, t, cx.say("words.see_again"), Kind::Plain).clicked() {
+                    self.step = Step::Ask;
+                }
+            }
+        }
+    }
+
+    /// Coins on keys from before the words, and the one payment that moves them to the words.
+    fn outside(ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
+        let held = cx.snap.node.wallet.outside_words;
+        if held == 0 {
+            return;
+        }
+        ui.add_space(tokens::GAP);
+        section(ui, cx.say("words.move_title"));
+        meta(ui, &cx.fill("words.outside", &[&format::coins(held, cx.ticker())]), t);
+        let ripe = cx.snap.node.wallet.outside_ripe;
+        if ripe < held {
+            meta(ui, cx.say("words.outside_later"), t);
+        }
+        ui.add_space(4.0);
+        if button_on(ui, t, cx.say("words.move"), Kind::Main, ripe > 0).clicked() {
+            cx.send(Command::Lock(LockOrder::MoveToWords));
+        }
+    }
+
     /// True when it is finished.
     pub fn show(&mut self, ui: &mut Ui, cx: &Cx) -> bool {
         let t = cx.t;
         let view = &cx.snap.node.wallet;
         if let Some(words) = &view.words_to_write {
-            return match self.step {
-                Step::Show => self.show_words(ui, cx, &words.0),
-                Step::Check => self.check(ui, cx, &words.0),
-            };
-        }
-        sheet_head(ui, cx.say("words.heading"));
-        if view.has_words {
-            meta(ui, cx.say("words.kept"), t);
-        } else {
-            meta(ui, cx.say("words.none"), t);
-            ui.add_space(4.0);
-            if button(ui, t, cx.say("words.make"), Kind::Main).clicked() {
-                self.step = Step::Show;
-                wallet(cx, WalletOrder::NewWords { korean: cx.lang == Lang::Ko });
+            match self.step {
+                Step::Check => return self.check(ui, cx, &words.0),
+                _ => return self.show_words(ui, cx, &words.0),
             }
         }
-        ui.add_space(tokens::GAP);
-        self.restore(ui, cx);
+        sheet_head(ui, cx.say("words.heading"));
+        // The words, earlier words and the coins to move can be taller than a small window: the
+        // title and the close button keep their room and the rest scrolls.
+        let room = (ui.ctx().content_rect().height() - 200.0).max(300.0);
+        egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
+            if view.has_words {
+                self.written(ui, cx);
+                Self::outside(ui, cx);
+            } else {
+                meta(ui, cx.say("words.none"), t);
+                ui.add_space(4.0);
+                if button(ui, t, cx.say("words.make"), Kind::Main).clicked() {
+                    self.step = Step::Show;
+                    wallet(cx, WalletOrder::NewWords { korean: cx.lang == Lang::Ko });
+                }
+            }
+            ui.add_space(tokens::GAP);
+            self.restore(ui, cx);
+        });
         ui.add_space(tokens::GAP);
         button(ui, t, cx.say("common.close"), Kind::Plain).clicked()
     }
