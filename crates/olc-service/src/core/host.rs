@@ -71,6 +71,8 @@ pub(super) struct State {
     pub(super) folder: Mutex<Option<PathBuf>>,
     /// A header from outside to grind in place of mining, with its difficulty.
     work: Mutex<Option<(BlockHeader, u64)>>,
+    /// Addresses a person added since the last switch: its list was made before them.
+    by_hand: Mutex<Vec<String>>,
     /// Headers that reached that difficulty, until someone takes them.
     shares: Mutex<Vec<BlockHeader>>,
     /// The last thing a person looked up.
@@ -148,6 +150,7 @@ impl Host {
             storage: plan.storage,
             folder: Mutex::default(),
             work: Mutex::default(),
+            by_hand: Mutex::default(),
             shares: Mutex::default(),
             explored: Mutex::default(),
             half_spend: Mutex::default(),
@@ -291,11 +294,21 @@ impl Host {
             // Said before the thread can see it, so nothing lands on the old engine from here on.
             self.state.opening.store(true, Ordering::Relaxed);
             *switch = Some(Switch { coin, folder, peers, keep_from });
+            // The list given here holds every address so far.
+            if let Ok(mut by_hand) = self.state.by_hand.lock() {
+                by_hand.clear();
+            }
         }
     }
 
     /// Keeps a way to reach a node. The node dials it when nothing else reaches that node.
     pub fn connect(&self, address: String) {
+        // Kept first, so a chain that opens now and drops every address dials it again.
+        if let Ok(mut by_hand) = self.state.by_hand.lock() {
+            if !by_hand.contains(&address) {
+                by_hand.push(address.clone());
+            }
+        }
         if let Ok(mut runner) = self.runner.lock() {
             runner.add_address(TCP_LINK, address);
         }
@@ -514,7 +527,8 @@ impl Worker {
             }
             carry_pool(&mut runner, engine);
             runner.forget_addresses();
-            for peer in switch.peers {
+            let by_hand = self.state.by_hand.lock().map(|by_hand| by_hand.clone()).unwrap_or_default();
+            for peer in switch.peers.into_iter().chain(by_hand) {
                 runner.add_address(TCP_LINK, peer);
             }
         }
