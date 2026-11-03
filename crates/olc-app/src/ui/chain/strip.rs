@@ -51,7 +51,8 @@ impl<'a> Strip<'a> {
     }
 }
 
-fn depth(size: f32) -> f32 {
+/// How far the top and the side of a block of this height rise behind its face.
+pub(crate) fn depth(size: f32) -> f32 {
     (size * 0.17).round()
 }
 
@@ -66,7 +67,8 @@ fn one_line(ui: &Ui, text: String, font: FontId, colour: Color32, width: f32) ->
     ui.fonts_mut(|fonts| fonts.layout_job(job))
 }
 
-fn draw_box(painter: &Painter, front: Rect, d: f32, look: &Faces, fade: f32) {
+/// A lit block: `front` is its face, the top and the left side rise `d` behind it. `fade` dims it all.
+pub(crate) fn draw_box(painter: &Painter, front: Rect, d: f32, look: &Faces, fade: f32) {
     let shade = |colour: Color32| colour.gamma_multiply(fade);
     let up = vec2(-d, -d);
     let top = vec![front.left_top(), front.right_top(), front.right_top() + up, front.left_top() + up];

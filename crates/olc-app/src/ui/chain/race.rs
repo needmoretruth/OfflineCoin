@@ -59,7 +59,10 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
             painter.add(paint::gradient(fill, BAR / 2.0, start, end));
         }
         let percent = (share.blocks * 100).checked_div(window).unwrap_or(0);
-        let count = i18n::fill(i18n::text(voice, "chain.share_blocks"), &[&format::number(share.blocks.into())]);
+        let count = match share.blocks {
+            1 => i18n::text(voice, "chain.share_one").to_string(),
+            blocks => i18n::fill(i18n::text(voice, "chain.share_blocks"), &[&format::number(blocks.into())]),
+        };
         let figure_left = track.right() + 14.0;
         let big = FontId::new(tokens::SECTION, fonts::strong());
         let shown = painter.text(pos2(figure_left, middle), Align2::LEFT_CENTER, format!("{percent}%"), big, name_colour);

@@ -34,6 +34,7 @@ mod strip;
 pub use pace::{hashrate_line, next_block_bar};
 pub use race::race_bars;
 pub use strip::{block_strip, BranchKind, Strip};
+pub(crate) use strip::{depth, draw_box};
 
 use super::tokens::Tokens;
 use crate::core::{ChainView, Miner};
@@ -88,15 +89,26 @@ impl Faces {
 
 /// "You" in the accent, everyone else in one gray: color only says whose it is.
 pub(crate) fn faces(t: &Tokens, you: bool) -> Faces {
-    let (light, shade) = match t.dark {
-        true => (t.text, t.back_floor),
-        false => (t.card_top, t.text),
-    };
-    let base = if you { t.info } else { mix(t.card_top, t.soft, if t.dark { 0.30 } else { 0.24 }) };
+    let base = if you { t.info } else { gray(t) };
     let ink = match (you, t.dark) {
         (true, true) => t.back_mid,
         (true, false) => t.card_top,
         (false, _) => t.text,
+    };
+    faces_in(t, base, ink, if you { t.info } else { t.soft })
+}
+
+/// The gray of every block that is not the person's.
+pub(crate) fn gray(t: &Tokens) -> Color32 {
+    mix(t.card_top, t.soft, if t.dark { 0.30 } else { 0.24 })
+}
+
+/// The same light and shadow on any base colour, so a block in a state colour, such as the
+/// attacker's red in the Lab, reads as the same kind of block as the strip's.
+pub(crate) fn faces_in(t: &Tokens, base: Color32, ink: Color32, label: Color32) -> Faces {
+    let (light, shade) = match t.dark {
+        true => (t.text, t.back_floor),
+        false => (t.card_top, t.text),
     };
     Faces {
         top: mix(base, light, if t.dark { 0.32 } else { 0.55 }),
@@ -104,7 +116,7 @@ pub(crate) fn faces(t: &Tokens, you: bool) -> Faces {
         front_bottom: base,
         side: mix(base, shade, if t.dark { 0.45 } else { 0.28 }),
         ink,
-        label: if you { t.info } else { t.soft },
+        label,
     }
 }
 

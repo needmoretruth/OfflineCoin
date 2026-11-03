@@ -16,6 +16,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.replaced_one", "블록 {} 하나가 경쟁에서 져 다른 블록으로 바뀌었습니다."),
     ("chain.shares", "최근 블록 {}개를 찾은 채굴기"),
     ("chain.share_blocks", "블록 {}개"),
+    ("chain.share_one", "블록 1개"),
     ("chain.no_share", "아직 아무도 블록을 찾지 못했습니다."),
     ("chain.speed", "이 컴퓨터의 모든 채굴기"),
     ("chain.minutes_ago", "{}분 전"),

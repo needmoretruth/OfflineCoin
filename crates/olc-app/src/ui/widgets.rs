@@ -53,17 +53,40 @@ pub fn button(ui: &mut Ui, t: &Tokens, text: &str, kind: Kind) -> Response {
     button_on(ui, t, text, kind, true)
 }
 
+/// The room a button keeps on each side of its text.
+const BUTTON_PAD: f32 = 14.0;
+
 /// How wide [`button`] draws a button with this text, so a line beside it can leave the room.
 pub fn button_width(ui: &Ui, text: &str) -> f32 {
     let font = TextStyle::Button.resolve(ui.style());
-    layout(ui, text, font, Color32::PLACEHOLDER).size().x + 28.0
+    layout(ui, text, font, Color32::PLACEHOLDER).size().x + BUTTON_PAD * 2.0
+}
+
+/// How far a quiet button is drawn outward, so its text lines up with the column it starts or
+/// ends. A quiet button has no edge, so only its text shows where it stands; one after another
+/// control keeps its place, so a row of them keeps its gaps, and a centred one stays centred.
+fn quiet_shift(ui: &Ui) -> f32 {
+    let (cursor, room) = (ui.cursor(), ui.max_rect());
+    match ui.layout().horizontal_placement() {
+        Align::Min if cursor.left() <= room.left() + 0.5 => -BUTTON_PAD,
+        Align::Max if cursor.right() >= room.right() - 0.5 => BUTTON_PAD,
+        _ => 0.0,
+    }
 }
 
 pub fn button_on(ui: &mut Ui, t: &Tokens, text: &str, kind: Kind, enabled: bool) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
     let width = button_width(ui, text);
     let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (rect, response) = ui.allocate_exact_size(vec2(width, tokens::CONTROL), sense);
+    let shift = if kind == Kind::Quiet { quiet_shift(ui) } else { 0.0 };
+    // A moved button takes its padding on the edge of the column out of the layout, so what comes
+    // after it keeps the gap any button leaves; the wash on hover reaches into that edge.
+    let space_size = vec2(width - shift.abs(), tokens::CONTROL);
+    let (id, space) = ui.allocate_space(space_size);
+    let placed = ui.layout().align_size_within_rect(space_size, space);
+    let rect = Rect::from_min_size(pos2(placed.left() + shift.min(0.0), placed.top()), vec2(width, tokens::CONTROL));
+    let mut response = ui.interact(rect, id, sense);
+    response.set_intrinsic_size(space_size);
     // Named before the visibility check, or a button below the fold has no name for a screen reader.
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, text));
     if !ui.is_rect_visible(rect) {
@@ -329,6 +352,8 @@ pub fn empty(ui: &mut Ui, t: &Tokens, heading: &str, body: &str, action: Option<
 /// Column widths from weights, for rows that line up.
 pub struct Columns {
     widths: Vec<f32>,
+    /// The least height of a row.
+    least: f32,
 }
 
 impl Columns {
@@ -338,13 +363,24 @@ impl Columns {
         let total: f32 = weights.iter().sum();
         Self {
             widths: weights.iter().map(|weight| weight / total * space).collect(),
+            least: 0.0,
         }
     }
 
-    /// One row. `cell` is given each column in turn.
+    /// Rows that hold buttons: each row is as tall as a button, so every cell centres on one line.
+    pub fn with_controls(self) -> Self {
+        Self { least: tokens::CONTROL, ..self }
+    }
+
+    /// One row. `cell` is given each column in turn. A cell taller than the row, such as one with
+    /// a button, is only known once its neighbours stand, so the row keeps the tallest cell's
+    /// height for the next frame and every cell centres on one line.
     pub fn row(&self, ui: &mut Ui, mut cell: impl FnMut(&mut Ui, usize)) {
+        let id = ui.next_auto_id().with("cells");
+        let tallest = ui.ctx().data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0);
+        let mut measured: f32 = 0.0;
         ui.horizontal(|ui| {
-            let height = tokens::ROW - ui.spacing().item_spacing.y;
+            let height = (tokens::ROW - ui.spacing().item_spacing.y).max(self.least).max(tallest);
             ui.set_min_height(height);
             for (index, width) in self.widths.iter().enumerate() {
                 ui.allocate_ui_with_layout(
@@ -353,10 +389,15 @@ impl Columns {
                     |ui| {
                         ui.set_width(*width);
                         cell(ui, index);
+                        measured = measured.max(ui.min_rect().height());
                     },
                 );
             }
         });
+        if (measured - tallest).abs() > 0.5 {
+            ui.ctx().data_mut(|data| data.insert_temp(id, measured));
+            ui.ctx().request_repaint();
+        }
     }
 }
 

@@ -17,6 +17,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.replaced_one", "Block {} lost the race and was replaced."),
     ("chain.shares", "Who found the last {} blocks"),
     ("chain.share_blocks", "{} blocks"),
+    ("chain.share_one", "1 block"),
     ("chain.no_share", "Nobody has found a block yet."),
     ("chain.speed", "All miners on this computer"),
     ("chain.minutes_ago", "{} min ago"),

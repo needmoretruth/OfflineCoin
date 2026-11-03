@@ -93,6 +93,17 @@ fn every_place_on_a_real_race() {
     window.run_steps(SETTLE_STEPS);
     assert!(shows(&window, "Who finds blocks"));
     assert!(shows(&window, "Miner A") && shows(&window, "Miner B"), "the race names every miner");
+    // Each Remove stands on its miner's line: its text centres with the name beside it, measured.
+    let removes: Vec<egui::Rect> = window.query_all_by_label("Remove").map(|node| node.rect()).collect();
+    assert_eq!(removes.len(), 2, "a Remove for each added miner");
+    for remove in &removes {
+        let name = window
+            .query_all_by_label_contains("Miner ")
+            .map(|node| node.rect())
+            .find(|name| name.right() < remove.left() && name.top() < remove.bottom() && name.bottom() > remove.top());
+        let name = name.unwrap_or_else(|| panic!("no miner's name on the line of the Remove at {remove:?}"));
+        assert!((name.center().y - remove.center().y).abs() < 1.0, "Remove at {remove:?}, its name at {name:?}");
+    }
 
     let titles = window.state().page_titles();
     for (mode, language, theme, tag) in [

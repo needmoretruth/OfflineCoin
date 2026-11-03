@@ -174,7 +174,7 @@ fn is_key(piece: &str) -> bool {
 }
 
 /// Explanations whose key is chosen before the call, so the call holds only a name.
-const THROUGH_A_NAME: [&str; 4] = ["mining.pacing_about", "mining.pacing_fixed", "lab2.about_attack", "lab2.about_split"];
+const THROUGH_A_NAME: [&str; 5] = ["mining.pacing_about", "mining.pacing_each", "mining.pacing_fixed", "lab2.about_attack", "lab2.about_split"];
 
 /// Every explanation that stands in place fits three short lines in each language and mode, with
 /// its blanks filled by long values. The rest goes behind Details.

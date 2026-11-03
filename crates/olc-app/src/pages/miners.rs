@@ -8,9 +8,9 @@ use crate::ui::floating::Slip;
 use crate::core::Command;
 use crate::local::{Holding, LocalView, NodeSpec, Preset, WalletChoice};
 use crate::ui::format;
-use crate::ui::tokens::{self, Tokens};
+use crate::ui::tokens::Tokens;
 use crate::ui::widgets::{button, cell, dot, header_cell, switch, Columns, Kind};
-use egui::{vec2, Label, RichText, Sense, Ui};
+use egui::{Label, RichText, Ui};
 
 /// Name, speed, limit, wallet, switch, and room for the button that takes a miner out.
 const WEIGHTS: [f32; 6] = [1.4, 1.1, 1.1, 1.0, 0.55, 1.05];
@@ -141,12 +141,13 @@ pub fn table(ui: &mut Ui, cx: &mut Cx) {
     let t = *cx.t;
     let mut rows = vec![app_row(cx)];
     rows.extend(cx.snap.local.iter().map(|view| node_row(cx, view)));
-    let columns = Columns::new(ui, &WEIGHTS);
-    columns.row(ui, |ui, index| {
+    Columns::new(ui, &WEIGHTS).row(ui, |ui, index| {
         if !HEADINGS[index].is_empty() {
             header_cell(ui, &t, cx.say(HEADINGS[index]));
         }
     });
+    // Every row holds a switch, and most a button, so each row centres its words on the button.
+    let columns = Columns::new(ui, &WEIGHTS).with_controls();
     let mut slip = None;
     for row in &rows {
         columns.row(ui, |ui, index| match index {
@@ -158,17 +159,13 @@ pub fn table(ui: &mut Ui, cx: &mut Cx) {
             2 => cell(ui, RichText::new(&row.limit).color(t.soft)),
             3 => cell(ui, RichText::new(row.wallet).color(t.soft)),
             4 => control(ui, cx, &t, row),
-            _ => match row.remove {
-                Some(id) => {
+            _ => {
+                if let Some(id) = row.remove {
                     if button(ui, &t, cx.say("local.remove"), Kind::Quiet).clicked() {
                         slip = Some(remove_slip(cx, &row.name, id));
                     }
                 }
-                // As tall as the button, so every row of the table has one height.
-                None => {
-                    ui.allocate_exact_size(vec2(0.0, tokens::CONTROL), Sense::hover());
-                }
-            },
+            }
         });
     }
     if slip.is_some() {
