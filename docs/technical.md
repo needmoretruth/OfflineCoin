@@ -134,6 +134,14 @@ Each coin chooses one in its file as `rules.difficulty_rule`. A file from before
 
 OLC uses `asert` with a half-life of six blocks, 3 minutes, as Bitcoin Cash's test networks use one hour of their 10 minute blocks for hash that comes and goes. A miner who drops to a twentieth of the hash rate waits one long block, and the next ones come about as fast as the rate allows. Counted in blocks, the half-life keeps its meaning when a coin chooses another block time.
 
+Measured on 2026-11-04 with three real nodes on 127.0.0.1, one per rule, at OLC's numbers: 30 second blocks, windows of 10, the floor of 30,000. Each mined at 20,000 hashes a second until its difficulty had followed, then dropped to 1,000, where the floor gives 30 second blocks. "Back" is the first block whose own rule, not BIP 94's exception, asks a difficulty the low rate finds within 37.5 seconds.
+
+| Rule | Difficulty at the drop | First block after it | Back | Then |
+|---|---|---|---|---|
+| `bitcoin` | 900,007 | 30.8 min | 25 blocks, 110.5 min | 26.5 s on average over 12 blocks |
+| `bip94` | 708,202 | 1.0 min, then one every 75 s on average | 45 blocks, 56.3 min | 33.8 s over 103 blocks |
+| `asert` | 567,592 | 11.5 min | 8 blocks, 16.3 min | 38 s over 160 blocks: after a fast block it rises, after a slow one the floor holds it |
+
 ASERT here follows the spec in integer steps: the exponent `((Δt − T(Δh + 1)) × 2^16) / τ` divided toward zero, the split into whole shifts and a fraction, and the spec's cubic for 2 to the fraction. Bitcoin Cash moves a 256-bit target; OLC moves a difficulty, the target's inverse, so it runs the same steps with the exponent's sign turned, never below the floor. Each block anchors on its parent, which over blocks off the floor comes, up to rounding, to the spec's fixed anchor; a node needs only the grandparent, and a chain that sat at the floor through a quiet hour follows new hash power at its next block, where a fixed anchor would wait for the hour to be made up.
 
 The spec's 12 published test vectors (`crates/olc-pow/vectors`) pass two ways. In the spec's own 256-bit form, with OLC's exponent and cubic, all 14,000 rows come out exactly, after times turn from seconds into milliseconds, which leaves every exponent as it was. Turned into difficulties, as 2^20 × the spec's limit / target, the 5,144 rows that fit in 64 bits land within 0.023 % of OLC's own step: the cubic's error each way and the 15 bits nBits keeps.
