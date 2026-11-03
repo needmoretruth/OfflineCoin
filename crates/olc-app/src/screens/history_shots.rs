@@ -182,7 +182,7 @@ fn history_rows_detail_requests_two_people_and_the_explorer_as_a_person_meets_th
 
     speak(&mut window, Lang::En, Mode::Expert);
     picture(&mut window, folder, "history-mining-expert");
-    assert!(shows(&window, "confirmations"), "an expert reads the number of confirmations");
+    assert!(shows(&window, "Confirmations"), "an expert reads the number of confirmations");
 
     // Rows stop moving under the pointer once mining stops, so a click lands on the joined row.
     window.state().send(Command::SetMining(false));
