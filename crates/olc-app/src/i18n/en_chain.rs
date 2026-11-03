@@ -1,0 +1,45 @@
+//! English words of the block strip, the race bars, the speed line and the next block bar. Short
+//! names and numbers only: each line fits under its picture.
+pub const WORDS: &[(&str, &str)] = &[
+    ("chain.you", "You"),
+    ("chain.unknown", "Unknown"),
+    ("chain.secs_ago", "{}s ago"),
+    ("chain.mins_ago", "{} min ago"),
+    ("chain.hours_ago", "{} h ago"),
+    ("chain.no_blocks", "No blocks yet."),
+    ("chain.block_at", "Block {}"),
+    ("chain.found_by", "Found by {}"),
+    ("chain.id", "ID {}"),
+    ("chain.payments", "{} payments"),
+    ("chain.reward", "Reward {}"),
+    ("chain.racing", "Two blocks at height {}. The next block picks one."),
+    ("chain.replaced", "Blocks {} to {} lost the race."),
+    ("chain.replaced_one", "Block {} lost the race."),
+    ("chain.shares", "Who found the last {} blocks"),
+    ("chain.share_blocks", "{} blocks"),
+    ("chain.no_share", "Nobody has found a block yet."),
+    ("chain.speed", "This computer's speed, last 10 minutes"),
+    ("chain.ten_minutes", "10 min ago"),
+    ("chain.now", "Now"),
+    ("chain.not_mining", "Not mining."),
+    ("chain.next", "Next block"),
+    ("chain.expected", "Usually about {}"),
+    ("chain.since_last", "{} since the last block"),
+    ("chain.overdue", "Later than usual."),
+    ("chain.nobody", "Nobody is mining."),
+    ("chain.average", "Recent average {}"),
+];
+
+/// The same in the words of the trade.
+pub const EXPERT: &[(&str, &str)] = &[
+    ("chain.id", "Hash {}"),
+    ("chain.payments", "{} transactions"),
+    ("chain.racing", "Competing tips at height {}"),
+    ("chain.replaced", "Reorg: blocks {} to {} replaced"),
+    ("chain.replaced_one", "Reorg: block {} replaced"),
+    ("chain.shares", "Share of the last {} blocks"),
+    ("chain.speed", "Hashrate here, last 10 minutes"),
+    ("chain.expected", "Expected {} at this difficulty"),
+    ("chain.overdue", "Past the expected time."),
+    ("chain.average", "Last 20 blocks, mean {}"),
+];
