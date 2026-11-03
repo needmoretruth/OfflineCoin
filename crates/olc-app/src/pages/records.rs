@@ -1,8 +1,11 @@
-//! Everything written down: blocks, payments, addresses and the notes people left.
+//! Everything written down: the latest blocks and who found each first, then a search for a
+//! block, payment or address above the list, and notes written into blocks last.
 use super::{Cx, Page, Slipping};
 use super::records_detail;
 use crate::core::{short_hex, unix_ms, Command, Explored, Personal};
+use crate::ui::chain::{self, Look, Strip};
 use crate::ui::format;
+use crate::ui::theme::desktop_reduces_motion;
 use crate::ui::tokens;
 use crate::ui::widgets::{
     self, button, button_on, cell, field, header_cell, meta, mono, section, Columns, Kind,
@@ -10,7 +13,11 @@ use crate::ui::widgets::{
 use crate::ui::Icon;
 use egui::Ui;
 
-const WEIGHTS: [f32; 4] = [0.8, 1.2, 1.5, 0.8];
+const WEIGHTS: [f32; 5] = [0.7, 1.1, 1.3, 1.3, 0.7];
+/// An expert's list has the block's hash too, as an explorer's has.
+const EXPERT_WEIGHTS: [f32; 6] = [0.7, 1.2, 1.1, 0.8, 1.0, 0.6];
+/// The blocks on this page, as large as on Home.
+const BLOCK_SIZE: f32 = 70.0;
 
 #[derive(Default)]
 pub struct Records {
@@ -69,17 +76,44 @@ impl Records {
         meta(ui, &cx.fill("records.write_about", &[&most]), t);
     }
 
-    fn blocks(&mut self, ui: &mut Ui, cx: &Cx) {
+    /// The latest blocks as boxes, with who found each, as on Home.
+    fn strip(ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         section(ui, cx.say("records.recent"));
+        let chain_view = &cx.snap.node.chain;
+        if !chain::has_blocks(chain_view) {
+            return;
+        }
+        ui.add_space(4.0);
+        let ticker = cx.ticker().to_string();
+        let still = cx.settings.reduce_motion || desktop_reduces_motion();
+        let look = Look { t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
+        chain::block_strip(ui, &look, &Strip::of(chain_view).size(BLOCK_SIZE));
+        ui.add_space(tokens::GAP);
+    }
+
+    /// Who found a block, when it is among the latest the node names.
+    fn finder(cx: &Cx, id: &olc_core::Hash) -> String {
+        let latest = &cx.snap.node.chain.latest;
+        let miner = latest.iter().find(|mined| mined.id == *id).map(|mined| &mined.miner);
+        chain::miner_name(cx.voice(), miner.unwrap_or(&crate::core::Miner::Unknown))
+    }
+
+    fn blocks(&mut self, ui: &mut Ui, cx: &Cx) {
+        let t = cx.t;
         if cx.snap.node.blocks.is_empty() {
             meta(ui, cx.say("records.no_blocks"), t);
             return;
         }
         let now = unix_ms();
-        let columns = Columns::new(ui, &WEIGHTS);
+        let expert = cx.expert();
+        let columns = Columns::new(ui, if expert { &EXPERT_WEIGHTS[..] } else { &WEIGHTS[..] });
+        let keys: &[&str] = if expert {
+            &["records.number", "records.when", "records.miner", "records.payments", "pro.block_id"]
+        } else {
+            &["records.number", "records.when", "records.miner", "records.payments"]
+        };
         columns.row(ui, |ui, index| {
-            let keys = ["records.number", "records.when", "records.payments"];
             if let Some(key) = keys.get(index) {
                 header_cell(ui, t, cx.say(key));
             }
@@ -89,8 +123,9 @@ impl Records {
             columns.row(ui, |ui, index| match index {
                 0 => cell(ui, format::number(block.height.into())),
                 1 => cell(ui, format::when(cx.voice(), now, block.time_ms)),
-                2 if cx.expert() => cell(ui, mono(short_hex(&block.id))),
-                2 => cell(ui, block.payments.to_string()),
+                2 => cell(ui, Self::finder(cx, &block.id)),
+                3 => cell(ui, block.payments.to_string()),
+                4 if expert => cell(ui, mono(short_hex(&block.id))),
                 _ => {
                     if button(ui, t, cx.say("records.open"), Kind::Quiet).clicked() {
                         self.search = block.height.to_string();
@@ -134,6 +169,7 @@ impl Page for Records {
             }
             return;
         }
+        Self::strip(ui, cx);
         self.search(ui, cx);
         // A block or payment opened from the history shows here too.
         let opened = !matches!(cx.snap.node.explored, Explored::Nothing);
@@ -145,6 +181,8 @@ impl Page for Records {
                 self.asked = true;
             }
         }
+        ui.add_space(tokens::GAP);
+        self.blocks(ui, cx);
         if cx.expert() {
             ui.add_space(tokens::GAP_WIDE);
             records_detail::waiting(ui, cx);
@@ -153,7 +191,5 @@ impl Page for Records {
         self.write(ui, cx);
         ui.add_space(tokens::GAP_WIDE);
         Self::notes(ui, cx);
-        ui.add_space(tokens::GAP_WIDE);
-        self.blocks(ui, cx);
     }
 }
