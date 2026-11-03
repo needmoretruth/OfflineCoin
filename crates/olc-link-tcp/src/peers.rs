@@ -117,7 +117,7 @@ impl TcpControl {
             .iter()
             .map(|(number, peer)| PeerInfo {
                 number: *number,
-                address: peer.stream.peer_addr().ok(),
+                address: Some(peer.far),
                 inbound: peer.accepted,
                 since_ms: peer.stats.since_ms,
                 sent: peer.stats.sent.load(Ordering::Relaxed),
@@ -146,7 +146,7 @@ impl TcpControl {
         }
         if let Ok(mut peers) = self.0.peers.lock() {
             peers.retain(|_, peer| {
-                let theirs = peer.stream.peer_addr().is_ok_and(|address| address.ip() == ip);
+                let theirs = peer.far.ip() == ip;
                 if theirs {
                     let _ = peer.stream.shutdown(Shutdown::Both);
                 }
