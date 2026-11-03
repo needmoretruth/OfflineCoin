@@ -1,0 +1,2 @@
+# The BIP 39 word lists must stay byte for byte as the standard has them on every system.
+crates/olc-wallet/src/wordlists/*.txt text eol=lf
