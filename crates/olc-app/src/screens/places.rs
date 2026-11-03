@@ -156,8 +156,10 @@ fn sources(folder: &Path, found: &mut Vec<(String, String)>) {
     }
 }
 
-/// The keys inside each `explain::short(` call, up to the end of its statement.
+/// The keys inside each `explain::short(` call, up to the end of its statement. A checkout on
+/// Windows ends lines with CR LF, and a statement ends there just the same.
 fn keys_in_short_calls(text: &str) -> Vec<String> {
+    let text = text.replace("\r\n", "\n");
     let mut keys = Vec::new();
     for (start, _) in text.match_indices("explain::short(") {
         let call = &text[start..];
@@ -171,6 +173,16 @@ fn is_key(piece: &str) -> bool {
     piece.split_once('.').is_some_and(|(head, tail)| {
         !head.is_empty() && !tail.is_empty() && piece.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte == b'.')
     })
+}
+
+/// The Channels page read as a Windows checkout has it gives the keys it gives here: the text
+/// behind its Details is not taken for text in place.
+#[test]
+fn a_short_call_ends_at_its_statement_whatever_ends_the_lines() {
+    let page = include_str!("../pages/channels_parts.rs").replace("\r\n", "\n");
+    let here = keys_in_short_calls(&page);
+    assert!(here.iter().any(|key| key == "ch.push_about") && !here.iter().any(|key| key == "ch.room_about"), "{here:?}");
+    assert_eq!(keys_in_short_calls(&page.replace('\n', "\r\n")), here);
 }
 
 /// Explanations whose key is chosen before the call, so the call holds only a name.
