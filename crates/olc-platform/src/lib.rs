@@ -3,6 +3,7 @@
 //! [`platform`] and never asks which system it runs on.
 #[cfg(not(target_os = "linux"))]
 mod foreign;
+pub mod language;
 #[cfg_attr(target_os = "linux", path = "linux.rs")]
 #[cfg_attr(target_os = "macos", path = "macos.rs")]
 #[cfg_attr(target_os = "windows", path = "windows.rs")]
@@ -145,6 +146,9 @@ pub trait Platform: Sync {
     fn reduces_motion(&self) -> bool {
         false
     }
+    /// The language the system speaks to this person, as a short code such as `ko` or `en`.
+    /// Nothing when the system names none.
+    fn language(&self) -> Option<String>;
 
     /// The serial ports of USB devices with these ids.
     fn usb_serial_ports(&self, vendor: u16, product: u16) -> Vec<UsbPort>;

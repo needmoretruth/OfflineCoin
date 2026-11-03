@@ -57,6 +57,7 @@ fn general(ui: &mut Ui, cx: &mut Cx) {
         let items = [(Lang::En, "English".to_string()), (Lang::Ko, "한국어".to_string())];
         if let Some(language) = segments(ui, t, &items, Some(cx.settings.language)) {
             cx.settings.language = language;
+            cx.settings.language_chosen = true;
             cx.save();
         }
     });
