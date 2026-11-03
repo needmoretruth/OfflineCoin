@@ -241,6 +241,11 @@ fn a_note_and_a_key_go_through_the_window() {
     harness.state_mut().open("page.records");
     wait_until(&mut harness, |app| app.snapshot().node.height > 2);
     harness.run_steps(2);
+    // The note's field stands under the recent blocks, so a person scrolls down to it.
+    if let Some(field) = harness.query_all_by_role(egui::accesskit::Role::TextInput).nth(1) {
+        field.scroll_to_me();
+    }
+    harness.run_steps(SETTLE_STEPS);
     type_into(&mut harness, 1, "written by hand");
     click(&mut harness, "Write");
     // The slip reads the note back before it goes.
