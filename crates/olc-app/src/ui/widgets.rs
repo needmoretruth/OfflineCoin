@@ -418,3 +418,59 @@ pub fn pick_row(ui: &mut Ui, t: &Tokens, height: f32, current: bool, name: &str,
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
     response
 }
+
+/// What a [`slider`] did this frame.
+pub struct Slid {
+    pub response: Response,
+    /// The hand let go, was clicked or a key moved it: the value to act on, once.
+    pub settled: bool,
+}
+
+const SLIDER_TRACK: f32 = 6.0;
+const SLIDER_KNOB: f32 = 9.0;
+
+/// A track with a lit knob, in the look of the other controls. `value` follows the hand while it
+/// drags, and [`Slid::settled`] says when to act on it, so a change that costs something waits for
+/// the final value. `marks` are places on the track, as parts of 1, drawn as small notches.
+pub fn slider(ui: &mut Ui, t: &Tokens, value: &mut f32, range: std::ops::RangeInclusive<f32>, name: &str, marks: &[f32]) -> Slid {
+    let width = ui.available_width().max(80.0);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, tokens::CONTROL), Sense::click_and_drag());
+    let (low, high) = (*range.start(), *range.end());
+    let span = (high - low).max(f32::EPSILON);
+    let track = Rect::from_center_size(rect.center(), vec2(width - SLIDER_KNOB * 2.0, SLIDER_TRACK));
+    let mut settled = response.drag_stopped() || response.clicked();
+    if let Some(pointer) = response.interact_pointer_pos().filter(|_| response.dragged() || response.clicked()) {
+        let part = ((pointer.x - track.left()) / track.width()).clamp(0.0, 1.0);
+        *value = low + part * span;
+    }
+    if response.has_focus() {
+        let step = span / 100.0;
+        let (left, right) = ui.input(|input| (input.key_pressed(egui::Key::ArrowLeft), input.key_pressed(egui::Key::ArrowRight)));
+        if left || right {
+            *value = (*value + if right { step } else { -step }).clamp(low, high);
+            settled = true;
+        }
+    }
+    let part = ((*value - low) / span).clamp(0.0, 1.0);
+    let painter = ui.painter();
+    let radius = CornerRadius::same((SLIDER_TRACK / 2.0) as u8);
+    painter.rect_filled(track, radius, t.line_strong);
+    let filled = Rect::from_min_max(track.min, pos2(track.left() + track.width() * part, track.bottom()));
+    painter.rect_filled(filled, radius, t.info);
+    for mark in marks {
+        let x = track.left() + track.width() * mark.clamp(0.0, 1.0);
+        let colour = if *mark <= part { t.card_top } else { t.muted };
+        painter.circle_filled(pos2(x, track.center().y), 1.6, colour);
+    }
+    let knob = pos2(track.left() + track.width() * part, track.center().y);
+    let lift = if response.hovered() || response.dragged() { 1.0 } else { 0.0 };
+    painter.circle_filled(knob + vec2(0.0, 1.5), SLIDER_KNOB + lift, t.shadow.gamma_multiply(0.35));
+    painter.circle_filled(knob, SLIDER_KNOB + lift, t.float_top);
+    painter.circle_stroke(knob, SLIDER_KNOB + lift, Stroke::new(1.0, t.line_strong));
+    painter.circle_filled(knob, 3.0, t.info);
+    focus_ring(ui, rect, &response, t);
+    let shown = f64::from(*value);
+    response.widget_info(|| egui::WidgetInfo::slider(true, shown, name));
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    Slid { response, settled }
+}

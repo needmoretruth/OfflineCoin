@@ -1,5 +1,5 @@
-//! The console: the same words as the command line, for an expert, with history and completion.
-//! It calls the same core functions as the buttons.
+//! The console: the same words as the command line, with history and completion. Both modes have it,
+//! as Bitcoin Core shows its console to everyone. It calls the same core functions as the buttons.
 use super::reach::BOARD_ROWS;
 use super::{Cx, Page};
 use crate::core::WORDS;
@@ -198,10 +198,6 @@ impl Page for Console {
 
     fn icon(&self) -> Icon {
         Icon::Console
-    }
-
-    fn expert_only(&self) -> bool {
-        true
     }
 
     fn apart(&self) -> bool {

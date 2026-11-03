@@ -2,7 +2,7 @@
 //! step. With `OLC_SHOTS` naming a folder it keeps a picture of each step at 1280 by 800, in
 //! plain Korean, and with "Details" open at the end in plain Korean and expert English. The page
 //! itself is checked in the app too: expert mode reaches it from Boards.
-use super::{app, harness, node_program, quiet_settings, scratch, shots::tap, SETTLE_STEPS};
+use super::{app, harness, node_program, quiet_settings, scratch, SETTLE_STEPS};
 use crate::i18n::{self, Lang, Mode, Voice};
 use crate::local::lab::{use_place, LabChoice, LabKind, LabRun, LabState, Phase};
 use crate::pages::lab_view::{self, Seen};
@@ -61,17 +61,17 @@ fn place(name: &str) {
     use_place(node_program(), folder.join("miners"));
 }
 
-/// The page sits under Boards in expert mode and draws its idle state.
+/// The Lab has its own place on the rail in both modes, and its run starts from the first screen.
 #[test]
 fn the_lab_page_offers_the_run_on_this_computer() {
-    let mut settings = quiet_settings();
-    settings.mode = Mode::Expert;
-    let mut window = harness(app(scratch("lab_page"), settings, None), (1280, 800));
-    window.state_mut().open("page.boards");
-    window.run_steps(SETTLE_STEPS);
-    tap(&mut window, "pro.tab_lab");
-    let start = i18n::text(Voice { lang: Lang::En, mode: Mode::Expert }, "lab2.start_attack");
-    assert!(window.query_by_label(start).is_some(), "no start button on the Lab");
+    let mut window = harness(app(scratch("lab_page"), quiet_settings(), None), (1280, 800));
+    for mode in [Mode::Basic, Mode::Expert] {
+        window.state_mut().settings_mut().mode = mode;
+        window.state_mut().open("page.lab");
+        window.run_steps(SETTLE_STEPS);
+        let start = i18n::text(Voice { lang: Lang::En, mode }, "lab2.start_attack");
+        assert!(window.query_by_label(start).is_some(), "no start button on the Lab in {mode:?}");
+    }
     if let Some(folder) = std::env::var_os("OLC_SHOTS").map(PathBuf::from) {
         window.state_mut().settings_mut().language = Lang::Ko;
         super::shots::shot(&mut window, &folder, "lab-page-expert-ko-1280");

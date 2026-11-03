@@ -113,12 +113,22 @@ pub fn rail(
             brand(ui, t, snap, logo, still);
             ui.add_space(tokens::GAP_WIDE);
             let (main, apart): (Vec<_>, Vec<_>) = pages.iter().copied().partition(|(_, page)| !page.apart());
+            let mut was_daily = false;
             for (index, page) in main {
+                // The places of every day stand apart from the tools by a gap and a faint line.
+                if was_daily && !page.daily() {
+                    ui.add_space(tokens::GAP - 2.0);
+                    let rect = ui.available_rect_before_wrap();
+                    super::paint::fading_line(ui.painter(), rect.left() + 12.0, rect.right() - 12.0, rect.top(), t.line);
+                    ui.add_space(tokens::GAP);
+                }
+                was_daily = page.daily();
                 if rail_row(ui, t, page.icon(), i18n::text(voice, page.title()), index == current) {
                     chosen = Some(index);
                 }
             }
             let foot = 24.0 + tokens::GAP;
+            // Ten places and a gap fit a 620 point window; below that the rail keeps its rows.
             let rest = ui.available_height() - apart.len() as f32 * (tokens::RAIL_ROW + 2.0) - foot;
             ui.add_space(rest.max(tokens::GAP));
             for (index, page) in apart {

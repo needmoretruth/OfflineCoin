@@ -1,5 +1,6 @@
 //! The places of the app. Adding a place is one file and one line in [`all`]. A page takes the
-//! mode and shows or hides rows, so nothing is drawn twice.
+//! mode and shows or hides rows, so nothing is drawn twice. Both modes have the same places in the
+//! same order: what a person does every day first, then the tools, then Console and Settings.
 mod board_detail;
 mod board_more;
 mod boards;
@@ -10,6 +11,7 @@ mod coin_rows;
 mod coins;
 mod console;
 mod home;
+mod ledger;
 mod lab;
 mod lab_boards;
 mod lab_strip;
@@ -17,9 +19,12 @@ pub(crate) mod lab_view;
 mod lab_words;
 mod local;
 mod locks;
+mod mining;
+mod mining_card;
 mod message_sign;
 mod money;
 mod note;
+mod places;
 mod pool;
 mod records;
 pub mod reach;
@@ -29,6 +34,8 @@ mod swap;
 pub(crate) mod seed_words;
 mod shared_wallets;
 pub mod setup;
+pub(crate) mod speed;
+mod wallet;
 mod wallet_tools;
 
 use crate::core::{Command, Core, Snapshot};
@@ -115,6 +122,10 @@ pub trait Page {
     fn apart(&self) -> bool {
         false
     }
+    /// One of the places a person goes every day, which stand above the tools.
+    fn daily(&self) -> bool {
+        false
+    }
     /// Only an expert sees it.
     fn expert_only(&self) -> bool {
         false
@@ -122,15 +133,17 @@ pub trait Page {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx);
 }
 
+/// The side bar, in the order of the redesign plan: this computer's own work first, then the tools.
 pub fn all() -> Vec<Box<dyn Page>> {
     vec![
         Box::<home::Home>::default(),
-        Box::<boards::Boards>::default(),
+        Box::<mining::Mining>::default(),
+        Box::<wallet::WalletPage>::default(),
+        Box::<places::Blocks>::default(),
+        Box::<places::Payments>::default(),
+        Box::<places::LabPage>::default(),
         Box::<coins::Coins>::default(),
-        Box::<records::Records>::default(),
-        Box::<channels::Channels>::default(),
-        Box::<swap::Swap>::default(),
-        Box::<locks::Locks>::default(),
+        Box::<boards::Boards>::default(),
         Box::<console::Console>::default(),
         Box::<settings::SettingsPage>::default(),
     ]

@@ -101,13 +101,6 @@ fn every_view(window: &mut Window, look: &mut dyn FnMut(&Window, &str)) {
                 window.run_steps(SETTLE_STEPS);
                 look(window, &format!("{mode:?} {lang:?} {title}"));
             }
-            window.state_mut().open("page.boards");
-            window.run_steps(SETTLE_STEPS);
-            for tab in ["boards.tab_nodes", "boards.tab_pool"] {
-                tap(window, tab);
-                window.run_steps(SETTLE_STEPS);
-                look(window, &format!("{mode:?} {lang:?} {tab}"));
-            }
         }
     }
 }

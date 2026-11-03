@@ -9,6 +9,7 @@ mod en_expert_more;
 mod en_lab2;
 mod en_lab2_expert;
 mod en_more;
+mod en_place;
 mod ko;
 mod ko_chain;
 mod ko_expert;
@@ -16,6 +17,7 @@ mod ko_expert_more;
 mod ko_lab2;
 mod ko_lab2_expert;
 mod ko_more;
+mod ko_place;
 mod lab;
 
 pub use crate::settings::{Lang, Mode};
@@ -28,10 +30,12 @@ type Table = HashMap<&'static str, &'static str>;
 type Words = &'static [(&'static str, &'static str)];
 
 // Every table of each kind, in one place: a new file of words is one line in two of these lists.
-const BASE_EN: &[Words] = &[en::WORDS, en_more::WORDS, en_chain::WORDS, en_lab2::WORDS];
-const BASE_KO: &[Words] = &[ko::WORDS, ko_more::WORDS, ko_chain::WORDS, ko_lab2::WORDS];
-const EXPERT_EN: &[Words] = &[en_expert::WORDS, en_expert_more::WORDS, en_chain::EXPERT, en_lab2_expert::WORDS];
-const EXPERT_KO: &[Words] = &[ko_expert::WORDS, ko_expert_more::WORDS, ko_chain::EXPERT, ko_lab2_expert::WORDS];
+const BASE_EN: &[Words] = &[en::WORDS, en_more::WORDS, en_chain::WORDS, en_lab2::WORDS, en_place::WORDS];
+const BASE_KO: &[Words] = &[ko::WORDS, ko_more::WORDS, ko_chain::WORDS, ko_lab2::WORDS, ko_place::WORDS];
+const EXPERT_EN: &[Words] =
+    &[en_expert::WORDS, en_expert_more::WORDS, en_chain::EXPERT, en_lab2_expert::WORDS, en_place::EXPERT];
+const EXPERT_KO: &[Words] =
+    &[ko_expert::WORDS, ko_expert_more::WORDS, ko_chain::EXPERT, ko_lab2_expert::WORDS, ko_place::EXPERT];
 
 fn joined(tables: &[Words]) -> Table {
     tables.iter().flat_map(|table| table.iter()).copied().collect()

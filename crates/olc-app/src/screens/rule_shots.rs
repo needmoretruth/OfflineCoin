@@ -189,10 +189,8 @@ impl Scene<'_> {
     }
 
     fn cards(&mut self) {
-        self.both("node-cards", "page.boards", |window| tap(window, "boards.tab_nodes"));
-        self.both("node-card-light", "page.boards", |window| {
-            tap(window, "boards.tab_nodes");
-            window.run_steps(SETTLE_STEPS);
+        self.both("node-cards", "page.mining", |_| {});
+        self.both("node-card-light", "page.mining", |window| {
             if let Some(card) = window.query_all_by_label("주방 라이트").next() {
                 card.scroll_to_me();
             }
@@ -211,7 +209,7 @@ impl Scene<'_> {
             node.ended = Some("exit status: 1: could not open the chain folder".into());
         }
         self.stage(Some(stage));
-        self.both("node-stopped", "page.boards", |window| tap(window, "boards.tab_nodes"));
+        self.both("node-stopped", "page.mining", |_| {});
         self.stage(None);
     }
 
@@ -231,7 +229,6 @@ impl Scene<'_> {
 fn setup_form(folder: &Path) {
     let settings = Settings { setup_done: false, port: port_of_scene(80), ..quiet_settings() };
     let mut first = harness(app(scratch("rule-shots-first"), settings, None), SIZES[0]);
-    click(&mut first, "ESP32 boards");
     click(&mut first, "New coin");
     first.state_mut().settings_mut().language = Lang::Ko;
     first.run_steps(SETTLE_STEPS);

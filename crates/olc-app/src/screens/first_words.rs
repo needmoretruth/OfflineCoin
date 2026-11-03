@@ -1,6 +1,7 @@
 //! The first run on another computer: seed words written down elsewhere bring the wallet back
-//! before any question about devices or coins. When `OLC_WALLET_SHOTS` names a folder, the
-//! screens are kept as pictures too.
+//! before the coin is chosen. When `OLC_WALLET_SHOTS` names a folder, the screens are kept as
+//! pictures too. Another OLC Core running on this computer is found by the coin question, so the
+//! question sees no coins around here: the test must not join a node it did not start.
 use super::shots::{shot, tap};
 use super::{app, click, harness, port_of_scene, quiet_settings, scratch, type_into_last, wait_until, SETTLE_STEPS, SIZES};
 use egui::accesskit::Role;
@@ -37,10 +38,13 @@ fn words_bring_a_wallet_back_at_the_first_run() {
         shot(&mut window, folder, "first-run-restored");
     }
     // The setup goes on from its first question, and the node it starts has the words' wallet.
+    let mut alone = (*window.state().snapshot()).clone();
+    alone.groups.clear();
+    window.state_mut().set_stage(Some(alone));
     tap(&mut window, "common.next");
-    tap(&mut window, "setup.this_computer");
     click(&mut window, &CoinConfig::olc().name);
     tap(&mut window, "setup.mine_later");
+    window.state_mut().set_stage(None);
     wait_until(&mut window, |app| app.snapshot().node.address == expected);
     assert!(window.state().snapshot().node.wallet.words_to_write.is_none(), "the words are written down already");
 }

@@ -30,26 +30,26 @@ impl MessageSheet {
                 self.signature = notice.detail.clone();
             }
         }
-        sheet_head(ui, cx.say("pro.message_title"));
-        meta(ui, cx.say("pro.message_body"), t);
+        sheet_head(ui, cx.say("sign.title"));
+        meta(ui, cx.say("sign.body"), t);
         ui.add_space(tokens::GAP);
         let width = ui.available_width();
         if self.address.is_empty() {
             self.address = cx.snap.node.address.clone();
         }
-        field(ui, &mut self.address, cx.say("pro.message_address"), width);
-        words_box(ui, &mut self.message, cx.say("pro.message_text"), width);
-        field(ui, &mut self.signature, cx.say("pro.message_signature"), width);
+        field(ui, &mut self.address, cx.say("sign.address"), width);
+        words_box(ui, &mut self.message, cx.say("sign.text"), width);
+        field(ui, &mut self.signature, cx.say("sign.signature"), width);
         ui.add_space(tokens::GAP);
         let mut done = false;
         ui.horizontal(|ui| {
             let written = !self.message.is_empty() && !self.address.trim().is_empty();
-            if button_on(ui, t, cx.say("pro.message_sign"), Kind::Main, written).clicked() {
+            if button_on(ui, t, cx.say("sign.sign"), Kind::Main, written).clicked() {
                 let (address, message) = (self.address.trim().to_string(), self.message.clone());
                 wallet(cx, WalletOrder::SignMessage { address, message });
             }
             let signed = written && !self.signature.trim().is_empty();
-            if button_on(ui, t, cx.say("pro.message_verify"), Kind::Plain, signed).clicked() {
+            if button_on(ui, t, cx.say("sign.verify"), Kind::Plain, signed).clicked() {
                 let address = self.address.trim().to_string();
                 let (signature, message) = (self.signature.trim().to_string(), self.message.clone());
                 wallet(cx, WalletOrder::VerifyMessage { address, signature, message });
@@ -58,7 +58,7 @@ impl MessageSheet {
         });
         if !self.signature.is_empty() {
             ui.add_space(4.0);
-            section(ui, cx.say("pro.message_signature"));
+            section(ui, cx.say("sign.signature"));
             ui.add(Label::new(mono(self.signature.clone())).wrap());
             if button(ui, t, cx.say("shared.copy"), Kind::Quiet).clicked() {
                 ui.ctx().copy_text(self.signature.clone());

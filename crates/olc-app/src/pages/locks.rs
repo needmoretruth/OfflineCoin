@@ -1,5 +1,5 @@
 //! Coins under a beta lock: writing a lock in words, paying to it and spending from it.
-use super::{Cx, Page, Slipping};
+use super::{Cx, Slipping};
 use crate::core::host_locks::{
     check_lock, fault_of_words, hash_lock_for, name_of_coin, time_lock_for, two_of_two_for,
 };
@@ -10,7 +10,6 @@ use crate::ui::tokens;
 use crate::ui::widgets::{
     self, button, button_on, field, meta, mono, section, segments, slot, words_box, Kind,
 };
-use crate::ui::Icon;
 use egui::Ui;
 
 const WIDE: f32 = 560.0;
@@ -242,20 +241,9 @@ impl Locks {
     }
 }
 
-impl Page for Locks {
-    fn title(&self) -> &'static str {
-        "page.locks"
-    }
-
-    fn icon(&self) -> Icon {
-        Icon::Lock
-    }
-
-    fn expert_only(&self) -> bool {
-        true
-    }
-
-    fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
+impl Locks {
+    /// The whole view, which the Wallet page opens in expert mode.
+    pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         widgets::title(ui, cx.say("page.locks"));
         if cx.snap.node.light.is_some() {
             meta(ui, cx.say("lock.needs_blocks"), cx.t);

@@ -143,15 +143,6 @@ fn what_the_core_says_leaves_every_control_where_it_is() {
             window.state_mut().open(title);
             compare(&mut window, &quiet, &moved, &format!("{mode:?} {title}"), &mut wrong);
         }
-        window.state_mut().open("page.boards");
-        for tab in ["boards.tab_nodes", "boards.tab_pool"] {
-            window.state_mut().set_stage(Some(quiet.clone()));
-            window.run_steps(SETTLE_STEPS);
-            let name = word(&window, tab);
-            window.get_by_label(&name).click();
-            window.run_steps(SETTLE_STEPS);
-            compare(&mut window, &quiet, &moved, &format!("{mode:?} {tab}"), &mut wrong);
-        }
     }
     // A board on the list, and then a new one in the port.
     let boards = Snapshot { boards: moved.boards.clone(), ..quiet.clone() };

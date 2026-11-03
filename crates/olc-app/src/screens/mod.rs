@@ -12,6 +12,8 @@ mod shots;
 mod steady;
 mod wallet_shots;
 mod first_words;
+mod place_shots;
+mod places;
 mod home_words;
 mod swap_local;
 mod swap_page;
@@ -233,23 +235,6 @@ fn every_page_draws_in_both_languages_and_modes() {
 }
 
 #[test]
-fn basic_mode_has_five_places_and_expert_mode_adds_the_console() {
-    let mut harness = harness(app(scratch("modes"), quiet_settings(), None), SIZES[0]);
-    for place in ["Home", "Boards", "Coins", "Records", "Settings"] {
-        assert!(harness.query_all_by_label(place).count() > 0, "{place}");
-    }
-    assert_eq!(harness.query_all_by_label("Console").count(), 0);
-    harness.state_mut().open("page.settings");
-    harness.run_steps(2);
-    click(&mut harness, "Expert");
-    assert_eq!(harness.state_mut().settings_mut().mode, Mode::Expert);
-    harness.run_steps(2);
-    for place in ["Wallet", "Devices", "Network", "Explorer", "Console"] {
-        assert!(harness.query_all_by_label(place).count() > 0, "{place}");
-    }
-}
-
-#[test]
 fn one_click_turns_every_word_korean() {
     let mut harness = harness(app(scratch("toggle"), quiet_settings(), None), SIZES[0]);
     harness.state_mut().open("page.settings");
@@ -261,12 +246,16 @@ fn one_click_turns_every_word_korean() {
     assert_eq!(harness.state_mut().settings_mut().language, Lang::Ko);
 }
 
+/// The first run asks for the coin first and never for a device: this computer mines, and boards
+/// come later from Devices.
 #[test]
-fn the_first_run_offers_every_device() {
+fn the_first_run_asks_for_the_coin_and_no_device() {
     let settings = Settings { setup_done: false, ..quiet_settings() };
     let harness = harness(app(scratch("first"), settings, None), SIZES[0]);
+    assert!(harness.query_by_label("Which coin?").is_some());
+    assert!(harness.query_by_label("I already have words").is_some());
     for name in ["Just this computer", "Several miners", "Two computers", "Raspberry Pi", "ESP32 boards"] {
-        assert!(harness.query_by_label(name).is_some(), "{name}");
+        assert!(harness.query_by_label(name).is_none(), "{name}");
     }
 }
 
@@ -278,8 +267,8 @@ fn a_korean_system_starts_in_korean() {
     let loaded = Settings::load_for(&folder, Lang::Ko);
     let settings = Settings { setup_done: false, language: loaded.language, ..quiet_settings() };
     let mut harness = harness(app(folder, settings, None), SIZES[0]);
-    assert!(harness.query_by_label("무엇으로 채굴할까요?").is_some());
-    assert!(harness.query_by_label("What will you mine with?").is_none());
+    assert!(harness.query_by_label("어떤 코인으로 할까요?").is_some());
+    assert!(harness.query_by_label("Which coin?").is_none());
     if let Some(pictures) = std::env::var_os("OLC_FIRST_SHOT") {
         shots::shot(&mut harness, Path::new(&pictures), "first-run-korean-system");
     }
@@ -294,6 +283,7 @@ fn an_empty_home_says_what_to_do() {
     assert!(harness.query_by_label("Receive").is_some());
     assert!(harness.query_by_label("Send").is_some());
     assert!(harness.query_by_label("Start mining and your first coins appear here.").is_some());
+    assert!(harness.query_by_label("Latest blocks").is_some());
 }
 
 /// A board that answers can be named and dimmed, and one coming back says so.
@@ -305,7 +295,8 @@ fn boards_show_what_they_do() {
     harness.run_steps(SETTLE_STEPS);
     assert!(harness.query_all_by_label("Kitchen").count() > 0);
     assert!(harness.query_by_label("Dim").is_some());
-    assert!(harness.query_all_by_label("Mining").count() > 0);
+    // The rail has one Mining; the board says it too.
+    assert!(harness.query_all_by_label("Mining").count() > 1);
     harness.state_mut().set_stage(Some(staged(vec![staged_board(false, true)])));
     harness.run_steps(SETTLE_STEPS);
     assert!(harness.query_all_by_label("Restarting").count() > 0);

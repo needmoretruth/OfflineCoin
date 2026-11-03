@@ -346,7 +346,6 @@ fn a_found_coin_can_be_joined() {
 
     let settings = Settings { setup_done: false, port: port_of_scene(20), ..quiet_settings() };
     let mut harness = harness(app(scratch("join"), settings, None), SIZES[0]);
-    click(&mut harness, "ESP32 boards");
     wait_until(&mut harness, |app| {
         app.snapshot().groups.iter().any(|group| {
             group.identity.as_ref().is_some_and(|identity| identity.coin.name == "Found")

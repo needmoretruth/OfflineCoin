@@ -1,14 +1,13 @@
-//! The hardware that mines: boards, the nodes on this computer, working together, and the lab.
+//! Devices that add to this computer: boards plugged in by USB or heard over the air. This computer
+//! mines without them, so the page says that first and then lists the boards.
 use super::board_detail::BoardDetail;
 use super::coins::keeps_text;
 use super::money::balance_of;
-use super::lab::Lab;
-use super::local::Local;
-use super::pool::PoolTab;
 use super::{Cx, Page};
 use crate::core::{BoardView, Command};
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, segments, Kind};
+use crate::ui::explain;
+use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, Kind};
 use crate::ui::{format, Icon};
 use egui::{vec2, Align, Frame, Label, Layout, Margin, RichText, Ui};
 use olc_control::BoardId;
@@ -21,24 +20,11 @@ const NAME_LINE: f32 = 19.0;
 /// Where a list row's words start, past its dot.
 const ROW_TEXT: i8 = 32;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Tab {
-    #[default]
-    Boards,
-    Nodes,
-    Pool,
-    Lab,
-}
-
 #[derive(Default)]
 pub struct Boards {
-    tab: Tab,
     open: Option<BoardId>,
     detail: BoardDetail,
     new_names: Vec<(String, String)>,
-    local: Local,
-    pool: PoolTab,
-    lab: Lab,
 }
 
 /// A job is a word from the manager, or how far an update got. A proof names the board it uses.
@@ -60,7 +46,7 @@ pub fn job_text(cx: &Cx, job: &str) -> String {
     }
 }
 
-fn state_colour(t: &Tokens, board: &BoardView) -> egui::Color32 {
+pub(super) fn state_colour(t: &Tokens, board: &BoardView) -> egui::Color32 {
     match (board.seen.online, board.returning) {
         (true, _) if board.seen.beacon.mining => t.good,
         (true, _) => t.info,
@@ -216,28 +202,9 @@ impl Page for Boards {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         widgets::title(ui, cx.say("page.boards"));
-        let mut tabs = vec![
-            (Tab::Boards, cx.say("boards.tab_boards").to_string()),
-            (Tab::Nodes, cx.say("boards.tab_nodes").to_string()),
-            (Tab::Pool, cx.say("boards.tab_pool").to_string()),
-        ];
-        if cx.expert() {
-            tabs.push((Tab::Lab, cx.say("pro.tab_lab").to_string()));
-        } else if self.tab == Tab::Lab {
-            self.tab = Tab::Boards;
-        }
-        if let Some(tab) = segments(ui, t, &tabs, Some(self.tab)) {
-            self.tab = tab;
-        }
-        ui.add_space(tokens::GAP_WIDE - tokens::GAP);
-        match self.tab {
-            Tab::Boards => {
-                self.new_ports(ui, cx);
-                self.board_list(ui, cx);
-            }
-            Tab::Nodes => self.local.show(ui, cx),
-            Tab::Pool => self.pool.show(ui, cx),
-            Tab::Lab => self.lab.show(ui, cx),
-        }
+        explain::short(ui, t, cx.say("devices.about"));
+        ui.add_space(tokens::GAP_WIDE);
+        self.new_ports(ui, cx);
+        self.board_list(ui, cx);
     }
 }

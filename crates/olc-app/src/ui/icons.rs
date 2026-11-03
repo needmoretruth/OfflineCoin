@@ -3,6 +3,8 @@ use egui::{vec2, Color32, Painter, Pos2, Rect, Shape, Stroke};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
+    Home,
+    Blocks,
     Console,
     Network,
     Mining,
@@ -37,6 +39,17 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
         painter.rect_stroke(area, corner, stroke, egui::StrokeKind::Middle);
     };
     match icon {
+        Icon::Home => {
+            line(&[(2.5, 8.5), (9.0, 2.8), (15.5, 8.5)]);
+            line(&[(4.5, 7.0), (4.5, 15.5), (13.5, 15.5), (13.5, 7.0)]);
+            line(&[(7.5, 15.5), (7.5, 11.0), (10.5, 11.0), (10.5, 15.5)]);
+        }
+        Icon::Blocks => {
+            // A box seen from above and to the left, as the block strip draws them.
+            boxed(5.0, 6.0, 15.5, 15.5, 1.0);
+            line(&[(5.0, 6.0), (2.5, 3.5), (13.0, 3.5), (15.5, 6.0)]);
+            line(&[(2.5, 3.5), (2.5, 13.0), (5.0, 15.5)]);
+        }
         Icon::Console => {
             boxed(2.5, 3.5, 15.5, 14.5, 2.0);
             line(&[(5.5, 7.0), (8.0, 9.0), (5.5, 11.0)]);

@@ -9,9 +9,12 @@ use crate::local::lab::{LabChoice, LabKind, LabState, Mark, Phase, Side};
 use crate::settings::Mode;
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::explain::{self, Choice};
-use crate::ui::widgets::{button, button_on, card, number_field, section, segments, switch_row, Kind};
+use crate::ui::widgets::{button, button_on, card, number_field, section, segments, slider, switch_row, Kind};
 use egui::{RichText, Ui};
 use olc_lab::Outcome;
+
+/// The share slider's width beside its name.
+const SHARE_WIDTH: f32 = 220.0;
 
 /// What a press on the Lab asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,9 +56,14 @@ fn choose(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, running
             LabKind::Split => ("lab2.share_split", "lab2.share_line_split"),
         };
         ui.horizontal(|ui| {
-            let name = ui.label(RichText::new(text(voice, label)).color(t.text));
-            ui.spacing_mut().slider_width = 220.0;
-            ui.add(egui::Slider::new(&mut choice.share, 10..=90).suffix("%").show_value(false).trailing_fill(true)).labelled_by(name.id);
+            ui.label(RichText::new(text(voice, label)).color(t.text));
+            // The same slider as the speed on Home, with a notch at half: past it, one side wins.
+            let mut share = f32::from(choice.share);
+            ui.allocate_ui(egui::vec2(SHARE_WIDTH, tokens::CONTROL), |ui| {
+                slider(ui, t, &mut share, 10.0..=90.0, text(voice, label), &[0.5]);
+            });
+            // Clamped to the slider's range, so it fits a byte.
+            choice.share = share.round().clamp(10.0, 90.0) as u8;
             let (mine, theirs) = (choice.share.to_string(), (100 - choice.share).to_string());
             ui.label(RichText::new(fill(text(voice, line), &[&mine, &theirs])).strong().color(t.text));
         });

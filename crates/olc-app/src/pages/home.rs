@@ -1,21 +1,28 @@
-//! The cash book: how much there is, the three things a person does with it, and what happened.
+//! What a person does every day, in the order they look: their coins with Send and Receive and what
+//! happened to them lately, this computer's mining with its speed, and the latest blocks with who
+//! found each.
 use super::coins::history_card;
+use super::ledger::Ledger;
+use super::mining_card::MiningCard;
 use super::money::{ReceiveSheet, SendSheet};
-use super::{Cx, Page, Slipping};
-use crate::core::{unix_ms, Activity, ActivityKind, Command, LockOrder, NodeView};
+use super::{Cx, Page};
+use crate::core::unix_ms;
+use crate::ui::chain::{self, Look, Strip};
+use crate::ui::explain;
 use crate::ui::floating::sheet;
 use crate::ui::paint::ink;
 use crate::ui::theme::desktop_reduces_motion;
 use crate::ui::tokens;
-use crate::ui::widgets::{
-    self, button, button_on, card, cell, dot, header_cell, meta, right_cell, section, Columns, Kind,
-};
+use crate::ui::widgets::{self, button, card, dot, meta, section, Kind};
 use crate::ui::{format, Icon, Tokens};
-use egui::{vec2, Align, CornerRadius, FontId, Label, Layout, RichText, Sense, Ui};
-use olc_core::Hash;
+use egui::{vec2, Align, FontId, Label, Layout, RichText, Sense, Ui};
 
-/// The ledger shows this much, and the rest stays one click away in Records.
-const LEDGER_ROWS: usize = 40;
+/// Home shows this many rows of what happened, and the Wallet the rest.
+const RECENT_ROWS: usize = 4;
+/// The blocks on Home are a little smaller than on Mining, so the rows below stay in sight.
+const BLOCK_SIZE: f32 = 70.0;
+/// How wide the coins take of the first row; mining takes the rest.
+const COINS_SHARE: f32 = 0.42;
 
 enum Open {
     Receive(ReceiveSheet),
@@ -26,8 +33,8 @@ enum Open {
 #[derive(Default)]
 pub struct Home {
     open: Option<Open>,
-    newest: Option<Hash>,
-    lit_at: f64,
+    ledger: Ledger,
+    mining: MiningCard,
 }
 
 /// The large figure, which rolls to a new value over the length of a stamp.
@@ -56,66 +63,50 @@ fn balance_line(ui: &mut Ui, t: &Tokens, units: u64, ticker: &str, still: bool) 
     });
 }
 
-fn state_line(ui: &mut Ui, cx: &Cx) {
-    let t = cx.t;
+/// Says why mining cannot run or space ran out. True when the person wants to change that.
+fn light_or_full(ui: &mut Ui, cx: &Cx) -> bool {
     let node = &cx.snap.node;
-    let voice = cx.voice();
-    ui.horizontal(|ui| {
-        if let Some(target) = node.syncing_to {
-            dot(ui, t.warn);
-            let height = format::number(node.height.into());
-            ui.label(cx.fill("home.catching_up", &[&height, &format::number(target.into())]));
-        } else if node.mining {
-            dot(ui, t.good);
-            let speed = format::rate(voice, node.hashrate);
-            let line = match node.seconds_per_block() {
-                Some(seconds) => {
-                    cx.fill("home.mining_block", &[&speed, &format::seconds(voice, seconds)])
-                }
-                None => cx.fill("home.mining", &[&speed]),
-            };
-            ui.label(line);
-        } else {
-            dot(ui, t.muted);
-            ui.label(RichText::new(cx.say("home.not_mining")).color(t.soft));
-        }
-    });
+    let key = match () {
+        () if node.light.is_some() => "home.light",
+        () if node.storage_full => "home.full",
+        () => return false,
+    };
+    ui.add_space(4.0);
+    let open = ui
+        .horizontal(|ui| {
+            dot(ui, cx.t.warn);
+            ui.add(Label::new(cx.say(key)).wrap());
+            button(ui, cx.t, cx.say("home.open_settings"), Kind::Quiet).clicked()
+        })
+        .inner;
+    light_limits(ui, cx);
+    open
 }
 
-fn kind_key(item: &Activity) -> &'static str {
-    match item.kind {
-        ActivityKind::Mined => "home.mined",
-        ActivityKind::Received => "home.received",
-        ActivityKind::Sent => "home.sent",
-        ActivityKind::ToSelf => "home.to_self",
+/// What a node without blocks cannot check, which decides how far its balance can be trusted.
+fn light_limits(ui: &mut Ui, cx: &Cx) {
+    let Some(light) = &cx.snap.node.light else {
+        return;
+    };
+    if let Some(oldest) = light.pruned_from {
+        ui.add_space(4.0);
+        meta(ui, &cx.fill("home.light_pruned", &[&format::number(oldest.into())]), cx.t);
+    }
+    if light.unproven > 0 {
+        ui.add_space(4.0);
+        meta(ui, &cx.fill("home.light_unproven", &[&format::number(light.unproven as u128)]), cx.t);
     }
 }
 
 impl Home {
-    fn actions(&mut self, ui: &mut Ui, cx: &mut Cx) {
+    /// Words not yet written down are the one way back to this wallet, so they ask here. They
+    /// stand above what the node says, which comes and goes, so this button keeps its place.
+    /// Words not yet written down come first; then a wallet with no words at all, which only
+    /// wallets from before 0.2.0 are (new ones get words when made), so it shows whatever they
+    /// hold: coins mined later need the words just the same; then coins the words cannot bring back.
+    fn words_line(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         let node = &cx.snap.node;
-        ui.horizontal(|ui| {
-            let light = node.light.is_some();
-            if node.mining {
-                if button(ui, t, cx.say("home.stop"), Kind::Plain).clicked() {
-                    cx.send(Command::SetMining(false));
-                }
-            } else if button_on(ui, t, cx.say("home.start"), Kind::Main, !light).clicked() {
-                cx.send(Command::SetMining(true));
-            }
-            if button(ui, t, cx.say("home.receive"), Kind::Plain).clicked() {
-                self.open = Some(Open::Receive(ReceiveSheet::for_address(&node.address)));
-            }
-            if button(ui, t, cx.say("home.send"), Kind::Plain).clicked() {
-                self.open = Some(Open::Send(SendSheet::default()));
-            }
-        });
-        // Words not yet written down are the one way back to this wallet, so they ask here. They
-        // stand above what the node says, which comes and goes, so this button keeps its place.
-        // Words not yet written down come first; then a wallet with no words at all, which only
-        // wallets from before 0.2.0 are (new ones get words when made), so it shows whatever they
-        // hold: coins mined later need the words just the same; then coins the words cannot bring back.
         let words_line = match () {
             () if node.wallet.words_to_write.is_some() => Some((cx.say("home.words_unwritten").to_string(), "home.words_write")),
             // Before the core's first word the snapshot is empty, and an empty wallet has no words
@@ -126,98 +117,125 @@ impl Home {
             }
             () => None,
         };
-        if let Some((line, open)) = words_line {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                dot(ui, t.warn);
-                // The text wraps in what the button leaves, so on a narrow window the button stays in sight.
-                let label = cx.say(open);
-                let room = ui.available_width() - widgets::button_width(ui, label) - ui.spacing().item_spacing.x;
-                ui.scope(|ui| {
-                    ui.set_max_width(room.max(0.0));
-                    ui.add(Label::new(line).wrap());
-                });
-                if button(ui, t, label, Kind::Quiet).clicked() {
-                    self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
-                }
-            });
-        }
-        if light_or_full(ui, cx) {
-            *cx.go = Some("page.settings");
-        }
-    }
-
-    fn ledger(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
-        let t = cx.t;
-        let node = &cx.snap.node;
-        let now_time = ui.input(|input| input.time);
-        let first = node.activity.first().map(|item| item.id);
-        if first != self.newest {
-            if self.newest.is_some() {
-                self.lit_at = now_time;
-            }
-            self.newest = first;
-        }
-        let lit = ((now_time - self.lit_at) as f32 / tokens::STAMP_SECONDS).clamp(0.0, 1.0);
-        if node.activity.is_empty() {
-            // The button that starts mining stands right above this.
-            let heading = cx.say("home.empty");
-            let body = cx.say(if node.mining { "home.empty_mining" } else { "home.empty_body" });
-            widgets::empty(ui, t, heading, body, None);
+        let Some((line, open)) = words_line else {
             return;
-        }
-        section(ui, cx.say("home.ledger"));
-        ui.add_space(2.0);
-        let now = unix_ms();
-        let voice = cx.voice();
-        let ticker = cx.ticker().to_string();
-        let columns = Columns::new(ui, &[1.0, 1.5, 1.4]);
-        columns.row(ui, |ui, index| {
-            let key = ["home.when", "home.what", "home.amount"][index];
-            if index == 2 {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| header_cell(ui, t, cx.say(key)));
-            } else {
-                header_cell(ui, t, cx.say(key));
+        };
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            dot(ui, t.warn);
+            // The text wraps in what the button leaves, so on a narrow window the button stays in sight.
+            let label = cx.say(open);
+            let room = ui.available_width() - widgets::button_width(ui, label) - ui.spacing().item_spacing.x;
+            ui.scope(|ui| {
+                ui.set_max_width(room.max(0.0));
+                ui.add(Label::new(line).wrap());
+            });
+            if button(ui, t, label, Kind::Quiet).clicked() {
+                self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
             }
         });
-        widgets::divider(ui, t);
-        let mut speed = None;
-        for (row, item) in node.activity.iter().take(LEDGER_ROWS).enumerate() {
-            if row == 0 && lit < 1.0 && !still {
-                let rect = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), tokens::ROW - 8.0));
-                let wash = t.good.gamma_multiply(0.14 * (1.0 - lit));
-                ui.painter().rect_filled(rect, CornerRadius::same(tokens::RADIUS_CONTROL), wash);
-                ui.ctx().request_repaint();
-            }
-            columns.row(ui, |ui, index| match index {
-                0 => {
-                    let text = RichText::new(format::ago(voice, now, item.time_ms)).color(t.soft);
-                    cell(ui, text);
-                }
-                1 => {
-                    cell(ui, cx.say(kind_key(item)));
-                    if item.height.is_none() {
-                        widgets::tag(ui, cx.say("home.waiting"), t.warn, t);
-                        if item.kind == ActivityKind::Sent && button(ui, t, cx.say("home.speed_up"), Kind::Quiet).clicked() {
-                            speed = Some(cx.slip_for(speed_up_slip(cx, item)));
-                        }
-                    }
-                }
-                _ => {
-                    let sign = match item.kind {
-                        // Coins that stay in this wallet are neither gained nor lost.
-                        ActivityKind::ToSelf => "",
-                        _ if item.amount == 0 => "",
-                        ActivityKind::Sent => "-",
-                        _ => "+",
-                    };
-                    let figure = format!("{sign}{}", format::coins(item.amount, &ticker));
-                    right_cell(ui, widgets::medium_text(figure));
+    }
+
+    /// The coins: how many, the two things a person does with them, and what happened to them.
+    fn coins(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool, height: f32) {
+        let t = cx.t;
+        card(ui, t, |ui| {
+            ui.set_min_height(height);
+            let node = &cx.snap.node;
+            meta(ui, cx.say("home.balance"), t);
+            balance_line(ui, t, node.balance, cx.ticker(), still);
+            // The line keeps its room, so the buttons stay put when the first block arrives.
+            widgets::slot(ui, |ui| {
+                ui.set_min_height(tokens::META_LINE);
+                if node.maturing > 0 {
+                    meta(ui, &cx.fill("home.soon", &[&format::coins(node.maturing, cx.ticker())]), t);
                 }
             });
+            ui.add_space(tokens::GAP);
+            ui.horizontal(|ui| {
+                if button(ui, t, cx.say("home.receive"), Kind::Main).clicked() {
+                    self.open = Some(Open::Receive(ReceiveSheet::for_address(&node.address)));
+                }
+                if button(ui, t, cx.say("home.send"), Kind::Plain).clicked() {
+                    self.open = Some(Open::Send(SendSheet::default()));
+                }
+            });
+            self.words_line(ui, cx);
+            if light_or_full(ui, cx) {
+                *cx.go = Some("page.settings");
+            }
+            ui.add_space(tokens::GAP_PAGE);
+            self.recent(ui, cx, still);
+        });
+    }
+
+    /// Coins on the left and mining on the right, one height, or one above the other when narrow.
+    fn first_row(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
+        let heading = cx.say("page.mining");
+        if ui.available_width() < tokens::COMPACT {
+            self.coins(ui, cx, still, 0.0);
+            ui.add_space(tokens::GAP_WIDE);
+            self.mining.show(ui, cx, heading, "home", still);
+            return;
         }
-        if speed.is_some() {
-            *cx.slip = speed;
+        let id = ui.scope_id().with("mining-height");
+        let mining_height: f32 = ui.data(|data| data.get_temp(id)).unwrap_or(0.0);
+        let total = ui.available_width();
+        let left = ((total - tokens::GAP_WIDE) * COINS_SHARE).round();
+        let right = total - left - tokens::GAP_WIDE;
+        let margins = f32::from(tokens::CARD_MARGIN) * 2.0;
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(vec2(left, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(left);
+                self.coins(ui, cx, still, (mining_height - margins).max(0.0));
+            });
+            ui.add_space(tokens::GAP_WIDE - ui.spacing().item_spacing.x);
+            let drawn = ui.allocate_ui_with_layout(vec2(right, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(right);
+                self.mining.show(ui, cx, heading, "home", still);
+            });
+            let height = drawn.response.rect.height();
+            if (height - mining_height).abs() > 0.5 {
+                ui.data_mut(|data| data.insert_temp(id, height));
+                ui.ctx().request_repaint();
+            }
+        });
+    }
+
+    /// The latest blocks as boxes, with who found each, and a Details with what a block is.
+    fn blocks(ui: &mut Ui, cx: &Cx, still: bool) {
+        let t = cx.t;
+        section(ui, cx.say("home.blocks"));
+        explain::short(ui, t, cx.say("home.blocks_about"));
+        ui.add_space(tokens::GAP);
+        let ticker = cx.ticker().to_string();
+        let look = Look { t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
+        let chain_view = &cx.snap.node.chain;
+        chain::block_strip(ui, &look, &Strip::of(chain_view).size(BLOCK_SIZE));
+        let labels = (cx.say("explain.details"), cx.say("explain.hide"));
+        explain::details(ui, t, "home-blocks", labels, |ui| {
+            explain::analogy(ui, t, cx.say("home.blocks_analogy"));
+            ui.add_space(tokens::GAP);
+            ui.label(cx.say("home.blocks_more"));
+        });
+    }
+
+    /// The last few rows of what happened, and the way to all of them.
+    fn recent(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
+        let t = cx.t;
+        ui.horizontal(|ui| {
+            section(ui, cx.say("home.ledger"));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if !cx.snap.node.activity.is_empty() && button(ui, t, cx.say("home.see_all"), Kind::Quiet).clicked() {
+                    *cx.go = Some("page.wallet");
+                }
+            });
+        });
+        ui.add_space(2.0);
+        if !self.ledger.show(ui, cx, RECENT_ROWS, still) {
+            // The button that starts mining stands above this, on the mining card.
+            let body = cx.say(if cx.snap.node.mining { "home.empty_mining" } else { "home.empty_body" });
+            meta(ui, body, t);
         }
     }
 
@@ -244,147 +262,26 @@ impl Home {
     }
 }
 
-/// The slip before a waiting payment goes again with a higher fee.
-/// Shows the fee now and the fee after, as Bitcoin Core's bump fee dialog does, worked out by the
-/// same code that then sends it. Expert mode also names the payment.
-fn speed_up_slip(cx: &Cx, item: &Activity) -> Slipping {
-    let id: String = item.id.iter().map(|byte| format!("{byte:02x}")).collect();
-    let quote = cx.snap.node.wallet.speed.iter().find(|quote| quote.id == item.id);
-    let fee = |units: Option<u64>| units.map_or_else(|| "?".to_string(), |units| format::coins(units, cx.ticker()));
-    let mut rows = vec![
-        (cx.say("speed.amount"), format::coins(item.amount, cx.ticker())),
-        (cx.say("speed.fee_now"), fee(quote.map(|quote| quote.now))),
-        (cx.say("speed.fee_new"), fee(quote.map(|quote| quote.new))),
-    ];
-    if cx.expert() {
-        rows.push((cx.say("pro.speed_id"), format::short_id(&item.id)));
-    }
-    Slipping {
-        what: cx.say("speed.title"),
-        rows,
-        warning: cx.say("speed.warning"),
-        sign: cx.say("speed.sign"),
-        danger: false,
-        order: vec![Command::Lock(LockOrder::SpeedUp { id })],
-    }
-}
-
-/// Says why mining cannot run or space ran out. True when the person wants to change that.
-fn light_or_full(ui: &mut Ui, cx: &Cx) -> bool {
-    let node = &cx.snap.node;
-    let key = match () {
-        () if node.light.is_some() => "home.light",
-        () if node.storage_full => "home.full",
-        () => return false,
-    };
-    ui.add_space(4.0);
-    let open = ui
-        .horizontal(|ui| {
-            dot(ui, cx.t.warn);
-            ui.label(cx.say(key));
-            button(ui, cx.t, cx.say("home.open_settings"), Kind::Quiet).clicked()
-        })
-        .inner;
-    light_limits(ui, cx);
-    open
-}
-
-/// What a node without blocks cannot check, which decides how far its balance can be trusted.
-fn light_limits(ui: &mut Ui, cx: &Cx) {
-    let Some(light) = &cx.snap.node.light else {
-        return;
-    };
-    if let Some(oldest) = light.pruned_from {
-        ui.add_space(4.0);
-        meta(ui, &cx.fill("home.light_pruned", &[&format::number(oldest.into())]), cx.t);
-    }
-    if light.unproven > 0 {
-        ui.add_space(4.0);
-        meta(ui, &cx.fill("home.light_unproven", &[&format::number(light.unproven as u128)]), cx.t);
-    }
-}
-
-fn fact(ui: &mut Ui, t: &Tokens, name: &str, value: &str) {
-    ui.horizontal(|ui| {
-        ui.set_min_height(26.0);
-        ui.add(Label::new(RichText::new(name).color(t.muted)).selectable(false));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.add(Label::new(value).truncate());
-        });
-    });
-}
-
-fn facts(ui: &mut Ui, cx: &Cx, node: &NodeView) {
-    let t = cx.t;
-    let number = |value: u64| format::number(value.into());
-    card(ui, t, |ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        if let Some(coin) = &node.coin {
-            fact(ui, t, cx.say("home.coin"), &coin.name);
-        }
-        fact(ui, t, cx.say("home.height"), &number(node.height));
-        fact(ui, t, cx.say("home.my_blocks"), &number(node.blocks_mined));
-        fact(ui, t, cx.say("home.boards"), &number(cx.snap.boards.len() as u64));
-        fact(ui, t, cx.say("home.others"), &number(node.peers as u64));
-        if cx.expert() {
-            fact(ui, t, cx.say("pro.difficulty"), &number(node.difficulty));
-            fact(ui, t, cx.say("pro.mempool"), &number(node.pool as u64));
-            fact(ui, t, cx.say("pro.utxo"), &number(node.unspent as u64));
-            let tip = format::short_id(&node.tip);
-            fact(ui, t, cx.say("pro.tip"), &tip);
-        }
-    });
-}
-
 impl Page for Home {
     fn title(&self) -> &'static str {
         "page.home"
     }
 
     fn icon(&self) -> Icon {
-        Icon::Wallet
+        Icon::Home
+    }
+
+    fn daily(&self) -> bool {
+        true
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        let t = cx.t;
-        let node = &cx.snap.node;
         let still = cx.settings.reduce_motion || desktop_reduces_motion();
-        let wide = ui.available_width() >= tokens::COMPACT;
-        meta(ui, cx.say("home.balance"), t);
-        balance_line(ui, t, node.balance, cx.ticker(), still);
-        // The line keeps its room, so the buttons stay put when the first block arrives.
-        widgets::slot(ui, |ui| {
-            ui.set_min_height(tokens::META_LINE);
-            if node.maturing > 0 {
-                meta(ui, &cx.fill("home.soon", &[&format::coins(node.maturing, cx.ticker())]), t);
-            }
-        });
-        ui.add_space(tokens::GAP_WIDE - tokens::GAP);
-        self.actions(ui, cx);
-        ui.add_space(4.0);
-        state_line(ui, cx);
-        ui.add_space(tokens::GAP_PAGE - tokens::GAP);
+        self.first_row(ui, cx, still);
+        ui.add_space(tokens::GAP_PAGE);
         // A person starts here, so what stops this node shows here.
         widgets::slot(ui, |ui| history_card(ui, cx));
-        if wide {
-            let total = ui.available_width();
-            let left = total - tokens::FACTS - tokens::GAP_PAGE;
-            ui.horizontal_top(|ui| {
-                ui.allocate_ui_with_layout(vec2(left, 0.0), Layout::top_down(Align::Min), |ui| {
-                    ui.set_width(left);
-                    self.ledger(ui, cx, still);
-                });
-                ui.add_space(tokens::GAP_PAGE - ui.spacing().item_spacing.x);
-                ui.allocate_ui_with_layout(vec2(tokens::FACTS, 0.0), Layout::top_down(Align::Min), |ui| {
-                    ui.set_width(tokens::FACTS);
-                    facts(ui, cx, &cx.snap.node);
-                });
-            });
-        } else {
-            self.ledger(ui, cx, still);
-            ui.add_space(tokens::GAP_WIDE);
-            facts(ui, cx, &cx.snap.node);
-        }
+        Self::blocks(ui, cx, still);
         self.sheets(ui, cx);
     }
 }

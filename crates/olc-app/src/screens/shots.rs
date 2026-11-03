@@ -146,9 +146,9 @@ const EMPTY: &[View] = &[
     View { name: "coins-empty", page: "page.coins", stage: real, go: nothing, expert_only: false },
     View { name: "records-empty", page: "page.records", stage: real, go: nothing, expert_only: false },
     View { name: "settings", page: "page.settings", stage: real, go: nothing, expert_only: false },
-    View { name: "nodes-empty", page: "page.boards", stage: real, go: |w| tap(w, "boards.tab_nodes"), expert_only: false },
-    View { name: "pool-empty", page: "page.boards", stage: real, go: |w| tap(w, "boards.tab_pool"), expert_only: false },
-    View { name: "console", page: "page.console", stage: real, go: nothing, expert_only: true },
+    View { name: "mining-empty", page: "page.mining", stage: real, go: nothing, expert_only: false },
+    View { name: "console", page: "page.console", stage: real, go: nothing, expert_only: false },
+    View { name: "wallet-empty", page: "page.wallet", stage: real, go: nothing, expert_only: false },
 ];
 
 const LIVE: &[View] = &[
@@ -160,18 +160,19 @@ const LIVE: &[View] = &[
     View { name: "home-send-slip", page: "page.home", stage: real, go: send_right, expert_only: false },
     View { name: "boards-working", page: "page.boards", stage: with_boards, go: nothing, expert_only: false },
     View { name: "boards-move-slip", page: "page.boards", stage: with_a_stray_board, go: |w| tap(w, "boards.move"), expert_only: false },
-    View { name: "nodes-working", page: "page.boards", stage: real, go: |w| tap(w, "boards.tab_nodes"), expert_only: false },
-    View { name: "nodes-remove-slip", page: "page.boards", stage: real, go: remove_slip, expert_only: false },
-    View { name: "pool-working", page: "page.boards", stage: with_pool, go: |w| tap(w, "boards.tab_pool"), expert_only: false },
+    View { name: "mining-working", page: "page.mining", stage: real, go: nothing, expert_only: false },
+    View { name: "nodes-remove-slip", page: "page.mining", stage: real, go: remove_slip, expert_only: false },
+    View { name: "pool-working", page: "page.mining", stage: with_pool, go: nothing, expert_only: false },
     View { name: "coins-working", page: "page.coins", stage: real, go: nothing, expert_only: false },
     View { name: "coins-new", page: "page.coins", stage: real, go: |w| tap(w, "coins.new"), expert_only: false },
     View { name: "records-working", page: "page.records", stage: real, go: nothing, expert_only: false },
     View { name: "records-block", page: "page.records", stage: real, go: open_block, expert_only: false },
     View { name: "records-note-slip", page: "page.records", stage: real, go: note_slip, expert_only: false },
-    View { name: "settings-backup", page: "page.settings", stage: real, go: |w| tap(w, "settings.backup_go"), expert_only: false },
-    View { name: "settings-picker", page: "page.settings", stage: real, go: picker, expert_only: false },
-    View { name: "settings-addresses", page: "page.settings", stage: real, go: addresses, expert_only: false },
-    View { name: "settings-offline", page: "page.settings", stage: real, go: offline, expert_only: false },
+    View { name: "wallet-backup", page: "page.wallet", stage: real, go: |w| tap(w, "settings.backup_go"), expert_only: false },
+    View { name: "wallet-picker", page: "page.wallet", stage: real, go: picker, expert_only: false },
+    View { name: "wallet-addresses", page: "page.wallet", stage: real, go: addresses, expert_only: false },
+    View { name: "wallet-offline", page: "page.wallet", stage: real, go: offline, expert_only: false },
+    View { name: "wallet-working", page: "page.wallet", stage: real, go: nothing, expert_only: false },
 ];
 
 fn word(window: &Window, key: &str) -> String {
@@ -213,7 +214,6 @@ fn send_right(window: &mut Window) {
 }
 
 fn remove_slip(window: &mut Window) {
-    tap(window, "boards.tab_nodes");
     // Only a stopped node can go.
     if window.state().snapshot().local.iter().all(|view| view.pid.is_some()) {
         tap(window, "local.stop");
@@ -237,12 +237,13 @@ fn picker(window: &mut Window) {
     tap(window, "backup.choose");
 }
 
+/// The Wallet's rows that open with Open: words, addresses, signing, shared, watching, offline.
 fn addresses(window: &mut Window) {
-    tap_nth(window, "common.open", 0);
+    tap_nth(window, "common.open", 1);
 }
 
 fn offline(window: &mut Window) {
-    tap_nth(window, "common.open", 2);
+    tap_nth(window, "common.open", 5);
 }
 
 fn wanted(view: &View) -> bool {
@@ -275,8 +276,6 @@ fn draw_views(views: &[View], window: &mut Window, folder: &Path) {
 fn setup_shots(folder: &Path) {
     let settings = Settings { setup_done: false, port: port_of_scene(72), ..quiet_settings() };
     let mut first = harness(app(scratch("shots-first"), settings, None), SIZES[0]);
-    all_combinations("setup-device", &mut first, folder);
-    click(&mut first, "ESP32 boards");
     all_combinations("setup-coin", &mut first, folder);
     click(&mut first, "New coin");
     all_combinations("setup-new-coin", &mut first, folder);
