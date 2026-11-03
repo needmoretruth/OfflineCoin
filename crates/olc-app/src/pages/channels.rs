@@ -80,6 +80,11 @@ impl Channels {
         let ours: u64 = view.channels.iter().filter(open).map(|channel| channel.ours).sum();
         // A channel being closed still has coins on the way to the wallet; they are not gone.
         let coming: u64 = view.channels.iter().map(|channel| channel.coming).sum();
+        // While a channel is only being opened, a 0 here would read as if its coins were gone:
+        // its row below says what it holds.
+        if !view.channels.iter().any(|channel| open(&channel)) && coming == 0 {
+            return;
+        }
         card(ui, cx.t, |ui| {
             // With nothing open, the coins on their way back are the number, not a 0 above them.
             if ours == 0 && coming > 0 {
@@ -93,6 +98,7 @@ impl Channels {
                 ui.label(widgets::strong_text(cx.fill("ch.coming", &[&format::coins(coming, cx.ticker())])));
             }
         });
+        ui.add_space(tokens::GAP_PAGE);
     }
 
     fn channel_rows(ui: &mut Ui, cx: &mut Cx, view: &ChannelsView) {
@@ -337,12 +343,14 @@ impl Page for Channels {
         // for the other one. The balance and the list come once there is something in them.
         self.my_address(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
-        if !view.channels.is_empty() {
-            Self::summary(ui, cx, &view);
-            ui.add_space(tokens::GAP_PAGE);
-            Self::channel_rows(ui, cx, &view);
-            ui.add_space(tokens::GAP_PAGE);
+        if view.channels.is_empty() {
+            // Paying and asking need a channel, so they wait until there is one.
+            self.open(ui, cx, &view);
+            return;
         }
+        Self::summary(ui, cx, &view);
+        Self::channel_rows(ui, cx, &view);
+        ui.add_space(tokens::GAP_PAGE);
         self.open(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
         self.pay(ui, cx, &view);

@@ -10,7 +10,7 @@ use crate::ui::explain;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, field, meta, mono, pick_row, section, tag, Kind};
-use egui::{vec2, Align, CornerRadius, Label, Layout, Rect, Sense, Ui};
+use egui::{vec2, Align, CornerRadius, Label, Layout, Rect, Sense, TextEdit, Ui};
 use olc_service::qr::{qr_grid, QrGrid};
 
 /// How many requests the list shows before the rest fold away.
@@ -48,11 +48,18 @@ fn typed(text: &str, view: &ChannelsView) -> Typed {
 }
 
 /// A field with its name above it, so the name stays when the field holds a value.
-fn labelled(ui: &mut Ui, cx: &Cx, key: &str, text: &mut String, width: f32) {
+/// The faint text inside shows what an empty field means, such as the usual wait.
+fn labelled(ui: &mut Ui, cx: &Cx, key: &str, text: &mut String, empty_means: &str, width: f32) {
+    let name = cx.say(key);
     ui.vertical(|ui| {
         ui.set_width(width);
-        meta(ui, cx.say(key), cx.t);
-        field(ui, text, cx.say(key), width);
+        meta(ui, name, cx.t);
+        let edit = TextEdit::singleline(text)
+            .hint_text(empty_means)
+            .desired_width(width)
+            .margin(vec2(10.0, 8.0))
+            .min_size(vec2(width, tokens::CONTROL));
+        ui.add(edit).accessible_name(name);
     });
 }
 
@@ -167,9 +174,9 @@ impl Channels {
             // Expert mode has three numbers side by side, so each keeps its name above it, and the
             // buttons get an empty line above them to sit level with the fields.
             if expert {
-                labelled(ui, cx, "ch.open_amount", &mut self.open_amount, 150.0);
-                labelled(ui, cx, "ch.push", &mut self.open_push, 150.0);
-                labelled(ui, cx, "ch.delay", &mut self.open_delay, 170.0);
+                labelled(ui, cx, "ch.open_amount", &mut self.open_amount, "", 150.0);
+                labelled(ui, cx, "ch.push", &mut self.open_push, "0", 150.0);
+                labelled(ui, cx, "ch.delay", &mut self.open_delay, "144", 170.0);
             } else {
                 field(ui, &mut self.open_amount, cx.say("ch.open_amount"), 150.0);
             }
@@ -366,10 +373,12 @@ fn share_bar(ui: &mut Ui, cx: &Cx, channel: &ChannelView) {
     painter.rect_filled(mine, radius, t.main_top);
     let label = cx.fill("ch.bar", &[&format::coins(channel.ours, cx.ticker()), &format::coins(channel.theirs, cx.ticker())]);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, label.as_str()));
-    ui.horizontal(|ui| {
+    // The two shares sit under the two ends of the bar, however wide the page is.
+    ui.allocate_ui(vec2(width, 0.0), |ui| ui.horizontal(|ui| {
+        ui.set_width(width);
         ui.label(cx.fill("ch.yours", &[&format::coins(channel.ours, cx.ticker())]));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(cx.fill("ch.theirs", &[&format::coins(channel.theirs, cx.ticker())]));
         });
-    });
+    }));
 }

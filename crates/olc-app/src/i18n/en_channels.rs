@@ -21,7 +21,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.reaching", "Connecting to {}. The channel opens when it answers."),
     ("ch.can_send", "You can send {}"),
     ("ch.can_receive", "You can receive {}"),
-    ("ch.room_about", "You can receive only as much as the other side holds in the channel. Each payment moves coins from one side to the other, so the line in the bar moves. If you put all the coins in when you opened it, you can receive once you have paid something out, or when the other side opens a channel to you."),
+    ("ch.room_about", "You can receive only as much as the other side holds in the channel. Whoever opened it keeps a little back for the fee to close it, so they can send a bit less than their share. Each payment moves coins from one side to the other, so the line in the bar moves. If you put all the coins in when you opened it, you can receive once you have paid something out, or when the other side opens a channel to you."),
     ("ch.room_analogy", "Like an abacus with a fixed number of beads: a bead slides to you only if it sits on their side."),
     ("ch.bar", "Yours {}, theirs {}"),
     ("ch.requests", "Your requests"),

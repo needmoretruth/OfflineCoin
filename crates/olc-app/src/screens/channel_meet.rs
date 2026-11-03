@@ -138,9 +138,10 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
     wait_in(&mut b, "b sees it open", 5, opened(Phase::Open));
 
     // B asks for 3 and A pays it through the channel.
+    let requests = |count: usize| move |window: &Window| window.state().snapshot().node.channels.invoices.len() >= count;
+    scroll_to(&mut b, "요청 만들기");
     fill(&mut b, Role::TextInput, "금액", "3");
-    press(&mut b, "요청 만들기");
-    wait_in(&mut b, "the request", 1, |snap| !snap.node.channels.invoices.is_empty());
+    press_till(&mut b, "요청 만들기", requests(1));
     let request = b.state().snapshot().node.channels.invoices[0].text.clone();
     a.state().send(Command::Channel(ChannelOrder::Pay { text: request }));
     wait_in(&mut b, "the payment arrives", 3, |snap| snap.node.channels.invoices.iter().any(|invoice| invoice.paid));
@@ -148,9 +149,9 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
         snap.node.channels.channels.iter().any(|channel| channel.phase == Phase::Open && channel.theirs >= 3 * COIN)
     });
     // A second request stays waiting, so the list shows both states.
+    scroll_to(&mut b, "요청 만들기");
     fill(&mut b, Role::TextInput, "금액", "1");
-    press(&mut b, "요청 만들기");
-    wait_in(&mut b, "the second request", 1, |snap| snap.node.channels.invoices.len() >= 2);
+    press_till(&mut b, "요청 만들기", requests(2));
 
     scroll_to(&mut a, "자세히");
     press(&mut a, "자세히");

@@ -12,7 +12,7 @@ use crate::ui::widgets::{self, button, button_on, card, cell, divider, field, he
 use egui::{Align, Label, Layout, Ui};
 
 /// Address, type, direction, ping, sent, received, version, since, and the buttons.
-const WEIGHTS: [f32; 9] = [1.6, 0.6, 0.6, 0.7, 0.8, 0.8, 1.0, 0.9, 2.6];
+const WEIGHTS: [f32; 9] = [1.4, 0.5, 0.6, 0.7, 0.7, 0.7, 0.9, 0.9, 3.2];
 const HOUR: u64 = 1;
 const DAY: u64 = 24;
 

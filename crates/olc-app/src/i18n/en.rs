@@ -204,7 +204,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.reward_about", "What each block pays its finder."),
     ("coins.yours", "Your coin"),
     ("coins.split", "Same start, other rules"),
-    ("coins.this_line", "{} blocks. {} devices connected."),
+    ("coins.this_line", "{} blocks. Devices connected: {}."),
     ("coins.save_file", "Save coin file"),
     ("coins.found", "Found around you"),
     ("coins.devices", "Devices around you"),

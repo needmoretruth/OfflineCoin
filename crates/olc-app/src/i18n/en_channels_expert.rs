@@ -11,7 +11,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.push_about", "Push: the peer's balance in the first commitment. to_self_delay: blocks your output waits after a unilateral close."),
     ("ch.can_send", "Outbound {}"),
     ("ch.can_receive", "Inbound {}"),
-    ("ch.room_about", "Inbound liquidity is the peer's balance less the fee reserve it keeps as opener. Every HTLC settled moves balance from one side to the other. A channel you funded alone has no inbound until you pay out; a push, or a channel the peer opens to you, gives inbound from the first commitment."),
+    ("ch.room_about", "Outbound and inbound are each balance less the fee reserve the opener keeps. Every HTLC settled moves balance from one side to the other. A channel you funded alone has no inbound until you pay out; a push, or a channel the peer opens to you, gives inbound from the first commitment."),
     ("peers.title", "Peers"),
     ("peers.about", "TCP, USB and radio connections of this node. Disconnect one, or ban its IP for 1 h or 1 d."),
     ("peers.none", "No peers."),
