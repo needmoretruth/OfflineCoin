@@ -25,6 +25,15 @@ pub(crate) struct Paying<'a> {
     waiting: Vec<(OutPoint, Unspent)>,
 }
 
+impl Paying<'_> {
+    /// Only coins a block holds, for a payment whose id must stay as it is: a faster payment
+    /// put in place of the one that pays the change would take its coins away.
+    pub(crate) fn settled(mut self) -> Self {
+        self.waiting.clear();
+        self
+    }
+}
+
 impl Coins for Paying<'_> {
     fn height(&self) -> u64 {
         self.coins.height()

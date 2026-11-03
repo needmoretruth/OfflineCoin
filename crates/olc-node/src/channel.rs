@@ -43,18 +43,20 @@ impl Engine {
         self.held = coins;
     }
 
-    /// The coins a funding payment of `amount` would spend now, none held or already spent.
+    /// The coins a funding payment of `amount` would spend now, none held or already spent, and
+    /// all in blocks: change still waiting could be taken away by a faster payment in its place,
+    /// which would leave the channel without its funding (LND funds from confirmed coins too).
     pub fn pick_funding(&self, amount: u64, fee: u64) -> Result<Vec<OutPoint>, WalletError> {
         let reserved = self.reserved();
         let lock = [0u8; FUNDING_LOCK];
-        let tx = self.wallet.pay_lock_in(&self.paying(), olc_lang::GAMMA, &lock, amount, fee, &reserved)?;
+        let tx = self.wallet.pay_lock_in(&self.paying().settled(), olc_lang::GAMMA, &lock, amount, fee, &reserved)?;
         Ok(tx.inputs.iter().map(|input| input.previous).collect())
     }
 
     /// Signs a payment of `amount` to `lock` in gamma from exactly the coins `from`, and does
     /// not send it.
     pub fn sign_funding(&self, lock: &[u8], amount: u64, fee: u64, from: &[OutPoint]) -> Result<Tx, WalletError> {
-        let only = Only { coins: self.paying(), from };
+        let only = Only { coins: self.paying().settled(), from };
         self.wallet.pay_lock_in(&only, olc_lang::GAMMA, lock, amount, fee, &self.in_flight())
     }
 
