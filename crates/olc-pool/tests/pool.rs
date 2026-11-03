@@ -4,7 +4,7 @@ mod common;
 
 use common::{address, node, start_ms, user, Miner};
 use olc_node::Engine;
-use olc_pool::{BlockState, Payout, Plan, Pool};
+use olc_pool::{BlockState, FoundTotal, Payout, Plan, Pool};
 
 const SHARE_DIFFICULTY: u64 = 32;
 
@@ -159,4 +159,48 @@ fn a_second_share_that_seals_the_same_parent_counts_but_makes_no_second_block() 
     assert_eq!(pool.take_blocks().len(), 1, "one block on the parent");
     assert_eq!(pool.blocks().len(), 1);
     assert_eq!(pool.workers(now)[0].accepted, accepted, "every share counted");
+}
+
+/// Past the hundred blocks the pool lists, what it found still counts every block, and never
+/// falls below what it paid out: the gap is the blocks still ripening.
+#[test]
+fn the_found_total_outlives_the_blocks_listed() {
+    const BLOCKS: u64 = 105;
+    let mut pool_node = node(1);
+    let own = format!("{}.app", olc_wallet::format_address(&pool_node.address()));
+    let mut pool = Pool::new(pool_node.address(), Plan::default());
+    let mut now = start_ms();
+    assert!(pool.refresh(&pool_node, now));
+    let mut me = Miner::join(&mut pool, &own, now);
+    let grinder = node(9);
+    let (mut found, mut value) = (0, 0);
+    while found < BLOCKS {
+        let header = me.find(&grinder);
+        assert_eq!(me.submit(&mut pool, &header, now), Ok(()));
+        let blocks = pool.take_blocks();
+        if blocks.is_empty() {
+            continue;
+        }
+        for block in blocks {
+            value += block.txs[0].outputs.iter().map(|output| output.value).sum::<u64>();
+            let id = block.id();
+            let added = pool_node.submit_block(block);
+            assert!(added, "the pool's block is valid");
+            pool.block_added(id, added);
+            found += 1;
+        }
+        // Each block is paid as it ripens, so the oldest can leave the list.
+        assert!(pool.pay(&mut pool_node).is_empty(), "no payment to itself");
+        now += 30_000;
+        assert!(pool.refresh(&pool_node, now));
+        me.listen(&mut pool, now);
+    }
+    assert_eq!(pool.blocks().len(), 100, "the list stops at a hundred");
+    let total = pool.found_total();
+    assert_eq!(total, FoundTotal { blocks: BLOCKS, value }, "every block counted");
+    assert_eq!(pool.let_go().blocks, BLOCKS - 100);
+    let paid = pool.workers(now)[0].paid;
+    let ripening: u64 = pool.blocks().iter().filter(|block| block.state != BlockState::Paid).map(|block| block.value).sum();
+    assert!(ripening > 0, "the newest blocks still ripen");
+    assert_eq!(total.value - paid, ripening, "found and paid differ by the blocks still ripening");
 }

@@ -4,7 +4,7 @@ use super::coins::format_coins;
 use super::pool_plan::{Join, Method, Who};
 use crate::fleet::{BoardRow, Connection};
 use olc_node::Hello;
-use olc_pool::{BlockState, ClientView, Link};
+use olc_pool::{BlockState, ClientView, FoundTotal, Link};
 use olc_wallet::format_address;
 use std::net::{IpAddr, UdpSocket};
 
@@ -82,6 +82,8 @@ pub struct PoolView {
     pub block_difficulty: u64,
     pub workers: Vec<WorkerRow>,
     pub found: Vec<FoundRow>,
+    /// Paid blocks older than those in `found`, so the totals count every block past the list.
+    pub let_go: FoundTotal,
     pub links: Vec<LinkRow>,
     pub choices: Vec<Choice>,
     /// Boards heard through another that the pool switched off because they never took its work.
@@ -109,10 +111,11 @@ impl PoolView {
         self.links.iter().find(|row| row.join.who == who)
     }
 
-    /// Coins the pool's blocks brought, and how many it found.
-    pub fn found_total(&self) -> (u64, usize) {
+    /// Coins the pool's blocks brought, and how many it found, those no longer listed included.
+    pub fn found_total(&self) -> (u64, u64) {
         let kept = self.found.iter().filter(|row| row.state != BlockState::Lost);
-        kept.fold((0, 0), |(value, count), row| (value + row.value, count + 1))
+        let start = (self.let_go.value, self.let_go.blocks);
+        kept.fold(start, |(value, count), row| (value.saturating_add(row.value), count + 1))
     }
 }
 

@@ -16,7 +16,7 @@ pub mod vardiff;
 
 pub use client::{Client, ClientView, Link, Work};
 pub use ledger::{Payout, Split, MOST_FEE_BPS, MOST_LAST_SHARES};
-pub use pool::{meets, BlockState, BlockView, Plan, Pool, Submitted, WorkerView, REBUILD_MS};
+pub use pool::{meets, BlockState, BlockView, FoundTotal, Plan, Pool, Submitted, WorkerView, REBUILD_MS};
 pub use server::{unix_ms, Server, Shared, PORT};
 pub use session::{worker_address, Reply};
 pub use stratum::Refusal;

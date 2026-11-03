@@ -291,7 +291,7 @@ fn totals(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     let items = [
         ("pool.working", format::number(working as u128)),
         ("pool.speed", format::rate(cx.voice(), speed)),
-        ("pool.blocks", format::number(blocks as u128)),
+        ("pool.blocks", format::number(blocks.into())),
         ("pool.coins_found", format::payout(cx.voice(), coins, cx.ticker())),
         ("pool.paid_out", format::payout(cx.voice(), paid, cx.ticker())),
     ];

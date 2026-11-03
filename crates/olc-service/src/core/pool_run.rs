@@ -469,6 +469,7 @@ impl PoolSeat {
                 })
                 .collect();
             let splits = pool.splits();
+            view.let_go = pool.let_go();
             view.found = pool
                 .blocks()
                 .into_iter()

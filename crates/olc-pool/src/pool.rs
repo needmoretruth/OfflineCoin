@@ -97,6 +97,19 @@ pub(crate) struct Found {
     pub(crate) split: Option<Split>,
 }
 
+/// Blocks and the coins they brought, as one count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FoundTotal {
+    pub blocks: u64,
+    pub value: u64,
+}
+
+impl FoundTotal {
+    fn add(self, value: u64) -> Self {
+        Self { blocks: self.blocks + 1, value: self.value.saturating_add(value) }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockView {
     pub height: u64,
@@ -120,6 +133,8 @@ pub struct Pool {
     pub(crate) next_session: u64,
     pub(crate) workers: BTreeMap<String, Stats>,
     pub(crate) found: Vec<Found>,
+    /// The paid blocks no longer kept in `found`, so the totals outlive the list.
+    let_go: FoundTotal,
     pub(crate) outbox: Vec<Block>,
     /// The parent of the last block the pool sealed: one more on it would only race the first.
     pub(crate) sealed_on: Option<Hash>,
@@ -155,6 +170,7 @@ impl Pool {
             next_session: 0,
             workers: BTreeMap::new(),
             found: Vec::new(),
+            let_go: FoundTotal::default(),
             outbox: Vec::new(),
             sealed_on: None,
         }
@@ -323,13 +339,32 @@ impl Pool {
         });
         self.sealed_on = Some(block.header.previous);
         self.outbox.push(block);
+        self.keep_recent();
+    }
+
+    /// Lets the oldest paid or lost blocks go past [`MOST_BLOCKS_KEPT`], counting the paid ones.
+    fn keep_recent(&mut self) {
         while self.found.len() > MOST_BLOCKS_KEPT {
             let at = self.found.iter().position(|found| matches!(found.state, BlockState::Paid | BlockState::Lost));
-            match at {
-                Some(at) => drop(self.found.remove(at)),
-                None => break,
+            let Some(at) = at else {
+                break;
+            };
+            let gone = self.found.remove(at);
+            if gone.state == BlockState::Paid {
+                self.let_go = self.let_go.add(gone.value);
             }
         }
+    }
+
+    /// The paid blocks the pool no longer lists, as a count and their coins.
+    pub fn let_go(&self) -> FoundTotal {
+        self.let_go
+    }
+
+    /// Every block the pool found and did not lose, those it no longer lists included.
+    pub fn found_total(&self) -> FoundTotal {
+        let kept = self.found.iter().filter(|found| found.state != BlockState::Lost);
+        kept.fold(self.let_go, |total, found| total.add(found.value))
     }
 
     /// Every worker that ever signed in, newest share first.
