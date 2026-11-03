@@ -139,7 +139,7 @@ impl Channels {
                 ui.add_space(tokens::GAP);
                 code(ui, grid, cx.say("ch.address_code"));
             }
-            if view.network.only_here {
+            if view.only_here {
                 ui.add_space(tokens::GAP);
                 explain::short(ui, t, cx.say("ch.only_here"));
                 if button(ui, t, cx.say("ch.listen_on"), Kind::Plain).clicked() {

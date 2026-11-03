@@ -5,7 +5,8 @@ use super::coins::{format_coins, parse_coins};
 use super::commands::ChannelOrder;
 use super::host::{Host, State};
 use super::host_parts::unix_ms;
-use super::host_peers::{peer_order, peers_of, PeerOrder, PeersView};
+use super::host_peers::{peer_listing, peer_order, peers_of, reach_at, PeerOrder, PeersView};
+use olc_link_tcp::TcpControl;
 use olc_channel::invoice::{coin_tag, Invoice, InvoiceError};
 use olc_channel::{ChannelNode, Ground, NodeId, Out, Quote, Refusal, Said};
 use olc_core::{Address, Hash, OutPoint, Tx, TxOut};
@@ -66,7 +67,8 @@ pub struct ChannelsView {
     pub address: String,
     /// Addresses dialled for a channel that opens once the node there answers.
     pub reaching: Vec<String>,
-    pub network: PeersView,
+    /// True when only programs on this computer can reach the address.
+    pub only_here: bool,
 }
 
 #[derive(Default)]
@@ -204,8 +206,14 @@ fn event_of(said: Said, ticker: &str) -> (&'static str, String) {
 pub(super) fn pump(state: &State, runner: &mut Runner) {
     let folder = state.folder.lock().ok().and_then(|folder| folder.clone());
     if let Ok(mut desk) = state.channels.lock() {
-        desk.turn(runner, folder);
+        desk.turn(runner, folder, &state.tcp);
     }
+}
+
+/// Every connection of the node now, named by the channel node heard on it where one was.
+pub(super) fn peers_now(state: &State, runner: &Runner) -> PeersView {
+    let names = state.channels.lock().map(|desk| desk.names(runner)).unwrap_or_default();
+    peers_of(&state.tcp, runner, &|number| names.get(&number).cloned())
 }
 
 /// What the screen shows of the channels now.
@@ -228,7 +236,7 @@ impl ChannelDesk {
         self.view = ChannelsView::default();
     }
 
-    fn turn(&mut self, runner: &mut Runner, folder: Option<PathBuf>) {
+    fn turn(&mut self, runner: &mut Runner, folder: Option<PathBuf>, tcp: &TcpControl) {
         // A node that holds headers only cannot watch the chain for a cheat.
         let folder = folder.filter(|_| runner.engine.light().is_none());
         if folder != self.folder {
@@ -266,7 +274,7 @@ impl ChannelDesk {
             node.tick(now, &mut NodeGround { engine: &mut runner.engine });
             runner.engine.chain_mut().set_hold(node.keep_blocks_from());
             runner.engine.hold_coins(node.held_coins());
-            self.refresh(runner);
+            self.refresh(runner, tcp);
         }
         self.send(runner);
     }
@@ -292,7 +300,7 @@ impl ChannelDesk {
         }
     }
 
-    fn refresh(&mut self, runner: &Runner) {
+    fn refresh(&mut self, runner: &Runner, tcp: &TcpControl) {
         let Some(node) = self.node.as_mut() else {
             return;
         };
@@ -308,25 +316,12 @@ impl ChannelDesk {
             return;
         };
         let height = runner.engine.chain().height();
-        // The channel node heard on each connection, by the connection's number. A route names a
-        // neighbour, which may be heard on several connections of the network link.
-        let routes = &self.routes;
-        let neighbours = runner.neighbours();
-        let names: BTreeMap<u32, (String, String)> = node
-            .peers()
-            .into_iter()
-            .filter_map(|(key, name)| Some((neighbours.iter().find(|one| Some(&one.peer) == routes.get(&key))?, name, key)))
-            .flat_map(|(one, name, key)| {
-                let numbers = one.paths.iter().filter(|path| path.link == TCP_LINK).map(|path| path.number);
-                numbers.map(move |number| (number, (name.clone(), hex(&key.0)))).collect::<Vec<_>>()
-            })
-            .collect();
-        let network = peers_of(runner, &|number| names.get(&number).cloned());
+        let (at, only_here) = reach_at(tcp);
         let key = hex(&node.node_key().0);
         self.view = ChannelsView {
-            address: network.reach_at.as_ref().map(|at| format!("{key}@{at}")).unwrap_or_default(),
+            address: at.map(|at| format!("{key}@{at}")).unwrap_or_default(),
             reaching: self.waiting.iter().map(|waiting| waiting.address.clone()).collect(),
-            network,
+            only_here,
             running: true,
             key,
             channels: node.views(height),
@@ -338,13 +333,35 @@ impl ChannelDesk {
         };
     }
 
-    fn carry(&mut self, runner: &mut Runner, order: ChannelOrder) -> (&'static str, String, bool) {
+    /// The channel node heard on each connection, by the connection's number. A route names a
+    /// neighbour, which may be heard on several connections of the network link.
+    fn names(&self, runner: &Runner) -> BTreeMap<u32, (String, String)> {
+        let Some(node) = self.node.as_ref() else {
+            return BTreeMap::new();
+        };
+        let routes = &self.routes;
+        let neighbours = runner.neighbours();
+        node.peers()
+            .into_iter()
+            .filter_map(|(key, name)| Some((neighbours.iter().find(|one| Some(&one.peer) == routes.get(&key))?, name, key)))
+            .flat_map(|(one, name, key)| {
+                let numbers = one.paths.iter().filter(|path| path.link == TCP_LINK).map(|path| path.number);
+                numbers.map(move |number| (number, (name.clone(), hex(&key.0)))).collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn carry(&mut self, runner: &mut Runner, tcp: &TcpControl, order: ChannelOrder) -> (&'static str, String, bool) {
         // These reach the network link as well as the channel node, so they come first.
         let order = match order {
             ChannelOrder::Open { peer, amount, delay, push } => return self.open_order(runner, &peer, &amount, &push, &delay),
-            ChannelOrder::Disconnect(number) => return peer_order(runner, PeerOrder::Disconnect(number)),
-            ChannelOrder::Ban { address, hours } => return peer_order(runner, PeerOrder::Ban { address, hours }),
-            ChannelOrder::Unban(address) => return peer_order(runner, PeerOrder::Unban(address)),
+            ChannelOrder::Peers => {
+                let names = self.names(runner);
+                return ("ch.list", peer_listing(&peers_of(tcp, runner, &|number| names.get(&number).cloned())), true);
+            }
+            ChannelOrder::Disconnect(number) => return peer_order(tcp, PeerOrder::Disconnect(number)),
+            ChannelOrder::Ban { address, hours } => return peer_order(tcp, PeerOrder::Ban { address, hours }),
+            ChannelOrder::Unban(address) => return peer_order(tcp, PeerOrder::Unban(address)),
             order => order,
         };
         let Some(node) = self.node.as_mut() else {
@@ -370,7 +387,11 @@ impl ChannelDesk {
                 ("", String::new(), true)
             }
             ChannelOrder::Show => ("ch.list", listing(&self.view), true),
-            ChannelOrder::Open { .. } | ChannelOrder::Disconnect(_) | ChannelOrder::Ban { .. } | ChannelOrder::Unban(_) => {
+            ChannelOrder::Open { .. }
+            | ChannelOrder::Peers
+            | ChannelOrder::Disconnect(_)
+            | ChannelOrder::Ban { .. }
+            | ChannelOrder::Unban(_) => {
                 ("", String::new(), false)
             }
             ChannelOrder::Close { channel, force } => {
@@ -418,8 +439,8 @@ impl Host {
         let Ok(mut desk) = self.state.channels.lock() else {
             return ("ch.no_running", String::new(), false);
         };
-        let said = desk.carry(&mut runner, order);
-        desk.refresh(&runner);
+        let said = desk.carry(&mut runner, &self.state.tcp, order);
+        desk.refresh(&runner, &self.state.tcp);
         desk.send(&mut runner);
         said
     }
