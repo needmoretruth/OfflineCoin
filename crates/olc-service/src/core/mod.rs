@@ -1,6 +1,8 @@
 //! The work behind the window. The screen reads one [`Snapshot`] and sends [`Command`]s, so a slow
 //! board or a busy miner can never freeze it.
 mod board_action;
+mod chain_race;
+pub mod chain_view;
 mod folder;
 mod board_lines;
 mod terminal;
@@ -50,6 +52,7 @@ pub use olc_store::coin_fields::{
 };
 pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use explorer::{BlockRow, Explored, NoteRow, TxRow};
+pub use chain_view::{Branch, ChainView, MinedBlock, Miner, Share, SHARE_WINDOW};
 pub use history::{Activity, ActivityKind};
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};
 pub use host_parts::{full_rate, unix_ms};

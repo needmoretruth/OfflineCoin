@@ -69,6 +69,8 @@ pub struct NodeView {
     pub fetching: Option<(u32, u32)>,
     pub rebuilt: bool,
     pub blocks: Vec<BlockRow>,
+    /// The latest blocks with who mined each, the race at the top, the shares and the speed.
+    pub chain: super::chain_view::ChainView,
     pub notes: Vec<NoteRow>,
     pub explored: Explored,
     /// Coins under a beta or gamma lock.
@@ -89,6 +91,7 @@ pub struct KeyView {
 
 impl NodeView {
     /// About how long this computer takes to find a block alone. `None` when it is not trying.
+    /// [`super::chain_view::ChainView::expected_ms`] is the wait with every miner counted.
     pub fn seconds_per_block(&self) -> Option<u64> {
         (self.hashrate > 0).then(|| (self.difficulty / self.hashrate.max(1)).max(1))
     }
