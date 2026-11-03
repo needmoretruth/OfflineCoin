@@ -330,7 +330,6 @@ impl Page for Channels {
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        widgets::title(ui, cx.say("page.channels"));
         let view = cx.snap.node.channels.clone();
         meta(ui, cx.say("ch.about"), cx.t);
         ui.add_space(tokens::GAP_WIDE);

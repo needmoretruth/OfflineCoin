@@ -87,6 +87,26 @@ fn budget_items(cx: &Cx, view: &LocalView) -> Vec<(&'static str, String, String)
     items
 }
 
+/// What a preset gives a new miner, on the same four points for every preset, so they compare.
+fn preset_line(cx: &Cx, spec: &NodeSpec) -> String {
+    let speed = match spec.hash_cap {
+        0 => cx.say("mining.no_cap").to_string(),
+        cap => format::rate(cx.voice(), cap),
+    };
+    let share = match spec.cpu_percent {
+        0 => cx.say("local.no_limit").to_string(),
+        percent => format!("{percent}%"),
+    };
+    let points = [
+        ("local.hash", speed),
+        ("local.memory", format::mebibytes(spec.memory_mib * MIB)),
+        ("local.cpu", share),
+        ("local.disk", format::mebibytes(spec.disk_mib * MIB)),
+    ];
+    let said: Vec<String> = points.iter().map(|(key, value)| format!("{} {value}", cx.say(key))).collect();
+    said.join(" · ")
+}
+
 /// Given and used, in the same columns.
 fn budget(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     let t = cx.t;
@@ -349,6 +369,7 @@ impl Local {
                 self.form = preset.spec(0);
                 self.form.name = name;
             }
+            meta(ui, &preset_line(cx, &self.form), t);
             if self.form.preset == Preset::RaspberryPi4 {
                 meta(ui, cx.say("local.pi_note"), t);
             }

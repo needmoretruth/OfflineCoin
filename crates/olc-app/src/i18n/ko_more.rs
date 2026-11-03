@@ -110,7 +110,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pick.name", "파일 이름"),
     ("pick.open", "열기"),
     ("pick.save", "여기 저장"),
-    ("local.preset_esp32", "보드 크기"),
+    ("local.preset_esp32", "ESP32 보드 크기"),
     ("local.preset_pi", "라즈베리파이 크기"),
     ("local.preset_custom", "직접 설정"),
     ("local.no_limit", "제한 없음"),

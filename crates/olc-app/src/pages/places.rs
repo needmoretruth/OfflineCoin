@@ -64,6 +64,8 @@ impl Page for Payments {
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        // The place has the title; each tab's name stands in the tabs alone, not again below.
+        widgets::title(ui, cx.say("page.payments"));
         let tabs = [
             (PaymentsTab::Channels, cx.say("page.channels").to_string()),
             (PaymentsTab::Swap, cx.say("page.swap").to_string()),

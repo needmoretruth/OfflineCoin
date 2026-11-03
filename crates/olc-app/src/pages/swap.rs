@@ -9,7 +9,7 @@ use crate::core::{Command, SwapOrder, SwapView};
 use crate::ui::format;
 use crate::ui::picker::{Picked, Picker};
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, button_on, card, field, meta, mono, section, segments, words_box, Kind};
+use crate::ui::widgets::{button, button_on, card, field, meta, mono, section, segments, words_box, Kind};
 use crate::ui::Icon;
 use egui::{Label, Ui};
 use olc_service::qr::qr_grid;
@@ -285,7 +285,6 @@ impl Page for Swap {
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        widgets::title(ui, cx.say("page.swap"));
         meta(ui, cx.say("swap.about"), cx.t);
         if let Some((ticker, height, peers)) = &cx.snap.swaps.other {
             let height = format::number(u128::from(*height));

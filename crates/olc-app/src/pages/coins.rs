@@ -360,10 +360,8 @@ impl Coins {
         }
         section(ui, cx.say("coins.found"));
         if found.is_empty() {
-            let again = cx.say("coins.look_again");
-            if widgets::empty(ui, t, cx.say("coins.none"), cx.say("coins.none_body"), Some(again)) {
-                cx.send(Command::Rescan);
-            }
+            // Look again stands in the row of buttons above, once.
+            widgets::empty(ui, t, cx.say("coins.none"), cx.say("coins.none_body"), None);
             return;
         }
         let mut slip = None;
