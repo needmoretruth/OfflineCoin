@@ -1,7 +1,7 @@
 //! The minimum difficulty, on real blocks.
 mod common;
 
-use common::{engine_of, mine, silence, test_coin};
+use common::{engine_of, first_olc, mine, silence, test_coin};
 use olc_core::coin::MIN_DIFFICULTY;
 use olc_core::{Block, CoinConfig};
 use std::path::Path;
@@ -30,10 +30,10 @@ fn the_running_chain_stays_valid_under_the_floor() {
     let lowest = blocks.iter().map(|block| block.header.difficulty).min().unwrap();
     assert!(lowest < MIN_DIFFICULTY, "a chain that needs a starting height");
     let count = blocks.len();
-    assert!(CoinConfig::olc().rules.floor_from_height > count as u64, "the floor starts ahead");
+    assert!(first_olc().rules.floor_from_height > count as u64, "the floor starts ahead");
 
     // The file holds branches that lost too, and every one of them was valid.
-    let mut node = engine_of(1, CoinConfig::olc());
+    let mut node = engine_of(1, first_olc());
     for block in blocks.clone() {
         node.chain_mut().add_block(block).unwrap();
     }
@@ -42,7 +42,7 @@ fn the_running_chain_stays_valid_under_the_floor() {
     println!("replayed {count} real blocks to height {height}, lowest difficulty {lowest}");
 
     // A floor from the first block would have thrown part of the real chain away.
-    let mut coin = CoinConfig::olc();
+    let mut coin = first_olc();
     coin.rules.floor_from_height = 0;
     let mut node = engine_of(1, coin);
     assert!(blocks.into_iter().any(|block| node.chain_mut().add_block(block).is_err()));

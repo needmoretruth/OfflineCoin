@@ -29,6 +29,7 @@ mod snapshot;
 mod spend;
 mod sweep;
 mod sync;
+mod timely;
 mod work;
 
 pub use engine::{Engine, PeerId, MOST_NOTE, MOST_PEERS, MOST_QUEUED};

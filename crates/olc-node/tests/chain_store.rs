@@ -276,7 +276,7 @@ fn data_outputs_never_enter_the_unspent_set() {
     };
     assert!(!chain.is_unspent(&point));
 
-    let mut noted = chain.block_template_with(&wallet.address(), &[], 1 << 44, b"mined by me");
+    let mut noted = chain.block_template_with(&wallet.address(), &[], 0, b"mined by me");
     assert!(noted.txs[0].outputs[1].is_data());
     assert!(olc_core::Consensus::try_seal(&olc_pow::ProofOfWork, &mut noted.header, 1 << 20));
     let count = chain.unspent_count();
@@ -299,6 +299,6 @@ fn a_new_coin_keeps_its_message_in_the_genesis_block() {
 fn the_default_coin_stays_on_its_chain() {
     let id = olc_core::CoinConfig::olc().genesis().id();
     let bytes: Vec<String> = id.iter().take(4).map(|byte| format!("{byte:02x}")).collect();
-    assert_eq!(bytes.join(""), "82816fe4");
+    assert_eq!(bytes.join(""), "8539d3db", "the genesis of 2026-11-03");
 }
 

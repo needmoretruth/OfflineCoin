@@ -41,7 +41,7 @@ pub struct Engine {
     candidate_built_ms: u64,
     last_announce_ms: u64,
     /// Added to the device clock. Boards have no real-time clock, so they follow the chain.
-    clock_offset_ms: u64,
+    pub(crate) clock_offset_ms: u64,
     pub(crate) now_ms: u64,
     peers: BTreeMap<PeerId, u64>,
     refused: Refused,
@@ -192,7 +192,7 @@ impl Engine {
             height: self.chain.height(),
             tip: self.chain.tip(),
             work: self.chain.total_work(),
-            difficulty: self.chain.next_difficulty(&self.chain.tip()),
+            difficulty: self.difficulty_now(),
             balance: self.balance(),
             pool: self.pool.len(),
             peers: self.peers.len(),
@@ -232,8 +232,7 @@ impl Engine {
         }
         self.peers
             .retain(|_, seen| device_ms.saturating_sub(*seen) < PEER_TIMEOUT_MS);
-        let chain_ms = self.chain.tip_header().time_ms;
-        self.clock_offset_ms = self.clock_offset_ms.max(chain_ms.saturating_sub(device_ms));
+        self.follow_chain_clock(device_ms);
         if device_ms.saturating_sub(self.last_announce_ms) >= ANNOUNCE_EVERY_MS {
             self.last_announce_ms = device_ms;
             self.announce(None);
@@ -396,6 +395,9 @@ impl Engine {
             self.stop_following(from);
             return;
         }
+        if self.is_from_the_future(&block) {
+            return;
+        }
         let height = block.txs.first().and_then(|tx| tx.coinbase_height);
         let outcome = self.chain.add_block(block);
         let known = outcome == Err(ChainError::AlreadyKnown);
@@ -490,7 +492,8 @@ impl Engine {
 
     fn refresh_candidate(&mut self, device_ms: u64) {
         let stale = device_ms.saturating_sub(self.candidate_built_ms) >= REFRESH_TEMPLATE_EVERY_MS;
-        let now = device_ms + self.clock_offset_ms;
+        let now = self.chain_now(device_ms);
+        let retime = self.candidate.as_ref().is_some_and(|block| stale || self.floor_has_come(block, now));
         match self.candidate.as_mut() {
             None => {
                 let miner = self.miner();
@@ -502,9 +505,8 @@ impl Engine {
             }
             // A tip or pool change clears the candidate, so only its time can be out of date.
             // Building it again would copy the unspent set whenever a payment is waiting.
-            Some(block) if stale => {
-                block.header.time_ms = now.max(block.header.time_ms);
-                block.header.nonce = 0;
+            Some(_) if retime => {
+                self.retime_candidate(now);
                 self.candidate_built_ms = device_ms;
             }
             Some(_) => {}

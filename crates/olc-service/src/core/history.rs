@@ -195,7 +195,9 @@ impl History {
         }
     }
 
+    /// On a coin with Bitcoin's header the coinbase's extranonce is a miner's counter, not a note.
     fn read(&mut self, chain: &Chain, block: &Block, me: &[Address]) {
+        let bitcoin_header = chain.config().bitcoin_header;
         let height = self.next_height;
         self.next_height += 1;
         let time_ms = block_time_ms(block);
@@ -204,6 +206,9 @@ impl History {
             self.index.add(height, time_ms, tx);
             let shape = shape_of(tx, me, |point| self.mine.remove(point));
             for (index, output) in tx.outputs.iter().enumerate() {
+                if output.is_data() && bitcoin_header && olc_core::is_extranonce(tx, index) {
+                    continue;
+                }
                 if output.is_data() {
                     if self.notes.len() >= NOTES_SHOWN {
                         self.notes.pop_front();

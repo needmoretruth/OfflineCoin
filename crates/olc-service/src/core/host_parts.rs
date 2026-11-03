@@ -40,7 +40,7 @@ pub(super) fn carry_pool(runner: &mut Runner, engine: Engine) {
 pub fn engine_with(mut engine: Engine, settings: &NodeSettings, folder: &Path) -> Engine {
     engine.set_miner(settings.miner.as_deref().and_then(parse_address));
     engine.set_note(settings.note.as_bytes());
-    engine.set_merging(!settings.no_merge);
+    engine.set_merging(settings.merge && !settings.no_merge);
     engine.set_version_one(settings.version_one);
     for address in settings.watched.iter().filter_map(|text| parse_address(text)) {
         engine.watch(address);
@@ -57,8 +57,15 @@ pub fn unix_ms() -> u64 {
         .map_or(0, |time| time.as_millis() as u64)
 }
 
-/// How many hashes this computer does in a second on one core.
-pub fn full_rate() -> u64 {
+/// How many hashes this computer does in a second on `threads` cores at once, measured.
+pub fn full_rate(threads: usize) -> u64 {
+    std::thread::scope(|scope| {
+        let runs: Vec<_> = (0..threads.max(1)).map(|_| scope.spawn(one_core_rate)).collect();
+        runs.into_iter().map(|run| run.join().unwrap_or(0)).sum()
+    })
+}
+
+fn one_core_rate() -> u64 {
     const ROUNDS: u32 = 20_000;
     let started = Instant::now();
     let mut seed = [0u8; 80];

@@ -33,7 +33,8 @@ fn locked(nodes: &mut [Engine], words: &str) -> (OutPoint, Tx) {
         language: ALPHA,
         lock: nodes[1].address().to_vec(),
     };
-    let tx = Tx { version: 1, inputs: Vec::new(), outputs: vec![out], coinbase_height: None, lock_time: 0 };
+    // The lock is written for today's rules, which only version 2 spends.
+    let tx = Tx { version: 2, inputs: Vec::new(), outputs: vec![out], coinbase_height: None, lock_time: 0 };
     (coin.point, tx)
 }
 

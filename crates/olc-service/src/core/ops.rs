@@ -217,7 +217,10 @@ pub trait Book {
 
     fn set_merging(&self, on: bool) -> Result<(), String> {
         self.live(|runner| runner.engine.set_merging(on))?;
-        self.change_settings(|settings| settings.no_merge = !on)
+        self.change_settings(|settings| {
+            settings.merge = on;
+            settings.no_merge = !on;
+        })
     }
 
     fn set_version_one(&self, on: bool) -> Result<(), String> {

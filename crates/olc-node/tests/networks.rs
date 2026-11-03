@@ -127,6 +127,8 @@ fn exchange(nodes: &mut [Engine; 2]) -> usize {
 /// The same genesis, but each side raises the difficulty at heights the other does not expect.
 fn rivals() -> [Engine; 2] {
     let (mut first, mut second) = (test_coin(), test_coin());
+    first.rules.difficulty_rule = olc_core::DifficultyRule::Bitcoin;
+    second.rules.difficulty_rule = olc_core::DifficultyRule::Bitcoin;
     first.rules.retarget_interval = 2;
     second.rules.retarget_interval = 3;
     [engine_of(1, first), engine_of(2, second)]

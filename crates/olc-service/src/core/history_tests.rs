@@ -69,3 +69,19 @@ fn coins_kept_in_the_wallet_are_not_sent() {
     mined.coinbase_height = Some(5);
     assert_eq!(kind_of(&shape(&mined), 5), Some((ActivityKind::Mined, 50)));
 }
+
+/// A block's notes come to the list; the miner's counter in its coinbase does not.
+#[test]
+fn the_extranonce_is_no_note() {
+    let plugins = olc_core::Plugins { consensus: Box::new(olc_pow::ProofOfWork), languages: olc_lang::all() };
+    let chain = Chain::new(olc_core::CoinConfig::olc(), plugins);
+    let time_ms = chain.tip_header().time_ms + 1_000;
+    let block = chain.block_template_with(&[3; 20], &[], time_ms, b"hello");
+    assert!(olc_core::is_extranonce(&block.txs[0], block.txs[0].outputs.len() - 1));
+    let mut history = History::default();
+    history.read(&chain, &block, &[]);
+    let notes: Vec<&str> = history.notes().map(|note| note.text.as_str()).collect();
+    assert_eq!(notes, ["hello"]);
+    assert_eq!(text_of(&[0; 8]), "0000000000000000");
+    assert_eq!(text_of(b"two\nlines"), "two\nlines");
+}

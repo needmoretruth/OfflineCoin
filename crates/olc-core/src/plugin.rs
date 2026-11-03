@@ -16,6 +16,18 @@ pub struct RetargetInput {
     pub min_difficulty: u64,
 }
 
+/// What per-block adjustment may look at.
+pub struct PerBlockInput {
+    pub parent_difficulty: u64,
+    /// How long the parent came after its own parent. Below zero when its time is earlier, which
+    /// the median time past allows.
+    pub gap_ms: i64,
+    pub block_time_ms: u64,
+    pub half_life_ms: u64,
+    /// The answer may not go below this.
+    pub min_difficulty: u64,
+}
+
 /// Decides who may add a block and how much a block counts. PoW is one implementation.
 pub trait Consensus: Send {
     fn name(&self) -> &'static str;
@@ -23,7 +35,10 @@ pub trait Consensus: Send {
     fn check_seal(&self, header: &BlockHeader) -> bool;
     /// How much this block adds to its chain. The chain with the most total work wins.
     fn work(&self, header: &BlockHeader) -> u128;
+    /// The difficulty after a retarget window, under Bitcoin's rule and BIP 94.
     fn next_difficulty(&self, input: &RetargetInput) -> u64;
+    /// The difficulty after one block, under per-block adjustment.
+    fn per_block_difficulty(&self, input: &PerBlockInput) -> u64;
     /// Tries `attempts` times to seal the header. Returns true when it succeeded.
     fn try_seal(&self, header: &mut BlockHeader, attempts: u32) -> bool {
         let difficulty = header.difficulty;

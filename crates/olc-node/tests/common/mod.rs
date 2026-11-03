@@ -24,6 +24,30 @@ pub fn test_coin() -> CoinConfig {
     config
 }
 
+/// A test coin as the first OLC was: the 88-byte header, Bitcoin's retarget, a block after its
+/// parent, no clock limit and the message beside the block rather than in it.
+pub fn legacy_coin() -> CoinConfig {
+    let mut config = test_coin();
+    config.bitcoin_header = false;
+    config.message_in_block = false;
+    config.set_timings(&[olc_core::timing::LEGACY]);
+    config
+}
+
+/// The first OLC, before the new genesis of 3 November 2026. The fixtures hold its real blocks.
+pub fn first_olc() -> CoinConfig {
+    let mut coin = CoinConfig::olc();
+    coin.message = "OLCC genesis".into();
+    coin.genesis_time_ms = 1_793_491_200_000;
+    coin.initial_difficulty = 900_000;
+    coin.message_in_block = false;
+    coin.upgrade_from = 6_240;
+    coin.rules.floor_from_height = 20_000;
+    coin.bitcoin_header = false;
+    coin.set_timings(&[olc_core::timing::LEGACY]);
+    coin
+}
+
 pub fn engine_of(seed: u8, config: CoinConfig) -> Engine {
     let plugins = Plugins {
         consensus: Box::new(ProofOfWork),

@@ -137,10 +137,13 @@ fn spent_output(chain: &Chain, point: &OutPoint) -> Option<TxOut> {
     tx.outputs.get(point.index as usize).cloned()
 }
 
+/// Data as text when it reads as text, else as hex: a miner's counter of zero bytes is
+/// valid text that shows nothing.
 pub fn text_of(bytes: &[u8]) -> String {
+    let readable = |text: &str| text.chars().all(|c| !c.is_control() || c == '\n' || c == '\t');
     match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_string(),
-        Err(_) => bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+        Ok(text) if readable(text) => text.to_string(),
+        _ => bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
     }
 }
 

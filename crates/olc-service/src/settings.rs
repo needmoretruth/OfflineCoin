@@ -1,5 +1,5 @@
-//! What a person chose, saved as one small file. A device choice only fills these numbers: each
-//! stays editable and nothing is blocked by it.
+//! What a person chose, saved as one small file. A value a person set stays as they set it: a
+//! device choice only says how many miners to make, and a save takes only what changed.
 use crate::local::NodeSpec;
 use olc_control::BoardId;
 use serde::{Deserialize, Serialize};
@@ -44,12 +44,13 @@ impl Lang {
     }
 }
 
-const OLD_BOARD_CAP: u64 = 3_000;
+/// The cap every computer once got from its device choice, so a saved one was no choice.
+const OLD_COMPUTER_CAP: u64 = 20_000;
+/// The defaults this file is written under. 2: no cap, listening, threads.
+const FORMAT: u32 = 2;
 pub const NODE_PORT: u16 = 7000;
 /// Ports tried after the chosen one when it is taken.
 pub const PORT_TRIES: u16 = 10;
-/// A computer's node, relaxed.
-pub const RELAXED_CAP: u64 = 20_000;
 pub const BOARD_CAP: u64 = olc_control::defaults::BOARD_CAP as u64;
 const FILE: &str = "core.json";
 const MAX_BOOK: usize = 64;
@@ -85,36 +86,59 @@ impl Device {
     ];
 }
 
-/// The numbers a device choice fills in.
+/// What a device choice adds. It sets no cap and no switch: those are a person's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Defaults {
-    pub hash_cap: u64,
-    pub board_cap: u64,
     /// Node processes to create beside the app's own node.
     pub local_nodes: u32,
-    /// Whether other computers may connect to this one.
-    pub listen_lan: bool,
 }
 
 impl Device {
     pub fn defaults(self) -> Defaults {
-        let standard = Defaults {
-            hash_cap: RELAXED_CAP,
-            board_cap: BOARD_CAP,
-            local_nodes: 0,
-            listen_lan: true,
-        };
         match self {
-            Self::ThisComputer => Defaults { listen_lan: false, ..standard },
-            Self::SeveralNodes => Defaults {
-                local_nodes: 3,
-                listen_lan: false,
-                ..standard
-            },
-            Self::Esp32 | Self::RaspberryPi | Self::TwoComputers => {
-                standard
+            Self::SeveralNodes => Defaults { local_nodes: 3 },
+            Self::ThisComputer | Self::Esp32 | Self::RaspberryPi | Self::TwoComputers => {
+                Defaults { local_nodes: 0 }
             }
         }
+    }
+}
+
+/// The cores a computer mines on unless a person says otherwise: all but one, so the computer
+/// stays usable while it mines, as cpuminer's `--threads` counts them.
+pub fn standard_threads() -> usize {
+    cores().saturating_sub(1).max(1)
+}
+
+/// The cores this computer has.
+pub fn cores() -> usize {
+    std::thread::available_parallelism().map_or(1, |cores| cores.get())
+}
+
+/// Mining speeds as parts of what this computer does at full speed, so a step means the same on
+/// any computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Speed {
+    Quarter,
+    Half,
+    Full,
+}
+
+impl Speed {
+    pub const ALL: [Self; 3] = [Self::Quarter, Self::Half, Self::Full];
+
+    /// The hash cap for this step on a computer whose full rate is `full`. Full is no cap.
+    pub fn cap(self, full: u64) -> u64 {
+        match self {
+            Self::Quarter => (full / 4).max(1),
+            Self::Half => (full / 2).max(1),
+            Self::Full => 0,
+        }
+    }
+
+    /// The step a cap stands for, if it is one.
+    pub fn of(cap: u64, full: u64) -> Option<Self> {
+        Self::ALL.into_iter().find(|speed| speed.cap(full) == cap)
     }
 }
 
@@ -132,13 +156,10 @@ pub struct Settings {
     pub text_percent: u16,
     pub setup_done: bool,
     pub device: Device,
-    /// Hashes per second on this computer. 0 is no cap.
+    /// Hashes per second on this computer, for all its mining threads together. 0 is no cap.
     pub hash_cap: u64,
-    /// The cap offered first for a board.
-    pub board_cap: u64,
-    /// The person typed `board_cap`, so no later default replaces it.
-    #[serde(default)]
-    pub board_cap_chosen: bool,
+    /// Threads that mine. 0 is all cores but one.
+    pub mining_threads: u32,
     pub mine_on_start: bool,
     /// Node processes on this computer.
     pub nodes: Vec<NodeSpec>,
@@ -160,11 +181,13 @@ pub struct Settings {
     pub added: Vec<String>,
     /// Addresses learned from other nodes, so they survive a restart.
     pub book: Vec<String>,
+    /// The defaults the file was written under. A file without it is older than all of them.
+    #[serde(default)]
+    pub format: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let defaults = Device::default().defaults();
         Self {
             language: Lang::En,
             language_chosen: false,
@@ -174,15 +197,15 @@ impl Default for Settings {
             text_percent: 100,
             setup_done: false,
             device: Device::default(),
-            hash_cap: defaults.hash_cap,
-            board_cap: defaults.board_cap,
-            board_cap_chosen: false,
+            hash_cap: 0,
+            mining_threads: 0,
             mine_on_start: false,
             auto_update: false,
             auto_boards: Vec::new(),
             nodes: Vec::new(),
             port: NODE_PORT,
-            listen_lan: defaults.listen_lan,
+            // Others may connect, as Bitcoin Core's `-listen` is on by default.
+            listen_lan: true,
             scan_lan: true,
             broadcast: true,
             scan_ports: Vec::new(),
@@ -190,40 +213,42 @@ impl Default for Settings {
             peers: Vec::new(),
             added: Vec::new(),
             book: Vec::new(),
+            format: FORMAT,
         }
     }
 }
 
+/// Copies each named field that differs between `before` and `after` into `into`.
+macro_rules! take_changed {
+    ($into:expr, $before:expr, $after:expr, $($field:ident),+) => {
+        $(if $before.$field != $after.$field {
+            $into.$field.clone_from(&$after.$field);
+        })+
+    };
+}
+
 impl Settings {
-    /// Takes what the Settings page edits and keeps what the core itself keeps here.
-    pub fn take_choices(&mut self, from: &Self) {
-        self.auto_update = from.auto_update;
-        self.auto_boards.clone_from(&from.auto_boards);
-        self.language = from.language;
-        self.language_chosen = from.language_chosen;
-        self.mode = from.mode;
-        self.theme = from.theme;
-        self.reduce_motion = from.reduce_motion;
-        self.text_percent = from.text_percent;
-        self.device = from.device;
-        self.hash_cap = from.hash_cap;
-        self.board_cap = from.board_cap;
-        self.board_cap_chosen = from.board_cap_chosen;
-        self.mine_on_start = from.mine_on_start;
-        self.port = from.port;
-        self.listen_lan = from.listen_lan;
-        self.scan_lan = from.scan_lan;
-        self.broadcast = from.broadcast;
-        self.scan_ports.clone_from(&from.scan_ports);
+    /// Takes what the Settings page changed between the copy it had (`before`) and the one it
+    /// sends (`after`). A value changed elsewhere since, as by the console, stays.
+    pub fn take_changes(&mut self, before: &Self, after: &Self) {
+        take_changed!(
+            self, before, after, auto_update, auto_boards, language, language_chosen, mode, theme,
+            reduce_motion, text_percent, device, hash_cap, mining_threads, mine_on_start, port,
+            listen_lan, scan_lan, broadcast, scan_ports
+        );
     }
 
+    /// A device says only how many miners to make. Caps and switches stay as a person set them.
     pub fn apply_device(&mut self, device: Device) {
-        let defaults = device.defaults();
         self.device = device;
-        self.hash_cap = defaults.hash_cap;
-        self.board_cap = defaults.board_cap;
-        self.board_cap_chosen = false;
-        self.listen_lan = defaults.listen_lan;
+    }
+
+    /// The threads that mine: the chosen number, or `standard`, all cores but one.
+    pub fn threads(&self, standard: usize) -> usize {
+        match self.mining_threads {
+            0 => standard,
+            chosen => chosen as usize,
+        }
     }
 
     /// Joined nodes and the addresses a person added, wherever they are, as `addnode` does.
@@ -265,7 +290,7 @@ impl Settings {
             let settings = serde_json::from_str::<Self>(text).ok()?;
             Some(settings.with_old_pick(text.contains("\"language_chosen\"")))
         });
-        saved.unwrap_or_default().moved_to_shared_cap().following(system)
+        saved.unwrap_or_default().moved_to_new_defaults().following(system)
     }
 
     /// A file from before the pick was kept held English as the default, so only Korean in it
@@ -285,10 +310,17 @@ impl Settings {
         self
     }
 
-    /// `OLD_BOARD_CAP` was once the default, so a saved one was no choice.
-    fn moved_to_shared_cap(mut self) -> Self {
-        if self.board_cap == OLD_BOARD_CAP && !self.board_cap_chosen {
-            self.board_cap = BOARD_CAP;
+    /// An older file holds what its device choice wrote: 20,000 hashes a second, and no
+    /// listening on a computer. Neither was a person's choice, so both take today's defaults.
+    fn moved_to_new_defaults(mut self) -> Self {
+        if self.format < FORMAT {
+            if self.hash_cap == OLD_COMPUTER_CAP {
+                self.hash_cap = 0;
+            }
+            if matches!(self.device, Device::ThisComputer | Device::SeveralNodes) {
+                self.listen_lan = true;
+            }
+            self.format = FORMAT;
         }
         self
     }
@@ -334,18 +366,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_old_default_board_cap_moves_and_a_chosen_one_stays() {
-        let old = Settings { board_cap: OLD_BOARD_CAP, ..Settings::default() };
-        assert_eq!(old.moved_to_shared_cap().board_cap, BOARD_CAP);
-        let chosen = Settings {
-            board_cap: OLD_BOARD_CAP,
-            board_cap_chosen: true,
-            ..Settings::default()
-        };
-        assert_eq!(chosen.moved_to_shared_cap().board_cap, OLD_BOARD_CAP);
-    }
-
-    #[test]
     fn the_update_switch_starts_off_and_is_stored() {
         assert!(!Settings::default().auto_update);
         let mut stored = Settings::default();
@@ -354,7 +374,7 @@ mod tests {
             auto_boards: vec![[7; 6]],
             ..Settings::default()
         };
-        stored.take_choices(&chosen);
+        stored.take_changes(&Settings::default(), &chosen);
         assert!(stored.auto_update);
         assert_eq!(stored.auto_boards, vec![[7; 6]]);
     }
@@ -366,11 +386,66 @@ mod tests {
         assert_eq!(settings.device.defaults().local_nodes, 0);
         settings.apply_device(Device::SeveralNodes);
         assert_eq!(settings.device.defaults().local_nodes, 3);
+        assert!(settings.listen_lan);
+        assert_eq!(Device::Esp32.defaults().local_nodes, 0);
+    }
+
+    #[test]
+    fn a_save_takes_only_what_the_page_changed() {
+        let page = Settings::default();
+        let mut core = Settings { hash_cap: 5_000, ..page.clone() };
+        core.take_changes(&page, &Settings { theme: Theme::Dark, ..page.clone() });
+        assert_eq!(core.hash_cap, 5_000);
+        assert_eq!(core.theme, Theme::Dark);
+        core.take_changes(&page, &Settings { hash_cap: 7, ..page.clone() });
+        assert_eq!(core.hash_cap, 7);
+    }
+
+    #[test]
+    fn the_steps_are_parts_of_the_full_rate() {
+        for full in [8_000, 2_000_000, 40_000_000] {
+            assert_eq!(Speed::Quarter.cap(full), full / 4);
+            assert_eq!(Speed::Half.cap(full), full / 2);
+            assert_eq!(Speed::Full.cap(full), 0);
+            assert!(Speed::Quarter.cap(full) < Speed::Half.cap(full));
+            assert_eq!(Speed::of(full / 2, full), Some(Speed::Half));
+        }
+        assert_eq!(Speed::of(12_345, 2_000_000), None);
+    }
+
+    #[test]
+    fn a_chosen_listen_and_cap_stay_in_a_new_file() {
+        let folder = folder_with("new-format", None);
+        Settings { hash_cap: 20_000, listen_lan: false, ..Settings::default() }.save(&folder).unwrap();
+        let loaded = Settings::load_for(&folder, Lang::En);
+        assert_eq!(loaded.hash_cap, 20_000);
+        assert!(!loaded.listen_lan);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn others_may_connect_unless_a_person_says_no() {
+        assert!(Settings::default().listen_lan, "Bitcoin Core listens by default");
+        let mut settings = Settings { listen_lan: false, ..Settings::default() };
+        settings.apply_device(Device::Esp32);
         assert!(!settings.listen_lan);
-        settings.hash_cap = 5;
-        assert_eq!(settings.hash_cap, 5);
-        assert_eq!(Device::Esp32.defaults().hash_cap, RELAXED_CAP);
-        assert_eq!(Device::Esp32.defaults().board_cap, BOARD_CAP);
+    }
+
+    #[test]
+    fn a_device_picked_later_keeps_what_a_person_set() {
+        let mut settings = Settings { hash_cap: 900_000, listen_lan: true, ..Settings::default() };
+        settings.apply_device(Device::ThisComputer);
+        assert_eq!(settings.hash_cap, 900_000);
+        assert!(settings.listen_lan);
+        settings.apply_device(Device::Esp32);
+        assert_eq!(settings.hash_cap, 900_000);
+    }
+
+    #[test]
+    fn an_old_default_cap_becomes_the_full_speed() {
+        let folder = folder_with("old-cap", Some(r#"{"hash_cap":20000,"device":"Esp32","setup_done":true}"#));
+        assert_eq!(Settings::load_for(&folder, Lang::En).hash_cap, 0);
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

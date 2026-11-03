@@ -4,10 +4,10 @@ use super::wallet_tools::{Tool, WalletTools};
 use super::{Cx, Page};
 use crate::core::Command;
 use crate::i18n::{Lang, Mode};
-use crate::settings::{Device, Theme, RELAXED_CAP};
+use crate::settings::{cores, standard_threads, Device, Speed, Theme};
 use crate::ui::format;
 use crate::ui::register::{group, row};
-use crate::ui::widgets::{self, button, meta, number_field, segments, switch, Kind};
+use crate::ui::widgets::{self, button, field, meta, segments, switch, Kind};
 use crate::ui::{Icon, Tokens};
 use egui::Ui;
 
@@ -124,38 +124,61 @@ impl SettingsPage {
     }
 }
 
+fn speed_name(speed: Speed) -> &'static str {
+    match speed {
+        Speed::Quarter => "settings.speed_quarter",
+        Speed::Half => "settings.speed_half",
+        Speed::Full => "settings.speed_full",
+    }
+}
+
+/// A number taken once, when Enter is pressed or the field is left, so a cap of 50,000 is not
+/// first 5, 50, 500 and 5,000 on the way. `shown` is the value in force.
+pub fn committed_number(ui: &mut Ui, shown: u64, name: &str, width: f32) -> Option<u64> {
+    let id = ui.next_auto_id().with("typed");
+    let mut typed: String = ui.data_mut(|data| data.get_temp(id)).unwrap_or_else(|| shown.to_string());
+    let response = field(ui, &mut typed, name, width);
+    if response.has_focus() {
+        ui.data_mut(|data| data.insert_temp(id, typed.clone()));
+    } else {
+        ui.data_mut(|data| data.remove_temp::<String>(id));
+    }
+    let number = typed.trim().parse::<u64>().ok();
+    number.filter(|number| response.lost_focus() && *number != shown)
+}
+
+/// The node takes the cap at once, and the saved copy holds it too.
+fn set_cap(cx: &mut Cx, cap: u64) {
+    cx.send(Command::SetCap(cap));
+    cx.settings.hash_cap = cap;
+    cx.save();
+}
+
+/// Speed in steps that are parts of this computer's full rate; in expert mode also the exact
+/// cap and the threads. The cap shown is the one the node runs under.
 fn speed_row(ui: &mut Ui, cx: &mut Cx) {
     let t = cx.t;
-    let node = &cx.snap.node;
+    let cap = cx.snap.node.cap;
     let voice = cx.voice();
     let full = cx.snap.full_rate;
-    let about = cx.fill("settings.speed_about", &[&format::rate(voice, full)]);
+    let threads = cx.settings.threads(standard_threads());
+    let about = cx.fill("settings.speed_about", &[&format::rate(voice, full), &threads.to_string()]);
     row(ui, t, cx.say("settings.speed"), &about, |ui| {
-        let items = [
-            (RELAXED_CAP, cx.say("settings.speed_gentle").to_string()),
-            (full / 2, cx.say("settings.speed_half").to_string()),
-            (0, cx.say("settings.speed_full").to_string()),
-        ];
-        if let Some(cap) = segments(ui, t, &items, Some(node.cap)) {
-            cx.settings.hash_cap = cap;
-            cx.send(Command::SetCap(cap));
-            cx.save();
+        let items = Speed::ALL.map(|speed| (speed, cx.say(speed_name(speed)).to_string()));
+        if let Some(speed) = segments(ui, t, &items, Speed::of(cap, full)) {
+            set_cap(cx, speed.cap(full));
         }
     });
     if cx.expert() {
         row(ui, t, cx.say("pro.cap"), cx.say("pro.cap_about"), |ui| {
-            let name = cx.say("pro.cap");
-            if number_field(ui, &mut cx.settings.hash_cap, name, 120.0) {
-                cx.save();
-            }
-            if button(ui, t, cx.say("common.apply"), Kind::Plain).clicked() {
-                cx.send(Command::SetCap(cx.settings.hash_cap));
+            if let Some(typed) = committed_number(ui, cap, cx.say("pro.cap"), 120.0) {
+                set_cap(cx, typed);
             }
         });
-        row(ui, t, cx.say("pro.board_cap"), cx.say("pro.board_cap_about"), |ui| {
-            let name = cx.say("pro.board_cap");
-            if number_field(ui, &mut cx.settings.board_cap, name, 120.0) {
-                cx.settings.board_cap_chosen = true;
+        let about = cx.fill("pro.threads_about", &[&cores().to_string()]);
+        row(ui, t, cx.say("pro.threads"), &about, |ui| {
+            if let Some(typed) = committed_number(ui, threads as u64, cx.say("pro.threads"), 60.0) {
+                cx.settings.mining_threads = typed.clamp(1, cores() as u64) as u32;
                 cx.save();
             }
         });
@@ -217,5 +240,44 @@ impl Page for SettingsPage {
         this_computer(ui, cx);
         self.about(ui, cx);
         self.tools.show(ui, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::committed_number;
+    use egui::accesskit::Role;
+    use egui::{Key, Modifiers};
+    use egui_kittest::kittest::Queryable;
+    use egui_kittest::Harness;
+
+    /// Typing 50000 into the cap field takes nothing on the way, and 50,000 once on Enter.
+    #[test]
+    fn a_typed_cap_applies_once_on_enter() {
+        // Fonts land on the next frame, so the first one only sets them.
+        let take = |ui: &mut egui::Ui, (fonts, taken): &mut (bool, Vec<u64>)| {
+            if !*fonts {
+                *fonts = true;
+                ui.ctx().set_fonts(crate::ui::fonts::definitions());
+                return;
+            }
+            if let Some(number) = committed_number(ui, 20_000, "Cap", 120.0) {
+                taken.push(number);
+            }
+        };
+        let mut harness = Harness::new_ui_state(take, (false, Vec::new()));
+        harness.run();
+        harness.get_by_role(Role::TextInput).focus();
+        harness.run();
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+        harness.run();
+        for digit in ["5", "0", "0", "0", "0"] {
+            harness.get_by_role(Role::TextInput).type_text(digit);
+            harness.run();
+        }
+        assert!(harness.state().1.is_empty(), "taken while typing: {:?}", harness.state().1);
+        harness.key_press(Key::Enter);
+        harness.run();
+        assert_eq!(harness.state().1, vec![50_000]);
     }
 }

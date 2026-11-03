@@ -5,7 +5,6 @@
 use crate::core::{Command, Core, CoreLaunch, LockOrder, Notice, Personal};
 use crate::i18n::Lang;
 use crate::settings::{Paths, Settings};
-use olc_core::coin::OLC_UPGRADE_FROM;
 use olc_wallet::Unsigned;
 use std::fs;
 use std::io::Write;
@@ -153,7 +152,8 @@ fn address_of(core: &Core) -> String {
 }
 
 /// The second transaction version beside the first in one block, an id known before signing, a
-/// lock time, a relative lock, and a fork that takes neither side's payments. Run after the switch.
+/// lock time, a relative lock, and a fork that takes neither side's payments. OLC has taken both
+/// versions since its genesis.
 #[test]
 #[ignore = "needs the real coin: set OLC_LIVE to a running node"]
 fn live_versions_and_a_fork() {
@@ -169,7 +169,6 @@ fn live_versions_and_a_fork() {
     // Two mined coins, so the two payments of one block need no coin still waiting for a block.
     wait_for("V has coins to spend", 40, || v.snapshot().node.spendable >= 100 * olc_core::coin::COIN);
     v.send(Command::SetMining(false));
-    wait_for("the switch height", 120, || height(&v) + 1 >= OLC_UPGRADE_FROM);
 
     tell("1. A version 1 and a version 2 payment in one block");
     let _ = order(&v, Command::Own(Personal::SetVersionOne(true)));

@@ -162,10 +162,106 @@ pub struct BlockHeader {
     pub nonce: u32,
 }
 
+/// The top bits of a header version in Bitcoin's shape: BIP 9's `001`. A header whose version
+/// has them is hashed as Bitcoin's 80 bytes; any other as OfflineCoin's first 88.
+pub const BITCOIN_VERSION: u32 = 0x2000_0000;
+const TOP_BITS: u32 = 0xE000_0000;
+/// The low version bits a fork's first block sets to its mark, on a coin with Bitcoin's header.
+/// Miners that roll the version (BIP 310) only touch bits 13 to 28, which BIP 320 gives them.
+pub const MARK_BITS: u32 = 0x1FFF;
+/// The version bits BIP 320 gives miners to roll (BIP 310), which no rule reads.
+pub const ROLLED_BITS: u32 = 0x1FFF_E000;
+
+/// The bytes a header's id and proof of work hash, ending with its nonce, so a miner changes
+/// only the last four.
+#[derive(Clone, Copy)]
+pub struct Sealing {
+    bytes: [u8; BlockHeader::ENCODED_LEN],
+    len: usize,
+}
+
+impl Sealing {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+
+    pub fn set_nonce(&mut self, nonce: u32) {
+        self.bytes[self.len - 4..self.len].copy_from_slice(&nonce.to_le_bytes());
+    }
+
+    pub fn id(&self) -> Hash {
+        hash(self.bytes())
+    }
+}
+
 impl BlockHeader {
     pub const ENCODED_LEN: usize = 88;
+    /// Bitcoin's header: version, previous, merkle root, time in seconds, bits and nonce.
+    pub const BITCOIN_LEN: usize = 80;
 
-    /// A fixed layout, so a miner can change the nonce without encoding the header again.
+    /// True when this header is hashed as Bitcoin's, as on every coin made since OfflineCoin
+    /// started over.
+    pub fn is_bitcoin_shaped(&self) -> bool {
+        self.version & TOP_BITS == BITCOIN_VERSION
+    }
+
+    /// True when Bitcoin's 80 bytes say all of this header: its time is in whole seconds that
+    /// fit them, and its difficulty is one a compact target stands for. A header in the old
+    /// shape always is.
+    pub fn is_whole(&self) -> bool {
+        !self.is_bitcoin_shaped()
+            || (self.time_ms.is_multiple_of(1_000)
+                && self.time_ms / 1_000 <= u64::from(u32::MAX)
+                && crate::bits::rounded(self.difficulty) == self.difficulty)
+    }
+
+    /// Bitcoin's 80-byte header, as a miner or pool built for Bitcoin hashes it.
+    pub fn bitcoin_bytes(&self) -> [u8; Self::BITCOIN_LEN] {
+        let seconds = u32::try_from(self.time_ms / 1_000).unwrap_or(u32::MAX);
+        let mut out = [0u8; Self::BITCOIN_LEN];
+        out[0..4].copy_from_slice(&self.version.to_le_bytes());
+        out[4..36].copy_from_slice(&self.previous);
+        out[36..68].copy_from_slice(&self.merkle_root);
+        out[68..72].copy_from_slice(&seconds.to_le_bytes());
+        out[72..76].copy_from_slice(&crate::bits::bits_of(self.difficulty).to_le_bytes());
+        out[76..80].copy_from_slice(&self.nonce.to_le_bytes());
+        out
+    }
+
+    /// Reads Bitcoin's 80 bytes. `None` when its bits are not the ones this header's difficulty
+    /// gives, so the header would hash to something else.
+    pub fn from_bitcoin_bytes(bytes: &[u8]) -> Option<Self> {
+        let word = |at: usize| bytes.get(at..at + 4)?.try_into().ok().map(u32::from_le_bytes);
+        let mut previous = [0; 32];
+        let mut merkle_root = [0; 32];
+        previous.copy_from_slice(bytes.get(4..36)?);
+        merkle_root.copy_from_slice(bytes.get(36..68)?);
+        let bits = word(72)?;
+        let difficulty = crate::bits::difficulty_of(bits);
+        let header = Self {
+            version: word(0)?,
+            previous,
+            merkle_root,
+            time_ms: u64::from(word(68)?) * 1_000,
+            difficulty,
+            nonce: word(76)?,
+        };
+        (bytes.len() == Self::BITCOIN_LEN && difficulty != 0 && crate::bits::bits_of(difficulty) == bits)
+            .then_some(header)
+    }
+
+    /// What the id and the proof of work hash: Bitcoin's 80 bytes for a header in its shape,
+    /// else the 88 of [`BlockHeader::encode`].
+    pub fn sealing(&self) -> Sealing {
+        let mut bytes = [0u8; Self::ENCODED_LEN];
+        if self.is_bitcoin_shaped() {
+            bytes[..Self::BITCOIN_LEN].copy_from_slice(&self.bitcoin_bytes());
+            return Sealing { bytes, len: Self::BITCOIN_LEN };
+        }
+        Sealing { bytes: self.encode(), len: Self::ENCODED_LEN }
+    }
+
+    /// Every field in a fixed layout, as a node stores a header and hands work to a board.
     pub fn encode(&self) -> [u8; Self::ENCODED_LEN] {
         let mut out = [0u8; Self::ENCODED_LEN];
         out[0..4].copy_from_slice(&self.version.to_le_bytes());
@@ -194,7 +290,7 @@ impl BlockHeader {
     }
 
     pub fn id(&self) -> Hash {
-        hash(&self.encode())
+        self.sealing().id()
     }
 }
 

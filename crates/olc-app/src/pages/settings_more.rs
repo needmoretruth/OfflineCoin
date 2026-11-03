@@ -65,6 +65,15 @@ impl Extras<'_> {
     fn mining(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         let keys = ("settings.mine_on_start", "settings.mine_on_start_about");
+        // The console's `mining on|off` changes this in the core. The core's value is taken when
+        // it moves, so a click here is not undone before the core has heard it.
+        let held = cx.snap.mine_on_start;
+        let id = ui.make_persistent_id("mine_on_start_seen");
+        let seen: Option<bool> = ui.data(|data| data.get_temp(id));
+        if seen != Some(held) {
+            ui.data_mut(|data| data.insert_temp(id, held));
+            cx.settings.mine_on_start = held;
+        }
         switch_setting(ui, cx, keys, |settings| &mut settings.mine_on_start);
         let node = &cx.snap.node;
         let goes_to = match node.miner_is_chosen {

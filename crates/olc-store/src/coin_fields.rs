@@ -447,7 +447,10 @@ mod tests {
         keys_of(&file, "", &mut keys);
         // A fork starts from a running coin, so it has its own word and a test of real nodes.
         // A new coin takes the upgrade from genesis, so nobody chooses its height.
-        keys.retain(|key| key != "forks" && key != "upgrade_from");
+        // The difficulty rule, its half-life, the time rules and the header have no word on the
+        // new coin page yet; a coin file sets them.
+        let later = ["rules.difficulty_rule", "rules.half_life_blocks", "rules.median_time_blocks", "rules.max_ahead_ms", "bitcoin_header"];
+        keys.retain(|key| key != "forks" && key != "upgrade_from" && !later.contains(&key.as_str()));
         assert_eq!(keys.len(), COIN_FIELDS.len(), "{keys:?}");
         let samples = samples();
         for key in keys {

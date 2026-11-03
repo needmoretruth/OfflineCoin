@@ -10,6 +10,7 @@ mod en_expert;
 mod en_expert_more;
 mod en_lab2;
 mod en_lab2_expert;
+mod en_mining;
 mod en_more;
 mod en_place;
 mod en_wallet;
@@ -21,6 +22,7 @@ mod ko_expert;
 mod ko_expert_more;
 mod ko_lab2;
 mod ko_lab2_expert;
+mod ko_mining;
 mod ko_more;
 mod ko_place;
 mod ko_wallet;
@@ -36,10 +38,26 @@ type Table = HashMap<&'static str, &'static str>;
 type Words = &'static [(&'static str, &'static str)];
 
 // Every table of each kind, in one place: a new file of words is one line in two of these lists.
-const BASE_EN: &[Words] =
-    &[en::WORDS, en_more::WORDS, en_chain::WORDS, en_lab2::WORDS, en_channels::WORDS, en_wallet::WORDS, en_place::WORDS];
-const BASE_KO: &[Words] =
-    &[ko::WORDS, ko_more::WORDS, ko_chain::WORDS, ko_lab2::WORDS, ko_channels::WORDS, ko_wallet::WORDS, ko_place::WORDS];
+const BASE_EN: &[Words] = &[
+    en::WORDS,
+    en_more::WORDS,
+    en_chain::WORDS,
+    en_lab2::WORDS,
+    en_channels::WORDS,
+    en_wallet::WORDS,
+    en_mining::WORDS,
+    en_place::WORDS,
+];
+const BASE_KO: &[Words] = &[
+    ko::WORDS,
+    ko_more::WORDS,
+    ko_chain::WORDS,
+    ko_lab2::WORDS,
+    ko_channels::WORDS,
+    ko_wallet::WORDS,
+    ko_mining::WORDS,
+    ko_place::WORDS,
+];
 const EXPERT_EN: &[Words] = &[
     en_expert::WORDS,
     en_expert_more::WORDS,
@@ -47,6 +65,7 @@ const EXPERT_EN: &[Words] = &[
     en_lab2_expert::WORDS,
     en_channels_expert::WORDS,
     en_wallet::EXPERT,
+    en_mining::EXPERT,
     en_place::EXPERT,
 ];
 const EXPERT_KO: &[Words] = &[
@@ -56,6 +75,7 @@ const EXPERT_KO: &[Words] = &[
     ko_lab2_expert::WORDS,
     ko_channels_expert::WORDS,
     ko_wallet::EXPERT,
+    ko_mining::EXPERT,
     ko_place::EXPERT,
 ];
 

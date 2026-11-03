@@ -75,7 +75,11 @@ fn busy(quiet: &Snapshot) -> Snapshot {
     stage.node.rebuilt = true;
     stage.node.storage_full = true;
     stage.node.blocks = vec![BlockRow::default()];
-    stage.node.notes = vec![NoteRow { height: 1, time_ms: 1, text: "note".into() }];
+    // Line for line: the first block may carry notes of its own.
+    stage.node.notes = match quiet.node.notes.is_empty() {
+        true => vec![NoteRow { height: 1, time_ms: 1, text: "note".into() }],
+        false => quiet.node.notes.iter().map(|note| NoteRow { text: "note".into(), ..note.clone() }).collect(),
+    };
     stage.node.watched = vec![("olc11".into(), 1)];
     stage.node.keys.push(KeyView { address: "olc22".into(), ..KeyView::default() });
     stage.scan.running = true;

@@ -11,6 +11,31 @@ use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
 
+/// Bytes a pool may fill in a coinbase, as Stratum's extranonce 1 and 2 of four bytes each.
+pub const EXTRANONCE_BYTES: usize = 8;
+
+/// True for a coinbase's extranonce: its last output, a data output of [`EXTRANONCE_BYTES`]. It
+/// holds a miner's counter, not words anyone wrote.
+pub fn is_extranonce(tx: &Tx, index: usize) -> bool {
+    let output = tx.outputs.get(index).filter(|_| tx.coinbase_height.is_some() && index + 1 == tx.outputs.len());
+    output.is_some_and(|output| output.is_data() && output.lock.len() == EXTRANONCE_BYTES)
+}
+
+/// A coinbase's bytes on either side of its extranonce, as Stratum's `coinb1` and `coinb2`.
+/// `None` when its last output is not an extranonce.
+pub fn coinbase_split(coinbase: &Tx) -> Option<(Vec<u8>, Vec<u8>)> {
+    let last = coinbase.outputs.len().checked_sub(1).filter(|at| is_extranonce(coinbase, *at))?;
+    let last = coinbase.outputs.get(last)?;
+    let bytes = coinbase.encode();
+    // The extranonce is where the bytes change when only it does.
+    let mut other = coinbase.clone();
+    let flipped = last.lock.iter().map(|byte| !byte).collect();
+    other.outputs.last_mut()?.lock = flipped;
+    let at = bytes.iter().zip(other.encode()).position(|(ours, theirs)| *ours != theirs)?;
+    (bytes.get(at..at + EXTRANONCE_BYTES)? == last.lock.as_slice())
+        .then(|| (bytes[..at].to_vec(), bytes[at + EXTRANONCE_BYTES..].to_vec()))
+}
+
 /// What one waiting payment adds to a block: its fee, its size, and the waiting payments it
 /// spends from, by their place in the pool.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,7 +152,10 @@ impl Chain {
     }
 
     /// As [`Chain::block_template`], with `note` in a data output of the coinbase when it is not
-    /// empty.
+    /// empty. On a coin with Bitcoin's header the coinbase's last output holds
+    /// [`EXTRANONCE_BYTES`] zero bytes as data, which a pool fills as Stratum's extranonce: its
+    /// `coinb1` is the coinbase up to them and its `coinb2` what follows, and the coinbase's id
+    /// is the double SHA-256 of the three together, as in Bitcoin.
     pub fn block_template_with(&self, miner: &Address, pool: &[Tx], time_ms: u64, note: &[u8]) -> Block {
         let height = self.height() + 1;
         let at = AtHeight::of(&self.config, height);
@@ -154,15 +182,23 @@ impl Chain {
         if !note.is_empty() {
             outputs.push(TxOut::data(note.to_vec()));
         }
+        if self.config.bitcoin_header {
+            outputs.push(TxOut::data(vec![0; EXTRANONCE_BYTES]));
+        }
         let coinbase = Tx { version: 1, inputs: Vec::new(), outputs, coinbase_height: Some(height), lock_time: 0 };
         let mut txs = vec![coinbase];
         txs.append(&mut chosen);
+        let whole = match self.config.bitcoin_header {
+            true => time_ms / 1_000 * 1_000,
+            false => time_ms,
+        };
+        let time_ms = whole.max(self.earliest_time(&self.tip));
         let header = BlockHeader {
-            version: 1,
+            version: self.header_version_at(height),
             previous: self.tip,
             merkle_root: merkle_root(&txs),
-            time_ms: time_ms.max(self.tip_header().time_ms + 1),
-            difficulty: self.next_difficulty(&self.tip),
+            time_ms,
+            difficulty: self.next_difficulty_at(&self.tip, time_ms),
             nonce: 0,
         };
         Block { header, txs }
