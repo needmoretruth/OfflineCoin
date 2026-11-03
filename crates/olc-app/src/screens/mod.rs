@@ -1,6 +1,8 @@
 //! Tests of the whole window: every page in every language and mode, drawn by the real app on a
 //! real core. Node processes in the scenes are real. No test may open a serial port, so boards
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
+mod live;
+mod live_swap;
 mod readings;
 mod scenes;
 mod rule_shots;
@@ -8,6 +10,8 @@ mod shots;
 mod steady;
 mod wallet_shots;
 mod first_words;
+mod swap_local;
+mod swap_page;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};

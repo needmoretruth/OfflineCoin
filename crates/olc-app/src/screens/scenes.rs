@@ -258,6 +258,7 @@ fn pruned_peer(root: &Path, coin: &CoinConfig, port: u16, blocks: u64) -> Host {
             mining: false,
             card: Card::default(),
             storage: None,
+            shares_wallet: false,
         },
         None,
     )

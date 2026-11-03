@@ -21,6 +21,8 @@ pub struct Plan {
     pub card: Card,
     /// Bytes the chain may take on disk.
     pub storage: Option<u64>,
+    /// Another node of this app holds the wallet already: this one uses its keys beside it.
+    pub shares_wallet: bool,
 }
 
 /// Puts `engine` in the node. Payments still waiting stay with it on the same coin: a person sent

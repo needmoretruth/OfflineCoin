@@ -333,7 +333,7 @@ impl Host {
                     WRONG_PASSWORD => "notice.wrong_password",
                     NEEDS_PASSWORD => "notice.needs_password",
                     NOT_A_BACKUP => "notice.not_a_backup",
-                    named => match failure_key(named) {
+                    named => match failure_key(named).or_else(|| super::refusals::known(named)) {
                         Some(key) => return (key, String::new(), false),
                         None => failed,
                     },
@@ -396,6 +396,15 @@ impl Book for Host {
 
     fn send_signed(&self, signed: &str) -> Result<String, String> {
         let tx: Tx = serde_json::from_str(signed).map_err(|error| error.to_string())?;
+        // A payment this node refuses goes nowhere, and saying it left would be wrong.
+        let refused = self.on_runner(|runner| {
+            let chain = runner.engine.chain();
+            let full = runner.engine.light().is_none();
+            full.then(|| chain.check_tx(&tx, chain.height() + 1).err()).flatten()
+        })?;
+        if let Some(why) = refused {
+            return Err(super::refusals::refusal_key(why).to_string());
+        }
         let id = self.on_runner(|runner| runner.engine.send_signed(tx))?;
         Ok(json!({ "id": id.iter().map(|byte| format!("{byte:02x}")).collect::<String>() }).to_string())
     }

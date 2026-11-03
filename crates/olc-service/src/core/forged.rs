@@ -108,6 +108,7 @@ fn host(root: &Path, fleet: Arc<Listening>, port: u16) -> Host {
         mining: false,
         card: Card::default(),
         storage: None,
+        shares_wallet: false,
     };
     Host::start(plan, Some(fleet)).unwrap()
 }

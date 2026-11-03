@@ -184,6 +184,7 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
                 ..Card::default()
             },
             storage: words.storage,
+            shares_wallet: false,
         },
         None,
     )?;
@@ -231,6 +232,7 @@ mod tests {
             mining: false,
             card: Card::default(),
             storage: None,
+            shares_wallet: false,
         };
         let host = Host::start(plan, None).unwrap();
         while host.opening() {

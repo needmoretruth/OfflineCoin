@@ -4,6 +4,7 @@ use super::board_action::BoardAction;
 use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
+use super::words_swap::swap;
 use super::words_wallet;
 use olc_board::Args;
 use olc_control::line::split;
@@ -77,6 +78,7 @@ pub const WORDS: &[Word] = &[
     Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a lock", run: lock_pay },
     Word { name: "lock-spend", usage: "lock-spend COIN [--to ADDRESS] WORDS  spend a locked coin", run: lock_spend },
     Word { name: "lock-sign", usage: "lock-sign TEXT       add your signature to a spend", run: lock_sign },
+    Word { name: "swap", usage: "swap offer COIN GIVE TAKE [--wait MINUTES] | accept TEXT | answer TEXT | cancel ID | list", run: swap },
     Word { name: "words", usage: "words [written|new [korean]|restore WORD...|move]  seed words to write down, restore from, or move older coins to", run: words_wallet::words },
     Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },
     Word { name: "verify-message", usage: "verify-message ADDRESS SIGNATURE TEXT  check a signed message", run: words_wallet::verify_message },

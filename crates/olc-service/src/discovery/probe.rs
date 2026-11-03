@@ -79,6 +79,7 @@ mod tests {
                     ..Card::default()
                 },
                 storage: None,
+                shares_wallet: false,
             },
             None,
         )
