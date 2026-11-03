@@ -15,13 +15,15 @@ use crate::rules::{self, AtHeight};
 use crate::shelf::Shelf;
 use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
-use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
+use crate::types::{Block, BlockHeader, OutPoint, Tx};
 use alloc::boxed::Box;
-use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
 
 /// A node keeps at least this many recent blocks, as Bitcoin Core's `-prune` does.
+#[path = "template.rs"]
+pub mod template;
+
 pub const FEWEST_RECENT: u64 = 288;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -526,66 +528,5 @@ impl Chain {
     /// The height of a recent transaction on the best chain.
     pub fn find_tx(&self, id: &Hash) -> Option<u64> {
         self.found.height_of(id)
-    }
-
-    /// Selects transactions and builds an unsealed block on the tip.
-    pub fn block_template(&self, miner: &Address, pool: &[Tx], time_ms: u64) -> Block {
-        self.block_template_with(miner, pool, time_ms, &[])
-    }
-
-    /// As [`Chain::block_template`], with `note` in a data output of the coinbase when it is not
-    /// empty.
-    pub fn block_template_with(
-        &self,
-        miner: &Address,
-        pool: &[Tx],
-        time_ms: u64,
-        note: &[u8],
-    ) -> Block {
-        let height = self.height() + 1;
-        let at = AtHeight::of(&self.config, height);
-        let rules = at.rules;
-        let mut view = Overlay::new(&self.unspent);
-        let mut chosen = Vec::new();
-        let mut fees = 0u64;
-        let mut bytes = BLOCK_OVERHEAD + note.len() as u64;
-        for tx in pool {
-            let size = tx.encode().len() as u64;
-            if bytes + size > rules.max_block_bytes {
-                continue;
-            }
-            if let Ok(fee) = rules::check_tx(tx, &at, &view, &self.plugins) {
-                view.apply(tx, height, None);
-                fees = fees.saturating_add(fee);
-                bytes += size;
-                chosen.push(tx.clone());
-            }
-        }
-        let mut outputs = vec![TxOut {
-            value: rules.reward_at(height).saturating_add(fees),
-            language: 0,
-            lock: miner.to_vec(),
-        }];
-        if !note.is_empty() {
-            outputs.push(TxOut::data(note.to_vec()));
-        }
-        let coinbase = Tx {
-            version: 1,
-            inputs: Vec::new(),
-            outputs,
-            coinbase_height: Some(height),
-            lock_time: 0,
-        };
-        let mut txs = vec![coinbase];
-        txs.append(&mut chosen);
-        let header = BlockHeader {
-            version: 1,
-            previous: self.tip,
-            merkle_root: merkle_root(&txs),
-            time_ms: time_ms.max(self.tip_header().time_ms + 1),
-            difficulty: self.next_difficulty(&self.tip),
-            nonce: 0,
-        };
-        Block { header, txs }
     }
 }

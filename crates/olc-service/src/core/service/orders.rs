@@ -3,7 +3,7 @@ use super::Service;
 use crate::core::board_action::BoardAction;
 use crate::core::board_lines::{read_state, run_action};
 use super::bind_host;
-use crate::core::coins::{coin_folder, format_coins, parse_coins};
+use crate::core::coins::{coin_folder, parse_coins};
 use crate::settings::Settings;
 use crate::core::commands::{Command, Personal};
 use crate::core::host::PayError;
@@ -103,7 +103,7 @@ impl Service {
             return;
         };
         let result = match self.host.pay(to, units) {
-            Ok(_) => ("notice.sent", format_coins(units), true),
+            Ok(_) => ("notice.sent", self.host.amount_text(units), true),
             Err(error) => {
                 let (key, detail) = pay_fault(&error);
                 (key, detail, false)

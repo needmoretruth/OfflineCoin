@@ -74,6 +74,8 @@ pub enum Personal {
     WriteNote(String),
     AcceptSnapshot,
     Explore(String),
+    /// Seed words, signed messages and shared wallets.
+    Wallet(super::wallet_orders::WalletOrder),
 }
 
 impl Personal {
@@ -208,6 +210,14 @@ pub enum LockOrder {
     Spend { coin: String, to: String, unlock: String },
     /// Adds this wallet's signatures to a spend another signer passed on.
     Sign { text: String },
+    /// Pays from shared wallet number `wallet`, signed here and passed on for the rest.
+    PayShared { wallet: usize, to: String, amount: String },
+    /// Speeds up the waiting payment with this id: replaced when sent from here, pulled along by
+    /// a child when it pays here.
+    SpeedUp { id: String },
+    /// Moves the coins on keys from before the seed words to the words, so the words alone
+    /// bring every coin back.
+    MoveToWords,
 }
 
 /// Something to do with a coin swap.

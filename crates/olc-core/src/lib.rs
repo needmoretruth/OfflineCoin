@@ -24,6 +24,7 @@ mod tree;
 mod tx_form;
 pub mod types;
 
+pub use chain::template::{ancestors, by_package, pays_more, Waiting};
 pub use chain::{AddOutcome, Chain, ChainError, Held, FEWEST_RECENT};
 pub use coin::{CoinConfig, Rules};
 pub use headers::{HeaderChain, HeaderRefused, Offered};

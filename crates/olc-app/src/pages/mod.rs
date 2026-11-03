@@ -12,6 +12,7 @@ mod home;
 mod lab;
 mod local;
 mod locks;
+mod message_sign;
 mod money;
 mod note;
 mod pool;
@@ -20,6 +21,8 @@ pub mod reach;
 mod settings;
 mod settings_more;
 mod swap;
+pub(crate) mod seed_words;
+mod shared_wallets;
 pub mod setup;
 mod wallet_tools;
 

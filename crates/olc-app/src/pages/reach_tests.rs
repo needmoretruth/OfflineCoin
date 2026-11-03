@@ -10,10 +10,10 @@ const FILES: &[(&str, &[&str])] = &[
     (RECORDS, &["records.rs"]),
     (LOCKS, &["locks.rs"]),
     (SWAP, &["swap.rs"]),
-    (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs"]),
+    (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
-const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "coin_fork.rs", "locks.rs"];
+const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../").to_string() + path).unwrap()
