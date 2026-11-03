@@ -3,6 +3,7 @@
 use olc_fuzz::fixture::grown_engine;
 use olc_link_tcp::TcpLink;
 use olc_node::frame::encode;
+use olc_node::neighbours::HELLO_MS;
 use olc_node::network::{mark_of, read, stamp, Mark};
 use olc_node::{Heights, Link, Message, Runner, Target};
 use std::io::Write;
@@ -15,8 +16,13 @@ use std::time::{Duration, Instant};
 const STRANGERS: u64 = 8;
 const THROWING: Duration = Duration::from_secs(3);
 const BLOCKS: u64 = 4;
-/// Far fewer turns than a free node takes in those seconds, and enough to show it never stood still.
-const MOST_OF_THE_TIME: u64 = 200;
+/// A node that stands still this long misses saying it is here, and its peers stop hearing it.
+/// The longest wait between two turns is what shows the node carried on. A count of turns showed
+/// the scheduler instead: a three-core macOS runner took about 60 turns a second against 450 on
+/// Linux, most likely because the strangers' own threads held the cores and the node woke a
+/// scheduler quantum late, each step taking under a millisecond, while a node that stood still
+/// for 2.5 of the 3 seconds still took more than the 200 turns once asked for.
+const LONGEST_STILL: Duration = Duration::from_millis(HELLO_MS);
 
 /// One stranger's bytes: a real frame around garbage, half a frame, a false length, or noise.
 fn thrown(random: &mut fastrand::Rng, mark: Mark) -> Vec<u8> {
@@ -63,11 +69,16 @@ fn a_node_carries_on_after_strangers_throw_bytes_at_it() {
 
     let stop = Arc::new(AtomicBool::new(false));
     let turns = Arc::new(AtomicU64::new(0));
-    let (stopped, counted) = (stop.clone(), turns.clone());
+    let still_micros = Arc::new(AtomicU64::new(0));
+    let (stopped, counted, still) = (stop.clone(), turns.clone(), still_micros.clone());
     let node = thread::spawn(move || {
         let mut now = 1_000_000;
+        let mut last = Instant::now();
         while !stopped.load(Ordering::Relaxed) {
             now += 2;
+            let waited = last.elapsed();
+            last = Instant::now();
+            still.fetch_max(u64::try_from(waited.as_micros()).unwrap_or(u64::MAX), Ordering::Relaxed);
             runner.step(now);
             counted.fetch_add(1, Ordering::Relaxed);
             thread::sleep(Duration::from_millis(2));
@@ -81,7 +92,8 @@ fn a_node_carries_on_after_strangers_throw_bytes_at_it() {
     let sent: u64 = strangers.into_iter().map(|one| one.join().expect("a stranger")).sum();
     assert!(sent > 100_000, "the strangers threw only {sent} bytes");
     let turns_taken = turns.load(Ordering::Relaxed);
-    assert!(turns_taken > MOST_OF_THE_TIME, "{turns_taken} turns under {sent} bytes");
+    let longest = Duration::from_micros(still_micros.load(Ordering::Relaxed));
+    assert!(longest < LONGEST_STILL, "the node stood still {longest:?} in {turns_taken} turns under {sent} bytes");
 
     let mut honest = TcpLink::new();
     honest.dial(&address.to_string());
