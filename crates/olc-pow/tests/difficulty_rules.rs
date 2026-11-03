@@ -120,6 +120,24 @@ fn asert_gives_a_late_block_the_floor_and_keeps_its_anchor() {
     assert!((ratio - 2f64.powf(-late_by / half_life as f64)).abs() < 0.001, "{ratio}");
 }
 
+/// A first block that comes late takes the floor too, and the genesis anchors: the block after it
+/// asks what it would have, had the first block carried the starting difficulty.
+#[test]
+fn a_late_first_block_keeps_the_start_as_the_anchor() {
+    let coin = coin(DifficultyRule::Asert);
+    let mut plain = coin.clone();
+    plain.rules.allow_min_difficulty_blocks = false;
+    let (mut chain, mut twin) = (chain(coin.clone()), chain(plain));
+    let (start, late) = (chain.tip_header().difficulty, chain.floor_after(&chain.tip()).unwrap());
+    assert_eq!(late, chain.tip_header().time_ms + 2 * T + coin.rules.max_ahead_ms);
+    let first = mine(&mut chain, late + 1_000);
+    assert_eq!(first.difficulty, rounded(1));
+    assert_eq!(mine(&mut twin, late + 1_000).difficulty, start);
+    let second = mine(&mut chain, first.time_ms + T);
+    assert_eq!(second.difficulty, mine(&mut twin, first.time_ms + T).difficulty);
+    assert!(second.difficulty > START / 2, "the start is not lost to the floor");
+}
+
 #[test]
 fn bip94_gives_the_floor_after_two_block_times_and_retargets_from_the_window_start() {
     let coin = coin(DifficultyRule::Bip94);

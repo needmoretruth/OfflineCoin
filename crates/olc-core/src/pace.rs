@@ -110,19 +110,28 @@ fn asert(
         return parent.difficulty;
     };
     let (mut anchor, mut height) = (*parent, next_height - 1);
+    let mut before_ms = before.time_ms;
     let twice = rules.block_time_ms.saturating_mul(2);
     while rules.allow_min_difficulty_blocks
         && next_height - height < LONGEST_LATE_RUN
         && coin.fork_starting_at(height).is_none()
         && anchor.difficulty == shaped(coin, rules.floor_at(height))
-        && anchor.time_ms > before.time_ms.saturating_add(twice)
+        && anchor.time_ms > before_ms.saturating_add(twice)
     {
+        if height == 1 {
+            // The first block came late, so the genesis anchors, a block time after a parent it
+            // never had: the step from it is the one a first block on time would have taken.
+            (anchor, height) = (before, 0);
+            before_ms = before.time_ms.saturating_sub(rules.block_time_ms);
+            break;
+        }
         let Some(older) = height.checked_sub(2).and_then(below) else {
             break;
         };
         (anchor, before, height) = (before, older, height - 1);
+        before_ms = before.time_ms;
     }
-    let since = i128::from(parent.time_ms) - i128::from(before.time_ms);
+    let since = i128::from(parent.time_ms) - i128::from(before_ms);
     consensus.per_block_difficulty(&PerBlockInput {
         anchor_difficulty: anchor.difficulty,
         time_delta_ms: i64::try_from(since).unwrap_or(if since < 0 { i64::MIN } else { i64::MAX }),
