@@ -1,5 +1,9 @@
 //! TCP for computers, on a home network, a VPN or the internet. Boards speak the same framing.
 pub mod lan;
+mod peers;
+
+pub use peers::{control_on, PeerInfo};
+use peers::{is_banned, Banned, Stats, PING_EVERY};
 
 use olc_node::frame::{encode, Decoder};
 use olc_node::network;
@@ -38,6 +42,7 @@ struct Peer {
     stream: TcpStream,
     frames: SyncSender<Frame>,
     accepted: bool,
+    stats: Arc<Stats>,
 }
 
 /// What threads share with the link.
@@ -55,6 +60,9 @@ struct Shared {
     cancelled: Arc<Mutex<BTreeSet<String>>>,
     /// The listener taking connections now, if any.
     listening: Arc<Mutex<Option<Listening>>>,
+    /// Where it listens.
+    bound: Arc<Mutex<Option<SocketAddr>>>,
+    banned: Banned,
 }
 
 /// One listener's thread, and the flag that ends it.
@@ -140,6 +148,8 @@ impl TcpLink {
             no_control: Arc::default(),
             cancelled: Arc::default(),
             listening: Arc::default(),
+            bound: Arc::default(),
+            banned: Arc::default(),
         };
         Self {
             shared,
@@ -173,6 +183,10 @@ impl TcpLink {
 fn start_listening(shared: &Shared, address: &str) -> std::io::Result<SocketAddr> {
     let listener = TcpListener::bind(address)?;
     let local = listener.local_addr()?;
+    if let Ok(mut bound) = shared.bound.lock() {
+        *bound = Some(local);
+    }
+    peers::register(local.port(), TcpControl(shared.clone()));
     listener.set_nonblocking(true)?;
     let stop = Arc::new(AtomicBool::new(false));
     let (taking, ends) = (shared.clone(), stop.clone());
@@ -180,6 +194,7 @@ fn start_listening(shared: &Shared, address: &str) -> std::io::Result<SocketAddr
     let handle = thread::spawn(move || {
         while !taking.closed.load(Ordering::Relaxed) && !ends.load(Ordering::Relaxed) {
             match listener.accept() {
+                Ok((_, from)) if is_banned(&taking, from.ip()) => {}
                 Ok((stream, _)) if has_room(&taking) && stream.set_nonblocking(false).is_ok() => {
                     attach(stream, &taking, refused.clone(), None);
                 }
@@ -202,6 +217,7 @@ fn has_room(shared: &Shared) -> bool {
 fn dial(shared: Shared, address: String) {
     let started_in = shared.round.load(Ordering::Relaxed);
     let target = address.to_socket_addrs().ok().and_then(|mut found| found.next());
+    let target = target.filter(|target| !is_banned(&shared, target.ip()));
     let stream = target.and_then(|target| TcpStream::connect_timeout(&target, DIAL_TIMEOUT).ok());
     let cancelled = shared.cancelled.lock().is_ok_and(|mut set| set.remove(&address));
     match stream {
@@ -231,12 +247,15 @@ fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, addre
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let _ = stream.set_read_timeout(Some(IDLE / 4));
     let (frames, to_send) = sync_channel(OUTBOX);
-    if thread::Builder::new().spawn(move || write_frames(&mut writer, &to_send)).is_err() {
+    let stats = Stats::new();
+    let counted = stats.clone();
+    if thread::Builder::new().spawn(move || write_frames(&mut writer, &to_send, &counted)).is_err() {
         return failed(address);
     }
     let peer = shared.next_peer.fetch_add(1, Ordering::Relaxed);
+    let answers = frames.clone();
     if let Ok(mut peers) = shared.peers.lock() {
-        peers.insert(peer, Peer { stream: kept, frames, accepted });
+        peers.insert(peer, Peer { stream: kept, frames, accepted, stats: stats.clone() });
     }
     let _ = shared.news.send(News::Opened { number: peer, address });
     let reading = shared.clone();
@@ -247,7 +266,8 @@ fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, addre
         let _ = shared.news.send(News::Closed { number: peer });
     };
     let spawned = thread::Builder::new().spawn(move || {
-        read_messages(stream, peer, &reading.sender, &no_control);
+        let reader = Reader { peer, sender: &reading.sender, no_control: &no_control, stats: &stats, answers };
+        read_messages(stream, &reader);
         end(&reading);
     });
     if spawned.is_err() {
@@ -257,8 +277,9 @@ fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, addre
 
 /// Runs on its own thread, so a peer that reads slowly costs only itself. It ends when the peer
 /// leaves the list.
-fn write_frames(stream: &mut TcpStream, frames: &Receiver<Frame>) {
+fn write_frames(stream: &mut TcpStream, frames: &Receiver<Frame>, stats: &Stats) {
     for frame in frames {
+        stats.sent.fetch_add(frame.len() as u64, Ordering::Relaxed);
         if stream.write_all(&frame).is_err() {
             // Half a frame may have left, so this connection can never be read again.
             let _ = stream.shutdown(Shutdown::Both);
@@ -271,13 +292,29 @@ fn is_control(message: &[u8]) -> bool {
     network::read(message).is_some_and(|(mark, _)| mark == network::CONTROL)
 }
 
-fn read_messages(mut stream: TcpStream, peer: u32, sender: &Inbox, no_control: &AtomicBool) {
+/// What the reading thread of one connection works with.
+struct Reader<'a> {
+    peer: u32,
+    sender: &'a Inbox,
+    no_control: &'a AtomicBool,
+    stats: &'a Stats,
+    /// The connection's own queue out, for pings and their answers.
+    answers: SyncSender<Frame>,
+}
+
+fn read_messages(mut stream: TcpStream, reader: &Reader) {
+    let Reader { peer, sender, no_control, stats, answers } = reader;
     let mut decoder = Decoder::default();
     let mut bytes = vec![0u8; READ_SIZE];
     let mut whole_ms = Instant::now();
+    let mut pinged: Option<Instant> = None;
     loop {
         if whole_ms.elapsed() >= IDLE {
             return;
+        }
+        if pinged.is_none_or(|at| at.elapsed() >= PING_EVERY) {
+            pinged = Some(Instant::now());
+            let _ = answers.try_send(stats.ping().into());
         }
         let size = match stream.read(&mut bytes) {
             Ok(0) => return,
@@ -287,13 +324,20 @@ fn read_messages(mut stream: TcpStream, peer: u32, sender: &Inbox, no_control: &
             }
             Err(_) => return,
         };
+        stats.received.fetch_add(size as u64, Ordering::Relaxed);
         decoder.push(&bytes[..size]);
         while let Some(message) = decoder.next_message() {
             whole_ms = Instant::now();
+            if let Some(answer) = stats.heard(&message) {
+                if let Some(answer) = answer {
+                    let _ = answers.try_send(answer.into());
+                }
+                continue;
+            }
             if no_control.load(Ordering::Relaxed) && is_control(&message) {
                 continue;
             }
-            if sender.send((peer, message)).is_err() {
+            if sender.send((*peer, message)).is_err() {
                 return;
             }
         }

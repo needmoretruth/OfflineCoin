@@ -195,6 +195,19 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.shared_waiting", "Your signature is in. Pass this to the other signers:\n{}"),
     ("notice.shared_refused", "The shared wallet could not send this."),
     ("lock.waiting", "Your signature is in. Pass this to the other signer:\n{}"),
+    ("ch.bad_address", "{} has no address that reads right. Write it as KEY@HOST:PORT."),
+    ("ch.bad_ip", "{} is not an IP address."),
+    ("ch.bad_key", "{} is not a whole node key. Copy the channel address from the other node's Channels page."),
+    ("ch.bad_push", "What you give the other side has to be less than the whole channel."),
+    ("ch.banned", "{} is kept out. Its connections ended."),
+    ("ch.connecting", "Connecting to {}. The channel opens as soon as that node answers."),
+    ("ch.disconnected", "Disconnected."),
+    ("ch.no_link", "This node takes no network connections."),
+    ("ch.no_such_peer", "That connection has already ended."),
+    ("ch.not_connected", "No node called {} is connected. Give its whole channel address, KEY@HOST:PORT."),
+    ("ch.said_reached", "The other node answered. Opening channel {}."),
+    ("ch.said_unreached", "{} did not answer within a minute, so no channel was opened. Check the address and that the other node runs."),
+    ("ch.unbanned", "{} may connect again."),
     ("ch.closing", "Closing channel {} together. The coins come back in the next block."),
     ("ch.closing_alone", "Closing channel {} alone. Your share comes back after the wait."),
     ("ch.list", "{}"),
@@ -289,9 +302,16 @@ impl Notice {
     }
 }
 
-struct ConsoleDesk {
+pub(super) struct ConsoleDesk {
     core: Core,
     password: Option<String>,
+}
+
+impl ConsoleDesk {
+    /// A desk for words that come with no password, as from the `olc` program.
+    pub(super) fn new(core: Core) -> Self {
+        Self { core, password: None }
+    }
 }
 
 impl Desk for ConsoleDesk {

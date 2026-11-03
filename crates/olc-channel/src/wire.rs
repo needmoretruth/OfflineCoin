@@ -71,6 +71,10 @@ pub enum Wire {
     Terms(ChannelTerms),
     /// The name a node with a channel goes by (BOLT 7, node_announcement).
     Node(NodeName),
+    /// open_channel with `push_msat`: the opener gives `push` of the capacity to the other side
+    /// from the first state. Last in the list, so an older build reads every other message as
+    /// before and only fails to read this one.
+    OpenPush { id: ChannelId, capacity: u64, push: u64, delay: u16, fee: u64, dust: u64, coin: Hash, side: Opening },
 }
 
 /// BOLT 7, channel_announcement: both nodes vouch for a funding output on the chain.

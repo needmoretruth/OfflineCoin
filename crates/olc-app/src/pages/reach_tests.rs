@@ -6,12 +6,12 @@ use crate::pages::all;
 const FILES: &[(&str, &[&str])] = &[
     (HOME, &["home.rs", "money.rs", "send.rs"]),
     (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs", "local.rs", "pool.rs", "lab.rs", "lab_boards.rs"]),
-    (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
+    (COINS, &["coins.rs", "coins_peers.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (LOCKS, &["locks.rs"]),
     (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
-    (CHANNELS, &["channels.rs"]),
+    (CHANNELS, &["channels.rs", "channels_parts.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
 const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "lab_boards.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];
