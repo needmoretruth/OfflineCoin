@@ -64,6 +64,7 @@ fn host(root: &Path) -> Host {
         mining: false,
         card: Card::default(),
         storage: None,
+        shares_wallet: false,
     };
     let host = Host::start(plan, None).unwrap();
     opened(&host);
@@ -213,7 +214,7 @@ fn a_spend_waiting_for_a_signer_is_kept_wherever_it_starts() {
     coin.rules.min_difficulty = 1;
     coin.rules.block_time_ms = 1_000;
     coin.rules.coinbase_maturity = 1;
-    let plan = |name: &str, port| Plan { coin: coin.clone(), folder: root.join(format!("{name}-chain")), wallet_folder: root.join(name), bind_host: "127.0.0.1".into(), port, port_tries: 40, peers: Vec::new(), cap: 0, mining: false, card: Card::default(), storage: None };
+    let plan = |name: &str, port| Plan { coin: coin.clone(), folder: root.join(format!("{name}-chain")), wallet_folder: root.join(name), bind_host: "127.0.0.1".into(), port, port_tries: 40, peers: Vec::new(), cap: 0, mining: false, card: Card::default(), storage: None, shares_wallet: false };
     let host = Host::start(plan("mine", 7710), None).unwrap();
     let other = Host::start(plan("other", 7750), None).unwrap();
     opened(&host);
@@ -263,7 +264,7 @@ fn a_restart_of_the_node_keeps_payments_waiting() {
     coin.rules.block_time_ms = 1_000;
     coin.rules.coinbase_maturity = 1;
     let host = Host::start(
-        Plan { coin: coin.clone(), folder: root.join("chain"), wallet_folder: root.join("wallet"), bind_host: "127.0.0.1".into(), port: 7450, port_tries: 40, peers: Vec::new(), cap: 0, mining: false, card: Card::default(), storage: None },
+        Plan { coin: coin.clone(), folder: root.join("chain"), wallet_folder: root.join("wallet"), bind_host: "127.0.0.1".into(), port: 7450, port_tries: 40, peers: Vec::new(), cap: 0, mining: false, card: Card::default(), storage: None, shares_wallet: false },
         None,
     )
     .unwrap();

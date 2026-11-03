@@ -101,7 +101,7 @@ impl Host {
     pub fn start(plan: Plan, fleet: Option<Arc<dyn FleetPort>>) -> Result<Self, String> {
         let mut held = None;
         hold_folder(&mut held, &plan.folder)?;
-        let wallet_held = hold_wallet(&plan.wallet_folder)?;
+        let wallet_held = (!plan.shares_wallet).then(|| hold_wallet(&plan.wallet_folder)).transpose()?;
         let wallet = load_wallet(&plan.wallet_folder)?;
         let engine = Engine::new(plan.coin.clone(), plugins(), wallet);
         let tcp = TcpLink::new();
@@ -317,7 +317,7 @@ struct Worker {
     radios: Running,
     wants_bluetooth: bool,
     held: Option<FolderHold>,
-    _wallet_held: WalletHold,
+    _wallet_held: Option<WalletHold>,
 }
 
 impl Worker {

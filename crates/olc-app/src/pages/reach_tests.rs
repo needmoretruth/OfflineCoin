@@ -9,6 +9,7 @@ const FILES: &[(&str, &[&str])] = &[
     (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (LOCKS, &["locks.rs"]),
+    (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.

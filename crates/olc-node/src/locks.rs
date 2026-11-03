@@ -55,7 +55,11 @@ pub struct LockedCoin {
 impl Engine {
     /// Puts `amount` from this wallet under the lock these words make.
     pub fn pay_to_lock(&mut self, words: &str, amount: u64) -> Result<(Hash, Cost), LockFailure> {
-        let dialect = self.lock_dialect();
+        self.pay_to_lock_in(self.lock_dialect(), words, amount)
+    }
+
+    /// Puts `amount` under a lock written in `dialect`, whatever this node writes new locks in.
+    pub fn pay_to_lock_in(&mut self, dialect: Dialect, words: &str, amount: u64) -> Result<(Hash, Cost), LockFailure> {
         let (lock, cost) = lock_from_text_in(dialect, words)?;
         let reserved = self.reserved();
         let fee = self.rules().min_fee;

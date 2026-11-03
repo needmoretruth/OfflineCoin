@@ -173,6 +173,7 @@ pub enum Command {
         amount: String,
     },
     Lock(LockOrder),
+    Swap(SwapOrder),
 }
 
 impl Command {
@@ -193,6 +194,7 @@ impl Command {
                 | Self::StartPool { .. }
                 | Self::StopPool
                 | Self::Lock(_)
+                | Self::Swap(_)
         )
     }
 }
@@ -206,4 +208,19 @@ pub enum LockOrder {
     Spend { coin: String, to: String, unlock: String },
     /// Adds this wallet's signatures to a spend another signer passed on.
     Sign { text: String },
+}
+
+/// Something to do with a coin swap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SwapOrder {
+    /// Offers `give` of the coin this node runs for `take` of `coin`: a coin this app ran before,
+    /// by its folder name, or a coin file. Each side may take its coins back after `wait_minutes`.
+    Offer { coin: String, give: String, take: String, wait_minutes: u32 },
+    /// Takes the offer this text holds.
+    Accept(String),
+    /// Starts an offer with the answer this text holds.
+    Answer(String),
+    /// Ends the swap whose id starts so, before any coin is locked.
+    Cancel(String),
+    List,
 }

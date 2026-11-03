@@ -28,6 +28,8 @@ pub struct OutputRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxRow {
     pub id: Hash,
+    /// 1 as the first Bitcoin wrote it, 2 for the form whose id leaves the signatures out.
+    pub version: u32,
     pub is_coinbase: bool,
     pub inputs: usize,
     pub outputs: Vec<OutputRow>,
@@ -89,6 +91,7 @@ fn tx_row(tx: &olc_core::Tx) -> TxRow {
     });
     TxRow {
         id: tx.id(),
+        version: tx.version,
         is_coinbase: tx.is_coinbase(),
         inputs: tx.inputs.len(),
         outputs: outputs.collect(),
@@ -185,7 +188,7 @@ fn hex(hash: &Hash) -> String {
 /// A payment as lines: its id, where its coins came from, and each output.
 fn tx_lines(tx: &TxRow, lines: &mut Vec<String>) {
     let source = if tx.is_coinbase { "mined".to_string() } else { format!("{} coins in", tx.inputs) };
-    lines.push(format!("payment     {}  {source}", hex(&tx.id)));
+    lines.push(format!("payment     {}  {source}, version {}", hex(&tx.id), tx.version));
     for output in &tx.outputs {
         let amount = super::coins::format_coins(output.value);
         let line = match (&output.note, &output.lock) {

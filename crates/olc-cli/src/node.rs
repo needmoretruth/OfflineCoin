@@ -86,6 +86,7 @@ fn start_host(args: &Args, directory: PathBuf) -> Result<Host, String> {
                 ..Card::default()
             },
             storage: None,
+            shares_wallet: false,
         },
         None,
     )?;

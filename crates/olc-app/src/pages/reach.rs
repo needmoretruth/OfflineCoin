@@ -33,6 +33,7 @@ const BOARDS: &str = "page.boards";
 const COINS: &str = "page.coins";
 const RECORDS: &str = "page.records";
 const LOCKS: &str = "page.locks";
+const SWAP: &str = "page.swap";
 const SETTINGS: &str = "page.settings";
 
 /// The words of the command line.
@@ -82,6 +83,7 @@ pub const CLI_ROWS: &[Row] = &[
     expert("lock-pay", LOCKS, "Write a lock, pay", "LockOrder::Pay", "Beta locks are expert work"),
     expert("lock-spend", LOCKS, "Coins under a lock", "LockOrder::Spend", "Beta locks are expert work"),
     expert("lock-sign", LOCKS, "Signing together", "LockOrder::Sign", "Beta locks are expert work"),
+    row("swap", SWAP, "Make an offer, take an offer", "SwapOrder::Offer"),
     row("join", COINS, "Join from a file", "Command::JoinCoinFile"),
     row("save-coin", COINS, "Save a coin file", "Command::SaveCoinFile"),
     row("boards", BOARDS, "The list", "snap.boards"),

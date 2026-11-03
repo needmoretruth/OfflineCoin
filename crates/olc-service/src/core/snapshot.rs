@@ -5,6 +5,7 @@ use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
 use super::pool_run::PoolView;
 use super::radios::NoBluetooth;
+use super::swap::Stage;
 use crate::discovery::{CoinGroup, Reach};
 use crate::local::LocalView;
 use olc_board::{BoardState, Seen};
@@ -136,6 +137,32 @@ pub struct Notice {
     pub good: bool,
 }
 
+/// One swap as a screen shows it. `give` and `get` are a ticker and units.
+#[derive(Clone, Debug)]
+pub struct SwapView {
+    pub id: String,
+    pub maker: bool,
+    pub stage: Stage,
+    pub give: (String, u64),
+    pub get: (String, u64),
+    /// The text to hand to the other side, while it still needs it.
+    pub text: Option<String>,
+    /// The block from which this side's coins come back, on the coin it pays with.
+    pub refund_at: Option<u64>,
+    /// The height of the coin this side pays with.
+    pub height: u64,
+    pub wait_minutes: u32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SwapsView {
+    pub swaps: Vec<SwapView>,
+    /// The node on the other coin of an open swap: its ticker, height and peers.
+    pub other: Option<(String, u64, usize)>,
+    /// Coins this app ran besides the one it runs now: folder name and ticker.
+    pub coins: Vec<(String, String)>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub node: NodeView,
@@ -152,4 +179,5 @@ pub struct Snapshot {
     pub full_rate: u64,
     /// The folder this app keeps its files in.
     pub folder: String,
+    pub swaps: SwapsView,
 }

@@ -238,4 +238,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.version_one", "Sign the old way"),
     ("pro.version_one_about", "Signs payments as version 1, as the first Bitcoin did. They still go through, but a fork of this coin could copy them."),
     ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Network page."),
+    ("swap.about", "Atomic swap with hash time locks, as in BIP 199. Nobody holds the coins in between."),
+    ("pro.swap_id", "Swap {}"),
 ];

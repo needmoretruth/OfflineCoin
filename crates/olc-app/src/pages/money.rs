@@ -13,6 +13,8 @@ use olc_wallet::parse_address;
 
 const CODE: f32 = 216.0;
 const QUIET_SQUARES: f32 = 3.0;
+/// A phone camera reads a square this wide; a long code grows past [`CODE`] to keep it.
+const LEAST_SQUARE: f32 = 4.0;
 
 pub struct ReceiveSheet {
     address: String,
@@ -20,11 +22,12 @@ pub struct ReceiveSheet {
 }
 
 /// Always dark on white, whatever the theme, so any camera can read it.
-fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
-    let (rect, response) = ui.allocate_exact_size(vec2(CODE, CODE), Sense::hover());
+pub(super) fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
+    let side = CODE.max((grid.width as f32 + QUIET_SQUARES * 2.0) * LEAST_SQUARE);
+    let (rect, response) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(tokens::RADIUS_CARD), Color32::WHITE);
-    let square = CODE / (grid.width as f32 + QUIET_SQUARES * 2.0);
+    let square = side / (grid.width as f32 + QUIET_SQUARES * 2.0);
     let start = rect.min + vec2(square * QUIET_SQUARES, square * QUIET_SQUARES);
     for y in 0..grid.width {
         for x in 0..grid.width {

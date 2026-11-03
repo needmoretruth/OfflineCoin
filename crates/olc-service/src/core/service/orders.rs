@@ -2,7 +2,9 @@
 use super::Service;
 use crate::core::board_action::BoardAction;
 use crate::core::board_lines::{read_state, run_action};
+use super::bind_host;
 use crate::core::coins::{coin_folder, format_coins, parse_coins};
+use crate::settings::Settings;
 use crate::core::commands::{Command, Personal};
 use crate::core::host::PayError;
 use olc_control::BoardId;
@@ -77,6 +79,22 @@ impl Service {
         if self.move_to(coin, address.into_iter().collect(), None) {
             self.say("notice.joined", name, true);
         }
+    }
+
+    /// Saves the settings and applies what can change at once.
+    pub(super) fn save_settings(&mut self, settings: &Settings) {
+        let was = bind_host(&self.settings);
+        self.settings.take_choices(settings);
+        let now = bind_host(&self.settings);
+        // A person who shuts others out expects it now, not at the next start.
+        if now != was {
+            if let Err(error) = self.host.listen_on(&now) {
+                self.say("notice.listen_failed", error, false);
+            }
+        }
+        self.host.set_cap(self.settings.hash_cap);
+        self.save();
+        self.plan_scan();
     }
 
     pub(super) fn pay(&mut self, to: &str, amount: &str) {

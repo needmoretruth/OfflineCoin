@@ -19,6 +19,7 @@ mod records;
 pub mod reach;
 mod settings;
 mod settings_more;
+mod swap;
 pub mod setup;
 mod wallet_tools;
 
@@ -119,6 +120,7 @@ pub fn all() -> Vec<Box<dyn Page>> {
         Box::<boards::Boards>::default(),
         Box::<coins::Coins>::default(),
         Box::<records::Records>::default(),
+        Box::<swap::Swap>::default(),
         Box::<locks::Locks>::default(),
         Box::<console::Console>::default(),
         Box::<settings::SettingsPage>::default(),
