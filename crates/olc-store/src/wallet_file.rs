@@ -8,6 +8,7 @@ use olc_wallet::seed::{Mnemonic, WordList};
 use olc_wallet::shared::Shared;
 use olc_wallet::{SeedRecord, Wallet};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -27,6 +28,9 @@ struct Keys {
     shared: Vec<Shared>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     earlier: Vec<SeedRecord>,
+    /// Names of addresses and payments. Older builds read past it and drop it when they save.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    labels: BTreeMap<String, String>,
 }
 
 /// What a backup file holds. With a password only the sealed fields are set.
@@ -72,6 +76,7 @@ fn keys_of(wallet: &Wallet) -> Keys {
         seed: wallet.seed.clone(),
         shared: wallet.shared.clone(),
         earlier: wallet.earlier.clone(),
+        labels: wallet.labels.clone(),
     }
 }
 
@@ -82,6 +87,7 @@ fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
     wallet.seed = keys.seed.clone();
     wallet.shared = keys.shared.clone();
     wallet.earlier = keys.earlier.clone();
+    wallet.labels = keys.labels.clone();
     Ok(wallet)
 }
 
@@ -258,6 +264,25 @@ mod tests {
         assert_eq!(restore(&path, None).unwrap().address(), wallet().address());
         save_wallet(&directory, &wallet()).unwrap();
         assert_eq!(load_wallet(&directory).unwrap().address(), wallet().address());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// Names given to addresses and payments survive a restart and a backup, and a file from
+    /// before names reads as a wallet with none.
+    #[test]
+    fn names_of_addresses_and_payments_stay_with_the_wallet() {
+        let directory = folder("labels");
+        let mut named = wallet();
+        named.labels.insert("olc0303".into(), "Rent".into());
+        save_wallet(&directory, &named).unwrap();
+        assert_eq!(load_wallet(&directory).unwrap().labels.get("olc0303").map(String::as_str), Some("Rent"));
+        let path = directory.join("backup.json");
+        back_up(&named, &path, None).unwrap();
+        assert_eq!(restore(&path, None).unwrap().labels, named.labels);
+        save_wallet(&directory, &wallet()).unwrap();
+        let text = fs::read_to_string(directory.join(WALLET_FILE)).unwrap();
+        assert!(!text.contains("labels"), "a wallet with no names writes the file older builds wrote");
+        assert!(load_wallet(&directory).unwrap().labels.is_empty());
         fs::remove_dir_all(directory).unwrap();
     }
 

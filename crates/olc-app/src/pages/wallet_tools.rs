@@ -1,12 +1,12 @@
 //! The wallet's quieter jobs, each one sheet: backup, restore, addresses, watching, and paying
 //! from a computer that stays offline. Files are chosen by looking, and nothing asks for a path.
 use super::{Cx, Slipping};
-use crate::core::{parse_coins, Command, Personal};
+use crate::core::{parse_coins, Command, Personal, WalletOrder};
 use crate::ui::floating::{sheet, sheet_head};
 use crate::ui::picker::{Picked, Picker};
 use crate::ui::tokens;
 use crate::ui::widgets::{
-    button, button_on, field, meta, mono, secret_field, section, tag, Kind,
+    self, button, button_on, field, meta, mono, secret_field, section, tag, Kind,
 };
 use crate::ui::format;
 use egui::{Label, Ui};
@@ -48,6 +48,8 @@ pub struct WalletTools {
     password: String,
     import: String,
     watch: String,
+    /// The address being named, and the name typed so far.
+    naming: Option<(String, String)>,
     to: String,
     amount: String,
     fee: String,
@@ -111,11 +113,55 @@ impl WalletTools {
         done
     }
 
+    /// An address's name, which opens into a field to change it.
+    fn name_line(&mut self, ui: &mut Ui, cx: &Cx, address: &str) {
+        let t = cx.t;
+        let name = cx.snap.node.wallet.labels.get(address);
+        let editing = self.naming.as_ref().is_some_and(|(named, _)| named == address);
+        if !editing {
+            ui.horizontal(|ui| {
+                match name {
+                    Some(name) => ui.label(name.as_str()),
+                    None => ui.label(egui::RichText::new(cx.say("keys.no_name")).color(t.soft)),
+                };
+                if button(ui, t, cx.say("keys.name"), Kind::Quiet).clicked() {
+                    self.naming = Some((address.to_string(), name.cloned().unwrap_or_default()));
+                }
+            });
+            return;
+        }
+        let mut finished = false;
+        if let Some((_, typed)) = &mut self.naming {
+            meta(ui, cx.say("keys.name_hint"), t);
+            ui.horizontal(|ui| {
+                let width = (ui.available_width() - 100.0).max(120.0);
+                field(ui, typed, "", width);
+                if button(ui, t, cx.say("keys.name_save"), Kind::Plain).clicked() {
+                    let order = WalletOrder::Label { of: address.to_string(), name: typed.trim().to_string() };
+                    cx.send(Command::Own(Personal::Wallet(order)));
+                    finished = true;
+                }
+            });
+        }
+        if finished {
+            self.naming = None;
+        }
+    }
+
     fn addresses(&mut self, ui: &mut Ui, cx: &Cx) -> bool {
         let t = cx.t;
         sheet_head(ui, cx.say("keys.title"));
+        let ticker = cx.ticker();
         for (index, key) in cx.snap.node.keys.iter().enumerate() {
-            ui.add(Label::new(mono(key.address.clone())).wrap());
+            let held = cx.snap.node.wallet.addresses.iter().find(|held| held.address == key.address);
+            ui.horizontal(|ui| {
+                ui.add(Label::new(mono(key.address.clone())).truncate());
+                if let Some(held) = held {
+                    let coins = cx.fill("keys.balance", &[&format::coins(held.balance, ticker), &held.coins.to_string()]);
+                    ui.label(widgets::medium_text(coins));
+                }
+            });
+            self.name_line(ui, cx, &key.address);
             ui.horizontal(|ui| {
                 if key.receiving {
                     tag(ui, cx.say("keys.receiving"), t.good, t);
@@ -163,8 +209,15 @@ impl WalletTools {
         ui.add_space(4.0);
         let ticker = cx.ticker();
         for (address, coins) in &cx.snap.node.watched {
-            ui.add(Label::new(mono(address.clone())).wrap());
-            meta(ui, &format::coins(*coins, ticker), t);
+            ui.horizontal(|ui| {
+                ui.add(Label::new(mono(address.clone())).truncate());
+                ui.label(widgets::medium_text(format::coins(*coins, ticker)));
+                if button(ui, t, cx.say("watch.remove"), Kind::Quiet).clicked() {
+                    cx.send(Command::Own(Personal::Wallet(WalletOrder::Unwatch(address.clone()))));
+                }
+            });
+            self.name_line(ui, cx, address);
+            ui.add_space(4.0);
         }
         ui.horizontal(|ui| {
             let width = ui.available_width() - 100.0;

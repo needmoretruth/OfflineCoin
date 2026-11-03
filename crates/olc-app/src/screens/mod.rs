@@ -9,6 +9,7 @@ mod rule_shots;
 mod shots;
 mod steady;
 mod wallet_shots;
+mod history_shots;
 mod first_words;
 mod home_words;
 mod swap_local;

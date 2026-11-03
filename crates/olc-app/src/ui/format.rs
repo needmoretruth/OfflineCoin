@@ -36,16 +36,49 @@ pub fn span(voice: Voice, seconds: u64) -> String {
     i18n::fill(i18n::text(voice, key), &values)
 }
 
-/// How long ago a moment was.
+/// How long ago a moment was, in seconds for the first minute: blocks here come every few
+/// seconds, so "just now" would name every row of a minute alike.
 pub fn ago(voice: Voice, now_ms: u64, then_ms: u64) -> String {
-    let minutes = now_ms.saturating_sub(then_ms) / 60_000;
+    let seconds = now_ms.saturating_sub(then_ms) / 1_000;
+    let minutes = seconds / 60;
     let (key, count) = match minutes {
-        0 => return i18n::text(voice, "time.now").to_string(),
+        0 if seconds == 0 => return i18n::text(voice, "time.now").to_string(),
+        0 => ("time.seconds", seconds),
         1..=59 => ("time.minutes", minutes),
         60..=1_439 => ("time.hours", minutes / 60),
         _ => ("time.days", minutes / 1_440),
     };
     i18n::fill(i18n::text(voice, key), &[&number(count.into())])
+}
+
+/// The clock time of a moment on this computer: the time alone today, with the date before.
+pub fn clock(now_ms: u64, then_ms: u64) -> String {
+    use chrono::{Local, TimeZone};
+    let local = |ms: u64| Local.timestamp_millis_opt(i64::try_from(ms).unwrap_or(i64::MAX)).single();
+    match (local(now_ms), local(then_ms)) {
+        (Some(now), Some(then)) if now.date_naive() == then.date_naive() => then.format("%H:%M:%S").to_string(),
+        (_, Some(then)) => then.format("%Y-%m-%d %H:%M").to_string(),
+        _ => String::new(),
+    }
+}
+
+/// A moment as a ledger shows it: its clock time and how long ago, as `14:03:21 · 12 s ago`.
+pub fn when(voice: Voice, now_ms: u64, then_ms: u64) -> String {
+    format!("{} · {}", clock(now_ms, then_ms), ago(voice, now_ms, then_ms))
+}
+
+/// A moment's date and clock time on this computer, as a detail shows it.
+pub fn moment(then_ms: u64) -> String {
+    use chrono::{Local, TimeZone};
+    let then = Local.timestamp_millis_opt(i64::try_from(then_ms).unwrap_or(i64::MAX)).single();
+    then.map(|then| then.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default()
+}
+
+/// A moment with its date and zone, as a file of records keeps it.
+pub fn stamp(then_ms: u64) -> String {
+    use chrono::{Local, TimeZone};
+    let then = Local.timestamp_millis_opt(i64::try_from(then_ms).unwrap_or(i64::MAX)).single();
+    then.map(|then| then.format("%Y-%m-%d %H:%M:%S %:z").to_string()).unwrap_or_default()
 }
 
 pub fn coins(units: u64, ticker: &str) -> String {
@@ -105,5 +138,18 @@ mod tests {
         assert_eq!(number(20_000), "20,000");
         assert_eq!(number(1_234_567), "1,234,567");
         assert_eq!(short_address("olc0123456789abcdef0123456789"), "olc0123456...23456789");
+    }
+
+    /// The owner saw "Just now" on every row while blocks came every few seconds.
+    #[test]
+    fn a_moment_within_the_minute_counts_its_seconds() {
+        let voice = Voice::default();
+        assert_eq!(ago(voice, 60_000, 48_000), "12 s ago");
+        assert_ne!(ago(voice, 60_000, 55_000), ago(voice, 60_000, 50_000));
+        assert_eq!(ago(voice, 200_000, 80_000), "2 min ago");
+        let ko = Voice { lang: crate::i18n::Lang::Ko, mode: crate::i18n::Mode::Basic };
+        assert_eq!(ago(ko, 60_000, 48_000), "12초 전");
+        let shown = when(voice, 1_800_000_000_000, 1_799_999_990_000);
+        assert!(shown.ends_with(" · 10 s ago") && shown.len() == "00:00:00 · 10 s ago".len(), "{shown}");
     }
 }

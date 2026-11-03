@@ -31,6 +31,8 @@ olc-node.workspace = true
 olc-service.workspace = true
 olc-wallet.workspace = true
 serde_json.workspace = true
+# The local clock time of history rows; its own time zone reading, so no unsafe call here.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 olc-pow.workspace = true
