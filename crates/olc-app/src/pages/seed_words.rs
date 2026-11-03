@@ -190,13 +190,20 @@ impl WordsSheet {
         section(ui, cx.say("words.move_title"));
         meta(ui, &cx.fill("words.outside", &[&format::coins(held, cx.ticker())]), t);
         let ripe = cx.snap.node.wallet.outside_ripe;
-        if ripe < held {
-            meta(ui, cx.say("words.outside_later"), t);
-        }
         ui.add_space(4.0);
         if button_on(ui, t, cx.say("words.move"), Kind::Main, ripe > 0).clicked() {
             cx.send(Command::Lock(LockOrder::MoveToWords));
         }
+        // The line goes as the last mined coins mature. It keeps its room, so neither the button
+        // nor the restore box below moves or takes another egui name just then, which lost a press.
+        // egui leaves an invisible line out of what a screen reader hears.
+        ui.scope(|ui| {
+            let waiting = ripe < held;
+            if !waiting {
+                ui.set_invisible();
+            }
+            meta(ui, cx.say("words.outside_later"), t);
+        });
     }
 
     /// True when it is finished.

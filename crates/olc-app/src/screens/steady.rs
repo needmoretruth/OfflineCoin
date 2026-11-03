@@ -159,3 +159,57 @@ fn what_the_core_says_leaves_every_control_where_it_is() {
     compare(&mut window, &boards, &moved, "a new port", &mut wrong);
     assert!(wrong.is_empty(), "these did not hold still: {wrong:#?}");
 }
+
+/// What only a sheet shows: older coins that mature, so the line saying they must wait goes, or a
+/// new mined coin that brings it back.
+fn wallet_moves(quiet: &Snapshot, ripe: bool) -> Snapshot {
+    let mut stage = quiet.clone();
+    let wallet = &mut stage.node.wallet;
+    wallet.has_words = true;
+    wallet.words_to_write = None;
+    wallet.outside_words = 5_000_000_000;
+    wallet.outside_ripe = if ripe { wallet.outside_words } else { 2_500_000_000 };
+    stage
+}
+
+/// What [`busy`] brings, less a new address or a watched one: in a sheet those come from the
+/// person's own press on the button below the list, not on their own.
+fn on_its_own(quiet: &Snapshot) -> Snapshot {
+    let mut stage = busy(quiet);
+    stage.node.keys = quiet.node.keys.clone();
+    stage.node.watched = quiet.node.watched.clone();
+    stage
+}
+
+/// The sheets the settings page opens, each with the wallet maturing under it both ways. A press on
+/// the button that moves older coins to the words was lost on a slow runner as the last of them
+/// matured under the sheet.
+#[test]
+fn what_the_core_says_leaves_every_control_in_a_sheet_where_it_is() {
+    let mut window = harness(app(scratch("steady-sheets"), quiet_settings(), None), SIZES[0]);
+    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
+    let base = (*window.state().snapshot()).clone();
+    let waiting = wallet_moves(&base, false);
+    let ripe = wallet_moves(&base, true);
+    let open = word(&window, "common.open");
+    let mut wrong = Vec::new();
+    window.state_mut().open("page.settings");
+    window.state_mut().set_stage(Some(waiting.clone()));
+    window.run_steps(SETTLE_STEPS);
+    let rows = window.query_all_by_label(&open).count();
+    assert!(rows > 0, "the settings page opens no sheet");
+    for row in 0..rows {
+        window.state_mut().open("page.settings");
+        window.state_mut().set_stage(Some(waiting.clone()));
+        window.run_steps(SETTLE_STEPS);
+        if let Some(button) = window.query_all_by_label(&open).nth(row) {
+            button.click_accesskit();
+        }
+        window.run_steps(SETTLE_STEPS);
+        compare(&mut window, &waiting, &on_its_own(&ripe), &format!("sheet {row}, coins matured"), &mut wrong);
+        compare(&mut window, &ripe, &on_its_own(&waiting), &format!("sheet {row}, a coin mined"), &mut wrong);
+        window.key_press(egui::Key::Escape);
+        window.run_steps(SETTLE_STEPS);
+    }
+    assert!(wrong.is_empty(), "these did not hold still: {wrong:#?}");
+}
