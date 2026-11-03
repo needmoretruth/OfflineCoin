@@ -435,10 +435,16 @@ pub fn divider(ui: &mut Ui, t: &Tokens) {
     ui.add_space(1.0);
 }
 
-/// A row that can be chosen, with a wash on hover and a surface when current.
+/// How far a row's wash reaches past its words on each side.
+const ROW_PAD: f32 = 12.0;
+
+/// A row that can be chosen, with a wash on hover and a surface when current. Its words stand in
+/// the columns above them, as a table's heading does, and the wash reaches past them on each side.
 pub fn pick_row(ui: &mut Ui, t: &Tokens, height: f32, current: bool, name: &str, add: impl FnOnce(&mut Ui)) -> Response {
     let size = vec2(ui.available_width(), height);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (id, inner) = ui.allocate_space(size);
+    let rect = inner.expand2(vec2(ROW_PAD, 0.0));
+    let response = ui.interact(rect, id, Sense::click());
     if current {
         let look = Surface {
             top: t.float_top,
@@ -452,7 +458,6 @@ pub fn pick_row(ui: &mut Ui, t: &Tokens, height: f32, current: bool, name: &str,
     } else if response.hovered() {
         ui.painter().rect_filled(rect, CornerRadius::same(tokens::RADIUS_BUTTON), t.hover);
     }
-    let inner = rect.shrink2(vec2(12.0, 0.0));
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
     add(&mut row);
     focus_ring(ui, rect, &response, t);

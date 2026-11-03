@@ -11,4 +11,11 @@ impl Service {
             self.say(key, detail, good);
         }
     }
+
+    /// Puts how a payment ended in place of the notice that it is on its way.
+    pub(super) fn follow_payment(&mut self) {
+        if let Some((key, detail, good)) = self.host.payment_ended() {
+            self.say(key, detail, good);
+        }
+    }
 }

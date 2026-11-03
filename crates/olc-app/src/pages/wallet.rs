@@ -3,7 +3,7 @@
 //! grouped by what a person wants to do: keep it safe, receive and prove, share with others, and
 //! the rest. Expert mode adds locks. Each tool says in one line what it is for and opens in a sheet.
 use super::home::balance_line;
-use super::ledger::Ledger;
+use super::history::HistoryList;
 use super::locks::Locks;
 use super::money::{ReceiveSheet, SendSheet};
 use super::wallet_tools::{Tool, WalletTools};
@@ -17,8 +17,6 @@ use crate::ui::widgets::{self, button, card, meta, section, Kind};
 use crate::ui::Icon;
 use egui::{vec2, Align, Label, Layout, RichText, Ui};
 
-/// Every row the wallet keeps.
-const ALL_ROWS: usize = 200;
 /// The tools' column beside the rows.
 const TOOLS_WIDTH: f32 = 400.0;
 
@@ -77,7 +75,7 @@ enum Money {
 
 #[derive(Default)]
 pub struct WalletPage {
-    ledger: Ledger,
+    history: HistoryList,
     tools: WalletTools,
     locks: Locks,
     in_locks: bool,
@@ -175,11 +173,9 @@ impl WalletPage {
         let still = cx.settings.reduce_motion || desktop_reduces_motion();
         self.balance(ui, cx, still);
         ui.add_space(tokens::GAP_WIDE);
-        section(ui, cx.say("home.ledger"));
+        section(ui, cx.say(HistoryList::TITLE));
         ui.add_space(2.0);
-        if !self.ledger.show(ui, cx, ALL_ROWS, still) {
-            meta(ui, cx.say("home.empty_body"), cx.t);
-        }
+        self.history.full(ui, cx);
     }
 }
 

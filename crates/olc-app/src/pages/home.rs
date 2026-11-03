@@ -2,7 +2,7 @@
 //! happened to them lately, this computer's mining with its speed, and the latest blocks with who
 //! found each.
 use super::coins::history_card;
-use super::ledger::Ledger;
+use super::history::{every_row, HistoryList};
 use super::mining_card::MiningCard;
 use super::money::{ReceiveSheet, SendSheet};
 use super::{Cx, Page};
@@ -21,8 +21,10 @@ use egui::{vec2, Align, FontId, Label, Layout, RichText, Sense, Ui};
 const RECENT_ROWS: usize = 5;
 /// The blocks on Home are a little smaller than on Mining, so the rows below stay in sight.
 const BLOCK_SIZE: f32 = 70.0;
-/// How wide the coins take of the first row; mining takes the rest.
-const COINS_SHARE: f32 = 0.42;
+/// How wide the coins take of the first row; mining takes the rest. The history under the coins
+/// needs about this much to show its four columns whole at 1280 wide, and Mining splits its first
+/// row the same way.
+const COINS_SHARE: f32 = 0.58;
 
 enum Open {
     Receive(ReceiveSheet),
@@ -33,7 +35,7 @@ enum Open {
 #[derive(Default)]
 pub struct Home {
     open: Option<Open>,
-    ledger: Ledger,
+    history: HistoryList,
     mining: MiningCard,
 }
 
@@ -174,7 +176,7 @@ impl Home {
                 *cx.go = Some("page.settings");
             }
             ui.add_space(tokens::GAP_PAGE);
-            self.recent(ui, cx, still);
+            self.recent(ui, cx);
         });
     }
 
@@ -230,22 +232,18 @@ impl Home {
     }
 
     /// The last few rows of what happened, and the way to all of them.
-    fn recent(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
+    fn recent(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         ui.horizontal(|ui| {
-            section(ui, cx.say("home.ledger"));
+            section(ui, cx.say(HistoryList::TITLE));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if !cx.snap.node.activity.is_empty() && button(ui, t, cx.say("home.see_all"), Kind::Quiet).clicked() {
+                if every_row(&cx.snap.node).next().is_some() && button(ui, t, cx.say("home.see_all"), Kind::Quiet).clicked() {
                     *cx.go = Some("page.wallet");
                 }
             });
         });
         ui.add_space(2.0);
-        if !self.ledger.show(ui, cx, RECENT_ROWS, still) {
-            // The button that starts mining stands above this, on the mining card.
-            let body = cx.say(if cx.snap.node.mining { "home.empty_mining" } else { "home.empty_body" });
-            meta(ui, body, t);
-        }
+        self.history.recent(ui, cx, RECENT_ROWS);
     }
 
     fn sheets(&mut self, ui: &mut Ui, cx: &mut Cx) {

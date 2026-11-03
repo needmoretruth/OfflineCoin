@@ -191,7 +191,13 @@ pub fn pacing_card(ui: &mut Ui, cx: &Cx, labels: (&str, &str)) {
         ui.add_space(tokens::GAP);
         let average = node.chain.average_ms.map(|ms| format::seconds(voice, ms.div_ceil(1_000).max(1)));
         let mut figures = vec![
-            Figure::Plain(cx.say("mining.tries"), format::number(node.difficulty.into()), cx.say("mining.tries_under").to_string()),
+            // "Tries per block: 18,486 on average" for anyone; an expert reads the difficulty and
+            // what it stands for.
+            Figure::Plain(
+                cx.say("mining.tries"),
+                cx.fill("mining.tries_value", &[&format::number(node.difficulty.into())]),
+                if cx.expert() { cx.say("pro.tries_under").to_string() } else { String::new() },
+            ),
             Figure::Plain(
                 cx.say("mining.block_time"),
                 cx.fill("mining.aim", &[&aim]),

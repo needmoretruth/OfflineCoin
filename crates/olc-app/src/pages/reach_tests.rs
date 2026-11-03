@@ -4,16 +4,30 @@ use crate::pages::all;
 
 /// The files of a page.
 const FILES: &[(&str, &[&str])] = &[
-    (HOME, &["home.rs", "money.rs", "mining_card.rs", "speed.rs", "ledger.rs"]),
+    (HOME, &["home.rs", "money.rs", "send.rs", "mining_card.rs", "speed.rs", "history.rs", "history_detail.rs"]),
     (MINING, &["mining.rs", "miners.rs", "speed.rs", "local.rs", "pool.rs"]),
-    (WALLET, &["wallet.rs", "ledger.rs", "money.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs", "locks.rs"]),
+    (
+        WALLET,
+        &[
+            "wallet.rs",
+            "history.rs",
+            "history_detail.rs",
+            "money.rs",
+            "send.rs",
+            "wallet_tools.rs",
+            "seed_words.rs",
+            "shared_wallets.rs",
+            "message_sign.rs",
+            "locks.rs",
+        ],
+    ),
     (LAB, &["lab.rs", "lab_view.rs", "lab_boards.rs"]),
     (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs"]),
-    (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
+    (COINS, &["coins.rs", "coins_peers.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
-    (CHANNELS, &["channels.rs"]),
+    (CHANNELS, &["channels.rs", "channels_parts.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
 const EXPERT_FILES: &[&str] = &["board_more.rs", "lab_boards.rs", "coin_fork.rs", "locks.rs"];
