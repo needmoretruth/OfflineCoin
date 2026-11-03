@@ -82,6 +82,8 @@ fn the_console_word_mining_acts_in_the_app() {
     let core = core_on(&root, &app_copy(7615));
     core.send(Command::Own(Personal::SetMining(true)));
     until(&core, "mining after `mining on`", |snap| snap.node.mining);
+    // The app's Settings page reads it here, so its switch is not left behind.
+    until(&core, "the app hearing mining at opening", |snap| snap.mine_on_start);
     core.finish();
     assert!(saved(&root).mine_on_start);
 }

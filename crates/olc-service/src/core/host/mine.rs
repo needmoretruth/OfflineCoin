@@ -288,24 +288,6 @@ mod tests {
         assert_eq!(standard_threads(), cores.saturating_sub(1).max(1));
     }
 
-    /// Cores that are cores of their own, not a second thread of one, as Linux lists them.
-    fn physical_cores() -> usize {
-        let text = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-        let mut seen = std::collections::BTreeSet::new();
-        let mut socket = "";
-        for line in text.lines() {
-            let mut parts = line.splitn(2, ':').map(str::trim);
-            match (parts.next(), parts.next()) {
-                (Some("physical id"), Some(value)) => socket = value,
-                (Some("core id"), Some(value)) => {
-                    seen.insert(format!("{socket}/{value}"));
-                }
-                _ => {}
-            }
-        }
-        seen.len().max(1)
-    }
-
     /// Full speed on this computer against one thread alone. Two threads of one core share its
     /// hashing, so the bar counts the cores the threads stand on. It takes the whole machine for
     /// a few seconds, so it runs only when asked: `cargo test -- --ignored full_speed`.
@@ -313,7 +295,7 @@ mod tests {
     #[ignore = "measures this computer; run alone"]
     fn full_speed_uses_the_threads() {
         let threads = standard_threads();
-        let physical = physical_cores();
+        let physical = olc_platform::physical_cores();
         let one = grind_for(1, 0, Duration::from_millis(2_000));
         let on_cores = grind_for(physical.saturating_sub(1).max(1), 0, Duration::from_millis(2_000));
         let all = grind_for(threads, 0, Duration::from_millis(2_000));

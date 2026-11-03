@@ -40,9 +40,10 @@ impl Preset {
             hash_cap: 0,
             memory_mib: 1_024,
             cpu_percent: 0,
-            // A first opening reads every sector of the room it is given: 1 GiB opens in about
-            // a second, 8 GiB not in ten. Recent blocks fit many times over.
-            disk_mib: 1_024,
+            // A first opening reads every sector of the room it is given: 1 GiB takes about a
+            // second on a quiet computer and many on a busy one, 8 GiB not ten. A quarter GiB
+            // still holds hundreds of thousands of blocks.
+            disk_mib: 256,
             wallet: WalletChoice::Own,
             joined: true,
             listen_lan: false,
@@ -76,7 +77,7 @@ mod tests {
         assert_eq!(spec.hash_cap, 0, "a computer's miner starts at a board's speed");
         assert!(spec.memory_mib >= 256);
         assert!(spec.mining);
-        assert!(spec.disk_mib <= 1_024, "a new miner would take minutes to open its chain");
+        assert!(spec.disk_mib <= 256, "a new miner would take minutes to open its chain");
         assert_eq!(Preset::Esp32S3.spec(0).hash_cap, 15_000);
     }
 }

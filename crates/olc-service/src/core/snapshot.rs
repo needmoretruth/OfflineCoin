@@ -184,6 +184,8 @@ pub struct Snapshot {
     /// False when this run leaves USB alone.
     pub usb: bool,
     pub full_rate: u64,
+    /// Whether mining starts with the app, as the core holds it: the console can change it.
+    pub mine_on_start: bool,
     /// The folder this app keeps its files in.
     pub folder: String,
     pub swaps: SwapsView,
