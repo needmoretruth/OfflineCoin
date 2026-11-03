@@ -4,6 +4,10 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 
 ## [Unreleased]
 
+### Added
+
+- Home tells a wallet that has no recovery words yet, such as one made before 0.2.0, that only the backup file brings it back, with a button that makes the words.
+
 ### Fixed
 
 - `olc --version` and `olc-core --version` printed help instead of the version. They now print the program's name and version.
