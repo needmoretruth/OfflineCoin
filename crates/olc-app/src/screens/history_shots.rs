@@ -34,7 +34,7 @@ impl Page for HistoryHost {
     }
 
     fn show(&mut self, ui: &mut egui::Ui, cx: &mut Cx) {
-        crate::ui::widgets::title(ui, cx.say("history.all"));
+        crate::ui::widgets::title(ui, cx.say(HistoryList::TITLE));
         self.list.full(ui, cx);
     }
 }
@@ -173,7 +173,7 @@ fn history_rows_detail_requests_two_people_and_the_explorer_as_a_person_meets_th
     // The full list: when, what, how sure and how much, counting up as blocks come.
     window.state_mut().put_page(Box::<HistoryHost>::default());
     picture(&mut window, folder, "history-mining");
-    for text in ["코인 8개를 하나로 합침", "채굴", "보냄", "내 다른 주소로", "초 전", "Lunch"] {
+    for text in ["코인 8개(", "LDG)를 하나로 합침", "채굴", "보냄", "내 다른 주소로 1 LDG", "초 전", "Lunch"] {
         assert!(shows(&window, text), "the history shows {text}");
     }
     assert!(!shows(&window, "나에게"), "a join is not called a payment to yourself");
@@ -193,10 +193,10 @@ fn history_rows_detail_requests_two_people_and_the_explorer_as_a_person_meets_th
         last = node.height;
         same > 30
     });
-    opened(&mut window, folder, "-expert", "coins joined into one", "Inputs (8)");
+    opened(&mut window, folder, "-expert", "LDG) joined into one", "Inputs (8)");
     assert!(shows(&window, "Mempool"), "an expert sees the payments waiting");
     speak(&mut window, Lang::Ko, Mode::Basic);
-    opened(&mut window, folder, "", "코인 8개를 하나로 합침", "쓴 코인 (8)");
+    opened(&mut window, folder, "", "LDG)를 하나로 합침", "쓴 코인 (8)");
 }
 
 /// A joined row opens into its coins, eight in and one out, all of them this wallet's; its

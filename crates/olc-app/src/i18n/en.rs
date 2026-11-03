@@ -228,7 +228,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("records.nothing", "Nothing found. Old payments are found through their block."),
     ("records.pruned", "This computer no longer has block {}. It starts at block {}."),
     ("records.block", "Block {}"),
-    ("records.previous", "Previous block {}"),
     ("records.mining_reward", "Mining reward"),
     ("records.inputs", "Paid with {} coins"),
     ("records.note_line", "Note: {}"),

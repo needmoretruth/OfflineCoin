@@ -8,7 +8,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.sent", "보냄"),
     ("history.to_self", "내 다른 주소로"),
     ("history.joined", "코인 합치기"),
-    ("history.joined_line", "코인 {}개를 하나로 합침, 수수료 {}"),
+    ("history.joined_line", "코인 {}개({})를 하나로 합침, 수수료 {}"),
+    ("history.to_self_line", "내 다른 주소로 {}"),
     ("history.waiting", "대기 중"),
     ("history.ripe_in", "{}블록 뒤 사용 가능"),
     ("history.confirmations", "{}회 확인"),
@@ -17,7 +18,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.empty", "아직 내역이 없습니다"),
     ("history.empty_body", "돈을 보내거나 받으면 바로 여기 나옵니다."),
     ("history.empty_mining", "채굴 중입니다. 블록을 찾을 때마다 여기 나옵니다."),
-    ("history.about", "이 지갑의 모든 내역입니다. 최신순입니다. 줄을 누르면 자세히 볼 수 있습니다."),
+    ("history.heading", "내역"),
     ("history.all", "전체"),
     ("history.export", "CSV로 저장"),
     ("history.none_of_kind", "이 종류의 내역은 아직 없습니다."),
@@ -76,6 +77,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("receive.request_about", "코드와 복사한 글에 금액과 메모가 들어갑니다. 보내는 사람의 지갑이 알아서 채웁니다."),
     ("receive.copy_request", "요청 복사"),
     ("receive.new_address", "새 주소"),
+    ("records.block_time", "시간"),
     ("records.go_previous", "이전 블록"),
     ("records.go_next", "다음 블록"),
     ("records.confirmations", "위에 쌓인 블록"),
@@ -118,6 +120,8 @@ pub const WORDS: &[(&str, &str)] = &[
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
+    ("history.heading", "거래 내역"),
+    ("records.block_time", "타임스탬프"),
     ("detail.id", "트랜잭션 ID"),
     ("detail.inputs", "입력 ({})"),
     ("detail.outputs", "출력 ({})"),

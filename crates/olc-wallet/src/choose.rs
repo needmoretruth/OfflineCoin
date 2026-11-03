@@ -97,8 +97,8 @@ mod tests {
         let (wallet, chain) = funded();
         let coins = chain.unspent_of(&wallet.address());
         // Left to itself the wallet takes the first coin; the person picked the last that is ready.
-        let ripe = coins.iter().filter(|(_, coin)| chain.is_mature(coin, chain.height() + 1));
-        let big = ripe.last().unwrap().0;
+        let mut ripe = coins.iter().filter(|(_, coin)| chain.is_mature(coin, chain.height() + 1));
+        let big = ripe.next_back().unwrap().0;
         assert_ne!(big, coins[0].0);
         let (tx, _) = wallet.pay_at_rate(&chain, &[([9; 20], 10_000), ([8; 20], 20_000)], (0, 1), &[], &[big]).unwrap();
         assert_eq!(tx.inputs.len(), 1);

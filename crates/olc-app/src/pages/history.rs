@@ -100,10 +100,13 @@ pub fn label_of<'a>(cx: &'a Cx, id: &Hash) -> Option<&'a str> {
 /// The words of the "what" cell: the kind, a join's count and fee, and a name if it has one.
 pub fn what_line(cx: &Cx, item: &Activity) -> String {
     let what = match item.kind {
+        // The amount column is the change to the balance, so the words say what moved.
         ActivityKind::Joined => {
-            let fee = format::coins(item.fee.unwrap_or(0), cx.ticker());
-            cx.fill("history.joined_line", &[&item.coins_in.to_string(), &fee])
+            let fee = item.fee.unwrap_or(0);
+            let total = format::coins(item.amount + fee, cx.ticker());
+            cx.fill("history.joined_line", &[&item.coins_in.to_string(), &total, &format::coins(fee, cx.ticker())])
         }
+        ActivityKind::ToSelf => cx.fill("history.to_self_line", &[&format::coins(item.amount, cx.ticker())]),
         kind => cx.say(kind_key(kind)).to_string(),
     };
     match label_of(cx, &item.id) {
@@ -147,6 +150,9 @@ pub fn status_cell(ui: &mut Ui, cx: &Cx, item: &Activity) {
 }
 
 impl HistoryList {
+    /// The key of the title a page holding [`HistoryList::full`] puts above it.
+    pub const TITLE: &'static str = "history.heading";
+
     /// The newest `rows` rows, for Home. A row opens its detail.
     pub fn recent(&mut self, ui: &mut Ui, cx: &mut Cx, rows: usize) {
         let snap = cx.snap;
@@ -163,7 +169,6 @@ impl HistoryList {
     /// Every row kept, with a kind filter and a CSV export, for the Wallet page.
     pub fn full(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
-        explain::short(ui, t, cx.say("history.about"));
         explain::details(ui, t, "history-kinds", (cx.say("explain.details"), cx.say("explain.hide")), |ui| {
             super::history_detail::kinds_explained(ui, cx);
         });

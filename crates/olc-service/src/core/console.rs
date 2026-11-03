@@ -123,6 +123,7 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.name_bad", "Type a name for the board."),
     ("notice.name_too_long", "That name is too long. A board keeps 32 bytes, about 10 Korean letters."),
     ("notice.needs_password", "This backup has a password. Add --password."),
+    ("notice.new_address", "New address {}."),
     ("notice.no_bluetooth", "This computer cannot use Bluetooth."),
     ("notice.no_such_key", "This wallet has no such key."),
     ("notice.no_watched", "Watch an address first. The payment is made from its coins."),

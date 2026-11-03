@@ -80,6 +80,16 @@ impl Shape {
         all_known.then(|| spent.saturating_sub(self.received() + self.to_others))
     }
 
+    /// The amount a payment to the wallet's own address moved, its change left out. The wallet
+    /// puts the change last, and the change may go to the very address paid, so it is told
+    /// apart by place, not by address.
+    fn moved(&self) -> u64 {
+        match self.to_me.as_slice() {
+            [paid @ .., _change] if !paid.is_empty() => paid.iter().map(|(_, value)| value).sum(),
+            _ => self.received(),
+        }
+    }
+
     /// Several coins of one address, one coin back to that same address.
     fn is_join(&self) -> bool {
         let Some((first, _)) = self.spent.first() else {
@@ -98,7 +108,7 @@ fn kind_of(shape: &Shape, height: u64) -> Option<(ActivityKind, u64)> {
         (true, _) if to_me > 0 && height > 0 => Some((ActivityKind::Mined, to_me)),
         (true, _) if to_me > 0 => Some((ActivityKind::Received, to_me)),
         (false, true) if shape.to_others == 0 && shape.is_join() => Some((ActivityKind::Joined, to_me)),
-        (false, true) if shape.to_others == 0 => Some((ActivityKind::ToSelf, to_me)),
+        (false, true) if shape.to_others == 0 => Some((ActivityKind::ToSelf, shape.moved())),
         (false, true) => Some((ActivityKind::Sent, shape.to_others)),
         (false, false) if to_me > 0 => Some((ActivityKind::Received, to_me)),
         _ => None,

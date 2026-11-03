@@ -10,6 +10,9 @@ use crate::ui::widgets::{self, button, field, meta, mono, section, Kind};
 use crate::ui::format;
 use egui::{Grid, Label, RichText, Ui};
 
+/// The height of about six coin lines; a longer list scrolls.
+const COINS_SHOWN: f32 = 6.0 * 42.0;
+
 pub struct Detail {
     item: Activity,
     name: String,
@@ -62,7 +65,7 @@ impl Detail {
         let ticker = cx.ticker().to_string();
         let tip = cx.snap.node.height;
         let mut leave = false;
-        Grid::new("detail-facts").num_columns(2).spacing([tokens::GAP_WIDE, tokens::GAP]).show(ui, |ui| {
+        Grid::new("detail-facts").num_columns(2).min_col_width(110.0).spacing([tokens::GAP_WIDE, 2.0]).show(ui, |ui| {
             meta(ui, cx.say("detail.when"), t);
             ui.label(format!("{} · {}", format::moment(item.time_ms), format::ago(cx.voice(), unix_ms(), item.time_ms)));
             ui.end_row();
@@ -78,7 +81,7 @@ impl Detail {
             meta(ui, cx.say("detail.status"), t);
             ui.horizontal(|ui| {
                 status_cell(ui, cx, item);
-                if let Some(count) = confirmations(item, tip) {
+                if let Some(count) = confirmations(item, tip).filter(|_| !cx.expert()) {
                     meta(ui, &cx.fill("detail.blocks_on_top", &[&format::number(count.into()), &SETTLED.to_string()]), t);
                 }
             });
@@ -120,23 +123,33 @@ impl Detail {
             meta(ui, cx.say("detail.reading"), t);
             return;
         };
-        section(ui, &cx.fill("detail.inputs", &[&tx.ins.len().to_string()]));
-        if tx.is_coinbase {
-            meta(ui, cx.say("detail.new_coins"), t);
-        }
-        for input in &tx.ins {
-            coin_line(ui, cx, input.value, &input.from, cx.say("detail.older_coin"));
-        }
-        ui.add_space(tokens::GAP);
-        section(ui, &cx.fill("detail.outputs", &[&tx.outputs.len().to_string()]));
-        for output in &tx.outputs {
-            let other = match (&output.note, &output.lock) {
-                (Some(note), _) => note.clone(),
-                (None, Some(lock)) => lock.clone(),
-                (None, None) => cx.say("detail.under_lock").to_string(),
-            };
-            coin_line(ui, cx, Some(output.value), &output.to, &other);
-        }
+        // Spent on the left, made on the right, as a block explorer draws a payment; each list
+        // scrolls on its own past about six coins.
+        let list = |ui: &mut Ui, salt: &str, lines: &dyn Fn(&mut Ui)| {
+            egui::ScrollArea::vertical().id_salt(salt).max_height(COINS_SHOWN).auto_shrink([false, true]).show(ui, lines);
+        };
+        ui.columns(2, |columns| {
+            section(&mut columns[0], &cx.fill("detail.inputs", &[&tx.ins.len().to_string()]));
+            list(&mut columns[0], "detail-ins", &|ui| {
+                if tx.is_coinbase {
+                    meta(ui, cx.say("detail.new_coins"), t);
+                }
+                for input in &tx.ins {
+                    coin_line(ui, cx, input.value, &input.from, cx.say("detail.older_coin"));
+                }
+            });
+            section(&mut columns[1], &cx.fill("detail.outputs", &[&tx.outputs.len().to_string()]));
+            list(&mut columns[1], "detail-outs", &|ui| {
+                for output in &tx.outputs {
+                    let other = match (&output.note, &output.lock) {
+                        (Some(note), _) => note.clone(),
+                        (None, Some(lock)) => lock.clone(),
+                        (None, None) => cx.say("detail.under_lock").to_string(),
+                    };
+                    coin_line(ui, cx, Some(output.value), &output.to, &other);
+                }
+            });
+        });
     }
 
     fn name_row(&mut self, ui: &mut Ui, cx: &Cx) {
@@ -168,7 +181,7 @@ impl Detail {
         ui.add_space(tokens::GAP);
         let mut done = self.facts(ui, cx);
         ui.add_space(tokens::GAP);
-        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| self.coins(ui, cx));
+        self.coins(ui, cx);
         ui.add_space(tokens::GAP);
         self.name_row(ui, cx);
         ui.add_space(tokens::GAP);

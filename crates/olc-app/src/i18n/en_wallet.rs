@@ -8,7 +8,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.sent", "Sent"),
     ("history.to_self", "To my other address"),
     ("history.joined", "Coins joined"),
-    ("history.joined_line", "{} coins joined into one, fee {}"),
+    ("history.joined_line", "{} coins ({}) joined into one, fee {}"),
+    ("history.to_self_line", "To my other address, {}"),
     ("history.waiting", "Waiting"),
     ("history.ripe_in", "Spendable in {} block(s)"),
     ("history.confirmations", "{} confirmations"),
@@ -17,7 +18,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.empty", "No payments yet"),
     ("history.empty_body", "Money you send and receive shows here the moment it moves."),
     ("history.empty_mining", "Mining is on. Each block you find shows here."),
-    ("history.about", "Every payment of this wallet, newest first. Click a row to see all of it."),
+    ("history.heading", "History"),
     ("history.all", "All"),
     ("history.export", "Save as CSV"),
     ("history.none_of_kind", "None of this kind yet."),
@@ -76,6 +77,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("receive.request_about", "The code and the copied text carry the amount and note. The payer's wallet fills them in."),
     ("receive.copy_request", "Copy request"),
     ("receive.new_address", "New address"),
+    ("records.block_time", "Time"),
     ("records.go_previous", "Previous block"),
     ("records.go_next", "Next block"),
     ("records.confirmations", "Blocks on top"),
@@ -118,6 +120,8 @@ pub const WORDS: &[(&str, &str)] = &[
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
+    ("history.heading", "Transactions"),
+    ("records.block_time", "Timestamp"),
     ("detail.id", "Transaction ID"),
     ("detail.inputs", "Inputs ({})"),
     ("detail.outputs", "Outputs ({})"),

@@ -105,7 +105,7 @@ pub fn result(ui: &mut Ui, cx: &Cx, ticker: &str) -> Option<String> {
             });
             Grid::new("block-facts").num_columns(2).min_col_width(120.0).spacing([tokens::GAP_WIDE, 4.0]).show(ui, |ui| {
                 let when = format!("{} · {}", format::moment(block.row.time_ms), format::ago(cx.voice(), unix_ms(), block.row.time_ms));
-                fact(ui, cx, "detail.when", when);
+                fact(ui, cx, "records.block_time", when);
                 let confirmations = tip.saturating_sub(height) + 1;
                 fact(ui, cx, "records.confirmations", format::number(confirmations.into()));
                 meta(ui, cx.say("records.miner"), t);
@@ -118,9 +118,6 @@ pub fn result(ui: &mut Ui, cx: &Cx, ticker: &str) -> Option<String> {
                     fact(ui, cx, "pro.block_id", mono(full_hex(&block.row.id)));
                 }
             });
-            if cx.expert() {
-                meta(ui, &cx.fill("records.previous", &[&short_hex(&block.previous)]), t);
-            }
             ui.add_space(tokens::GAP);
             for tx in &block.txs {
                 show_tx(ui, cx, tx, ticker);

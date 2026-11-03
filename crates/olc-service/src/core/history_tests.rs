@@ -45,6 +45,17 @@ fn coins_moved_to_another_address_of_mine_are_not_a_join() {
     assert_eq!(kind_of(&mixed, 9), Some((ActivityKind::ToSelf, 99)), "coins of two addresses");
 }
 
+/// The owner sent 1 to another address of his own and the row read "0": the row names what
+/// moved, its change left out, while the balance changes only by the fee.
+#[test]
+fn a_payment_to_another_address_of_mine_names_what_moved() {
+    let moved = shape(&pay(&[1], &[(B, 1), (A, 48)]));
+    assert_eq!(kind_of(&moved, 9), Some((ActivityKind::ToSelf, 1)));
+    assert_eq!(moved.fee(), Some(1));
+    let change_to_the_same = shape(&pay(&[1], &[(B, 1), (B, 48)]));
+    assert_eq!(kind_of(&change_to_the_same, 9), Some((ActivityKind::ToSelf, 1)), "the change goes to the newest address");
+}
+
 #[test]
 fn coins_kept_in_the_wallet_are_not_sent() {
     let sent = shape(&pay(&[1], &[(STRANGER, 30), (A, 19)]));
