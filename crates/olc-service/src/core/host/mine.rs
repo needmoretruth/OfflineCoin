@@ -109,10 +109,6 @@ impl Default for Crew {
 }
 
 impl Crew {
-    pub(super) fn size(&self) -> usize {
-        self.hands.len()
-    }
-
     pub(super) fn resize(&mut self, wanted: usize) {
         if wanted == self.hands.len() {
             return;
@@ -292,16 +288,44 @@ mod tests {
         assert_eq!(standard_threads(), cores.saturating_sub(1).max(1));
     }
 
-    /// Full speed on this computer against one core, as the brief measures it. It takes the whole
-    /// machine for two seconds, so it runs only when asked: `cargo test -- --ignored full_speed`.
+    /// Cores that are cores of their own, not a second thread of one, as Linux lists them.
+    fn physical_cores() -> usize {
+        let text = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut socket = "";
+        for line in text.lines() {
+            let mut parts = line.splitn(2, ':').map(str::trim);
+            match (parts.next(), parts.next()) {
+                (Some("physical id"), Some(value)) => socket = value,
+                (Some("core id"), Some(value)) => {
+                    seen.insert(format!("{socket}/{value}"));
+                }
+                _ => {}
+            }
+        }
+        seen.len().max(1)
+    }
+
+    /// Full speed on this computer against one thread alone. Two threads of one core share its
+    /// hashing, so the bar counts the cores the threads stand on. It takes the whole machine for
+    /// a few seconds, so it runs only when asked: `cargo test -- --ignored full_speed`.
     #[test]
     #[ignore = "measures this computer; run alone"]
     fn full_speed_uses_the_threads() {
         let threads = standard_threads();
+        let physical = physical_cores();
         let one = grind_for(1, 0, Duration::from_millis(2_000));
+        let on_cores = grind_for(physical.saturating_sub(1).max(1), 0, Duration::from_millis(2_000));
         let all = grind_for(threads, 0, Duration::from_millis(2_000));
-        println!("one thread {one} H/s, {threads} threads {all} H/s, {:.2} of one core x threads",
-            all as f64 / (one as f64 * threads as f64));
-        assert!(all as f64 >= 0.8 * one as f64 * threads as f64);
+        let used = threads.min(physical);
+        println!(
+            "one thread {one} H/s; {} threads {on_cores} H/s; {threads} threads {all} H/s on {physical} cores; \
+             {:.2} of one thread x {used} cores, {:.2} of one thread x {threads} threads",
+            physical.saturating_sub(1).max(1),
+            all as f64 / (one as f64 * used as f64),
+            all as f64 / (one as f64 * threads as f64),
+        );
+        assert!(all as f64 >= 0.8 * one as f64 * used as f64);
+        assert!(all >= on_cores, "fewer threads would mine more");
     }
 }
