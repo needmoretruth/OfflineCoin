@@ -514,6 +514,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("words.outside_later", "채굴로 받은 코인은 몇 블록 뒤에 옮길 수 있습니다."),
     ("words.move", "단어 지갑으로 옮기기"),
     ("home.words_outside", "단어로 되살릴 수 없는 코인이 {} 있습니다."),
+    ("home.words_none", "아직 복구 단어가 없습니다. 단어를 만들기 전에는 백업 파일로만 코인을 되살릴 수 있습니다."),
     ("notice.moved_to_words", "단어 지갑으로 {} 옮겼습니다."),
     ("shared.place", "{}번"),
     ("setup.have_words", "단어가 이미 있습니다"),

@@ -113,9 +113,12 @@ impl Home {
         });
         // Words not yet written down are the one way back to this wallet, so they ask here. They
         // stand above what the node says, which comes and goes, so this button keeps its place.
-        // Words not yet written down come first; then coins the words cannot bring back.
+        // Words not yet written down come first; then a wallet with no words at all, which only
+        // wallets from before 0.2.0 are (new ones get words when made), so it shows whatever they
+        // hold: coins mined later need the words just the same; then coins the words cannot bring back.
         let words_line = match () {
             () if node.wallet.words_to_write.is_some() => Some((cx.say("home.words_unwritten").to_string(), "home.words_write")),
+            () if !node.wallet.has_words => Some((cx.say("home.words_none").to_string(), "words.make")),
             () if node.wallet.outside_words > 0 => {
                 Some((cx.fill("home.words_outside", &[&format::coins(node.wallet.outside_words, cx.ticker())]), "common.open"))
             }

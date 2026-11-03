@@ -514,6 +514,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("words.outside_later", "Mined coins can move once they mature, a few blocks later."),
     ("words.move", "Move to the words"),
     ("home.words_outside", "{} cannot come back from the words yet."),
+    ("home.words_none", "No recovery words yet. Until you make them, only the backup file brings your coins back."),
     ("notice.moved_to_words", "Moved {} to the words."),
     ("shared.place", "{}"),
     ("setup.have_words", "I already have words"),

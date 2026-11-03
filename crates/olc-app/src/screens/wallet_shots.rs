@@ -93,6 +93,16 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     let mut window = harness(app(root, settings, None), SIZES[0]);
     wait_until(&mut window, |app| app.snapshot().node.spendable > 2_000_000_000);
 
+    // Home tells the older wallet it has no words yet, and its button opens the words sheet.
+    window.state_mut().open("page.home");
+    window.run_steps(SETTLE_STEPS);
+    picture(&mut window, folder, "home-no-words");
+    assert!(shows(&window, "아직 복구 단어가 없습니다"), "the home page says the wallet has no words");
+    tap(&mut window, "words.make");
+    window.run_steps(SETTLE_STEPS);
+    assert!(shows(&window, "이 지갑에는 아직 복구 단어가 없습니다"), "the home button opens the words sheet");
+    close(&mut window);
+
     // The older wallet gets words, writes them down and types two back.
     settings_row(&mut window, WORDS_ROW);
     picture(&mut window, folder, "words-none");
@@ -115,6 +125,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     window.run_steps(SETTLE_STEPS);
     picture(&mut window, folder, "home-outside");
     assert!(shows(&window, "단어로 되살릴 수 없는 코인이"), "the home page says some coins need more than the words");
+    assert!(!shows(&window, "아직 복구 단어가 없습니다"), "the no-words line goes once the words exist");
     tap(&mut window, "common.open");
     picture(&mut window, folder, "words-move");
     assert!(shows(&window, "백업 파일이 있어야 합니다"), "the sheet says those coins need the backup file");
