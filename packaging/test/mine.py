@@ -2,9 +2,12 @@
 """Mines real blocks with the packaged programs, away from the app's own folders.
 
 Usage: mine.py <installed olc-core> <unpacked olc> <folder for results>
-The app's own node process mines first, then the terminal program. Each must find a block.
+Both programs first say the version this release carries. The app's own node process mines first,
+then the terminal program. Each must find a block.
 """
 import json
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,6 +16,27 @@ from pathlib import Path
 
 WAIT_SECONDS = 180
 END_SECONDS = 30
+
+
+def release_version():
+    """The version this package carries: its tag's on a release, the workspace's on a test run."""
+    if os.environ.get("GITHUB_REF_TYPE") == "tag":
+        return os.environ["GITHUB_REF_NAME"].removeprefix("v")
+    manifest = Path(__file__).resolve().parents[2] / "Cargo.toml"
+    return re.search(r'^version = "(.*)"$', manifest.read_text(), re.M).group(1)
+
+
+def versions(core, olc):
+    """A tag whose Cargo.toml kept the old version would ship programs that name the old one."""
+    wanted = release_version()
+    lines = []
+    for program, name in ((core, "OLC Core"), (olc, "olc")):
+        said = subprocess.run([program, "--version"], capture_output=True, text=True,
+                              timeout=END_SECONDS).stdout.strip()
+        if said != f"{name} {wanted}":
+            raise SystemExit(f"{program} --version said {said[:80]!r}, not {name} {wanted!r}.")
+        lines.append(said)
+    return lines
 
 
 def app_node(core, olc, work):
@@ -70,7 +94,7 @@ def main():
     core, olc, results = sys.argv[1:4]
     with tempfile.TemporaryDirectory() as folder:
         work = Path(folder)
-        lines = [app_node(core, olc, work), terminal_node(olc, work)]
+        lines = versions(core, olc) + [app_node(core, olc, work), terminal_node(olc, work)]
     text = "\n".join(lines) + "\n"
     print(text, end="")
     Path(results, "mined.txt").write_text(text)

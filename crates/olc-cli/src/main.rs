@@ -22,6 +22,7 @@ OfflineCoin
               a node in this terminal: type the words below to act on it
   olc devnet  [--nodes 3] [--coin FILE] [--hash-limit HASHES_PER_SECOND]
   olc logo    [--once]
+  olc --version
 
 Without --data, olc and olc node use the wallet of OLC Core.
 Each of these also takes --data DIR, --root DIR and --serial PORT:
@@ -95,6 +96,10 @@ fn main() {
     // Asking for help never starts or changes anything, whatever command it follows.
     if args.has("help") || std::env::args().skip(1).any(|word| word == "-h") {
         help();
+        return;
+    }
+    if args.has("version") || std::env::args().skip(1).any(|word| word == "-V") {
+        println!("olc {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     let result = match args.command() {

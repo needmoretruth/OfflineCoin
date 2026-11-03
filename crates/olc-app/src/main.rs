@@ -16,8 +16,12 @@ fn main() {
             "--no-usb" => launch.usb = false,
             "--data" => launch.data = words.next().map(Into::into),
             "--port" => launch.ports.extend(words.next()),
+            "--version" | "-V" => {
+                println!("OLC Core {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             _ => {
-                println!("OLC Core\n\n  olc-core [--no-usb] [--port FILE]... [--data DIR]");
+                println!("OLC Core\n\n  olc-core [--no-usb] [--port FILE]... [--data DIR] [--version]");
                 return;
             }
         }
