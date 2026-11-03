@@ -219,6 +219,7 @@ impl Local {
             if self.payer == Some(id) {
                 self.pay_form(ui, cx, id);
             }
+            if running && view.spec.holding != Holding::Headers { super::pool_join::rows(ui, cx, crate::core::Who::Node(id)) }
         });
         if slip.is_some() {
             *cx.slip = slip;

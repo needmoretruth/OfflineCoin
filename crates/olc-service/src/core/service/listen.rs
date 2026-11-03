@@ -2,6 +2,9 @@
 use super::Service;
 use crate::core::console::known_key;
 use crate::core::host::HeardFrom;
+use crate::core::pool_plan::PoolOrder;
+use crate::core::pool_run::PoolCx;
+use crate::core::pool_view::listing as pool_listing;
 use crate::discovery::ScanPlan;
 use olc_node::Hello;
 use std::time::{Duration, Instant};
@@ -78,7 +81,40 @@ impl Service {
         }
         self.ask_boards();
         self.local.reap();
-        self.pool.step(&self.host, &mut self.local, self.fleet.as_ref());
+        let hellos: Vec<&Hello> = self.found.boards().collect();
+        let mut cx = PoolCx {
+            host: &self.host,
+            local: &mut self.local,
+            fleet: self.fleet.as_ref(),
+            specs: &self.settings.nodes,
+            hellos: &hellos,
+            settings: &mut self.settings.pool,
+        };
+        self.pool.step(&mut cx);
+    }
+
+    /// What a person asked of the pool. The choices it leaves are kept for the next start.
+    pub(super) fn pool_order(&mut self, order: PoolOrder) {
+        let hellos: Vec<&Hello> = self.found.boards().collect();
+        let mut cx = PoolCx {
+            host: &self.host,
+            local: &mut self.local,
+            fleet: self.fleet.as_ref(),
+            specs: &self.settings.nodes,
+            hellos: &hellos,
+            settings: &mut self.settings.pool,
+        };
+        let show = order == PoolOrder::Show;
+        let done = self.pool.order(order, &mut cx);
+        drop(hellos);
+        if show {
+            self.say("pool.list", pool_listing(&self.pool.view()), true);
+            return;
+        }
+        self.save();
+        if !done {
+            self.say("notice.pool_failed", self.pool.failure(), false);
+        }
     }
 
     /// A board's rules change with no sign in its beacon, so each is asked now and then.

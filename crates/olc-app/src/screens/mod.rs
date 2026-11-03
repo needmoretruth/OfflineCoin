@@ -3,6 +3,7 @@
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
 mod chain_shots;
 mod channel_meet;
+mod pool_meet;
 mod lab_shots;
 mod live;
 mod live_swap;

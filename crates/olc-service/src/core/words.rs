@@ -5,6 +5,7 @@ use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
 use super::words_channels as ch;
+use super::words_pool as pool;
 use super::words_swap::swap;
 use super::words_wallet;
 use olc_board::Args;
@@ -102,12 +103,15 @@ pub const WORDS: &[Word] = &[
     Word { name: "move", usage: "move BOARD           put a board on this coin", run: move_board },
     Word { name: "cap-test", usage: "cap-test BOARD       find a board's best cap", run: cap_test },
     Word { name: "install", usage: "install --port PORT --name NAME [--firmware FILE]", run: install },
+    Word { name: "pool", usage: "pool                 how the pools stand", run: pool::pool },
     Word {
         name: "pool-start",
-        usage: "pool-start SHARE_DIFFICULTY [--nodes 1,2] [--boards A,B]",
-        run: pool_start,
+        usage: "pool-start [--port 3333] [--open] [--pplns N] [--fee PERCENT] [--difficulty D] [--workers own,1,BOARD]",
+        run: pool::pool_start,
     },
-    Word { name: "pool-stop", usage: "pool-stop", run: pool_stop },
+    Word { name: "pool-stop", usage: "pool-stop", run: pool::pool_stop },
+    Word { name: "pool-join", usage: "pool-join own|NODE|BOARD HOST:PORT ADDRESS.WORKER", run: pool::pool_join },
+    Word { name: "pool-leave", usage: "pool-leave own|NODE|BOARD", run: pool::pool_leave },
     Word { name: "lab-stop", usage: "lab-stop             stop an experiment", run: lab_stop },
     Word { name: "node-start", usage: "node-start ID        start a node on this computer", run: node_start },
     Word { name: "node-stop", usage: "node-stop ID", run: node_stop },
@@ -411,7 +415,7 @@ fn boards(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
 }
 
 /// The board a word means: its name, or the start of its id.
-fn find_board(desk: &mut dyn Desk, word: Option<&str>) -> Result<BoardId, String> {
+pub(super) fn find_board(desk: &mut dyn Desk, word: Option<&str>) -> Result<BoardId, String> {
     let word = word.ok_or("Name a board: olc boards lists them.")?;
     let rows = desk.boards()?;
     let matches = |view: &&BoardView| {
@@ -451,34 +455,6 @@ fn install(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let path = args.value("port").ok_or("--port needs a port")?.to_string();
     let name = args.value("name").ok_or("--name needs a name")?.to_string();
     desk.command(Command::InstallBoard { path, name })
-}
-
-fn list<'a>(args: &'a Args, name: &str) -> impl Iterator<Item = &'a str> {
-    args.value(name).unwrap_or("").split(',').filter(|word| !word.is_empty())
-}
-
-fn pool_start(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
-    let share_difficulty = number(args.word(1))?;
-    let mut nodes = Vec::new();
-    for word in list(args, "nodes") {
-        nodes.push(number(Some(word))?);
-    }
-    let mut boards = Vec::new();
-    for word in list(args, "boards") {
-        boards.push(find_board(desk, Some(word))?);
-    }
-    if nodes.is_empty() && boards.is_empty() {
-        return Err("Say which nodes or boards mine.".into());
-    }
-    desk.command(Command::StartPool {
-        share_difficulty,
-        nodes,
-        boards,
-    })
-}
-
-fn pool_stop(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
-    desk.command(Command::StopPool)
 }
 
 fn lab_stop(desk: &mut dyn Desk, _args: &Args) -> Result<String, String> {
@@ -554,20 +530,6 @@ mod tests {
         assert!(matches!(&desk.0[1], Command::Own(Personal::WriteNote(text)) if text == "two words"));
         let backup = &desk.0[2];
         assert!(matches!(backup, Command::Own(Personal::BackUp { password: Some(_), .. })));
-    }
-
-    #[test]
-    fn a_pool_starts_from_a_line_and_says_when_nothing_would_mine() {
-        let mut desk = Heard::default();
-        run_line(&mut desk, "pool-start 1000 --nodes 1,2").unwrap();
-        let started = &desk.0[0];
-        assert!(matches!(
-            started,
-            Command::StartPool { share_difficulty: 1_000, nodes, boards }
-                if nodes == &[1, 2] && boards.is_empty()
-        ));
-        assert!(run_line(&mut desk, "pool-start 1000").is_err());
-        assert!(run_line(&mut desk, "pool-start --nodes 1").is_err());
     }
 
     #[test]

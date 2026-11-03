@@ -23,6 +23,8 @@ mod message_sign;
 mod money;
 mod note;
 mod pool;
+mod pool_join;
+mod pool_parts;
 mod records;
 mod records_detail;
 pub mod reach;
