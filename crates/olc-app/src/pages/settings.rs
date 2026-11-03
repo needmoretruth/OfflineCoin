@@ -254,13 +254,18 @@ mod tests {
     /// Typing 50000 into the cap field takes nothing on the way, and 50,000 once on Enter.
     #[test]
     fn a_typed_cap_applies_once_on_enter() {
-        let take = |ui: &mut egui::Ui, taken: &mut Vec<u64>| {
+        // Fonts land on the next frame, so the first one only sets them.
+        let take = |ui: &mut egui::Ui, (fonts, taken): &mut (bool, Vec<u64>)| {
+            if !*fonts {
+                *fonts = true;
+                ui.ctx().set_fonts(crate::ui::fonts::definitions());
+                return;
+            }
             if let Some(number) = committed_number(ui, 20_000, "Cap", 120.0) {
                 taken.push(number);
             }
         };
-        let mut harness = Harness::new_ui_state(take, Vec::new());
-        harness.ctx.set_fonts(crate::ui::fonts::definitions());
+        let mut harness = Harness::new_ui_state(take, (false, Vec::new()));
         harness.run();
         harness.get_by_role(Role::TextInput).focus();
         harness.run();
@@ -270,9 +275,9 @@ mod tests {
             harness.get_by_role(Role::TextInput).type_text(digit);
             harness.run();
         }
-        assert!(harness.state().is_empty(), "taken while typing: {:?}", harness.state());
+        assert!(harness.state().1.is_empty(), "taken while typing: {:?}", harness.state().1);
         harness.key_press(Key::Enter);
         harness.run();
-        assert_eq!(harness.state(), &vec![50_000]);
+        assert_eq!(harness.state().1, vec![50_000]);
     }
 }

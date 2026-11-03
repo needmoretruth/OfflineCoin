@@ -148,10 +148,19 @@ impl Crew {
             }
         }
         let basis = Basis::of(engine);
-        if self.block.is_some() && self.basis.as_ref() == Some(&basis) && self.built.elapsed() < BUILD_EVERY {
-            return;
-        }
         let time_ms = now_ms.max(engine.chain().tip_header().time_ms + 1);
+        if self.basis.as_ref() == Some(&basis) {
+            // Only the time is out of date: building again would copy the unspent set.
+            if let Some(block) = self.block.as_mut().filter(|_| self.built.elapsed() >= BUILD_EVERY) {
+                block.header.time_ms = time_ms.max(block.header.time_ms);
+                let header = block.header;
+                self.publish(Some(header));
+                self.built = Instant::now();
+            }
+            if self.block.is_some() {
+                return;
+            }
+        }
         let block = engine.work_template(&basis.miner, time_ms, &basis.note);
         self.publish(Some(block.header));
         self.block = Some(block);

@@ -360,17 +360,17 @@ impl Worker {
             self.take_switch();
             let cap = self.state.cap.load(Ordering::Relaxed);
             let threads = self.state.threads.load(Ordering::Relaxed);
-            self.crew.resize(if threads > 1 { threads } else { 0 });
+            let wanted = self.state.mining.load(Ordering::Relaxed);
+            // Mining runs on threads of its own, even on one, so this thread holds the chain only
+            // to build a block and add it, and links and reports never wait behind the hashing.
+            self.crew.resize(if wanted { threads.max(1) } else { 0 });
             self.crew.set_cap(cap);
-            let crew = self.crew.size() > 0;
             // A batch bigger than the cap allows in a window would overrun it.
             let batch = u32::try_from(cap / 100)
                 .map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH));
             let batch = if cap == 0 { MINING_BATCH } else { batch };
             let elapsed_ms = window.elapsed().as_millis() as u64;
-            let allowed = cap == 0 || hashes < cap * elapsed_ms / 1_000;
-            let wanted = self.state.mining.load(Ordering::Relaxed);
-            let mining = wanted && allowed && !crew;
+            let mut grinding = false;
             let shared = self.runner.clone();
             if let Ok(mut runner) = shared.lock() {
                 let now = unix_ms();
@@ -379,15 +379,12 @@ impl Worker {
                 super::host_channels::pump(&self.state, &mut runner);
                 runner.step(now);
                 // A node catching up does not mine, so it counts nothing either.
-                let grinding = self.ground(&runner, batch);
+                grinding = self.ground(&runner, batch);
                 let free = !grinding && runner.engine.syncing_to().is_none() && runner.engine.light().is_none();
                 if grinding {
                     hashes += u64::from(batch);
-                } else if mining && free {
-                    runner.engine.mine(batch, now);
-                    hashes += u64::from(batch);
                 }
-                if crew && wanted && free {
+                if wanted && free {
                     self.crew.lead(&mut runner.engine, now);
                 } else {
                     self.crew.rest();
@@ -408,7 +405,7 @@ impl Worker {
                 hashes = 0;
                 window = Instant::now();
             }
-            if mining {
+            if grinding {
                 // Lets others take the lock between batches.
                 thread::yield_now();
             } else {

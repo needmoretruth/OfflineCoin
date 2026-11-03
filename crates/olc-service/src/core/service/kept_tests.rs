@@ -53,13 +53,14 @@ fn a_cap_set_elsewhere_survives_saving_another_setting() {
     let copy = Settings { hash_cap: 40_000, ..app_copy(7611) };
     let core = core_on(&root, &copy);
     core.send(Command::SetCap(5_000));
+    until(&core, "the console's cap", |snap| snap.node.cap == 5_000);
     core.send(Command::Save(Box::new(Settings { theme: crate::settings::Theme::Dark, ..copy })));
     core.finish();
     assert_eq!(saved(&root).theme, crate::settings::Theme::Dark);
     assert_eq!(saved(&root).hash_cap, 5_000, "the cap went back to the app's old copy");
-    // The node's own view follows a quarter of a second later.
+    // The node's own view follows a few turns later, and never goes back.
     std::thread::sleep(Duration::from_millis(600));
-    assert_eq!(core.snapshot().node.cap, 5_000, "the node runs under the app's old copy");
+    until(&core, "the console's cap after saving", |snap| snap.node.cap == 5_000);
 }
 
 #[test]
