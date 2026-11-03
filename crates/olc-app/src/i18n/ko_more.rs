@@ -525,4 +525,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.shared_waiting", "서명했습니다. 이 글을 다른 서명자에게 보내세요."),
     ("notice.shared_refused", "공동 지갑에서 보내지 못했습니다."),
     ("send.to_shared", "공동 지갑, {}명 서명 ({}명 중)"),
+    ("explain.details", "자세히"),
+    ("explain.hide", "접기"),
 ];

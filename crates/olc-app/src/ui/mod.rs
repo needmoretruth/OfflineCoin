@@ -1,4 +1,5 @@
 //! The look of the app: tokens, theme, fonts and the widgets every page shares.
+pub mod explain;
 pub mod floating;
 pub mod fonts;
 pub mod format;
