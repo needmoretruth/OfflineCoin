@@ -137,6 +137,11 @@ fn sample(word: &str, home: &Path) -> String {
         "node-mine" => "node-mine 1 on".into(),
         "node-miner" => "node-miner 1 own".into(),
         "node-pay" => format!("node-pay 1 {somebody} 1"),
+        "channels" => word.to_string(),
+        "channel-open" => "channel-open x 5".into(),
+        "channel-close" => "channel-close x".into(),
+        "invoice" => "invoice 5 hello".into(),
+        "channel-pay" => "channel-pay x".into(),
         other => panic!("no line tries {other}"),
     }
 }

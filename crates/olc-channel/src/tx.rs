@@ -122,7 +122,7 @@ pub fn commitment(
     htlcs: &[Htlc],
 ) -> Commitment {
     let (mut own, holder_funded) = holder;
-    let (mut theirs, other_payout) = other;
+    let (mut theirs, other_pay_to) = other;
     match holder_funded {
         true => own = own.saturating_sub(terms.fee),
         false => theirs = theirs.saturating_sub(terms.fee),
@@ -134,7 +134,7 @@ pub fn commitment(
         outputs.push(gamma(own, keys.to_self_lock(terms.delay)));
     }
     if theirs >= terms.dust {
-        outputs.push(paying(theirs, other_payout));
+        outputs.push(paying(theirs, other_pay_to));
     }
     let mut sorted: Vec<Htlc> = htlcs.to_vec();
     sorted.sort_by_key(|htlc| (!htlc.offered, htlc.id));

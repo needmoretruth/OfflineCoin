@@ -122,7 +122,7 @@ impl ChannelNode {
         let coin = ground.coin_id().ok_or(Refusal::NoV2Yet)?;
         let ask = Ask { capacity: amount, delay, fee: ground.fee(), dust: DUST, coin };
         let seed = fresh_secret().map_err(|_| Refusal::NotSaved)?;
-        let (channel, wire) = Channel::start(peer, ask, seed, ground.payout(), self.now_ms).map_err(|_| Refusal::TooLittle)?;
+        let (channel, wire) = Channel::start(peer, ask, seed, ground.pay_to(), self.now_ms).map_err(|_| Refusal::TooLittle)?;
         let id = channel.id;
         match self.keep(None, channel, Some(wire)) {
             true => Ok(id),
@@ -316,14 +316,21 @@ impl ChannelNode {
     fn view_of(&self, channel: &Channel, height: u64) -> ChannelView {
         let peer_name = self.peers.get(&channel.peer).map(|seen| seen.name.clone()).unwrap_or_default();
         let chain = &channel.chain;
+        // After the other side sent an old balance, every coin in the channel is ours, as every
+        // screen that shows this channel says next to the shares.
+        let waiting: u64 = channel.state.htlcs.iter().map(|htlc| htlc.amount).sum();
+        let (ours, theirs) = match chain.cheated() {
+            true => (channel.state.ours.saturating_add(channel.state.theirs).saturating_add(waiting), 0),
+            false => (channel.state.ours, channel.state.theirs),
+        };
         ChannelView {
             id: channel.id,
             peer: channel.peer,
             peer_name,
             phase: channel.phase,
             we_opened: channel.we_opened,
-            ours: channel.state.ours,
-            theirs: channel.state.theirs,
+            ours,
+            theirs,
             capacity: channel.terms.capacity,
             waiting: channel.state.htlcs.len(),
             funding: channel.funding(),

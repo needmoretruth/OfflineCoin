@@ -5,7 +5,7 @@ use crate::bytes::{hex, Bytes};
 use crate::channel::{Channel, Phase};
 use crate::graph::Graph;
 use crate::opening::Ask;
-use crate::store::{fresh_secret, Store};
+use crate::store::{fresh_secret, Store, Writer};
 use crate::wire::{ChannelId, Envelope, NodeId, Wire, EVERYONE};
 use olc_core::{Address, OutPoint, Tx, TxOut};
 use olc_crypto::{public_key, Hash};
@@ -39,7 +39,7 @@ pub trait Ground {
     /// The fee the coin asks of a transaction.
     fn fee(&self) -> u64;
     /// Where this node's coins go.
-    fn payout(&self) -> Address;
+    fn pay_to(&self) -> Address;
     /// A signed payment of `amount` from the wallet to `lock` in gamma, not sent.
     fn fund(&mut self, lock: &[u8], amount: u64) -> Result<Tx, String>;
     /// Checks a transaction as every node would and sends it.
@@ -134,9 +134,9 @@ pub struct ChannelNode {
 
 
 impl ChannelNode {
-    /// Opens the node whose files are in `folder`, made the first time.
-    pub fn open(folder: &Path, name: &str) -> Result<Self, String> {
-        let store = Store::open(folder)?;
+    /// Opens the node whose files are in `folder`, made the first time through `write`.
+    pub fn open(folder: &Path, name: &str, write: Writer) -> Result<Self, String> {
+        let store = Store::open(folder, write)?;
         let secret = store.key()?;
         let id = Bytes(public_key(&secret).ok_or("a damaged node key")?);
         let channels = store.channels().into_iter().map(|channel| (channel.id, channel)).collect();
@@ -268,7 +268,7 @@ impl ChannelNode {
         let answer = match refused {
             Some(why) => Err(why),
             None => match fresh_secret() {
-                Ok(seed) => Channel::answer(id, from, ask, side, seed, ground.payout(), self.now_ms),
+                Ok(seed) => Channel::answer(id, from, ask, side, seed, ground.pay_to(), self.now_ms),
                 Err(_) => Err("no random numbers here"),
             },
         };

@@ -7,24 +7,27 @@ use crate::bytes::hex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fs::{self, File};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const KEY: &str = "node.key";
 const BOOK: &str = "book.json";
 const CHANNEL_START: &str = "channel-";
 
+/// Makes a new file that only this computer's user can read, holding `bytes` flushed to the disk.
+/// The host gives the system's own; the files hold the keys that sign for the channel's coins.
+pub type Writer = fn(&Path, &[u8]) -> std::io::Result<()>;
+
 pub struct Store {
     folder: PathBuf,
+    write: Writer,
 }
 
 /// Writes `bytes` in place of `file` so that a cut leaves the old file or the new one.
-pub fn write_through(file: &Path, bytes: &[u8]) -> Result<(), String> {
+pub fn write_through(file: &Path, bytes: &[u8], write: Writer) -> Result<(), String> {
     let fresh = file.with_extension("new");
-    let mut out = File::create(&fresh).map_err(|error| error.to_string())?;
-    out.write_all(bytes).map_err(|error| error.to_string())?;
-    out.sync_all().map_err(|error| error.to_string())?;
-    drop(out);
+    // A cut before the move leaves the fresh file behind, and the writer makes only new files.
+    let _ = fs::remove_file(&fresh);
+    write(&fresh, bytes).map_err(|error| error.to_string())?;
     fs::rename(&fresh, file).map_err(|error| error.to_string())?;
     if let Some(folder) = file.parent() {
         // The move itself is safe once the folder is on the disk too.
@@ -35,19 +38,10 @@ pub fn write_through(file: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn keep_private(file: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(file, fs::Permissions::from_mode(0o600));
-}
-
-#[cfg(not(unix))]
-fn keep_private(_file: &Path) {}
-
 impl Store {
-    pub fn open(folder: &Path) -> Result<Self, String> {
+    pub fn open(folder: &Path, write: Writer) -> Result<Self, String> {
         fs::create_dir_all(folder).map_err(|error| error.to_string())?;
-        Ok(Self { folder: folder.to_path_buf() })
+        Ok(Self { folder: folder.to_path_buf(), write })
     }
 
     pub fn folder(&self) -> &Path {
@@ -61,8 +55,7 @@ impl Store {
             return bytes.try_into().map_err(|_| format!("{} is damaged", file.display()));
         }
         let key = fresh_secret()?;
-        write_through(&file, &key)?;
-        keep_private(&file);
+        write_through(&file, &key, self.write)?;
         Ok(key)
     }
 
@@ -72,9 +65,7 @@ impl Store {
 
     pub fn save_channel(&self, channel: &Channel) -> Result<(), String> {
         let file = self.channel_file(&channel.id);
-        write_through(&file, &to_json(channel)?)?;
-        keep_private(&file);
-        Ok(())
+        write_through(&file, &to_json(channel)?, self.write)
     }
 
     pub fn channels(&self) -> Vec<Channel> {
@@ -99,7 +90,7 @@ impl Store {
     }
 
     pub fn save_book<T: Serialize>(&self, book: &T) -> Result<(), String> {
-        write_through(&self.folder.join(BOOK), &to_json(book)?)
+        write_through(&self.folder.join(BOOK), &to_json(book)?, self.write)
     }
 }
 

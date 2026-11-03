@@ -38,7 +38,7 @@ pub struct Opening {
     /// Its points for states 0 and 1.
     pub points: [Key; 2],
     /// Where its coins go when the channel closes.
-    pub payout: Address,
+    pub pay_to: Address,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

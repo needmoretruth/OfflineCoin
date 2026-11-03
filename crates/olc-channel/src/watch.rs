@@ -61,13 +61,16 @@ impl ChainSeen {
     }
 }
 
+/// Builds the words that open an output from the signature over the claim.
+type Unlock = Box<dyn Fn(&[u8; 64]) -> Vec<u8>>;
+
 /// One output to take, with how it opens.
 struct Claim {
     taking: Taking,
     lock: Vec<u8>,
     secret: [u8; 32],
     /// Builds the unlock from the signature.
-    unlock: Box<dyn Fn(&[u8; 64]) -> Vec<u8>>,
+    unlock: Unlock,
     lock_time: u32,
 }
 
@@ -152,7 +155,7 @@ fn penalty_claims(channel: &Channel, number: u64, ground: &dyn Ground) -> Vec<Cl
     let mut claims = Vec::new();
     for (_, tx) in &channel.chain.seen {
         for (point, out, _) in unspent(tx, ground) {
-            let unlock: Box<dyn Fn(&[u8; 64]) -> Vec<u8>> = if out.lock == to_self {
+            let unlock: Unlock = if out.lock == to_self {
                 Box::new(|signature: &[u8; 64]| script::to_self_by_revocation(signature))
             } else if out.lock.starts_with(&htlc_start) {
                 Box::new(move |signature: &[u8; 64]| script::htlc_by_revocation(signature, &revocation))
@@ -270,7 +273,7 @@ fn sign_claims(channel: &Channel, claims: Vec<Claim>, fee: u64) -> Vec<Tx> {
     for group in groups {
         let takings: Vec<Taking> = group.iter().map(|claim| claim.taking.clone()).collect();
         let lock_time = group.first().map_or(0, |claim| claim.lock_time);
-        let Some(mut tx) = gather(&takings, &channel.ours.payout, fee, lock_time) else {
+        let Some(mut tx) = gather(&takings, &channel.ours.pay_to, fee, lock_time) else {
             continue;
         };
         let unlocks: Option<Vec<Vec<u8>>> = group

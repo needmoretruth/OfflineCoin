@@ -26,11 +26,11 @@ pub struct Ask {
     pub coin: Hash,
 }
 
-fn opening_of(seed: &Hash, payout: Address) -> Result<Opening, Fault> {
+fn opening_of(seed: &Hash, pay_to: Address) -> Result<Opening, Fault> {
     let secrets = Secrets::from_seed(seed);
     let keys = secrets.basepoints().ok_or("bad seed")?;
     let point = |number| state_point(&secrets.states, number).map(Bytes).ok_or("bad seed");
-    Ok(Opening { keys, points: [point(0)?, point(1)?], payout })
+    Ok(Opening { keys, points: [point(0)?, point(1)?], pay_to })
 }
 
 fn sound(side: &Opening) -> bool {
@@ -95,12 +95,12 @@ fn obscure_of(opener: &[u8], acceptor: &[u8]) -> u32 {
 
 impl Channel {
     /// The opener's first step.
-    pub fn start(peer: NodeId, ask: Ask, seed: Hash, payout: Address, made_ms: u64) -> Result<(Self, Wire), Fault> {
+    pub fn start(peer: NodeId, ask: Ask, seed: Hash, pay_to: Address, made_ms: u64) -> Result<(Self, Wire), Fault> {
         if ask.capacity <= ask.fee.saturating_add(ask.dust) {
             return Err("too little for a channel");
         }
         let id = sha256(&[&seed[..], &peer.0].concat());
-        let ours = opening_of(&seed, payout)?;
+        let ours = opening_of(&seed, pay_to)?;
         let mut channel = blank(id, peer, true, &ask, seed, ours.clone(), made_ms);
         let wire = Wire::Open {
             id,
@@ -122,7 +122,7 @@ impl Channel {
         ask: Ask,
         side: Opening,
         seed: Hash,
-        payout: Address,
+        pay_to: Address,
         made_ms: u64,
     ) -> Result<(Self, Wire), Fault> {
         if ask.capacity <= ask.fee.saturating_add(ask.dust) {
@@ -134,7 +134,7 @@ impl Channel {
         if !sound(&side) {
             return Err("keys that are no keys");
         }
-        let ours = opening_of(&seed, payout)?;
+        let ours = opening_of(&seed, pay_to)?;
         let mut channel = blank(id, peer, false, &ask, seed, ours.clone(), made_ms);
         channel.their_points = vec![(0, side.points[0]), (1, side.points[1])];
         channel.terms.obscure = obscure_of(&side.keys.funding.0, &ours.keys.funding.0);

@@ -12,7 +12,13 @@ use olc_channel::{ChannelNode, Ground, NodeId, Out, Refusal, Said};
 use olc_core::{Address, Hash, OutPoint, Tx, TxOut};
 use olc_node::{Engine, PeerId, Runner};
 use std::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
+use olc_platform::platform;
+use std::path::{Path, PathBuf};
+
+/// Channel files hold the keys to the channel's coins, so only this computer's user reads them.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    platform().write_private(path, bytes)
+}
 
 pub use olc_channel::{ChannelView, InvoiceView, PaymentView};
 pub use olc_channel::{PayState, Phase};
@@ -98,7 +104,7 @@ impl Ground for NodeGround<'_> {
         fee_of(self.engine)
     }
 
-    fn payout(&self) -> Address {
+    fn pay_to(&self) -> Address {
         self.engine.address()
     }
 
@@ -177,7 +183,7 @@ pub(super) fn view_of(state: &State) -> ChannelsView {
 
 impl ChannelDesk {
     fn reopen(&mut self, folder: Option<PathBuf>, name: &str) {
-        self.node = folder.as_ref().and_then(|folder| match ChannelNode::open(&folder.join("channels"), name) {
+        self.node = folder.as_ref().and_then(|folder| match ChannelNode::open(&folder.join("channels"), name, write_private) {
             Ok(node) => Some(node),
             Err(error) => {
                 eprintln!("channels: {error}");

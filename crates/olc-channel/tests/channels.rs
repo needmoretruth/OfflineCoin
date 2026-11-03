@@ -133,6 +133,10 @@ fn a_revoked_state_on_the_chain_hands_the_whole_channel_to_the_other_side() {
     assert_eq!(mined.len(), 1, "the old commitment is on the chain");
     let penalty = channel(&parties[1], &ab).chain.penalty.expect("B answered with the penalty");
     assert!(channel(&parties[1], &ab).chain.cheated());
+    // What B's screens show beside the sentence that every coin comes to B.
+    let height = world.chain.height();
+    let shown = parties[1].node.views(height).into_iter().find(|view| view.id == ab).unwrap();
+    assert_eq!((shown.ours, shown.theirs), (CAPACITY, 0));
     block(&mut parties, &mut world);
     assert!(world.has(&penalty));
     // B has all of it: A's share by the penalty, nothing to B's address from the old state.
@@ -195,5 +199,12 @@ fn a_restart_in_the_middle_of_a_step_carries_on_from_the_files() {
     assert!(paid(&parties[0], &hash));
     assert_eq!(channel(&parties[0], &ab).state.ours, CAPACITY - 20_000);
     assert_eq!(channel(&parties[1], &ab).state.ours, 20_000);
+    // The key, the channel and the book with its secrets all went through the private writer.
+    for party in &parties {
+        let names: Vec<String> = fs::read_dir(&party.folder).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().any(|name| name == "node.key") && names.iter().any(|name| name == "book.json"), "{names:?}");
+        assert!(names.iter().any(|name| name.starts_with("channel-")), "{names:?}");
+        assert_eq!(desk::written_around(&party.folder), Vec::<std::path::PathBuf>::new());
+    }
     let _ = second;
 }

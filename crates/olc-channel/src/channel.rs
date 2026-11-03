@@ -228,15 +228,15 @@ impl Channel {
 
     pub fn our_commitment(&self, state: &State) -> Result<Commitment, Fault> {
         let keys = self.our_keys(state.number)?;
-        let their_payout = self.their_side()?.payout;
+        let their_pay_to = self.their_side()?.pay_to;
         let holder = (state.ours, self.we_opened);
-        Ok(commitment(&self.terms, &keys, state.number, holder, (state.theirs, &their_payout), &htlcs_of(state, true)))
+        Ok(commitment(&self.terms, &keys, state.number, holder, (state.theirs, &their_pay_to), &htlcs_of(state, true)))
     }
 
     pub fn their_commitment(&self, state: &State) -> Result<Commitment, Fault> {
         let keys = self.their_keys(state.number)?;
         let holder = (state.theirs, !self.we_opened);
-        let other = (state.ours, &self.ours.payout);
+        let other = (state.ours, &self.ours.pay_to);
         Ok(commitment(&self.terms, &keys, state.number, holder, other, &htlcs_of(state, false)))
     }
 
@@ -439,7 +439,7 @@ impl Channel {
             true => ours = ours.checked_sub(fee).ok_or("not enough for the fee")?,
             false => theirs = theirs.checked_sub(fee).ok_or("not enough for the fee")?,
         }
-        Ok([(self.ours.payout, ours), (self.their_side()?.payout, theirs)])
+        Ok([(self.ours.pay_to, ours), (self.their_side()?.pay_to, theirs)])
     }
 
     fn closing_lock_and_tx(&self) -> Result<(Vec<u8>, Tx), Fault> {

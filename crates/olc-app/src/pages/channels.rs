@@ -90,15 +90,10 @@ impl Channels {
                 ui.label(widgets::strong_text(name.clone()));
                 meta(ui, &state_line(cx, channel), t);
                 ui.add_space(4.0);
-                // After an old balance, the whole channel is ours, as the sentence above says.
-                let (ours, theirs) = match channel.cheated {
-                    true => (channel.ours.saturating_add(channel.theirs), 0),
-                    false => (channel.ours, channel.theirs),
-                };
                 ui.horizontal(|ui| {
-                    ui.label(cx.fill("ch.yours", &[&format::coins(ours, cx.ticker())]));
+                    ui.label(cx.fill("ch.yours", &[&format::coins(channel.ours, cx.ticker())]));
                     ui.add_space(tokens::GAP_WIDE);
-                    ui.label(cx.fill("ch.theirs", &[&format::coins(theirs, cx.ticker())]));
+                    ui.label(cx.fill("ch.theirs", &[&format::coins(channel.theirs, cx.ticker())]));
                 });
                 if matches!(channel.phase, Phase::Open | Phase::Closing) {
                     ui.add_space(tokens::GAP);

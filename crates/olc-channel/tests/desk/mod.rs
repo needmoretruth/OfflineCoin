@@ -7,7 +7,29 @@ use olc_core::types::merkle_root;
 use olc_core::{Address, Chain, CoinConfig, Consensus, Hash, OutPoint, Plugins, Tx, TxOut};
 use olc_pow::ProofOfWork;
 use olc_wallet::Wallet;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Every file the writer below made, in every test of this binary.
+static WRITTEN: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// The tests' writer: a new file, flushed, as the host's writer makes it, and noted.
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    WRITTEN.lock().map_err(|_| std::io::Error::other("a test failed while writing"))?.push(path.to_path_buf());
+    Ok(())
+}
+
+/// The files in `folder` that the node did not make through the writer it was given.
+pub fn written_around(folder: &Path) -> Vec<PathBuf> {
+    let written = WRITTEN.lock().unwrap().clone();
+    let files = std::fs::read_dir(folder).unwrap().flatten().map(|entry| entry.path());
+    files.filter(|file| !written.contains(&file.with_extension("new"))).collect()
+}
 
 pub const FEE: u64 = 1_000;
 pub const DELAY: u16 = 6;
@@ -59,7 +81,7 @@ impl Ground for Desk<'_> {
         FEE
     }
 
-    fn payout(&self) -> Address {
+    fn pay_to(&self) -> Address {
         self.wallet.address()
     }
 
@@ -137,7 +159,7 @@ impl World {
         for _ in 0..3 {
             self.mine_to(&address);
         }
-        let node = ChannelNode::open(&folder, name).unwrap();
+        let node = ChannelNode::open(&folder, name, write_new).unwrap();
         Party { name, node, wallet, folder, cut: false }
     }
 
@@ -163,7 +185,7 @@ impl Party {
 
     /// Opens the node again from its folder, as after a restart: only what it saved survives.
     pub fn restart(&mut self) {
-        self.node = ChannelNode::open(&self.folder, self.name).unwrap();
+        self.node = ChannelNode::open(&self.folder, self.name, write_new).unwrap();
     }
 }
 
