@@ -24,6 +24,10 @@ impl Worker {
             self.tips += 1;
             self.blocks = recent_blocks(chain);
         }
+        let now_ms = super::super::host_parts::unix_ms();
+        self.watch.follow(chain, now_ms);
+        let other_tips = self.state.other_tips.lock().map(|tips| tips.clone()).unwrap_or_default();
+        self.watch.look_for_rivals(chain, &other_tips, now_ms);
         self.save_light(engine, &status.tip);
         let coins = engine.coins();
         let next = coins.height() + 1;
@@ -99,6 +103,7 @@ impl Worker {
             fetching: status.fetching,
             rebuilt: matches!(chain.opened(), Opened::Rebuilt { .. } | Opened::Lost),
             blocks: self.blocks.clone(),
+            chain: self.watch.view(),
             notes: self.history.notes().cloned().collect(),
             explored: self.history.enrich(self.state.explored.lock().map(|x| x.clone()).unwrap_or_default()),
             locks: engine.locked_coins(),

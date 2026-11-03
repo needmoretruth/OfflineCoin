@@ -5,7 +5,7 @@ use crate::pages::all;
 /// The files of a page.
 const FILES: &[(&str, &[&str])] = &[
     (HOME, &["home.rs", "money.rs", "send.rs"]),
-    (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs", "local.rs", "pool.rs", "lab.rs"]),
+    (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs", "local.rs", "pool.rs", "lab.rs", "lab_boards.rs"]),
     (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (LOCKS, &["locks.rs"]),
@@ -14,7 +14,7 @@ const FILES: &[(&str, &[&str])] = &[
     (CHANNELS, &["channels.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
-const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];
+const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "lab_boards.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../").to_string() + path).unwrap()

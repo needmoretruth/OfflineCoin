@@ -2,6 +2,8 @@
 //! board or a busy miner can never freeze it.
 mod address_index;
 mod board_action;
+mod chain_race;
+pub mod chain_view;
 mod folder;
 mod board_lines;
 mod terminal;
@@ -51,6 +53,7 @@ pub use olc_store::coin_fields::{
 pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use address_index::AddressMove;
 pub use explorer::{BlockDetail, BlockRow, Explored, InputRow, NoteRow, OutputRow, PendingRow, TxRow};
+pub use chain_view::{Branch, ChainView, MinedBlock, Miner, Share, SHARE_WINDOW};
 pub use history::{Activity, ActivityKind, KEPT, RECENT};
 pub use fees::FeeLevels;
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};

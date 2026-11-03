@@ -5,6 +5,7 @@ pub mod fonts;
 pub mod format;
 pub mod icons;
 pub mod logo;
+pub mod chain;
 pub mod paint;
 pub mod picker;
 pub mod register;
