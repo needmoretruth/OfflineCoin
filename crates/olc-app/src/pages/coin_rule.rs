@@ -59,6 +59,31 @@ fn span(cx: &Cx, secs: f64) -> String {
     }
 }
 
+/// A wait to expect, in whole minutes when it is whole.
+fn about(cx: &Cx, secs: f64) -> String {
+    let minutes = secs / 60.0;
+    match minutes >= 1.0 && minutes.fract() == 0.0 {
+        true => cx.fill("coin.v_minutes", &[&format!("{minutes:.0}")]),
+        false => span(cx, secs),
+    }
+}
+
+/// Until the first block after the change. With no easy block for a late one, the block mined at
+/// the old difficulty takes as many times the target as mining fell, so that is what to expect and
+/// one run's luck is the smaller line under it; with easy blocks the floor sets it, as measured.
+fn first(cx: &Cx, run: &Run, case: &str, easy: bool) -> String {
+    let Some(measured) = run.first() else {
+        return String::new();
+    };
+    match coin_rule_data::drop_factor(case).filter(|_| !easy) {
+        Some(times) => {
+            let usual = cx.fill("coin.v_usual", &[&about(cx, times * run.target)]);
+            format!("{usual}\n{}", cx.fill("coin.v_this_time", &[&span(cx, measured)]))
+        }
+        None => span(cx, measured),
+    }
+}
+
 /// How long a run was watched, in whole hours when it was.
 fn watched(cx: &Cx, secs: f64) -> String {
     let hours = secs / 3_600.0;
@@ -211,7 +236,7 @@ fn table(ui: &mut Ui, cx: &Cx, case: &str, (window, late_floor): (u64, bool)) {
             }
             let easy = lets_late_block_come_easy(rule, late_floor);
             row.push(cx.say(if easy { "coin.v_yes" } else { "coin.v_no" }).to_string());
-            row.push(run.and_then(Run::first).map(|secs| span(cx, secs)).unwrap_or_default());
+            row.push(run.map(|run| first(cx, run, case, easy)).unwrap_or_default());
             row.push(run.map(|run| back(cx, run)).unwrap_or_default());
             row
         })
@@ -246,6 +271,12 @@ mod tests {
 
     /// The table's late-block row says what each measured run did, OLC's own floor for the
     /// per-block rule included.
+    #[test]
+    fn a_drop_with_no_easy_block_expects_the_target_times_the_fall() {
+        assert_eq!(coin_rule_data::drop_factor("drop20"), Some(20.0));
+        assert_eq!(coin_rule_data::drop_factor("rise50"), None);
+    }
+
     #[test]
     fn the_late_block_row_matches_the_runs() {
         let olc = CoinConfig::olc().rules.allow_min_difficulty_blocks;

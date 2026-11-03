@@ -67,6 +67,12 @@ pub fn earliest(case: &str) -> f64 {
     blocks.map(|block| block.secs).fold(0.0, f64::min)
 }
 
+/// How many times mining fell in a case, `drop20` twenty: the first block's wait then grows as
+/// many times unless a late block may come easy. None for a rise.
+pub fn drop_factor(case: &str) -> Option<f64> {
+    case.strip_prefix("drop")?.parse::<u32>().ok().map(f64::from)
+}
+
 /// What a case's name says: `drop20` is mining falling to a twentieth, `rise50` growing fifty
 /// times. The word and the number, or None when the name says neither.
 pub fn case_words(case: &str) -> Option<(&'static str, &str)> {

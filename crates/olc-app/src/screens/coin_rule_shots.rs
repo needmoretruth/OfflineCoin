@@ -55,6 +55,8 @@ fn a_new_coin_picks_how_it_keeps_its_pace_on_stated_criteria() {
         assert!(window.query_all_by_label(case).count() > 0, "{case} is a change to look at");
     }
     assert!(window.query_by_label("2시간 안에 못 돌아옴").is_some(), "a rule not back says so");
+    // With no easy block the first one is expected at twenty block times; one run's luck is under it.
+    assert!(window.query_by_label("보통 10분").is_some() && window.query_by_label("이번에 1.0분").is_some(), "the wait to expect comes first");
     picture(&mut window, "coin-rule-basic-ko-dark");
     press(&mut window, "10블록마다 맞추고 늦으면 쉬운 블록");
     picture(&mut window, "coin-rule-picked-basic-ko-dark");
@@ -72,6 +74,7 @@ fn a_new_coin_picks_how_it_keeps_its_pace_on_stated_criteria() {
     assert!(window.query_by_label("Every 10 blocks; minimum difficulty after 2 block times").is_some());
     assert!(window.query_by_label("Bitcoin testnet4").is_some(), "where each is used");
     assert!(window.query_by_label("Minimum-difficulty blocks").is_some(), "the late floor is compared too");
+    assert!(window.query_by_label("Expected 10 min").is_some() && window.query_by_label("Measured 1.0 min").is_some());
     picture(&mut window, "coin-rule-expert-en-dark");
     // BIP 94 always lets a late block come at the floor, so its switch would change nothing.
     press(&mut window, "BIP 94");

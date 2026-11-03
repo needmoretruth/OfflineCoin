@@ -87,8 +87,16 @@ pub fn compare(ui: &mut Ui, t: &Tokens, id: impl Hash + std::fmt::Debug, criteri
             for (row, criterion) in criteria.iter().enumerate() {
                 ui.scope(|ui| wrapped(ui, RichText::new(*criterion).size(tokens::META).color(t.soft)));
                 for choice in choices {
+                    // A line break starts a smaller note under the value, as a measured number
+                    // under the one to expect.
                     let value = choice.values.get(row).copied().unwrap_or_default();
-                    ui.scope(|ui| wrapped(ui, RichText::new(value).color(t.text)));
+                    match value.split_once('\n') {
+                        Some((value, note)) => ui.vertical(|ui| {
+                            wrapped(ui, RichText::new(value).color(t.text));
+                            wrapped(ui, RichText::new(note).size(tokens::META).color(t.soft));
+                        }),
+                        None => ui.scope(|ui| wrapped(ui, RichText::new(value).color(t.text))),
+                    };
                 }
                 ui.end_row();
             }
