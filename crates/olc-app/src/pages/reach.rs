@@ -104,8 +104,11 @@ pub const CLI_ROWS: &[Row] = &[
         "Tuning a board's cap is measurement, and the buttons already set speed",
     ),
     row("install", BOARDS, "New board", "Command::InstallBoard"),
-    row("pool-start", BOARDS, "Together, start", "Command::StartPool"),
-    row("pool-stop", BOARDS, "Together, stop", "Command::StopPool"),
+    row("pool", BOARDS, "Together", "snap.pool"),
+    row("pool-start", BOARDS, "Together, start", "PoolOrder::Start"),
+    row("pool-stop", BOARDS, "Together, stop", "PoolOrder::Stop"),
+    row("pool-join", BOARDS, "Together, join a pool", "PoolOrder::Join"),
+    row("pool-leave", BOARDS, "Together, leave", "PoolOrder::Leave"),
     expert(
         "lab-stop",
         BOARDS,

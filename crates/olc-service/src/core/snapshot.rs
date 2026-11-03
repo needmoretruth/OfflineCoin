@@ -3,7 +3,7 @@ use olc_node::locks::LockedCoin;
 use olc_node::{Keeps, LightStatus};
 use super::explorer::{BlockRow, Explored, NoteRow};
 use super::history::Activity;
-use super::pool_run::PoolView;
+use super::pool_view::PoolView;
 use super::radios::NoBluetooth;
 use super::swap::Stage;
 use crate::discovery::{CoinGroup, Reach};

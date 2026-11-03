@@ -6,10 +6,10 @@ use crate::fixture::{
 };
 use crate::{Parse, Target};
 use olc_core::types::merkle_root;
-use olc_core::{BlockHeader, CoinConfig, CoinProof, SpendContext};
+use olc_core::{CoinConfig, CoinProof, SpendContext};
 use olc_node::network::{mark_of, stamp, CONTROL, OPEN};
 use olc_node::{Engine, Light, Link, Medium, Message, Runner, Target as Send};
-use olc_pool::Pool;
+use olc_pool::{Plan, Pool};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -228,28 +228,47 @@ fn scripts() -> Vec<Vec<u8>> {
     (0..3).map(|language| joined(language, &lock, &unlock)).collect()
 }
 
-fn job_headers() -> Vec<Vec<u8>> {
-    let engine = fresh_engine();
-    let mut pool = Pool::new(engine.address(), 1);
-    let job = pool.job_for(&engine, [8; 20], 1_000);
-    vec![job.header.encode().to_vec()]
+fn pool_user() -> String {
+    format!("{}.rig", olc_wallet::format_address(&[8; 20]))
+}
+
+/// Lines a miner sends a pool: signing in, asking to roll versions, a share.
+fn pool_lines() -> Vec<Vec<u8>> {
+    let user = pool_user();
+    let lines = [
+        r#"{"id":1,"method":"mining.subscribe","params":["fuzz"]}"#.to_string(),
+        format!(r#"{{"id":2,"method":"mining.authorize","params":["{user}","x"]}}"#),
+        r#"{"id":3,"method":"mining.configure","params":[["version-rolling"],{"version-rolling.mask":"1fffe000"}]}"#.into(),
+        format!(r#"{{"id":4,"method":"mining.submit","params":["{user}","1","00000001","00000000","00000000"]}}"#),
+        format!(r#"{{"id":5,"method":"mining.submit","params":["{user}","1","00000001","00000000","00000000","00002000"]}}"#),
+    ];
+    lines.into_iter().map(String::into_bytes).collect()
+}
+
+/// A pool with one connection signed in, as a miner on the network would find it.
+fn open_pool(engine: &Engine) -> (Pool, u64) {
+    let mut pool = Pool::new(engine.address(), Plan::default());
+    pool.refresh(engine, 1_000);
+    let session = pool.open(1_000).unwrap_or_default();
+    for line in pool_lines().iter().take(2) {
+        pool.handle(session, &String::from_utf8_lossy(line), 1_000);
+    }
+    (pool, session)
 }
 
 fn start_pool() -> Parse {
-    let mut engine = fresh_engine();
-    let mut pool = Pool::new(engine.address(), 1);
-    let worker = [8; 20];
+    let engine = fresh_engine();
+    let (mut pool, mut session) = open_pool(&engine);
     let mut count = 0u32;
     Box::new(move |bytes| {
-        let _ = pool.job_for(&engine, worker, 1_000 + u64::from(count));
-        if let Some(header) = BlockHeader::decode(bytes) {
-            crate::taken();
-            std::hint::black_box(pool.submit(&mut engine, worker, &header));
+        crate::taken();
+        let reply = pool.handle(session, &String::from_utf8_lossy(bytes), 1_000 + u64::from(count));
+        if reply.lines.iter().any(|line| line.contains("\"result\":true")) {
+            crate::deep();
         }
         count += 1;
-        if count.is_multiple_of(FRESH_AFTER) {
-            engine = fresh_engine();
-            pool = Pool::new(engine.address(), 1);
+        if !reply.keep || count.is_multiple_of(FRESH_AFTER) {
+            (pool, session) = open_pool(&engine);
         }
     })
 }
@@ -310,6 +329,6 @@ pub fn targets() -> Vec<Target> {
         },
         Target { name: "chain.proof", seeds: proofs, start: start_proof },
         Target { name: "chain.script", seeds: scripts, start: start_script },
-        Target { name: "pool.share", seeds: job_headers, start: start_pool },
+        Target { name: "pool.line", seeds: pool_lines, start: start_pool },
     ]
 }

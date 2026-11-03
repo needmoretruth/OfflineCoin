@@ -1,6 +1,6 @@
 [package]
 name = "olc-pool"
-description = "A mining pool built on ordinary node operations. Not part of the coin."
+description = "A mining pool built on ordinary node operations, spoken to in Stratum v1. Not part of the coin."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,9 +8,12 @@ repository.workspace = true
 
 [dependencies]
 olc-core.workspace = true
+olc-crypto.workspace = true
 olc-node.workspace = true
+olc-wallet.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 olc-lang.workspace = true
 olc-pow.workspace = true
-olc-wallet.workspace = true
+sha2.workspace = true

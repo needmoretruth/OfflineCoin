@@ -11,7 +11,7 @@ use super::commands::{Command, Personal, StartCoin};
 use super::found::Found;
 use super::host::{Host, Plan};
 use super::host_parts::full_rate;
-use super::pool_run::{PoolSeat, PoolStart};
+use super::pool_run::PoolSeat;
 use olc_platform::platform;
 use super::rows::{device_kind, hostname};
 use super::radios::bluetooth_here;
@@ -404,21 +404,7 @@ impl Service {
                 let target = if to.trim().is_empty() { "own" } else { to.trim() };
                 let _ = self.local.send(id, &format!("mineto {target}"));
             }
-            Command::StartPool {
-                share_difficulty,
-                nodes,
-                boards,
-            } => {
-                let specs = self.settings.nodes.clone();
-                let start = PoolStart {
-                    share_difficulty,
-                    specs: &specs,
-                    nodes: &nodes,
-                    boards: &boards,
-                };
-                self.pool.start(&self.host, &mut self.local, self.fleet.as_ref(), &start);
-            }
-            Command::StopPool => self.pool.stop(&mut self.local, self.fleet.as_ref()),
+            Command::Pool(order) => self.pool_order(order),
             Command::NodePay { id, to, amount } => {
                 let _ = self.local.send(id, &format!("pay {} {}", to.trim(), amount.trim()));
             }

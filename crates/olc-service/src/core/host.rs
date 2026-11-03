@@ -25,7 +25,6 @@ use std::time::{Duration, Instant};
 mod mine;
 mod view;
 
-const MINING_BATCH: u32 = 5_000;
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
 const TCP_LINK: usize = 0;
 const VIEW_EVERY: Duration = Duration::from_millis(250);
@@ -363,14 +362,10 @@ impl Worker {
             let wanted = self.state.mining.load(Ordering::Relaxed);
             // Mining runs on threads of its own, even on one, so this thread holds the chain only
             // to build a block and add it, and links and reports never wait behind the hashing.
-            self.crew.resize(if wanted { threads.max(1) } else { 0 });
+            let outside = self.state.work.lock().ok().and_then(|work| *work);
+            self.crew.resize(if wanted || outside.is_some() { threads.max(1) } else { 0 });
             self.crew.set_cap(cap);
-            // A batch bigger than the cap allows in a window would overrun it.
-            let batch = u32::try_from(cap / 100)
-                .map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH));
-            let batch = if cap == 0 { MINING_BATCH } else { batch };
             let elapsed_ms = window.elapsed().as_millis() as u64;
-            let mut grinding = false;
             let shared = self.runner.clone();
             if let Ok(mut runner) = shared.lock() {
                 let now = unix_ms();
@@ -378,13 +373,14 @@ impl Worker {
                 // block can connect, from the first turn after a start on.
                 super::host_channels::pump(&self.state, &mut runner);
                 runner.step(now);
-                // A node catching up does not mine, so it counts nothing either.
-                grinding = self.ground(&runner, batch);
-                let free = !grinding && runner.engine.syncing_to().is_none() && runner.engine.light().is_none();
-                if grinding {
-                    hashes += u64::from(batch);
-                }
-                if wanted && free {
+                // Work from outside goes first, on every thread; a node catching up does not mine.
+                let free = runner.engine.syncing_to().is_none() && runner.engine.light().is_none();
+                if let Some((header, difficulty)) = outside {
+                    let found = self.crew.follow(header, difficulty);
+                    if let Ok(mut shares) = self.state.shares.lock() {
+                        shares.extend(found);
+                    }
+                } else if wanted && free {
                     self.crew.lead(&mut runner.engine, now);
                 } else {
                     self.crew.rest();
@@ -405,30 +401,8 @@ impl Worker {
                 hashes = 0;
                 window = Instant::now();
             }
-            if grinding {
-                // Lets others take the lock between batches.
-                thread::yield_now();
-            } else {
-                thread::sleep(IDLE_SLEEP);
-            }
+            thread::sleep(IDLE_SLEEP);
         }
-    }
-
-    /// Tries a batch of work from outside, when there is any.
-    fn ground(&self, runner: &Runner, batch: u32) -> bool {
-        let Ok(mut slot) = self.state.work.lock() else {
-            return false;
-        };
-        let Some((header, difficulty)) = slot.as_mut() else {
-            return false;
-        };
-        if runner.engine.grind(header, *difficulty, batch) {
-            if let Ok(mut shares) = self.state.shares.lock() {
-                shares.push(*header);
-            }
-            header.nonce = header.nonce.wrapping_add(1);
-        }
-        true
     }
 
     fn keep(&mut self, runner: &mut Runner, asked: &mut Asked) {

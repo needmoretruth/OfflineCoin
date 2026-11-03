@@ -96,6 +96,7 @@ impl Extras<'_> {
                 cx.send(Command::Own(Personal::SetMineNote(self.values.note.clone())));
             }
         });
+        super::pool_join::rows(ui, cx, crate::core::Who::Own);
         let keys = ("settings.auto_update", "settings.auto_update_about");
         switch_setting(ui, cx, keys, |settings| &mut settings.auto_update);
     }
