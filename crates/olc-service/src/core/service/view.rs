@@ -1,5 +1,7 @@
 //! The snapshot the window reads: the node, the boards, the computers around and what runs here.
+use super::super::chain_race::{complete, other_tips};
 use super::super::coins::coin_folder;
+use super::super::host_parts::unix_ms;
 use super::super::found::link_of;
 use super::super::returning::is_returning;
 use super::super::rows::{board_entry, coin_of_board, earlier_rules, keeps_of, merge_local, on_other_rules, own_entry, reach_of_board};
@@ -11,7 +13,7 @@ use std::sync::Arc;
 
 impl Service {
     pub(super) fn publish(&mut self) {
-        let node = self.host.view();
+        let mut node = self.host.view();
         let identity = node.coin.clone().map(Identity::of);
         let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
         let mut rows = rows.unwrap_or_default();
@@ -47,7 +49,7 @@ impl Service {
         let specs = self.settings.nodes.clone();
         let local: Vec<_> = specs.iter().map(|spec| self.local.view(spec)).collect();
         merge_local(&mut entries, &local, identity.as_ref());
-        let boards = rows
+        let boards: Vec<BoardView> = rows
             .into_iter()
             .zip(links)
             .zip(hellos.iter().map(|hello| keeps_of(hello.as_ref())))
@@ -65,6 +67,10 @@ impl Service {
                 job: row.job,
             })
             .collect();
+        self.host.watch_tips(other_tips(&node, &local, &boards));
+        let mut chain = std::mem::take(&mut node.chain);
+        complete(&mut chain, &node, &local, &boards, &mut self.trail, unix_ms());
+        node.chain = chain;
         let fleet = self.fleet.as_ref();
         let new_ports = fleet.map_or_else(Vec::new, |fleet| {
             let ports = fleet.new_boards();
