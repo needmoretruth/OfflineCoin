@@ -47,6 +47,36 @@ fn typed(text: &str, view: &ChannelsView) -> Typed {
     }
 }
 
+/// A field with its name above it, so the name stays when the field holds a value.
+fn labelled(ui: &mut Ui, cx: &Cx, key: &str, text: &mut String, width: f32) {
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        meta(ui, cx.say(key), cx.t);
+        field(ui, text, cx.say(key), width);
+    });
+}
+
+/// A button level with fields that carry their names above them.
+fn under_names(ui: &mut Ui, t: &tokens::Tokens, named: bool, add: impl FnOnce(&mut Ui)) {
+    match named {
+        true => {
+            ui.vertical(|ui| {
+                meta(ui, " ", t);
+                add(ui);
+            });
+        }
+        false => add(ui),
+    }
+}
+
+/// `key@host:port` on one line: the start and end of the key, and the whole place to dial.
+fn short_address(address: &str) -> String {
+    match address.split_once('@') {
+        Some((key, at)) if key.len() > 10 => format!("{}...{}@{at}", &key[..6], &key[key.len() - 4..]),
+        _ => address.to_string(),
+    }
+}
+
 /// A long key with its middle left out, as a label.
 fn shortened(text: &str) -> String {
     let count = text.chars().count();
@@ -68,6 +98,9 @@ impl Channels {
             section(ui, cx.say("ch.my_address"));
             if view.address.is_empty() {
                 explain::short(ui, t, cx.say("ch.no_address"));
+                if cx.expert() {
+                    meta(ui, &cx.fill("ch.my_key", &[&view.key]), t);
+                }
                 return;
             }
             explain::short(ui, t, cx.say("ch.my_address_about"));
@@ -75,7 +108,10 @@ impl Channels {
             if self.address_code.as_ref().is_none_or(|(text, _)| *text != view.address) {
                 self.address_code = Some((view.address.clone(), qr_grid(&view.address)));
             }
-            ui.add(Label::new(mono(view.address.as_str())).wrap());
+            // One line: in basic mode the key's middle is left out, the place to dial is whole.
+            // Copy and the code always carry all of it.
+            let shown = if cx.expert() { view.address.clone() } else { short_address(&view.address) };
+            ui.add(Label::new(mono(shown)).truncate());
             ui.add_space(tokens::GAP);
             ui.horizontal(|ui| {
                 if button(ui, t, cx.say("ch.copy"), Kind::Plain).clicked() {
@@ -99,6 +135,10 @@ impl Channels {
             if view.network.only_here {
                 ui.add_space(tokens::GAP);
                 explain::short(ui, t, cx.say("ch.only_here"));
+                if button(ui, t, cx.say("ch.listen_on"), Kind::Plain).clicked() {
+                    cx.settings.listen_lan = true;
+                    cx.save();
+                }
             }
         });
     }
@@ -120,23 +160,33 @@ impl Channels {
             pushed => parse_coins(pushed).filter(|pushed| amount.is_none_or(|amount| *pushed < amount)),
         };
         ui.add_space(4.0);
+        let expert = cx.expert();
+        let ready = amount.is_some() && push.is_some() && matches!(read, Typed::Nearby(_) | Typed::Address);
+        let (mut go, mut connect) = (false, false);
         ui.horizontal(|ui| {
-            field(ui, &mut self.open_amount, cx.say("ch.open_amount"), 150.0);
-            if cx.expert() {
-                field(ui, &mut self.open_push, cx.say("ch.push"), 150.0);
-                field(ui, &mut self.open_delay, cx.say("ch.delay"), 120.0);
+            // Expert mode has three numbers side by side, so each keeps its name above it, and the
+            // buttons get an empty line above them to sit level with the fields.
+            if expert {
+                labelled(ui, cx, "ch.open_amount", &mut self.open_amount, 150.0);
+                labelled(ui, cx, "ch.push", &mut self.open_push, 150.0);
+                labelled(ui, cx, "ch.delay", &mut self.open_delay, 170.0);
+            } else {
+                field(ui, &mut self.open_amount, cx.say("ch.open_amount"), 150.0);
             }
-            let ready = amount.is_some() && push.is_some() && matches!(read, Typed::Nearby(_) | Typed::Address);
-            if button_on(ui, t, cx.say("ch.open_go"), Kind::Main, ready).clicked() && ready {
-                self.open_slip(cx, view, &read);
-            }
-            if let Typed::Place(place) = &read {
-                if button(ui, t, cx.say("ch.connect_only"), Kind::Plain).clicked() {
-                    cx.send(Command::AddAddress(place.clone()));
-                    self.open_with.clear();
-                }
+            under_names(ui, t, expert, |ui| {
+                go = button_on(ui, t, cx.say("ch.open_go"), Kind::Main, ready).clicked() && ready;
+            });
+            if matches!(read, Typed::Place(_)) {
+                under_names(ui, t, expert, |ui| connect = button(ui, t, cx.say("ch.connect_only"), Kind::Plain).clicked());
             }
         });
+        if go {
+            self.open_slip(cx, view, &read);
+        }
+        if let (true, Typed::Place(place)) = (connect, &read) {
+            cx.send(Command::AddAddress(place.clone()));
+            self.open_with.clear();
+        }
         let said = match &read {
             Typed::Wrong(key) => Some(cx.fill(key, &[&shortened(self.open_with.trim())])),
             Typed::Place(_) => Some(cx.say("ch.place_only").to_string()),
@@ -191,11 +241,11 @@ impl Channels {
         self.open_push.clear();
     }
 
-    /// Computers already connected that hold channels: a press puts one in the field.
+    /// Computers already connected that hold channels: a press puts one in the field. With none,
+    /// nothing is said: the field above is all a person needs.
     fn nearby(&mut self, ui: &mut Ui, cx: &Cx, view: &ChannelsView) {
         let t = cx.t;
         if view.peers.is_empty() {
-            meta(ui, cx.say("ch.nearby_none"), t);
             return;
         }
         meta(ui, cx.say("ch.pick"), t);

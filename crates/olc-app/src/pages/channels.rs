@@ -333,12 +333,16 @@ impl Page for Channels {
             return;
         }
         ui.set_max_width(WIDE + 2.0 * tokens::GAP_WIDE);
+        // With no channel yet, what to do comes first: the address to hand over and the field
+        // for the other one. The balance and the list come once there is something in them.
         self.my_address(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
-        Self::summary(ui, cx, &view);
-        ui.add_space(tokens::GAP_PAGE);
-        Self::channel_rows(ui, cx, &view);
-        ui.add_space(tokens::GAP_PAGE);
+        if !view.channels.is_empty() {
+            Self::summary(ui, cx, &view);
+            ui.add_space(tokens::GAP_PAGE);
+            Self::channel_rows(ui, cx, &view);
+            ui.add_space(tokens::GAP_PAGE);
+        }
         self.open(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
         self.pay(ui, cx, &view);

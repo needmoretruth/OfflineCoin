@@ -45,15 +45,29 @@ fn speak(window: &mut Window, mode: Mode, lang: Lang) {
 }
 
 /// A window on its own coin, listening on 127.0.0.1 only and dialling nobody.
-fn window(root: &Path, port: u16, mines: bool) -> Window {
+fn window(root: &Path, port: u16, mines: bool, coin: &CoinConfig) -> Window {
     let mut settings = live_settings(port, &[]);
     settings.hash_cap = 1_000;
     settings.mine_on_start = mines;
     let mut window = harness(app(root.to_path_buf(), settings, None), SIZE);
-    window.state().send(Command::Join { coin: Box::new(coin()), address: None });
+    window.state().send(Command::Join { coin: Box::new(coin.clone()), address: None });
     wait_in(&mut window, "the coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "CHT"));
     window.state_mut().open("page.channels");
     window
+}
+
+/// What the channel side of a window says now, for the run's log.
+fn report(window: &Window, who: &str) {
+    let snap = window.state().snapshot();
+    let channels = &snap.node.channels;
+    let notice = snap.notice.as_ref().map(|notice| format!("{} {}", notice.key, notice.detail));
+    let events: Vec<String> = channels.events.iter().take(3).map(|event| format!("{} {}", event.key, event.detail)).collect();
+    tell(&format!(
+        "  {who}: notice {notice:?}, reaching {:?}, events {events:?}, connections {}, heard {}",
+        channels.reaching,
+        channels.network.rows.len(),
+        channels.peers.len()
+    ));
 }
 
 fn scroll_to(window: &mut Window, label: &str) {
@@ -67,7 +81,7 @@ fn scroll_to(window: &mut Window, label: &str) {
 #[test]
 fn the_channels_page_shows_my_address_and_takes_the_other_one() {
     let root = live_root("CH-one");
-    let mut one = window(&root, port_of_scene(45), false);
+    let mut one = window(&root, port_of_scene(45), false, &coin());
     wait_in(&mut one, "the channel address", 2, |snap| !snap.node.channels.address.is_empty());
     let address = one.state().snapshot().node.channels.address.clone();
     assert!(address.contains("@127.0.0.1:"), "{address}");
@@ -76,6 +90,13 @@ fn the_channels_page_shows_my_address_and_takes_the_other_one() {
     assert!(one.query(By::new().role(Role::TextInput).label("상대 채널 주소 붙여 넣기")).is_some());
     // This computer listens on 127.0.0.1 only, and the page says how to change that.
     assert!(one.query(By::new().label_contains("이 컴퓨터 안에서만")).is_some());
+    assert!(has(&one, "켜기"), "no switch beside the note");
+    // The address stays on one line: the key's middle is left out, the place to dial is whole.
+    let (key, at) = address.split_once('@').unwrap();
+    let shown = format!("{}...{}@{at}", &key[..6], &key[key.len() - 4..]);
+    assert!(one.query(By::new().label(shown.as_str())).is_some(), "{shown} not shown");
+    // With no channel, the balance card does not lead the page.
+    assert!(one.query(By::new().label("채널에 있는 내 코인")).is_none());
     // A pasted key of the wrong length is said at once.
     fill(&mut one, Role::TextInput, "상대 채널 주소 붙여 넣기", "02abcd@127.0.0.1:7000");
     assert!(one.query(By::new().label_contains("온전한 채널 주소가 아닙니다")).is_some());
@@ -85,8 +106,10 @@ fn the_channels_page_shows_my_address_and_takes_the_other_one() {
 #[ignore = "mines a coin for minutes: run it by name"]
 fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
     let (a_root, b_root) = (live_root("CH-A"), live_root("CH-B"));
-    let mut a = window(&a_root, port_of_scene(41), true);
-    let mut b = window(&b_root, port_of_scene(42), false);
+    // Both follow the same coin, as two people who joined it would.
+    let coin = coin();
+    let mut a = window(&a_root, port_of_scene(41), true, &coin);
+    let mut b = window(&b_root, port_of_scene(42), false, &coin);
 
     // B has no coins and no channels yet: its page shows the address to hand over.
     wait_in(&mut b, "b's channel address", 2, |snap| !snap.node.channels.address.is_empty());
@@ -107,6 +130,7 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
     press(&mut a, "열기");
     a.query_all_by_label("열기").last().expect("the slip's own button").click();
     a.run_steps(3);
+    report(&a, "a after the press");
     let opened = |phase: Phase| move |snap: &crate::core::Snapshot| snap.node.channels.channels.iter().any(|channel| channel.phase == phase);
     wait_in(&mut a, "the channel is asked for", 2, |snap| !snap.node.channels.channels.is_empty());
     save(&mut a, "ch-04-opening-ko-basic");
