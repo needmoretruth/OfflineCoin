@@ -9,7 +9,7 @@ use crate::core::{coin_folder, save_coin, Command, LockOrder, Personal, WalletOr
 use crate::i18n::{self, Lang, Voice};
 use crate::pages::seed_words::asked;
 use crate::settings::{Paths, Theme};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use olc_core::CoinConfig;
 use std::path::Path;
 
@@ -55,6 +55,14 @@ fn tall(window: &mut Window, folder: Option<&Path>, name: &str) {
 
 fn shows(window: &Window, text: &str) -> bool {
     window.query_all_by_label_contains(text).next().is_some()
+}
+
+/// A recovery word standing as a word: words such as "add" or "face" are also hex inside an address.
+fn shows_word(window: &Window, word: &str) -> bool {
+    window.query_all_by_label_contains(word).any(|node| {
+        let label = node.accesskit_node().label().unwrap_or_default();
+        label.split(|c: char| !c.is_alphabetic()).any(|token| token == word)
+    })
 }
 
 fn settings_row(window: &mut Window, row: usize) {
@@ -130,10 +138,10 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     picture(&mut window, folder, "words-move");
     assert!(shows(&window, "백업 파일이 있어야 합니다"), "the sheet says those coins need the backup file");
     assert!(!shows(&window, "키"), "no word a person does not know");
-    assert!(!shows(&window, &words[0]), "the words stay hidden until asked");
+    assert!(!shows_word(&window, &words[0]), "the words stay hidden until asked");
     tap(&mut window, "words.see_again");
     picture(&mut window, folder, "words-ask");
-    assert!(!shows(&window, &words[0]), "asking first is not yet showing");
+    assert!(!shows_word(&window, &words[0]), "asking first is not yet showing");
     tap(&mut window, "words.show_go");
     tall(&mut window, folder, "words-again");
     assert!(words.iter().all(|word| shows(&window, word)), "every word shows again");
