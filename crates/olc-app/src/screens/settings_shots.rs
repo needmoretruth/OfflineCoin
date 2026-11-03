@@ -52,8 +52,9 @@ fn every_setting_says_when_it_takes_hold() {
 
     // Going back to defaults asks a second time and can be called off.
     press(&mut window, "Reset to defaults", 0);
-    assert!(window.query_by_label("Reset everything").is_some(), "the second press resets");
-    assert!(window.query_by_label_contains("Language, wallet and blocks stay").is_some());
+    assert!(window.query_by_label("Reset").is_some(), "the second press resets");
+    assert!(window.query_by_label_contains("except the language").is_some());
+    assert!(window.query_by_label_contains("Your wallet and blocks stay").is_some());
     picture(&mut window, "settings-reset-basic-en-dark");
     press(&mut window, "Cancel", 0);
     assert!(window.query_by_label("Reset to defaults").is_some());
