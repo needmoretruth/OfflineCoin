@@ -63,7 +63,8 @@ impl Engine {
         };
         let time_ms = whole.max(time_ms).max(self.chain.earliest_time(&tip));
         let difficulty = self.chain.next_difficulty_at(&tip, time_ms);
-        if let Some(block) = self.candidate.as_mut() {
+        // A header that stays the same keeps its nonce, or the nonces tried would be tried again.
+        if let Some(block) = self.candidate.as_mut().filter(|block| (block.header.time_ms, block.header.difficulty) != (time_ms, difficulty)) {
             block.header.time_ms = time_ms;
             block.header.difficulty = difficulty;
             block.header.nonce = 0;
