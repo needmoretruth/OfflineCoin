@@ -238,4 +238,13 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.version_one", "Sign the old way"),
     ("pro.version_one_about", "Signs payments as version 1, as the first Bitcoin did. They still go through, but a fork of this coin could copy them."),
     ("pro.fork_warning","You split from nodes on the old rules at this height. You can come back on the Network page."),
+    ("pro.sign_message", "Sign a message"),
+    ("pro.sign_message_about", "Prove you hold an address, the way Bitcoin's signmessage does."),
+    ("pro.message_title", "Sign or check a message"),
+    ("pro.message_body", "A signature proves the message came from the key of the address."),
+    ("pro.message_address", "Address"),
+    ("pro.message_text", "Message"),
+    ("pro.message_signature", "Signature"),
+    ("pro.message_sign", "Sign"),
+    ("pro.message_verify", "Check"),
 ];

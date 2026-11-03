@@ -25,6 +25,9 @@ pub enum Tool {
     Watch,
     Offline,
     Note,
+    Words,
+    Shared,
+    Message,
 }
 
 /// What the file being chosen is for.
@@ -48,6 +51,9 @@ pub struct WalletTools {
     to: String,
     amount: String,
     fee: String,
+    words: super::seed_words::WordsSheet,
+    shared: super::shared_wallets::SharedSheet,
+    message: super::message_sign::MessageSheet,
 }
 
 fn own(cx: &Cx, order: Personal) {
@@ -294,6 +300,9 @@ impl WalletTools {
             Tool::Watch => self.watched(ui, cx),
             Tool::Offline => self.offline(ui, cx),
             Tool::Note => super::note::show(ui, cx),
+            Tool::Words => self.words.show(ui, cx),
+            Tool::Shared => self.shared.show(ui, cx),
+            Tool::Message => self.message.show(ui, cx),
         });
         let finished = self.filing(ui, cx);
         if done || finished || (outside && self.filing.is_none()) {

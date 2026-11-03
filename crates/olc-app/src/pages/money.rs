@@ -1,6 +1,6 @@
 //! The two sheets that move money: one to receive with a code, one to send through a slip.
 use super::Cx;
-use crate::core::{parse_coins, BoardAction, BoardView, Command};
+use crate::core::{parse_coins, BoardAction, BoardView, Command, LockOrder};
 use crate::ui::floating::{sheet_head, Slip};
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{button, button_on, field, meta, mono, pick_row, Kind};
@@ -10,6 +10,7 @@ use olc_control::BoardId;
 use olc_core::CoinConfig;
 use olc_service::qr::{qr_grid, QrGrid};
 use olc_wallet::parse_address;
+use olc_wallet::shared::{Shared, SHARED_START};
 
 const CODE: f32 = 216.0;
 const QUIET_SQUARES: f32 = 3.0;
@@ -20,7 +21,7 @@ pub struct ReceiveSheet {
 }
 
 /// Always dark on white, whatever the theme, so any camera can read it.
-fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
+pub(super) fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
     let (rect, response) = ui.allocate_exact_size(vec2(CODE, CODE), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(tokens::RADIUS_CARD), Color32::WHITE);
@@ -66,6 +67,11 @@ impl ReceiveSheet {
         });
         done
     }
+}
+
+/// A shared wallet's text, which can stand where an address does.
+fn shared_wallet(text: &str) -> Option<Shared> {
+    text.starts_with(SHARED_START).then(|| Shared::from_text(text).ok()).flatten()
 }
 
 /// Which wallet a slip pays from. `None` is this app's.
@@ -152,7 +158,12 @@ impl SendSheet {
         if let Some(board) = board {
             rows.push((cx.say("send.from").to_string(), board.seen.beacon.name.clone()));
         }
-        rows.push((cx.say("send.to").to_string(), to.clone()));
+        let shared = board.is_none().then(|| shared_wallet(&to)).flatten();
+        let shown = match &shared {
+            Some(shared) => cx.fill("send.to_shared", &[&shared.need.to_string(), &shared.keys.len().to_string()]),
+            None => to.clone(),
+        };
+        rows.push((cx.say("send.to").to_string(), shown));
         rows.push((cx.say("send.fee").to_string(), format::coins(fee, ticker)));
         rows.push((cx.say("send.left").to_string(), format::coins(left, ticker)));
         let amount = self.amount.trim().to_string();
@@ -161,6 +172,8 @@ impl SendSheet {
                 let action = BoardAction::Pay { to, amount: format::amount(units) };
                 Command::Board { id: board.seen.id, action }
             }
+            // A shared wallet's text stands for its lock, and coins go under it.
+            None if shared.is_some() => Command::Lock(LockOrder::Pay { words: to, amount }),
             None => Command::Pay { to, amount },
         };
         Slip {
@@ -194,7 +207,8 @@ impl SendSheet {
         }
         ui.add_space(4.0);
         field(ui, &mut self.to, cx.say("send.to_hint"), width);
-        let address = parse_address(self.to.trim());
+        let shared = board.is_none() && shared_wallet(self.to.trim()).is_some();
+        let address = parse_address(self.to.trim()).map(|_| ()).or(shared.then_some(()));
         if self.tried && address.is_none() {
             problem(ui, t, cx.say("send.bad_address"));
         }

@@ -4,6 +4,7 @@ use super::board_action::BoardAction;
 use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
+use super::words_wallet;
 use olc_board::Args;
 use olc_control::line::split;
 use olc_control::BoardId;
@@ -76,6 +77,11 @@ pub const WORDS: &[Word] = &[
     Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a lock", run: lock_pay },
     Word { name: "lock-spend", usage: "lock-spend COIN [--to ADDRESS] WORDS  spend a locked coin", run: lock_spend },
     Word { name: "lock-sign", usage: "lock-sign TEXT       add your signature to a spend", run: lock_sign },
+    Word { name: "words", usage: "words [written|new [korean]|restore WORD...]  seed words to write down or restore from", run: words_wallet::words },
+    Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },
+    Word { name: "verify-message", usage: "verify-message ADDRESS SIGNATURE TEXT  check a signed message", run: words_wallet::verify_message },
+    Word { name: "shared", usage: "shared [new N KEY...|add TEXT|forget N|pay N ADDRESS AMOUNT]  wallets several people share", run: words_wallet::shared },
+    Word { name: "speed-up", usage: "speed-up ID          a waiting payment, with a higher fee", run: words_wallet::speed_up },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
     Word { name: "save-coin", usage: "save-coin FILE       write this coin to a file", run: save_coin },
     Word { name: "boards", usage: "boards               list boards", run: boards },

@@ -4,6 +4,7 @@
 extern crate alloc;
 
 pub mod bluetooth;
+pub mod bump;
 pub mod dial;
 pub mod engine;
 mod event;
@@ -21,6 +22,7 @@ pub mod neighbours;
 pub mod network;
 mod refused;
 pub mod runner;
+pub mod shared;
 mod serve;
 mod snapshot;
 mod spend;

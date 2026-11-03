@@ -583,6 +583,7 @@ impl Worker {
             explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
             locks: engine.locked_coins(),
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
+            wallet: super::host_wallet::wallet_view(engine),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

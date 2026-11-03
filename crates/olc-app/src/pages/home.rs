@@ -1,8 +1,8 @@
 //! The cash book: how much there is, the three things a person does with it, and what happened.
 use super::coins::history_card;
 use super::money::{ReceiveSheet, SendSheet};
-use super::{Cx, Page};
-use crate::core::{unix_ms, Activity, ActivityKind, Command, NodeView};
+use super::{Cx, Page, Slipping};
+use crate::core::{unix_ms, Activity, ActivityKind, Command, LockOrder, NodeView};
 use crate::ui::floating::sheet;
 use crate::ui::paint::ink;
 use crate::ui::theme::desktop_reduces_motion;
@@ -20,6 +20,7 @@ const LEDGER_ROWS: usize = 40;
 enum Open {
     Receive(ReceiveSheet),
     Send(SendSheet),
+    Words(super::seed_words::WordsSheet),
 }
 
 #[derive(Default)]
@@ -110,6 +111,18 @@ impl Home {
                 self.open = Some(Open::Send(SendSheet::default()));
             }
         });
+        // Words not yet written down are the one way back to this wallet, so they ask here. They
+        // stand above what the node says, which comes and goes, so this button keeps its place.
+        if node.wallet.words_to_write.is_some() {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                dot(ui, t.warn);
+                ui.label(cx.say("home.words_unwritten"));
+                if button(ui, t, cx.say("home.words_write"), Kind::Quiet).clicked() {
+                    self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
+                }
+            });
+        }
         if light_or_full(ui, cx) {
             *cx.go = Some("page.settings");
         }
@@ -149,6 +162,7 @@ impl Home {
             }
         });
         widgets::divider(ui, t);
+        let mut speed = None;
         for (row, item) in node.activity.iter().take(LEDGER_ROWS).enumerate() {
             if row == 0 && lit < 1.0 && !still {
                 let rect = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), tokens::ROW - 8.0));
@@ -165,6 +179,9 @@ impl Home {
                     cell(ui, cx.say(kind_key(item)));
                     if item.height.is_none() {
                         widgets::tag(ui, cx.say("home.waiting"), t.warn, t);
+                        if item.kind == ActivityKind::Sent && button(ui, t, cx.say("home.speed_up"), Kind::Quiet).clicked() {
+                            speed = Some(cx.slip_for(speed_up_slip(cx, item)));
+                        }
                     }
                 }
                 _ => {
@@ -180,6 +197,9 @@ impl Home {
                 }
             });
         }
+        if speed.is_some() {
+            *cx.slip = speed;
+        }
     }
 
     fn sheets(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -194,10 +214,30 @@ impl Home {
                 let (done, outside) = sheet(ui, t, "send", tokens::SLIP_WIDTH, |ui| send.show(ui, cx));
                 done || outside
             }
+            Some(Open::Words(words)) => {
+                let (done, outside) = sheet(ui, t, "words", tokens::SHEET_WIDTH, |ui| words.show(ui, cx));
+                done || outside
+            }
         };
         if closed {
             self.open = None;
         }
+    }
+}
+
+/// The slip before a waiting payment goes again with a higher fee.
+fn speed_up_slip(cx: &Cx, item: &Activity) -> Slipping {
+    let id: String = item.id.iter().map(|byte| format!("{byte:02x}")).collect();
+    Slipping {
+        what: cx.say("speed.title"),
+        rows: vec![
+            (cx.say("speed.amount"), format::coins(item.amount, cx.ticker())),
+            (cx.say("speed.id"), format::short_id(&item.id)),
+        ],
+        warning: cx.say("speed.warning"),
+        sign: cx.say("speed.sign"),
+        danger: false,
+        order: vec![Command::Lock(LockOrder::SpeedUp { id })],
     }
 }
 

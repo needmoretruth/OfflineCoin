@@ -12,6 +12,11 @@ use olc_crypto::{address_of, public_key, sign, Hash, PublicKey};
 use olc_lang::{alpha, ALPHA, BETA};
 
 pub mod locks;
+#[cfg(feature = "seed")]
+pub mod message;
+#[cfg(feature = "seed")]
+pub mod seed;
+pub mod shared;
 mod unsigned;
 
 pub use unsigned::Unsigned;
@@ -53,10 +58,25 @@ impl Key {
     }
 }
 
+/// The seed words a wallet's later keys come from, kept as the randomness behind them.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SeedRecord {
+    pub entropy: Vec<u8>,
+    /// Words from the Korean list, or else the English one.
+    pub korean: bool,
+    /// The number of the next key on the path.
+    pub next: u32,
+    /// Whether the person said they wrote the words down.
+    pub written: bool,
+}
+
 #[derive(Clone)]
 pub struct Wallet {
     keys: Vec<Key>,
     receiving: usize,
+    pub seed: Option<SeedRecord>,
+    /// Wallets shared with other people, which this one may sign for.
+    pub shared: Vec<shared::Shared>,
 }
 
 impl Wallet {
@@ -64,6 +84,8 @@ impl Wallet {
         Ok(Self {
             keys: vec![Key::new(secret)?],
             receiving: 0,
+            seed: None,
+            shared: Vec::new(),
         })
     }
 
@@ -76,7 +98,7 @@ impl Wallet {
         if receiving >= keys.len() {
             return Err(WalletError::NoSuchKey);
         }
-        Ok(Self { keys, receiving })
+        Ok(Self { keys, receiving, seed: None, shared: Vec::new() })
     }
 
     /// Adds a key and returns its number.

@@ -238,4 +238,13 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.version_one", "옛 방식으로 서명"),
     ("pro.version_one_about", "결제를 초기 비트코인처럼 버전 1로 서명합니다. 지금도 통하지만 이 코인의 포크가 그대로 따라 쓸 수 있습니다."),
     ("pro.fork_warning","옛 규칙의 노드와는 이 높이에서 갈라집니다. 네트워크 화면에서 돌아올 수 있습니다."),
+    ("pro.sign_message", "메시지 서명"),
+    ("pro.sign_message_about", "비트코인 signmessage처럼 주소의 주인임을 증명합니다."),
+    ("pro.message_title", "메시지 서명과 확인"),
+    ("pro.message_body", "서명은 그 주소의 키로 쓴 글임을 증명합니다."),
+    ("pro.message_address", "주소"),
+    ("pro.message_text", "메시지"),
+    ("pro.message_signature", "서명"),
+    ("pro.message_sign", "서명"),
+    ("pro.message_verify", "확인"),
 ];

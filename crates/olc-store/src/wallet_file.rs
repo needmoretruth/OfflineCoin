@@ -4,7 +4,9 @@ use argon2::Argon2;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use olc_platform::platform;
-use olc_wallet::Wallet;
+use olc_wallet::seed::{Mnemonic, WordList};
+use olc_wallet::shared::Shared;
+use olc_wallet::{SeedRecord, Wallet};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::ErrorKind;
@@ -18,6 +20,11 @@ const OLD_KEY_FILE: &str = "wallet.key";
 struct Keys {
     keys: Vec<String>,
     receiving: usize,
+    /// Older builds read past these two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    seed: Option<SeedRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    shared: Vec<Shared>,
 }
 
 /// What a backup file holds. With a password only the sealed fields are set.
@@ -60,13 +67,18 @@ fn keys_of(wallet: &Wallet) -> Keys {
     Keys {
         keys: secrets.map(|secret| hex(&secret)).collect(),
         receiving: wallet.receiving(),
+        seed: wallet.seed.clone(),
+        shared: wallet.shared.clone(),
     }
 }
 
 fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
     let parsed: Option<Vec<[u8; 32]>> = keys.keys.iter().map(|text| parse_secret(text)).collect();
     let secrets = parsed.ok_or("A key in the wallet file is damaged.")?;
-    Wallet::from_secrets(&secrets, keys.receiving).map_err(|_| "A key is not valid.".to_string())
+    let mut wallet = Wallet::from_secrets(&secrets, keys.receiving).map_err(|_| "A key is not valid.".to_string())?;
+    wallet.seed = keys.seed.clone();
+    wallet.shared = keys.shared.clone();
+    Ok(wallet)
 }
 
 /// Writes through a new file, so a cut leaves the old one whole. Only the owner can read it.
@@ -88,8 +100,14 @@ pub fn new_secret() -> Result<[u8; 32], String> {
     random()
 }
 
-/// Opens the wallet in `directory`, making one the first time. An older node's single key file
-/// becomes the wallet's first key.
+/// New seed words from the system's randomness.
+pub fn new_words(list: WordList) -> Result<Mnemonic, String> {
+    let entropy: [u8; 16] = random()?;
+    Mnemonic::from_entropy(&entropy, list).map_err(|_| "No words could be made.".to_string())
+}
+
+/// Opens the wallet in `directory`, making one from new seed words the first time. An older
+/// node's single key file becomes the wallet's first key.
 pub fn load_wallet(directory: &Path) -> Result<Wallet, String> {
     let path = directory.join(WALLET_FILE);
     match fs::read_to_string(&path) {
@@ -103,11 +121,13 @@ pub fn load_wallet(directory: &Path) -> Result<Wallet, String> {
     }
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let old = fs::read_to_string(directory.join(OLD_KEY_FILE)).ok();
-    let secret = match old {
-        Some(text) => parse_secret(&text).ok_or("The key file holds no valid key.")?,
-        None => new_secret()?,
+    let wallet = match old {
+        Some(text) => {
+            let secret = parse_secret(&text).ok_or("The key file holds no valid key.")?;
+            Wallet::from_secret(secret).map_err(|_| "The key is not valid.")?
+        }
+        None => Wallet::from_words(&new_words(WordList::English)?, false).map_err(|_| "The key is not valid.")?,
     };
-    let wallet = Wallet::from_secret(secret).map_err(|_| "The key is not valid.")?;
     save_wallet(directory, &wallet)?;
     Ok(wallet)
 }
@@ -234,6 +254,21 @@ mod tests {
         assert_eq!(restore(&path, None).unwrap().address(), wallet().address());
         save_wallet(&directory, &wallet()).unwrap();
         assert_eq!(load_wallet(&directory).unwrap().address(), wallet().address());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// Words a person writes down give back the wallet's own address, through its file too.
+    #[test]
+    fn a_new_wallet_comes_from_words_that_give_its_address_back() {
+        let directory = folder("words");
+        let made = load_wallet(&directory).unwrap();
+        let record = made.seed.clone().unwrap();
+        assert!(!record.written);
+        let words = record.mnemonic().unwrap();
+        assert_eq!(words.words().len(), 12);
+        let elsewhere = Wallet::from_words(&Mnemonic::parse(&words.phrase()).unwrap(), true).unwrap();
+        assert_eq!(elsewhere.address(), made.address());
+        assert_eq!(load_wallet(&directory).unwrap().seed, Some(record));
         fs::remove_dir_all(directory).unwrap();
     }
 

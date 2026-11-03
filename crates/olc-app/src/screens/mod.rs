@@ -6,6 +6,7 @@ mod scenes;
 mod rule_shots;
 mod shots;
 mod steady;
+mod wallet_shots;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};
