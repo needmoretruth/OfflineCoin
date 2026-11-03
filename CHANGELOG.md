@@ -2,6 +2,13 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
+## [Unreleased]
+
+### Fixed
+
+- `olc --version` and `olc-core --version` printed help instead of the version. They now print the program's name and version.
+- The Move to the words button jumped up when the last mined coins matured, so a click at that moment missed it. The line about coins that must wait now sits below the button and keeps its place.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added
