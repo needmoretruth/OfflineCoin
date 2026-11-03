@@ -5,16 +5,18 @@ use super::{app, harness, quiet_settings, scratch, staged, Window, SETTLE_STEPS,
 use crate::core::MinedBlock;
 use crate::i18n::{Lang, Mode};
 use egui_kittest::kittest::Queryable;
-use olc_core::CoinConfig;
+use olc_core::{CoinConfig, DifficultyRule};
 
 /// The height of the staged tip: 7 blocks into a window of 20.
 const HEIGHT: u64 = 47;
 
-/// Mining on a coin whose rule changes the difficulty every `every` blocks, after twenty blocks
-/// that each took a little more work than the one before, 100 to 119.
+/// Mining on a coin under Bitcoin's rule that changes the difficulty every `every` blocks, after
+/// twenty blocks that each took a little more work than the one before, 100 to 119. OLC's own
+/// rule changes it at every block whatever the window, so it would never show a wait.
 fn with_rule(window: &mut Window, every: u64) {
     let mut stage = staged(Vec::new());
     let mut coin = CoinConfig::olc();
+    coin.rules.difficulty_rule = DifficultyRule::Bitcoin;
     coin.rules.retarget_interval = every;
     stage.node.coin = Some(coin);
     stage.node.height = HEIGHT;
