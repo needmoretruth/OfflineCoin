@@ -28,11 +28,9 @@ impl Worker {
         let coins = engine.coins();
         let next = coins.height() + 1;
         let mine: Vec<_> = own.iter().flat_map(|address| coins.unspent_of(address)).collect();
-        let held = |mature: bool| -> u64 {
-            let ripe = mine.iter().filter(|(_, entry)| coins.is_mature(entry, next) == mature);
-            ripe.map(|(_, entry)| entry.output.value).sum()
-        };
-        let (spendable, maturing) = (held(true), held(false));
+        let maturing = mine.iter().filter(|(_, entry)| !coins.is_mature(entry, next)).map(|(_, entry)| entry.output.value).sum();
+        // The coins a payment picks from, so the figure never promises more than a payment finds.
+        let spendable = engine.spendable();
         let receiving = wallet.receiving();
         let keys = wallet.keys().enumerate().map(|(index, (address, public))| KeyView {
             address: format_address(&address),
@@ -52,6 +50,7 @@ impl Worker {
             }));
         }
         activity.extend(self.history.items().cloned());
+        let wallet_part = super::super::host_wallet::wallet_view(engine, &activity);
         let view = NodeView {
             coin: Some(chain.config().clone()),
             genesis: chain.genesis_id(),
@@ -101,6 +100,7 @@ impl Worker {
             explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
             locks: engine.locked_coins(),
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
+            wallet: wallet_part,
             channels: super::super::host_channels::view_of(&self.state),
         };
         runner.card.mining = view.mining;

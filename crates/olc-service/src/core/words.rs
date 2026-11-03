@@ -5,6 +5,7 @@ use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
 use super::words_channels as ch;
+use super::words_wallet;
 use olc_board::Args;
 use olc_control::line::split;
 use olc_control::BoardId;
@@ -82,6 +83,11 @@ pub const WORDS: &[Word] = &[
     Word { name: "channel-close", usage: "channel-close CHANNEL [--force]  close together, or alone and wait", run: ch::channel_close },
     Word { name: "invoice", usage: "invoice AMOUNT [NOTE]  a request to be paid through channels", run: ch::invoice },
     Word { name: "channel-pay", usage: "channel-pay REQUEST  pay a request through channels", run: ch::channel_pay },
+    Word { name: "words", usage: "words [written|new [korean]|restore WORD...|move]  seed words to write down, restore from, or move older coins to", run: words_wallet::words },
+    Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },
+    Word { name: "verify-message", usage: "verify-message ADDRESS SIGNATURE TEXT  check a signed message", run: words_wallet::verify_message },
+    Word { name: "shared", usage: "shared [new N KEY...|add TEXT|forget N|pay N ADDRESS AMOUNT]  wallets several people share", run: words_wallet::shared },
+    Word { name: "speed-up", usage: "speed-up ID          a waiting payment, with a higher fee", run: words_wallet::speed_up },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
     Word { name: "save-coin", usage: "save-coin FILE       write this coin to a file", run: save_coin },
     Word { name: "boards", usage: "boards               list boards", run: boards },

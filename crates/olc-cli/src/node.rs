@@ -5,7 +5,7 @@ use olc_board::Args;
 use olc_link_serial::SerialLink;
 use olc_node::{Card, Medium, Rank};
 use olc_service::core::{
-    device_kind, format_coins, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
+    device_kind, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
     Command, Desk, Host, NodeView, Notice, Personal, Plan,
 };
 use olc_store::NodeSettings;
@@ -154,7 +154,7 @@ impl NodeDesk<'_> {
         match self.host.pay(to, units) {
             Ok(id) => {
                 let id: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
-                said("notice.sent", format_coins(units), true).map(|sent| format!("{sent}\n{id}"))
+                said("notice.sent", self.host.amount_text(units), true).map(|sent| format!("{sent}\n{id}"))
             }
             Err(error) => {
                 let (key, detail) = error.notice();

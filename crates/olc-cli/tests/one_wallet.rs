@@ -142,6 +142,12 @@ fn sample(word: &str, home: &Path) -> String {
         "channel-close" => "channel-close x".into(),
         "invoice" => "invoice 5 hello".into(),
         "channel-pay" => "channel-pay x".into(),
+        "words" | "shared" => word.to_string(),
+        // A signature is base64, which reads like code to this test, so the line asks for a key
+        // this wallet does not hold.
+        "sign-message" => format!("sign-message --address {somebody} hello"),
+        "verify-message" => format!("verify-message {somebody} AAAA hello"),
+        "speed-up" => format!("speed-up {}", "aa".repeat(32)),
         other => panic!("no line tries {other}"),
     }
 }

@@ -12,6 +12,11 @@ use olc_crypto::{address_of, public_key, sign, Hash, PublicKey};
 use olc_lang::{alpha, ALPHA, BETA};
 
 pub mod locks;
+#[cfg(feature = "seed")]
+pub mod message;
+#[cfg(feature = "seed")]
+pub mod seed;
+pub mod shared;
 mod unsigned;
 
 pub use unsigned::Unsigned;
@@ -53,10 +58,28 @@ impl Key {
     }
 }
 
+/// The seed words a wallet's later keys come from, kept as the randomness behind them.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SeedRecord {
+    pub entropy: Vec<u8>,
+    /// Words from the Korean list, or else the English one.
+    pub korean: bool,
+    /// The number of the next key on the path.
+    pub next: u32,
+    /// Whether the person said they wrote the words down.
+    pub written: bool,
+}
+
 #[derive(Clone)]
 pub struct Wallet {
     keys: Vec<Key>,
     receiving: usize,
+    pub seed: Option<SeedRecord>,
+    /// Words this wallet had before others took their place. Their keys stay, and so do they,
+    /// so no words a person wrote down stop working here.
+    pub earlier: Vec<SeedRecord>,
+    /// Wallets shared with other people, which this one may sign for.
+    pub shared: Vec<shared::Shared>,
 }
 
 impl Wallet {
@@ -64,6 +87,9 @@ impl Wallet {
         Ok(Self {
             keys: vec![Key::new(secret)?],
             receiving: 0,
+            seed: None,
+            earlier: Vec::new(),
+            shared: Vec::new(),
         })
     }
 
@@ -76,7 +102,7 @@ impl Wallet {
         if receiving >= keys.len() {
             return Err(WalletError::NoSuchKey);
         }
-        Ok(Self { keys, receiving })
+        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new() })
     }
 
     /// Adds a key and returns its number.
@@ -212,6 +238,26 @@ impl Wallet {
         let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
         let order = Order { payments, data, locked: None, fee, change: self.address() };
         self.sign(&prepare(chain, &owners, &order, reserved)?)
+    }
+
+    /// Moves every mature coin of these addresses to `to` in one payment, at most `most` coins
+    /// at a time. `None` when they hold nothing that pays the fee.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sweep(&self, chain: &dyn Coins, from: &[Address], to: Address, fee: u64, reserved: &[OutPoint], most: usize, coin: Option<Hash>) -> Option<(Unsigned, u64)> {
+        let next = chain.height() + 1;
+        let mut chosen: Vec<(Address, OutPoint)> = Vec::new();
+        let mut total = 0u64;
+        for address in from {
+            for (point, entry) in chain.unspent_of(address) {
+                if chosen.len() < most && chain.is_mature(&entry, next) && !reserved.contains(&point) {
+                    total = total.saturating_add(entry.output.value);
+                    chosen.push((*address, point));
+                }
+            }
+        }
+        let value = total.checked_sub(fee).filter(|value| *value > 0)?;
+        let output = TxOut { value, language: ALPHA, lock: to.to_vec() };
+        Some((unsigned(&chosen, vec![output], coin), value))
     }
 
     /// Merges small coins of one key into a single coin, so a miner's many rewards do not stay in

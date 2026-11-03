@@ -1,8 +1,8 @@
 //! The cash book: how much there is, the three things a person does with it, and what happened.
 use super::coins::history_card;
 use super::money::{ReceiveSheet, SendSheet};
-use super::{Cx, Page};
-use crate::core::{unix_ms, Activity, ActivityKind, Command, NodeView};
+use super::{Cx, Page, Slipping};
+use crate::core::{unix_ms, Activity, ActivityKind, Command, LockOrder, NodeView};
 use crate::ui::floating::sheet;
 use crate::ui::paint::ink;
 use crate::ui::theme::desktop_reduces_motion;
@@ -20,6 +20,7 @@ const LEDGER_ROWS: usize = 40;
 enum Open {
     Receive(ReceiveSheet),
     Send(SendSheet),
+    Words(super::seed_words::WordsSheet),
 }
 
 #[derive(Default)]
@@ -110,6 +111,26 @@ impl Home {
                 self.open = Some(Open::Send(SendSheet::default()));
             }
         });
+        // Words not yet written down are the one way back to this wallet, so they ask here. They
+        // stand above what the node says, which comes and goes, so this button keeps its place.
+        // Words not yet written down come first; then coins the words cannot bring back.
+        let words_line = match () {
+            () if node.wallet.words_to_write.is_some() => Some((cx.say("home.words_unwritten").to_string(), "home.words_write")),
+            () if node.wallet.outside_words > 0 => {
+                Some((cx.fill("home.words_outside", &[&format::coins(node.wallet.outside_words, cx.ticker())]), "common.open"))
+            }
+            () => None,
+        };
+        if let Some((line, open)) = words_line {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                dot(ui, t.warn);
+                ui.label(line);
+                if button(ui, t, cx.say(open), Kind::Quiet).clicked() {
+                    self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
+                }
+            });
+        }
         if light_or_full(ui, cx) {
             *cx.go = Some("page.settings");
         }
@@ -149,6 +170,7 @@ impl Home {
             }
         });
         widgets::divider(ui, t);
+        let mut speed = None;
         for (row, item) in node.activity.iter().take(LEDGER_ROWS).enumerate() {
             if row == 0 && lit < 1.0 && !still {
                 let rect = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), tokens::ROW - 8.0));
@@ -165,6 +187,9 @@ impl Home {
                     cell(ui, cx.say(kind_key(item)));
                     if item.height.is_none() {
                         widgets::tag(ui, cx.say("home.waiting"), t.warn, t);
+                        if item.kind == ActivityKind::Sent && button(ui, t, cx.say("home.speed_up"), Kind::Quiet).clicked() {
+                            speed = Some(cx.slip_for(speed_up_slip(cx, item)));
+                        }
                     }
                 }
                 _ => {
@@ -180,6 +205,9 @@ impl Home {
                 }
             });
         }
+        if speed.is_some() {
+            *cx.slip = speed;
+        }
     }
 
     fn sheets(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -194,10 +222,39 @@ impl Home {
                 let (done, outside) = sheet(ui, t, "send", tokens::SLIP_WIDTH, |ui| send.show(ui, cx));
                 done || outside
             }
+            Some(Open::Words(words)) => {
+                let (done, outside) = sheet(ui, t, "words", tokens::SHEET_WIDTH, |ui| words.show(ui, cx));
+                done || outside
+            }
         };
         if closed {
             self.open = None;
         }
+    }
+}
+
+/// The slip before a waiting payment goes again with a higher fee.
+/// Shows the fee now and the fee after, as Bitcoin Core's bump fee dialog does, worked out by the
+/// same code that then sends it. Expert mode also names the payment.
+fn speed_up_slip(cx: &Cx, item: &Activity) -> Slipping {
+    let id: String = item.id.iter().map(|byte| format!("{byte:02x}")).collect();
+    let quote = cx.snap.node.wallet.speed.iter().find(|quote| quote.id == item.id);
+    let fee = |units: Option<u64>| units.map_or_else(|| "?".to_string(), |units| format::coins(units, cx.ticker()));
+    let mut rows = vec![
+        (cx.say("speed.amount"), format::coins(item.amount, cx.ticker())),
+        (cx.say("speed.fee_now"), fee(quote.map(|quote| quote.now))),
+        (cx.say("speed.fee_new"), fee(quote.map(|quote| quote.new))),
+    ];
+    if cx.expert() {
+        rows.push((cx.say("pro.speed_id"), format::short_id(&item.id)));
+    }
+    Slipping {
+        what: cx.say("speed.title"),
+        rows,
+        warning: cx.say("speed.warning"),
+        sign: cx.say("speed.sign"),
+        danger: false,
+        order: vec![Command::Lock(LockOrder::SpeedUp { id })],
     }
 }
 

@@ -231,8 +231,9 @@ fn a_spend_waiting_for_a_signer_is_kept_wherever_it_starts() {
     }
     let publics = [&host, &other].map(|one| one.view().keys[0].public.clone());
     let words = super::host_locks::two_of_two_for(&publics[0], &publics[1]).unwrap();
-    let (key, _, good) = host.carry_lock(LockOrder::Pay { words, amount: "5".into() });
+    let (key, detail, good) = host.carry_lock(LockOrder::Pay { words, amount: "5".into() });
     assert_eq!((key, good), ("lock.paid", true));
+    assert!(detail.starts_with("5 OLC "), "the amount carries its unit: {detail}");
     mine_one();
     let started = Instant::now();
     let coin = loop {
@@ -386,4 +387,15 @@ fn shutting_others_out_closes_the_door_at_once() {
         assert!(started.elapsed() < WAIT, "this computer lost its own way in");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// A coin that takes shared wallets only from a later block says which block.
+#[test]
+fn a_shared_wallet_too_early_names_the_block() {
+    let root = folder("shared-too-early");
+    let host = host(&root);
+    let words = "olcshared1.2.02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5".to_string();
+    let (key, detail, good) = host.carry_lock(LockOrder::Pay { words, amount: "1".into() });
+    assert_eq!((key, good), ("notice.shared_not_yet", false));
+    assert_eq!(detail, CoinConfig::olc().upgrade_from.to_string());
 }

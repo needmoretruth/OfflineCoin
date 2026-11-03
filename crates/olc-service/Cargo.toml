@@ -25,7 +25,7 @@ olc-pool.workspace = true
 olc-platform.workspace = true
 olc-pow.workspace = true
 olc-store.workspace = true
-olc-wallet.workspace = true
+olc-wallet = { workspace = true, features = ["seed"] }
 postcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true

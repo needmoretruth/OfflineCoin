@@ -1,14 +1,15 @@
-//! The first run: three questions at most, then a working wallet.
+//! The first run: three questions at most, then a working wallet. Someone who already has seed
+//! words brings their wallet back here first, as Electrum and Sparrow offer when a wallet is made.
 use super::coin_new::CoinForm;
 use super::settings::device_name;
 use super::Cx;
-use crate::core::{Command, StartCoin};
+use crate::core::{Command, Personal, StartCoin, WalletOrder};
 use crate::discovery::{CoinGroup, Reach};
 use crate::settings::{Device, BOARD_CAP};
 use crate::ui::format;
 use crate::ui::paint::{surface, Surface};
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, button_on, meta, Kind};
+use crate::ui::widgets::{self, button, button_on, meta, words_box, Kind};
 use egui::{pos2, vec2, Sense, Ui};
 use olc_core::CoinConfig;
 
@@ -22,6 +23,7 @@ enum Step {
     Coin,
     NewCoin,
     Mining,
+    Words,
 }
 
 #[derive(Default)]
@@ -29,6 +31,9 @@ pub struct Setup {
     step: Step,
     form: CoinForm,
     start: Option<StartCoin>,
+    words: String,
+    /// The notice number when the words went, so the answer to them can be told apart.
+    restoring: Option<u64>,
 }
 
 fn device_about(device: Device) -> &'static str {
@@ -104,6 +109,41 @@ impl Setup {
                 self.step = Step::Coin;
             }
         }
+        ui.add_space(tokens::GAP);
+        if choice(ui, cx, cx.say("setup.have_words"), cx.say("setup.have_words_about")) {
+            self.step = Step::Words;
+        }
+    }
+
+    /// Words from another computer. The wallet they make is this app's from then on; the
+    /// coins show once the blocks arrive.
+    fn words_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        widgets::title(ui, cx.say("words.restore"));
+        meta(ui, cx.say("setup.words_body"), t);
+        ui.add_space(tokens::GAP);
+        let answer = cx.snap.notice.as_ref().filter(|notice| self.restoring.is_some_and(|sent| notice.number > sent));
+        if let Some(notice) = answer.filter(|notice| notice.key == "notice.words_restored") {
+            meta(ui, &cx.fill("setup.words_done", &[&notice.detail]), t);
+            ui.add_space(tokens::GAP);
+            if button(ui, t, cx.say("common.next"), Kind::Main).clicked() {
+                self.step = Step::Device;
+            }
+            return;
+        }
+        words_box(ui, &mut self.words, cx.say("words.restore_hint"), ui.available_width());
+        ui.add_space(tokens::GAP);
+        ui.horizontal(|ui| {
+            let filled = self.words.split_whitespace().count() >= 12;
+            if button_on(ui, t, cx.say("words.restore_go"), Kind::Main, filled).clicked() {
+                self.restoring = Some(cx.snap.notice.as_ref().map_or(0, |notice| notice.number));
+                let words = std::mem::take(&mut self.words);
+                cx.send(Command::Own(Personal::Wallet(WalletOrder::RestoreWords(words))));
+            }
+            if button(ui, t, cx.say("common.back"), Kind::Quiet).clicked() {
+                self.step = Step::Device;
+            }
+        });
     }
 
     fn coin_step(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -186,6 +226,7 @@ impl Setup {
                     Step::Coin => self.coin_step(ui, cx),
                     Step::NewCoin => self.new_coin_step(ui, cx),
                     Step::Mining => self.mining_step(ui, cx),
+                    Step::Words => self.words_step(ui, cx),
                 }
             });
         });

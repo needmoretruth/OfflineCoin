@@ -50,7 +50,7 @@ pub struct Engine {
     /// Who mines here gets paid here. `None` pays the key that receives.
     miner: Option<Address>,
     /// Bytes every mined block carries in its coinbase.
-    note: Vec<u8>,
+    pub(crate) note: Vec<u8>,
     /// Merges a key's small coins into one when set.
     pub(crate) merging: bool,
     /// Signs payments as version 1, the way Satoshi's Bitcoin did, where the coin still takes them.
