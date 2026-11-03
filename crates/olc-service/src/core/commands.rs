@@ -117,6 +117,9 @@ pub enum Command {
     OpenDataFolder,
     /// Opens the file the settings live in, as Bitcoin Core's options open its configuration.
     OpenSettingsFile,
+    /// Settings' Reset to defaults, for the node: what it keeps, where mined coins go, the note in
+    /// its blocks, the links' order, Bluetooth and the ESP-NOW card go back to how they came.
+    ResetNodePreferences,
     Board {
         id: BoardId,
         action: BoardAction,

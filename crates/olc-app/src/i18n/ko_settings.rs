@@ -15,7 +15,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.file_about", "파일에서 고친 내용은 다음 시작부터 적용됩니다."),
     ("settings.reset", "기본값으로 되돌리기"),
     ("settings.reset_sure", "모두 되돌리기"),
-    ("settings.reset_about", "설정 파일에 있는 값이 처음 값으로 돌아갑니다. 언어, 지갑, 블록은 그대로입니다."),
+    ("settings.reset_about", "이 화면의 모든 값이 처음 값으로 돌아갑니다. 언어, 지갑, 블록은 그대로입니다."),
     ("settings.c_words", "쓰는 말"),
     ("settings.c_shows", "보이는 것"),
     ("settings.c_places", "자리"),

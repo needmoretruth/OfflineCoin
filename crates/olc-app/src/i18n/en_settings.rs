@@ -15,7 +15,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.file_about", "Changes made in the file take hold at the next start."),
     ("settings.reset", "Reset to defaults"),
     ("settings.reset_sure", "Reset everything"),
-    ("settings.reset_about", "What the settings file holds goes back to how it came. Language, wallet and blocks stay."),
+    ("settings.reset_about", "Every value on this screen goes back to how it came. Language, wallet and blocks stay."),
     ("settings.c_words", "Words"),
     ("settings.c_shows", "What shows"),
     ("settings.c_places", "Where things are"),

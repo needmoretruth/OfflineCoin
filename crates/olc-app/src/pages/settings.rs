@@ -202,6 +202,9 @@ impl SettingsPage {
                 if self.resetting {
                     *cx.settings = reset(cx.settings);
                     cx.save();
+                    // The rows the node keeps go back too, and their fields read the node again.
+                    cx.send(Command::ResetNodePreferences);
+                    self.extras = ExtraValues::default();
                 }
                 self.resetting = !self.resetting;
             }

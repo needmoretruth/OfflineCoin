@@ -207,6 +207,45 @@ fn closing_during_a_load_finishes_what_waits() {
     assert_eq!(NodeSettings::load(&chain).note, "kept");
 }
 
+/// Settings' Reset to defaults takes the node's own preferences back too: what it keeps, where
+/// mined coins go, the note and the links' order. The wallet's merging and the watched addresses
+/// are not on that screen and stay.
+#[test]
+fn reset_to_defaults_takes_the_node_back_too() {
+    let root = folder("reset-node");
+    let (core, gate, chain) = core_on(&root);
+    gate.open();
+    until(&core, "the chain", |snap| !snap.node.loading && snap.node.coin.is_some());
+    let own = core.snapshot().node.miner.clone();
+    core.send(Command::Own(Personal::Watch(SOMEONE.into())));
+    core.send(Command::Own(Personal::SetMineNote("kept".into())));
+    core.send(Command::Own(Personal::SetMiner(SOMEONE.into())));
+    core.send(Command::Own(Personal::SetRecent(Some(5_000))));
+    core.send(Command::Own(Personal::SetMerging(false)));
+    // Orders are carried out in turn, so the card is set once the links' order shows.
+    core.send(Command::Own(Personal::SetEspNowCard("wlan9".into())));
+    core.send(Command::Own(Personal::SetLinks(Rank::parse(LINKS).unwrap())));
+    until(&core, "the choices", |snap| {
+        let node = &snap.node;
+        node.recent == Some(5_000) && node.mine_note == "kept" && node.miner == SOMEONE && node.links.text() == LINKS
+    });
+
+    assert_eq!(NodeSettings::load(&chain).esp_now_card, "wlan9");
+    core.send(Command::ResetNodePreferences);
+    until(&core, "the defaults", |snap| {
+        let node = &snap.node;
+        !node.loading && node.recent.is_none() && node.mine_note.is_empty() && node.links == Rank::default()
+    });
+    assert_eq!(core.snapshot().node.miner, own, "mined coins go to this wallet again");
+    let saved = NodeSettings::load(&chain);
+    let fresh = NodeSettings::default();
+    assert_eq!((saved.recent, saved.miner.as_deref(), saved.note.as_str()), (fresh.recent, None, ""));
+    assert_eq!((saved.light, saved.bluetooth, saved.esp_now_card.as_str()), (false, false, ""));
+    assert_eq!(Rank::parse(&saved.links).unwrap_or_default(), Rank::default(), "the links in the usual order");
+    assert_eq!(saved.watched, [SOMEONE.to_string()], "watched addresses are not a preference");
+    assert!(saved.no_merge, "merging is the wallet's choice, made on the wallet");
+}
+
 /// A spend that waits for another signer stays where a person can copy it, on a node of the
 /// command line as in the window: both carry a lock order the same way.
 #[test]

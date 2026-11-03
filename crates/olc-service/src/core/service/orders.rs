@@ -10,6 +10,7 @@ use crate::core::host::PayError;
 use olc_control::BoardId;
 use olc_core::CoinConfig;
 use olc_node::Rank;
+use olc_store::NodeSettings;
 use olc_wallet::WalletError;
 use std::thread;
 use std::time::Duration;
@@ -157,6 +158,34 @@ impl Service {
         let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
         for row in rows.unwrap_or_default().iter().filter(|row| row.seen.online) {
             self.board_action(row.seen.id, BoardAction::Links(rank.text()));
+        }
+    }
+
+    /// The node's preferences on the Settings screen as they came, by the same orders their rows
+    /// send. The wallet's merging and version and the watched addresses are set elsewhere and stay.
+    pub(super) fn reset_node(&mut self) {
+        let orders = [
+            Personal::SetRecent(None),
+            Personal::SetMiner(String::new()),
+            Personal::SetMineNote(String::new()),
+            Personal::SetEspNowCard(String::new()),
+        ];
+        for order in orders {
+            let (key, detail, good) = self.host.obey(order);
+            if !good {
+                self.say(key, detail, good);
+                return;
+            }
+        }
+        // The links' order reaches the boards too, and says how it went.
+        self.set_links(Rank::default());
+        // Bluetooth and a light node take a restart, so only a node with one of them on restarts.
+        let node = self.settings.coin.as_ref().map(|name| NodeSettings::load(&self.paths.coin(name)));
+        if node.is_some_and(|node| node.light || node.bluetooth) {
+            self.change_node(|node| {
+                node.light = false;
+                node.bluetooth = false;
+            });
         }
     }
 
