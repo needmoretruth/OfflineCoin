@@ -63,7 +63,7 @@ pub(super) struct State {
     pub(super) waiting: Mutex<Vec<Waiting>>,
     storage: Option<u64>,
     /// The folder of the coin this node runs.
-    folder: Mutex<Option<PathBuf>>,
+    pub(super) folder: Mutex<Option<PathBuf>>,
     /// A header from outside to grind in place of mining, with its difficulty.
     work: Mutex<Option<(BlockHeader, u64)>>,
     /// Headers that reached that difficulty, until someone takes them.
@@ -72,6 +72,7 @@ pub(super) struct State {
     explored: Mutex<Explored>,
     /// A spend waiting for another signer, and who that is.
     half_spend: Mutex<Option<(String, Vec<String>)>>,
+    pub(super) channels: Mutex<super::host_channels::ChannelDesk>,
 }
 
 pub struct Host {
@@ -142,6 +143,7 @@ impl Host {
             shares: Mutex::default(),
             explored: Mutex::default(),
             half_spend: Mutex::default(),
+            channels: Mutex::default(),
         });
         let worker = Worker {
             runner: runner.clone(),
@@ -354,6 +356,7 @@ impl Worker {
                     fleet.pump(&mut runner);
                 }
                 self.keep(&mut runner, &mut asked);
+                super::host_channels::pump(&self.state, &mut runner);
                 if viewed.elapsed() >= VIEW_EVERY {
                     viewed = Instant::now();
                     self.publish(&mut runner);
@@ -583,6 +586,7 @@ impl Worker {
             explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
             locks: engine.locked_coins(),
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
+            channels: super::host_channels::view_of(&self.state),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

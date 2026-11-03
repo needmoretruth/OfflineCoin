@@ -173,6 +173,7 @@ pub enum Command {
         amount: String,
     },
     Lock(LockOrder),
+    Channel(ChannelOrder),
 }
 
 impl Command {
@@ -193,6 +194,7 @@ impl Command {
                 | Self::StartPool { .. }
                 | Self::StopPool
                 | Self::Lock(_)
+                | Self::Channel(_)
         )
     }
 }
@@ -206,4 +208,20 @@ pub enum LockOrder {
     Spend { coin: String, to: String, unlock: String },
     /// Adds this wallet's signatures to a spend another signer passed on.
     Sign { text: String },
+}
+
+/// Something to do with payment channels. Amounts are typed as people type them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChannelOrder {
+    /// Everything about the channels, as text.
+    Show,
+    /// Opens a channel to a node heard lately, named by its name or the start of its key. An
+    /// empty `delay` is the usual wait.
+    Open { peer: String, amount: String, delay: String },
+    /// Closes together with the other side, or alone with `force`.
+    Close { channel: String, force: bool },
+    /// Makes a payment request.
+    Invoice { amount: String, note: String },
+    /// Pays a request through the channels.
+    Pay { text: String },
 }

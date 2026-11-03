@@ -20,7 +20,7 @@ pub struct ReceiveSheet {
 }
 
 /// Always dark on white, whatever the theme, so any camera can read it.
-fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
+pub(super) fn code(ui: &mut Ui, grid: &QrGrid, name: &str) {
     let (rect, response) = ui.allocate_exact_size(vec2(CODE, CODE), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(tokens::RADIUS_CARD), Color32::WHITE);

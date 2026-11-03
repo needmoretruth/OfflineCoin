@@ -4,6 +4,7 @@
 extern crate alloc;
 
 pub mod bluetooth;
+mod channel;
 pub mod dial;
 pub mod engine;
 mod event;

@@ -17,7 +17,8 @@ pub const REQUEST_LASTS: u32 = 3_600;
 const MOST_INVOICES: usize = 256;
 const MOST_PAYMENTS: usize = 256;
 
-/// Why an order was not carried out. Screens show each in their own words.
+/// Why an order was not carried out. Screens show each in their own words; these are the
+/// command line's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     ThisNode,
@@ -37,26 +38,6 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    /// The key of the words for it.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::ThisNode => "ch.no.this_node",
-            Self::NoV2Yet => "ch.no.v2",
-            Self::TooLittle => "ch.no.too_little",
-            Self::NotSaved => "ch.no.saved",
-            Self::NoSuchChannel => "ch.no.channel",
-            Self::Busy => "ch.no.busy",
-            Self::NotOpen => "ch.no.open",
-            Self::NotARequest => "ch.no.request",
-            Self::BadSignature => "ch.no.signature",
-            Self::OtherCoin => "ch.no.other_coin",
-            Self::Expired => "ch.no.expired",
-            Self::OwnRequest => "ch.no.own",
-            Self::AlreadyPaid => "ch.no.paid",
-            Self::NoRoute => "ch.no.route",
-        }
-    }
-
     pub fn english(self) -> &'static str {
         match self {
             Self::ThisNode => "That is this node.",

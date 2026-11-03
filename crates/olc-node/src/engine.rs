@@ -305,6 +305,7 @@ impl Engine {
             | Message::Who
             | Message::Hello(_)
             | Message::Here(_)
+            | Message::Channel(_)
             | Message::Headers(_)
             | Message::Coin(_)
             | Message::CoinsEnd { .. } => {}

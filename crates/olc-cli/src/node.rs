@@ -183,6 +183,10 @@ impl Desk for NodeDesk<'_> {
                 let (key, detail, good) = self.host.carry_lock(order);
                 said(key, detail, good)
             }
+            Command::Channel(order) => {
+                let (key, detail, good) = self.host.carry_channel(order);
+                said(key, detail, good)
+            }
             Command::SetMining(on) => {
                 self.host.set_mining(on);
                 let mut settings = NodeSettings::load(self.directory);
@@ -234,6 +238,16 @@ impl Desk for NodeDesk<'_> {
     }
 }
 
+/// What happened to a channel since the last look, oldest first.
+fn print_channel_news(host: &Host, heard: &mut u64) {
+    let events = host.channels().events;
+    for event in events.iter().rev().filter(|event| event.number > *heard) {
+        let detail = event.detail.clone();
+        println!("{}", Notice { number: event.number, key: event.key, detail, good: true }.sentence());
+    }
+    *heard = events.first().map_or(*heard, |event| event.number.max(*heard));
+}
+
 /// Traffic moving to another link is rare and worth a line in any log.
 fn print_moves(host: &Host) {
     let Ok(mut runner) = host.runner.lock() else {
@@ -256,6 +270,7 @@ pub fn run(args: &Args) -> Result<(), String> {
     let lines = typed_lines();
     let mut shown = None;
     let mut typing_open = true;
+    let mut heard = 0;
     loop {
         let typed = if typing_open {
             lines.recv_timeout(LOOK_EVERY)
@@ -279,6 +294,7 @@ pub fn run(args: &Args) -> Result<(), String> {
         }
         host.take_radio_notes().iter().for_each(|note| eprintln!("{note}"));
         print_moves(&host);
+        print_channel_news(&host, &mut heard);
         let view = host.view();
         if view.coin.is_some() && shown != Some(view.height) {
             shown = Some(view.height);

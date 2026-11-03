@@ -53,6 +53,8 @@ pub trait Link: Send {
 const LINK_SHIFT: u32 = 24;
 const PEER_MASK: u32 = (1 << LINK_SHIFT) - 1;
 const MAX_CONTROL: usize = 32;
+/// Channel messages waiting for the channel node, which reads them every turn.
+const MAX_CHANNEL: usize = 64;
 const MAX_HELLOS: usize = 32;
 const MAX_MOVES: usize = 16;
 /// Messages taken from one link in a turn. A node that falls behind on a flood must still mine,
@@ -67,6 +69,11 @@ pub struct Runner {
     mark: Mark,
     links: Vec<Box<dyn Link>>,
     control: VecDeque<(PeerId, Vec<u8>)>,
+    /// Channel messages heard, with the link they came on.
+    channel: VecDeque<(usize, PeerId, Vec<u8>)>,
+    /// True on a node that runs payment channels. Any other node, a board above all, drops
+    /// channel messages instead of holding them.
+    pub channels: bool,
     /// What this node says about itself. Its host keeps it current.
     pub card: Card,
     hellos: VecDeque<(PeerId, Hello)>,
@@ -102,6 +109,8 @@ impl Runner {
             offline: false,
             links: Vec::new(),
             control: VecDeque::new(),
+            channel: VecDeque::new(),
+            channels: false,
             card: Card::default(),
             hellos: VecDeque::new(),
             table: Neighbours::default(),
@@ -217,6 +226,26 @@ impl Runner {
     /// Neighbours whose traffic goes through the link added at position `link`.
     pub fn peers_on(&self, link: usize) -> usize {
         self.table.count_on(link)
+    }
+
+    /// The next channel message heard: the link it came on, who sent it, and its bytes.
+    pub fn take_channel(&mut self) -> Option<(usize, PeerId, Vec<u8>)> {
+        self.channel.pop_front()
+    }
+
+    /// Sends a channel message on one link only, to one peer or to everyone on it.
+    pub fn send_channel(&mut self, link: usize, to: Option<PeerId>, packet: Vec<u8>) {
+        let bytes = self.stamped(&Message::Channel(packet));
+        let target = match to {
+            Some(peer) => match self.route(peer) {
+                Some((on, number)) if on == link => Target::Peer(number),
+                _ => return,
+            },
+            None => Target::All,
+        };
+        if let Some(link) = self.links.get_mut(link) {
+            link.send(target, &bytes);
+        }
     }
 
     /// The next control packet heard, and who sent it.
@@ -443,8 +472,14 @@ impl Runner {
                     && !self.table.node_on(index, number).is_some_and(self.ignores)
                 {
                     let neighbour = self.table.hear(index, number, device_ms);
-                    if let Some(message) = Message::decode(body) {
-                        self.engine.on_message(neighbour, message);
+                    match Message::decode(body) {
+                        Some(Message::Channel(packet)) => {
+                            if self.channels && self.channel.len() < MAX_CHANNEL {
+                                self.channel.push_back((index, neighbour, packet));
+                            }
+                        }
+                        Some(message) => self.engine.on_message(neighbour, message),
+                        None => {}
                     }
                 }
             }

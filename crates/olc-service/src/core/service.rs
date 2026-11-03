@@ -291,6 +291,7 @@ impl Service {
             Command::Fork { at, changes } => self.fork(at, &changes),
             Command::ForkBack => self.fork_back(),
             Command::Lock(order) => self.lock_order(order),
+            Command::Channel(order) => self.channel_order(order),
             Command::JoinCoinFile(path) => match read_coin_file(&path) {
                 Ok(coin) => self.join(coin, None),
                 Err(detail) => self.say("notice.coin_file", detail, false),

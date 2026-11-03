@@ -74,6 +74,7 @@ pub struct NodeView {
     pub locks: Vec<LockedCoin>,
     /// A spend waiting for another signer, and whose signatures it needs.
     pub half_spend: Option<(String, Vec<String>)>,
+    pub channels: super::host_channels::ChannelsView,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

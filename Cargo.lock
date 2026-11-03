@@ -2969,6 +2969,7 @@ dependencies = [
  "getrandom 0.3.4",
  "if-addrs",
  "olc-board",
+ "olc-channel",
  "olc-control",
  "olc-core",
  "olc-crypto",

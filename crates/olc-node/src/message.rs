@@ -59,6 +59,9 @@ pub enum Message {
     /// Said on every link every second and never passed on, so hearing it means that link
     /// reaches this node. Holds the id it goes by, whichever link it is heard on.
     Here(u64),
+    /// A payment channel message, sealed by the channel node that sent it. Only desktop nodes
+    /// carry these, on their network link; the chain ignores them.
+    Channel(Vec<u8>),
 }
 
 /// The height of each id in a request. Empty when an older build asked.

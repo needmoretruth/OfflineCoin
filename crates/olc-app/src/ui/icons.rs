@@ -15,6 +15,7 @@ pub enum Icon {
     Lock,
     Explorer,
     Pool,
+    Channel,
 }
 
 const WIDTH: f32 = 1.5;
@@ -95,6 +96,12 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
         Icon::Lock => {
             boxed(4.0, 8.5, 14.0, 15.5, 1.5);
             line(&[(6.0, 8.5), (6.0, 5.5), (7.0, 3.5), (9.0, 2.8), (11.0, 3.5), (12.0, 5.5), (12.0, 8.5)]);
+        }
+        Icon::Channel => {
+            painter.circle_stroke(at(3.8, 9.0), 2.2 * scale, stroke);
+            painter.circle_stroke(at(14.2, 9.0), 2.2 * scale, stroke);
+            line(&[(6.0, 7.6), (12.0, 7.6)]);
+            line(&[(6.0, 10.4), (12.0, 10.4)]);
         }
         Icon::Explorer => {
             painter.circle_stroke(at(7.5, 7.5), 4.5 * scale, stroke);

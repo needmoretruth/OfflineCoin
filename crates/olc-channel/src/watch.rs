@@ -306,6 +306,7 @@ impl ChannelNode {
 
     fn read_blocks(&mut self, ground: &mut dyn Ground) {
         let tip = ground.height();
+        let read_before = self.book.scanned;
         let mut next = match self.book.scanned {
             Some((height, id)) if ground.block_at(height).is_some_and(|(at, _)| at == id) => height + 1,
             Some((height, _)) => {
@@ -346,7 +347,10 @@ impl ChannelNode {
                 self.keep(None, channel, None);
             }
         }
-        self.save_book();
+        // Written only when the watcher moved, not at every turn of the node.
+        if self.book.scanned != read_before {
+            self.save_book();
+        }
     }
 
     fn act(&mut self, id: &ChannelId, ground: &mut dyn Ground) {
