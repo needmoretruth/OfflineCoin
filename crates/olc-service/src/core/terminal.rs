@@ -231,6 +231,8 @@ impl Desk for Terminal {
             },
             // A coin put under a lock or spent from one leaves like any payment, or not at all.
             Command::Pay { .. } | Command::Lock(_) => self.send_and_stay(command),
+            // A channel moves only while its node runs, so its words go to a running one.
+            Command::Channel(_) => Err("Type channel words into a running node: olc node, or the app's console.".into()),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
                 let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;

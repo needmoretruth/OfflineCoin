@@ -35,6 +35,7 @@ const RECORDS: &str = "page.records";
 const LOCKS: &str = "page.locks";
 const SWAP: &str = "page.swap";
 const SETTINGS: &str = "page.settings";
+const CHANNELS: &str = "page.channels";
 
 /// The words of the command line.
 pub const CLI_ROWS: &[Row] = &[
@@ -119,6 +120,11 @@ pub const CLI_ROWS: &[Row] = &[
     row("node-mine", BOARDS, "This computer", "Command::NodeMining"),
     row("node-miner", BOARDS, "This computer, pay", "Command::NodeMiner"),
     row("node-pay", BOARDS, "This computer, pay", "Command::NodePay"),
+    row("channels", CHANNELS, "Your channels", "node.channels"),
+    row("channel-open", CHANNELS, "Open a channel", "ChannelOrder::Open"),
+    row("channel-close", CHANNELS, "Your channels, Close and Close alone", "ChannelOrder::Close"),
+    row("invoice", CHANNELS, "Ask to be paid", "ChannelOrder::Invoice"),
+    row("channel-pay", CHANNELS, "Pay a request", "ChannelOrder::Pay"),
 ];
 
 /// The words a board reads.

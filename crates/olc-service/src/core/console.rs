@@ -194,6 +194,37 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.shared_waiting", "Your signature is in. Pass this to the other signers:\n{}"),
     ("notice.shared_refused", "The shared wallet could not send this."),
     ("lock.waiting", "Your signature is in. Pass this to the other signer:\n{}"),
+    ("ch.closing", "Closing channel {} together. The coins come back in the next block."),
+    ("ch.closing_alone", "Closing channel {} alone. Your share comes back after the wait."),
+    ("ch.list", "{}"),
+    ("ch.no_busy", "A payment is still moving in that channel. Try again in a moment."),
+    ("ch.no_channel", "No such channel."),
+    ("ch.no_delay", "The wait has to be between 2 and 2,016 blocks."),
+    ("ch.no_expired", "That request has expired."),
+    ("ch.no_open", "That channel is not open."),
+    ("ch.no_other_coin", "That request is for another coin."),
+    ("ch.no_own", "That request is your own."),
+    ("ch.no_paid", "That request is paid or being paid."),
+    ("ch.no_peer", "No node called {} was heard lately. olc channels lists the nodes nearby."),
+    ("ch.no_request", "That is not a payment request."),
+    ("ch.no_route", "No channel path reaches the payee with enough coins."),
+    ("ch.no_running", "Channels need a node that holds blocks, with its chain open."),
+    ("ch.no_saved", "The channel could not be saved."),
+    ("ch.no_signature", "The request's signature does not match."),
+    ("ch.no_this_node", "That is this node."),
+    ("ch.no_too_little", "That is too little."),
+    ("ch.no_v2", "Channels work from block {}."),
+    ("ch.no_v2_never", "This coin does not take channel payments."),
+    ("ch.opening", "Asked to open channel {}. It opens a few blocks after both sides sign."),
+    ("ch.paying", "Paying {} through channels."),
+    ("ch.request_made", "Payment request made. Pass this on to the payer:\n{}"),
+    ("ch.said_closed", "Channel {} is closed."),
+    ("ch.said_opened", "Channel {} is open."),
+    ("ch.said_paid", "Paid {} through channels."),
+    ("ch.said_pay_failed", "A channel payment did not go through. The coins stay yours."),
+    ("ch.said_penalty", "The other side sent an old state, so every coin of the channel is being taken: {}"),
+    ("ch.said_received", "Received {} through a channel."),
+    ("ch.said_refused", "The channel did not open. {}"),
     ("swap.accepted", "Offer taken. Pass this answer back to the one who made it:\n{}"),
     ("swap.bad_text", "That text is not a swap offer or answer."),
     ("swap.busy", "A swap with {} is still open. Finish it first."),
@@ -302,7 +333,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    /// Every `"notice.…"` and `"lock.…"` key written in this crate's code.
+    /// Every `"notice.…"`, `"lock.…"` and `"ch.…"` key written in this crate's code.
     fn keys_in(folder: &Path, keys: &mut Vec<String>) {
         for entry in fs::read_dir(folder).unwrap().flatten() {
             let path = entry.path();
@@ -311,7 +342,7 @@ mod tests {
                 continue;
             }
             let text = fs::read_to_string(&path).unwrap();
-            for start in ["\"notice.", "\"lock."] {
+            for start in ["\"notice.", "\"lock.", "\"ch."] {
                 for (at, _) in text.match_indices(start) {
                     let key: String = text[at + 1..].chars().take_while(|c| *c != '"').collect();
                     let rest = key.split_once('.').map_or("", |(_, rest)| rest);

@@ -11,6 +11,7 @@ const FILES: &[(&str, &[&str])] = &[
     (LOCKS, &["locks.rs"]),
     (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
+    (CHANNELS, &["channels.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
 const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];

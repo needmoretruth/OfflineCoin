@@ -69,9 +69,12 @@ impl Engine {
             .iter()
             .map(|input| self.chain.coin_at(&input.previous).and_then(|coin| self.owner_of(&coin.output)))
             .collect();
+        // A channel's funding keeps its id: the balances both sides signed spend that very
+        // output. So a child carries it, as LND bumps a funding, and it is never signed again.
+        let funding = tx.inputs.iter().any(|input| self.held.contains(&input.previous));
         match owners {
-            Some(owners) => self.replace(at, tx, owners, sign).map(|(tx, fee)| (tx, fee, true)),
-            None => self.pull_along(at, tx).map(|(tx, fee)| (tx, fee, false)),
+            Some(owners) if !funding => self.replace(at, tx, owners, sign).map(|(tx, fee)| (tx, fee, true)),
+            _ => self.pull_along(at, tx).map(|(tx, fee)| (tx, fee, false)),
         }
     }
 

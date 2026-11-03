@@ -108,6 +108,9 @@ pub fn messages() -> Vec<Message> {
         Message::Coin(Box::new(proof)),
         Message::CoinsEnd { address, last: Some(point), more: true },
         Message::Here(7),
+        // A channel packet rides the link to the desktop's channel node; boards pass it by.
+        Message::Channel(b"OLC channel envelope".to_vec()),
+        Message::Channel(Vec::new()),
     ];
     let _ = engine.pay(address, 1_000, 10);
     while let Some(outgoing) = engine.take_outgoing() {

@@ -3,6 +3,7 @@
 mod board_detail;
 mod board_more;
 mod boards;
+mod channels;
 mod coin_fork;
 mod coin_new;
 mod coin_rows;
@@ -123,6 +124,7 @@ pub fn all() -> Vec<Box<dyn Page>> {
         Box::<boards::Boards>::default(),
         Box::<coins::Coins>::default(),
         Box::<records::Records>::default(),
+        Box::<channels::Channels>::default(),
         Box::<swap::Swap>::default(),
         Box::<locks::Locks>::default(),
         Box::<console::Console>::default(),

@@ -7,6 +7,7 @@ members = [
     "crates/olc-lang",
     "crates/olc-wallet",
     "crates/olc-node",
+    "crates/olc-channel",
     "crates/olc-control",
     "crates/olc-link-tcp",
     "crates/olc-link-serial",
@@ -37,6 +38,7 @@ olc-pow = { path = "crates/olc-pow", default-features = false }
 olc-lang = { path = "crates/olc-lang", default-features = false }
 olc-wallet = { path = "crates/olc-wallet", default-features = false }
 olc-node = { path = "crates/olc-node", default-features = false }
+olc-channel = { path = "crates/olc-channel" }
 olc-control = { path = "crates/olc-control", default-features = false }
 olc-logo = { path = "crates/olc-logo" }
 olc-link-tcp = { path = "crates/olc-link-tcp" }

@@ -5,6 +5,7 @@ mod folder;
 mod board_lines;
 mod terminal;
 mod words;
+mod words_channels;
 mod words_swap;
 mod words_wallet;
 mod coins;
@@ -18,6 +19,7 @@ mod forged;
 mod found;
 mod history;
 mod host;
+pub mod host_channels;
 pub mod host_locks;
 mod host_parts;
 mod host_wallet;
@@ -44,7 +46,7 @@ pub use ops::Book;
 pub use olc_store::coin_fields::{
     first_fork_height, fork_coin, new_coin, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS,
 };
-pub use commands::{Command, LockOrder, Personal, StartCoin, SwapOrder};
+pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use explorer::{BlockRow, Explored, NoteRow, TxRow};
 pub use history::{Activity, ActivityKind};
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};

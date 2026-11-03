@@ -2803,6 +2803,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "olc-channel"
+version = "0.1.1"
+dependencies = [
+ "getrandom 0.3.4",
+ "olc-core",
+ "olc-crypto",
+ "olc-lang",
+ "olc-pow",
+ "olc-wallet",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "olc-cli"
 version = "0.1.1"
 dependencies = [
@@ -2980,6 +2995,7 @@ dependencies = [
  "getrandom 0.3.4",
  "if-addrs",
  "olc-board",
+ "olc-channel",
  "olc-control",
  "olc-core",
  "olc-crypto",

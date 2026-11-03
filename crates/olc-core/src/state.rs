@@ -104,6 +104,12 @@ fn read_place(place: &dyn Medium, genesis: &Hash) -> Option<(u64, Saved)> {
 }
 
 impl Chain {
+    /// Keeps every block from `from` up, pruned or not, until it is set again. A payment channel
+    /// watching for an old state reads each block once, and a cheat in a block it never read wins.
+    pub fn set_hold(&mut self, from: Option<u64>) {
+        self.hold = from;
+    }
+
     /// Opens the store and comes back to where the chain was.
     pub fn open(config: CoinConfig, plugins: Plugins, keep: Keep) -> Self {
         let genesis_block = config.genesis();
@@ -141,6 +147,7 @@ impl Chain {
             places: states,
             shelf,
             recent,
+            hold: None,
             assumed_from: None,
             opened: Opened::New,
             saved_head: 0,

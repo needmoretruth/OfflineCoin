@@ -175,6 +175,7 @@ pub enum Command {
         amount: String,
     },
     Lock(LockOrder),
+    Channel(ChannelOrder),
     Swap(SwapOrder),
 }
 
@@ -196,6 +197,7 @@ impl Command {
                 | Self::StartPool { .. }
                 | Self::StopPool
                 | Self::Lock(_)
+                | Self::Channel(_)
                 | Self::Swap(_)
         )
     }
@@ -218,6 +220,24 @@ pub enum LockOrder {
     /// Moves the coins on keys from before the seed words to the words, so the words alone
     /// bring every coin back.
     MoveToWords,
+}
+
+/// Something to do with payment channels. Amounts are typed as people type them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChannelOrder {
+    /// Everything about the channels, as text.
+    Show,
+    /// Opens a channel to a node heard lately, named by its name or the start of its key. An
+    /// empty `delay` is the usual wait.
+    Open { peer: String, amount: String, delay: String },
+    /// Closes together with the other side, or alone with `force`.
+    Close { channel: String, force: bool },
+    /// Makes a payment request.
+    Invoice { amount: String, note: String },
+    /// Pays a request through the channels.
+    Pay { text: String },
+    /// Reads a request and finds who it pays and the fee, before anyone presses pay. Says nothing.
+    Quote { text: String },
 }
 
 /// Something to do with a coin swap.

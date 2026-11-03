@@ -102,6 +102,8 @@ pub struct Chain {
     /// Where headers stay after their blocks go, on a machine with room for that.
     pub(crate) shelf: Option<Box<dyn Shelf>>,
     pub(crate) recent: Option<u64>,
+    /// Blocks from this height up stay whatever `recent` says: someone has yet to read them.
+    pub(crate) hold: Option<u64>,
     /// The peer whose unspent set this chain started from, if any.
     pub(crate) assumed_from: Option<u32>,
     pub(crate) opened: Opened,
@@ -371,6 +373,7 @@ impl Chain {
         let Some(cutoff) = self.height().checked_sub(recent) else {
             return;
         };
+        let cutoff = self.hold.map_or(cutoff, |from| cutoff.min(from));
         let next = self.marks.partition_point(|mark| mark.height <= cutoff);
         let Some(mark) = next.checked_sub(1).and_then(|last| self.marks.get(last)) else {
             return;

@@ -25,6 +25,15 @@ pub(crate) struct Paying<'a> {
     waiting: Vec<(OutPoint, Unspent)>,
 }
 
+impl Paying<'_> {
+    /// Only coins a block holds, for a payment whose id must stay as it is: a faster payment
+    /// put in place of the one that pays the change would take its coins away.
+    pub(crate) fn settled(mut self) -> Self {
+        self.waiting.clear();
+        self
+    }
+}
+
 impl Coins for Paying<'_> {
     fn height(&self) -> u64 {
         self.coins.height()
@@ -124,6 +133,13 @@ impl Engine {
     }
 
     pub(crate) fn reserved(&self) -> Vec<OutPoint> {
+        let mut reserved = self.in_flight();
+        reserved.extend_from_slice(&self.held);
+        reserved
+    }
+
+    /// Coins spent by payments waiting in the pool or for their signatures.
+    pub(crate) fn in_flight(&self) -> Vec<OutPoint> {
         let signing = self.signing.iter().map(|signing| &signing.tx);
         let inputs = self.pool.iter().chain(signing).flat_map(|tx| &tx.inputs);
         inputs.map(|input| input.previous).collect()
