@@ -14,7 +14,7 @@ const FORGET_AFTER: Duration = Duration::from_secs(600);
 /// Boards speak over their links with no address to file them under.
 const SILENT_AFTER: Duration = Duration::from_secs(120);
 /// A connected node answers every two seconds. Older than this, a row says how old it is.
-const LIVE_WITHIN: Duration = Duration::from_secs(5);
+pub const LIVE_WITHIN: Duration = Duration::from_secs(5);
 /// Rows for nodes heard or passed on. Anyone can claim any address, so the one heard longest ago
 /// gives way. What a person added stays whatever the count.
 const MOST_KNOWN: usize = 512;

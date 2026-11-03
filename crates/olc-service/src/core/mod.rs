@@ -55,6 +55,7 @@ pub use host_wallet::{SharedView, SpeedQuote, WalletView, Words};
 pub use wallet_orders::WalletOrder;
 pub use host::{HeardFrom, Host, PayError, Plan};
 pub use pool_run::{shares_in, PoolRow, PoolRun, PoolView, Worker};
+pub use found::LIVE_WITHIN;
 pub use rows::device_kind;
 pub use service::{short_hex, Core, CoreLaunch};
 pub use snapshot::{BoardView, ExperimentView, KeyView, NodeView, Notice, ScanView, Snapshot, SwapView, SwapsView};

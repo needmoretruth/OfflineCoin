@@ -3,7 +3,7 @@ use super::{
     app, click, harness, node_program, port_of_scene, quiet_settings, scratch, type_into, type_secret, wait_for_notice,
     wait_until, Window, SETTLE_STEPS, SIZES,
 };
-use crate::core::{coin_folder, save_coin, Book, Command, Host, Plan, Snapshot};
+use crate::core::{coin_folder, save_coin, Book, Command, Host, Plan, Snapshot, LIVE_WITHIN};
 use crate::discovery::Entry;
 use crate::i18n::Lang;
 use crate::local::{is_running, Holding, NodeSpec, Preset, Supervisor};
@@ -20,6 +20,8 @@ const LIVE_WATCH: Duration = Duration::from_secs(16);
 /// Two seconds between answers at a block a second, and some luck.
 const MOST_BLOCKS_BEHIND: u64 = 9;
 const OLDEST_LIVE_ROW: u64 = 15;
+/// The core publishes a few times a second and this scene looks every 300 ms.
+const SNAPSHOT_SLACK: Duration = Duration::from_secs(1);
 
 /// A row may say it is a few seconds old on a busy machine: that is the truth, and telling it is
 /// the row's job. What it must never do is wait for the next look around, every twenty seconds.
@@ -364,19 +366,27 @@ fn a_found_coin_can_be_joined() {
         row_of(&app.snapshot(), &spec.name).is_some_and(|row| row.age_secs.is_none())
     });
 
-    // A block about every second: a row that waits for a look around falls far behind.
+    // A row that waits for a look around falls far behind. A row is only as old as it says: with no
+    // age it was heard within LIVE_WITHIN, so it shows at least what the node had then. Blocks
+    // behind would measure the miner's speed, which the fixed difficulty leaves to the machine.
     let start = Instant::now();
     let first = height_of(&mut other, &spec);
-    let mut last = first;
+    let mut seen = vec![(start, first)];
     while start.elapsed() < LIVE_WATCH {
         let snap = harness.state().snapshot();
-        last = height_of(&mut other, &spec);
+        let now = Instant::now();
+        seen.push((now, height_of(&mut other, &spec)));
         let row = row_of(&snap, &spec.name).expect("a row for the peer");
         let shown = row.height.expect("a height");
         assert_fresh(row.age_secs);
-        assert!(last.saturating_sub(shown) <= MOST_BLOCKS_BEHIND, "{shown} against {last}");
+        let claimed = row.age_secs.map_or(LIVE_WITHIN, |age| Duration::from_secs(age + 1));
+        let then = now.checked_sub(claimed + SNAPSHOT_SLACK).unwrap_or(start);
+        let had = seen.iter().take_while(|(at, _)| *at <= then).last().map_or(0, |(_, height)| *height);
+        let last = seen.last().map_or(0, |(_, height)| *height);
+        assert!(shown >= had, "{shown} shown, aged {:?}, the node had {had} by then and {last} now", row.age_secs);
         std::thread::sleep(Duration::from_millis(300));
     }
+    let last = seen.last().map_or(0, |(_, height)| *height);
     assert!(last > first + 3, "the chain never moved");
     other.stop_all();
 }
