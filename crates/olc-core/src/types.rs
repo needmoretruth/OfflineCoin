@@ -210,7 +210,7 @@ impl BlockHeader {
     /// shape always is.
     pub fn is_whole(&self) -> bool {
         !self.is_bitcoin_shaped()
-            || (self.time_ms % 1_000 == 0
+            || (self.time_ms.is_multiple_of(1_000)
                 && self.time_ms / 1_000 <= u64::from(u32::MAX)
                 && crate::bits::rounded(self.difficulty) == self.difficulty)
     }

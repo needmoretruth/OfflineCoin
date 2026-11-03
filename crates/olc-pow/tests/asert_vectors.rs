@@ -54,9 +54,10 @@ impl Wide {
     fn plus(&self, other: &Self) -> Self {
         let mut out = [0; 6];
         let mut carry = 0u128;
-        for index in 0..6 {
-            let sum = u128::from(self.0[index]) + u128::from(other.0[index]) + carry;
-            out[index] = sum as u64;
+        for ((word, ours), theirs) in out.iter_mut().zip(self.0).zip(other.0) {
+            let sum = u128::from(ours) + u128::from(theirs) + carry;
+            // The low 64 bits stay in this word and the rest carries.
+            *word = sum as u64;
             carry = sum >> 64;
         }
         Self(out)

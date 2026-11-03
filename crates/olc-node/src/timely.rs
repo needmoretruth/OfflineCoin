@@ -31,7 +31,7 @@ impl Engine {
     /// True when `block` is further ahead of this clock than its coin allows. As Bitcoin Core's
     /// `time-too-new`, it is not taken now and not held against anyone: sent again once its time
     /// is near, it is taken.
-    pub(crate) fn from_the_future(&self, block: &Block) -> bool {
+    pub(crate) fn is_from_the_future(&self, block: &Block) -> bool {
         if !self.clock_is_dated() {
             return false;
         }

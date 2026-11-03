@@ -395,7 +395,7 @@ impl Engine {
             self.stop_following(from);
             return;
         }
-        if self.from_the_future(&block) {
+        if self.is_from_the_future(&block) {
             return;
         }
         let height = block.txs.first().and_then(|tx| tx.coinbase_height);

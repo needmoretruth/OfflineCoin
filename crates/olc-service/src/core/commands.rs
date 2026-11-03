@@ -90,6 +90,9 @@ impl Personal {
     }
 }
 
+// A command lives for one trip through the channel, so its size costs nothing a box would save:
+// the setup's coin carries its difficulty and time rules.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Closes the app. The answer comes once nothing a person asked for is still waiting.
     Finish(Sender<()>),

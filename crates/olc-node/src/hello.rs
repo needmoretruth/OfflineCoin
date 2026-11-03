@@ -154,7 +154,7 @@ impl From<Hello> for Spoken {
         let upgrade = Upgrade(coin.upgrade_said());
         let timings = coin.timings();
         let said = chosen(&timings) || coin.bitcoin_header;
-        let later = Later(said.then(|| (timings, coin.bitcoin_header)));
+        let later = Later(said.then_some((timings, coin.bitcoin_header)));
         Self { coin, tip, height, work, address, card, added, keeps, upgrade, later }
     }
 }
