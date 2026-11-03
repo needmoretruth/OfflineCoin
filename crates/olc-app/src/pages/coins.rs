@@ -9,13 +9,16 @@ use crate::ui::floating::{sheet, sheet_head};
 use crate::ui::picker::{Picked, Picker};
 use crate::ui::tokens;
 use crate::ui::widgets::{
-    self, button, button_on, card, cell, divider, dot, field, header_cell, meta, mono, section, tag,
+    self, button, button_on, card, cell, divider, dot, header_cell, meta, mono, section, tag,
     Columns, Kind,
 };
 use crate::ui::{format, Icon};
 use egui::{Align, Layout, ScrollArea, Ui};
 use olc_core::CoinConfig;
 use olc_node::{Keeps, Medium};
+
+#[path = "coins_peers.rs"]
+mod peers;
 
 const WEIGHTS: [f32; 8] = [1.4, 2.0, 1.0, 0.8, 1.2, 0.7, 1.7, 0.8];
 /// Device, what it keeps, what it does.
@@ -410,24 +413,6 @@ impl Coins {
             if button(ui, t, cx.say("coins.look_again"), Kind::Quiet).clicked() {
                 cx.send(Command::Rescan);
             }
-            let hidden = !cx.expert() && !self.by_address;
-            if hidden && button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
-                self.by_address = true;
-            }
-        });
-        if !cx.expert() && !self.by_address {
-            return;
-        }
-        ui.add_space(tokens::GAP);
-        ui.horizontal(|ui| {
-            let hint = cx.say("coins.address_hint");
-            let response = field(ui, &mut self.address, hint, 280.0);
-            let enter = response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-            let ready = !self.address.trim().is_empty();
-            let add = button_on(ui, t, cx.say("coins.add"), Kind::Plain, ready).clicked();
-            if ready && (enter || add) {
-                cx.send(Command::AddAddress(std::mem::take(&mut self.address)));
-            }
         });
     }
 
@@ -501,6 +486,9 @@ impl Page for Coins {
         widgets::slot(ui, |ui| self.found(ui, cx));
         ui.add_space(tokens::GAP_WIDE);
         widgets::slot(ui, |ui| history_card(ui, cx));
+        // Connecting by address sits with the list of who is connected.
+        ui.add_space(tokens::GAP_WIDE);
+        widgets::slot(ui, |ui| self.peers(ui, cx));
         if cx.expert() {
             ui.add_space(tokens::GAP_WIDE);
             for group in &cx.snap.groups {

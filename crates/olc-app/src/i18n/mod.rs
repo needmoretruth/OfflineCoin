@@ -3,10 +3,14 @@
 //! differ from basic ones, and `pro.` rows that only expert mode shows. Basic tables may not carry
 //! an expert term: `plain_words_have_no_expert_terms` lists the banned ones.
 mod en;
+mod en_channels;
+mod en_channels_expert;
 mod en_expert;
 mod en_expert_more;
 mod en_more;
 mod ko;
+mod ko_channels;
+mod ko_channels_expert;
 mod ko_expert;
 mod ko_expert_more;
 mod ko_more;
@@ -24,8 +28,8 @@ fn table(lang: Lang) -> &'static Table {
     static EN: OnceLock<Table> = OnceLock::new();
     static KO: OnceLock<Table> = OnceLock::new();
     match lang {
-        Lang::En => EN.get_or_init(|| en::WORDS.iter().chain(en_more::WORDS).copied().collect()),
-        Lang::Ko => KO.get_or_init(|| ko::WORDS.iter().chain(ko_more::WORDS).copied().collect()),
+        Lang::En => EN.get_or_init(|| en::WORDS.iter().chain(en_more::WORDS).chain(en_channels::WORDS).copied().collect()),
+        Lang::Ko => KO.get_or_init(|| ko::WORDS.iter().chain(ko_more::WORDS).chain(ko_channels::WORDS).copied().collect()),
     }
 }
 
@@ -33,8 +37,8 @@ fn expert_table(lang: Lang) -> &'static Table {
     static EN: OnceLock<Table> = OnceLock::new();
     static KO: OnceLock<Table> = OnceLock::new();
     match lang {
-        Lang::En => EN.get_or_init(|| en_expert::WORDS.iter().chain(en_expert_more::WORDS).copied().collect()),
-        Lang::Ko => KO.get_or_init(|| ko_expert::WORDS.iter().chain(ko_expert_more::WORDS).copied().collect()),
+        Lang::En => EN.get_or_init(|| en_expert::WORDS.iter().chain(en_expert_more::WORDS).chain(en_channels_expert::WORDS).copied().collect()),
+        Lang::Ko => KO.get_or_init(|| ko_expert::WORDS.iter().chain(ko_expert_more::WORDS).chain(ko_channels_expert::WORDS).copied().collect()),
     }
 }
 
@@ -77,8 +81,8 @@ mod tests {
 
     type Rows = Vec<(&'static str, &'static str)>;
 
-    fn rows(first: &'static [(&str, &str)], second: &'static [(&str, &str)]) -> Rows {
-        first.iter().chain(second).copied().collect()
+    fn rows(first: &'static [(&str, &str)], second: &'static [(&str, &str)], third: &'static [(&str, &str)]) -> Rows {
+        first.iter().chain(second).chain(third).copied().collect()
     }
 
     fn keys(words: &[(&str, &str)]) -> BTreeSet<String> {
@@ -87,13 +91,13 @@ mod tests {
 
     #[test]
     fn both_languages_have_every_key_once() {
-        let (english, korean) = (rows(en::WORDS, en_more::WORDS), rows(ko::WORDS, ko_more::WORDS));
+        let (english, korean) = (rows(en::WORDS, en_more::WORDS, en_channels::WORDS), rows(ko::WORDS, ko_more::WORDS, ko_channels::WORDS));
         assert_eq!(keys(&english), keys(&korean));
         assert_eq!(keys(&english).len(), english.len());
         assert_eq!(keys(&korean).len(), korean.len());
         let (english, korean) = (
-            rows(en_expert::WORDS, en_expert_more::WORDS),
-            rows(ko_expert::WORDS, ko_expert_more::WORDS),
+            rows(en_expert::WORDS, en_expert_more::WORDS, en_channels_expert::WORDS),
+            rows(ko_expert::WORDS, ko_expert_more::WORDS, ko_channels_expert::WORDS),
         );
         assert_eq!(keys(&english), keys(&korean));
         assert_eq!(keys(&english).len(), english.len());
@@ -106,7 +110,7 @@ mod tests {
     /// An expert row either replaces a basic word or is one only expert mode shows.
     #[test]
     fn expert_words_replace_basic_ones_or_are_expert_rows() {
-        for (key, _) in rows(en_expert::WORDS, en_expert_more::WORDS) {
+        for (key, _) in rows(en_expert::WORDS, en_expert_more::WORDS, en_channels_expert::WORDS) {
             let first = key.split('.').next();
             let only_expert = matches!(first, Some("pro" | "lab" | "captest" | "console" | "lock"))
                 || matches!(key, "page.console" | "page.locks" | "notice.experiment_busy");
@@ -136,7 +140,7 @@ mod tests {
 
     #[test]
     fn plain_words_have_no_expert_terms() {
-        for (key, words) in rows(en::WORDS, en_more::WORDS) {
+        for (key, words) in rows(en::WORDS, en_more::WORDS, en_channels::WORDS) {
             if key == OWN_VOICE {
                 continue;
             }
@@ -147,7 +151,7 @@ mod tests {
                 assert!(!spaced.contains(&format!(" {term} ")), "{key}: {words} says {term}");
             }
         }
-        for (key, words) in rows(ko::WORDS, ko_more::WORDS) {
+        for (key, words) in rows(ko::WORDS, ko_more::WORDS, ko_channels::WORDS) {
             if key == OWN_VOICE {
                 continue;
             }
@@ -171,11 +175,11 @@ mod tests {
 
     #[test]
     fn a_blank_takes_the_same_values_in_both_languages() {
-        for (key, english) in rows(en::WORDS, en_more::WORDS) {
+        for (key, english) in rows(en::WORDS, en_more::WORDS, en_channels::WORDS) {
             let korean = text(voice(Lang::Ko), key);
             assert_eq!(english.matches("{}").count(), korean.matches("{}").count(), "{key}");
         }
-        for (key, english) in rows(en_expert::WORDS, en_expert_more::WORDS) {
+        for (key, english) in rows(en_expert::WORDS, en_expert_more::WORDS, en_channels_expert::WORDS) {
             let korean = text(Voice { lang: Lang::Ko, mode: Mode::Expert }, key);
             assert_eq!(english.matches("{}").count(), korean.matches("{}").count(), "{key}");
         }
@@ -201,8 +205,8 @@ mod tests {
         sources(&folder.join("ui"), &mut texts);
         sources(&folder.join("../../olc-service/src/core"), &mut texts);
         sources(&folder.join("../../olc-service/src/local"), &mut texts);
-        let base = rows(en::WORDS, en_more::WORDS);
-        let expert = rows(en_expert::WORDS, en_expert_more::WORDS);
+        let base = rows(en::WORDS, en_more::WORDS, en_channels::WORDS);
+        let expert = rows(en_expert::WORDS, en_expert_more::WORDS, en_channels_expert::WORDS);
         let mut known = keys(&base);
         known.extend(keys(&expert));
         let prefixes: BTreeSet<&str> =

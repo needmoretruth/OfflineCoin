@@ -1,15 +1,17 @@
 //! Payment channels: coins held with one other computer, paid on at once, and taken back when the
 //! channel closes. Every state a channel can be in is said in a sentence.
-use super::money::code;
 use super::{Cx, Page, Slipping};
 use crate::core::host_channels::{read_request, ChannelView, ChannelsView, PayState, Phase};
 use crate::core::{parse_coins, unix_ms, ChannelOrder, Command};
 use crate::ui::format;
 use crate::ui::tokens;
-use crate::ui::widgets::{self, button, button_on, card, field, meta, mono, pick_row, section, Kind};
+use crate::ui::widgets::{self, button, button_on, card, field, meta, section, Kind};
 use crate::ui::Icon;
-use egui::{CollapsingHeader, Label, Ui};
-use olc_service::qr::{qr_grid, QrGrid};
+use egui::{CollapsingHeader, Ui};
+use olc_service::qr::QrGrid;
+
+#[path = "channels_parts.rs"]
+mod parts;
 
 const WIDE: f32 = 560.0;
 const SHOWN: usize = 5;
@@ -27,10 +29,18 @@ pub struct Channels {
     quoting: Option<(String, u64)>,
     ask_amount: String,
     ask_note: String,
-    open_with: Option<String>,
+    /// What the other side's channel address field holds.
+    open_with: String,
     open_amount: String,
+    open_push: String,
+    open_delay: String,
+    open_fault: Option<String>,
     /// The code of the newest request, made once.
     code: Option<(String, Option<QrGrid>)>,
+    /// The code of this computer's channel address, made once and shown on a press.
+    address_code: Option<(String, Option<QrGrid>)>,
+    show_address_code: bool,
+    copied_at: Option<f64>,
 }
 
 /// The name of the other computer: its own, or the start of its key.
@@ -104,11 +114,16 @@ impl Channels {
                 ui.label(widgets::strong_text(name.clone()));
                 meta(ui, &state_line(cx, channel), t);
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(cx.fill("ch.yours", &[&format::coins(channel.ours, cx.ticker())]));
-                    ui.add_space(tokens::GAP_WIDE);
-                    ui.label(cx.fill("ch.theirs", &[&format::coins(channel.theirs, cx.ticker())]));
-                });
+                match channel.phase {
+                    Phase::Open => Self::room(ui, cx, channel),
+                    _ => {
+                        ui.horizontal(|ui| {
+                            ui.label(cx.fill("ch.yours", &[&format::coins(channel.ours, cx.ticker())]));
+                            ui.add_space(tokens::GAP_WIDE);
+                            ui.label(cx.fill("ch.theirs", &[&format::coins(channel.theirs, cx.ticker())]));
+                        });
+                    }
+                }
                 if matches!(channel.phase, Phase::Open | Phase::Closing) {
                     ui.add_space(tokens::GAP);
                     ui.horizontal(|ui| {
@@ -176,61 +191,6 @@ impl Channels {
                     ui.label(cx.fill("ch.back", &[&format::coins(channel.back, cx.ticker())]));
                 }
                 ui.add_space(tokens::GAP);
-            }
-        });
-    }
-
-    fn open(&mut self, ui: &mut Ui, cx: &mut Cx, view: &ChannelsView) {
-        let t = cx.t;
-        section(ui, cx.say("ch.open"));
-        ui.add_space(4.0);
-        if cx.expert() {
-            meta(ui, &cx.fill("ch.my_key", &[&view.key]), t);
-            ui.add_space(4.0);
-        }
-        if view.peers.is_empty() {
-            meta(ui, cx.say("ch.nearby_none"), t);
-            return;
-        }
-        meta(ui, cx.say("ch.pick"), t);
-        ui.add_space(4.0);
-        for (key, name) in &view.peers {
-            let shown = name_of(cx, name, key);
-            let current = self.open_with.as_deref() == Some(key.as_str());
-            // A label that can be selected would take the press meant for the row.
-            let row = pick_row(ui, t, tokens::ROW, current, &shown, |ui| {
-                ui.add(Label::new(shown.clone()).truncate().selectable(false));
-            });
-            if row.clicked() {
-                self.open_with = Some(key.clone());
-            }
-        }
-        ui.add_space(tokens::GAP);
-        let amount = parse_coins(self.open_amount.trim()).filter(|units| *units > 0);
-        let chosen = self.open_with.clone().filter(|key| view.peers.iter().any(|(known, _)| known == key));
-        ui.horizontal(|ui| {
-            field(ui, &mut self.open_amount, cx.say("ch.amount"), 160.0);
-            let ready = amount.is_some() && chosen.is_some();
-            if button_on(ui, t, cx.say("ch.open_go"), Kind::Main, ready).clicked() {
-                if let (Some(units), Some(key)) = (amount, chosen) {
-                    let name = view.peers.iter().find(|(known, _)| *known == key).map(|(_, name)| name.clone());
-                    *cx.slip = Some(cx.slip_for(Slipping {
-                        what: cx.say("ch.open"),
-                        rows: vec![
-                            (cx.say("ch.other"), name_of(cx, &name.unwrap_or_default(), &key)),
-                            (cx.say("ch.amount"), format::coins(units, cx.ticker())),
-                        ],
-                        warning: cx.say("ch.open_warning"),
-                        sign: cx.say("ch.open_go"),
-                        danger: false,
-                        order: vec![Command::Channel(ChannelOrder::Open {
-                            peer: key,
-                            amount: self.open_amount.trim().to_string(),
-                            delay: String::new(),
-                        })],
-                    }));
-                    self.open_amount.clear();
-                }
             }
         });
     }
@@ -321,35 +281,8 @@ impl Channels {
                 self.ask_note.clear();
             }
         });
-        let Some(newest) = view.invoices.first() else {
-            return;
-        };
-        if self.code.as_ref().is_none_or(|(text, _)| *text != newest.text) {
-            self.code = Some((newest.text.clone(), qr_grid(&newest.text)));
-        }
-        ui.add_space(tokens::GAP);
-        card(ui, t, |ui| {
-            ui.set_max_width(WIDE);
-            let state = match (newest.paid, newest.expired) {
-                (true, _) => "ch.request_paid",
-                (false, true) => "ch.request_expired",
-                (false, false) => "ch.request_waiting",
-            };
-            ui.label(widgets::strong_text(format::coins(newest.amount, cx.ticker())));
-            meta(ui, cx.say(state), t);
-            if !newest.paid && !newest.expired {
-                ui.add_space(tokens::GAP);
-                if let Some((_, Some(grid))) = &self.code {
-                    code(ui, grid, cx.say("ch.code"));
-                }
-                ui.add_space(tokens::GAP);
-                ui.add(Label::new(mono(newest.text.as_str())).truncate());
-                ui.add_space(4.0);
-                if button(ui, t, cx.say("ch.copy"), Kind::Plain).clicked() {
-                    ui.ctx().copy_text(newest.text.clone());
-                }
-            }
-        });
+        self.waiting_code(ui, cx, view);
+        self.requests(ui, cx, view);
     }
 
     fn lately(ui: &mut Ui, cx: &Cx, view: &ChannelsView) {
@@ -400,6 +333,8 @@ impl Page for Channels {
             return;
         }
         ui.set_max_width(WIDE + 2.0 * tokens::GAP_WIDE);
+        self.my_address(ui, cx, &view);
+        ui.add_space(tokens::GAP_PAGE);
         Self::summary(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
         Self::channel_rows(ui, cx, &view);

@@ -20,6 +20,8 @@ pub const MOST_DELAY: u16 = 2_016;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ask {
     pub capacity: u64,
+    /// What the opener gives the other side from the start (LND's `--push_amt`).
+    pub push: u64,
     pub delay: u16,
     pub fee: u64,
     pub dust: u64,
@@ -38,15 +40,24 @@ fn sound(side: &Opening) -> bool {
     keys.iter().chain(&side.points).all(|key| is_public_key(&key.0))
 }
 
-fn first_state(capacity: u64, we_opened: bool) -> State {
+fn first_state(capacity: u64, push: u64, we_opened: bool) -> State {
+    let (opener, other) = (capacity - push, push);
     match we_opened {
-        true => State { number: 0, ours: capacity, theirs: 0, htlcs: Vec::new() },
-        false => State { number: 0, ours: 0, theirs: capacity, htlcs: Vec::new() },
+        true => State { number: 0, ours: opener, theirs: other, htlcs: Vec::new() },
+        false => State { number: 0, ours: other, theirs: opener, htlcs: Vec::new() },
     }
 }
 
+/// Why an ask cannot make a channel: too little in it, or a push that leaves the opener too little
+/// for the fee or gives the other side less than a payable output.
+fn too_little(ask: &Ask) -> bool {
+    let floor = ask.fee.saturating_add(ask.dust);
+    let pushed_dust = ask.push > 0 && ask.push < ask.dust;
+    ask.capacity <= floor || ask.push >= ask.capacity || ask.capacity - ask.push <= floor || pushed_dust
+}
+
 fn blank(id: ChannelId, peer: NodeId, we_opened: bool, ask: &Ask, seed: Hash, ours: Opening, made_ms: u64) -> Channel {
-    let state = first_state(ask.capacity, we_opened);
+    let state = first_state(ask.capacity, ask.push, we_opened);
     Channel {
         id,
         peer,
@@ -99,20 +110,17 @@ fn obscure_of(opener: &[u8], acceptor: &[u8]) -> u32 {
 impl Channel {
     /// The opener's first step.
     pub fn start(peer: NodeId, ask: Ask, seed: Hash, pay_to: Address, made_ms: u64) -> Result<(Self, Wire), Fault> {
-        if ask.capacity <= ask.fee.saturating_add(ask.dust) {
+        if too_little(&ask) {
             return Err("too little for a channel");
         }
         let id = sha256(&[&seed[..], &peer.0].concat());
         let ours = opening_of(&seed, pay_to)?;
         let mut channel = blank(id, peer, true, &ask, seed, ours.clone(), made_ms);
-        let wire = Wire::Open {
-            id,
-            capacity: ask.capacity,
-            delay: ask.delay,
-            fee: ask.fee,
-            dust: ask.dust,
-            coin: ask.coin,
-            side: ours,
+        let (capacity, push, delay, fee, dust, coin) = (ask.capacity, ask.push, ask.delay, ask.fee, ask.dust, ask.coin);
+        // With nothing pushed the message is the one every build reads.
+        let wire = match push {
+            0 => Wire::Open { id, capacity, delay, fee, dust, coin, side: ours },
+            _ => Wire::OpenPush { id, capacity, push, delay, fee, dust, coin, side: ours },
         };
         channel.last_sent = Some(wire.clone());
         Ok((channel, wire))
@@ -128,7 +136,7 @@ impl Channel {
         pay_to: Address,
         made_ms: u64,
     ) -> Result<(Self, Wire), Fault> {
-        if ask.capacity <= ask.fee.saturating_add(ask.dust) {
+        if too_little(&ask) {
             return Err("too little for a channel");
         }
         if !(FEWEST_DELAY..=MOST_DELAY).contains(&ask.delay) {

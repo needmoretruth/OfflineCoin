@@ -57,9 +57,36 @@ pub fn wallet_folder(args: &Args) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
+/// `olc channel open …` is `olc channel-open …`, as Lightning's programs spell it apart.
+pub fn joined(words: Vec<String>) -> Vec<String> {
+    let pair = words.first().map(String::as_str).zip(words.get(1).map(String::as_str));
+    match pair {
+        Some(("channel", second @ ("open" | "close" | "pay"))) => {
+            let first = format!("channel-{second}");
+            std::iter::once(first).chain(words.into_iter().skip(2)).collect()
+        }
+        Some(("channel", "list")) => std::iter::once("channels".to_string()).chain(words.into_iter().skip(2)).collect(),
+        _ => words,
+    }
+}
+
+/// The same for a typed line, which keeps its quotes.
+pub fn joined_line(line: &str) -> String {
+    let typed = line.trim_start();
+    let Some(rest) = typed.strip_prefix("channel ").map(str::trim_start) else {
+        return line.to_string();
+    };
+    match rest.split_once(' ').map_or(rest, |(first, _)| first) {
+        "open" | "close" | "pay" => format!("channel-{rest}"),
+        "list" => format!("channels{}", &rest[4..]),
+        _ => line.to_string(),
+    }
+}
+
 fn terminal(args: &Args) -> Result<Terminal, String> {
     let directory = wallet_folder(args)?;
     let mut terminal = Terminal::new(Folder { directory });
+    terminal.words = joined(std::env::args().skip(1).collect());
     terminal.root = args.value("root").map(PathBuf::from);
     terminal.ports = args.values("serial");
     terminal.firmware = args.value("firmware").map(str::to_string);
@@ -92,7 +119,7 @@ fn help() {
 }
 
 fn main() {
-    let args = Args::parse(std::env::args().skip(1));
+    let args = Args::parse(joined(std::env::args().skip(1).collect()).into_iter());
     // Asking for help never starts or changes anything, whatever command it follows.
     if args.has("help") || std::env::args().skip(1).any(|word| word == "-h") {
         help();

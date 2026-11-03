@@ -284,8 +284,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.ask_note", "Note for the payer"),
     ("ch.ask_go", "Make request"),
     ("ch.request_waiting", "Waiting for payment. Pass this code or text to the payer. It works for an hour."),
-    ("ch.request_paid", "Paid."),
-    ("ch.request_expired", "This request has expired."),
     ("ch.code", "Payment request code"),
     ("ch.copy", "Copy"),
     ("ch.sent", "Sent through channels"),

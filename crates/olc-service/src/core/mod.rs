@@ -11,6 +11,7 @@ mod words_wallet;
 mod coins;
 mod commands;
 mod console;
+pub mod door;
 #[cfg(test)]
 mod dial_tests;
 mod explorer;
@@ -21,6 +22,7 @@ mod history;
 mod host;
 pub mod host_channels;
 pub mod host_locks;
+pub mod host_peers;
 mod host_parts;
 mod host_wallet;
 mod wallet_orders;

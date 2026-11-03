@@ -1,6 +1,6 @@
 //! Actions from a terminal. Keys and choices work on a node's folder. The rest need the core, so
 //! it starts without a window for as long as the action takes.
-use super::commands::{Command, Personal};
+use super::commands::{Command, Personal, SwapOrder};
 use super::console::{answer_to, looked_up};
 use super::folder::Folder;
 use super::host_locks::plain_detail;
@@ -41,6 +41,7 @@ const LOOK_EVERY: Duration = Duration::from_millis(100);
 const NOBODY_NEAR: &str = "No node answered, so nothing was sent.";
 const OTHER_WALLET: &str =
     "That needs a node on the wallet in --data. Run olc node --data DIR and type it there.";
+const NO_NODE_RUNS: &str = "No node runs on this wallet. Open OLC Core, or start one with olc node, then type this again.";
 /// Where `olc` kept a node's folder before it followed the core's.
 const OLD_FOLDER: &str = ".olc/node";
 
@@ -59,6 +60,8 @@ pub struct Terminal {
     pub firmware: Option<String>,
     /// Asked for before anything runs, so this stays free of prompts.
     pub given_password: Option<String>,
+    /// The words as typed, for a node already running on this wallet to carry out.
+    pub words: Vec<String>,
     /// The core, with the hold that keeps a second copy off the same wallet and cables.
     core: Option<(Core, Instance)>,
 }
@@ -71,6 +74,7 @@ impl Terminal {
             ports: Vec::new(),
             firmware: None,
             given_password: None,
+            words: Vec::new(),
             core: None,
         }
     }
@@ -218,6 +222,13 @@ impl Desk for Terminal {
             Command::Own(order) => !order.needs_a_node(),
             _ => false,
         };
+        // A node running on this wallet carries out what needs a node, as bitcoind does for
+        // bitcoin-cli. A password never leaves this program, so a word that needs one stays here.
+        if !on_folder && self.given_password.is_none() {
+            if let Some(said) = super::door::ask(&self.folder.directory, &self.words) {
+                return said;
+            }
+        }
         if !on_folder {
             self.same_wallet(&command)?;
         }
@@ -232,7 +243,9 @@ impl Desk for Terminal {
             // A coin put under a lock or spent from one leaves like any payment, or not at all.
             Command::Pay { .. } | Command::Lock(_) => self.send_and_stay(command),
             // A channel moves only while its node runs, so its words go to a running one.
-            Command::Channel(_) => Err("Type channel words into a running node: olc node, or the app's console.".into()),
+            Command::Channel(_) => Err(NO_NODE_RUNS.into()),
+            // A swap takes many minutes, and only a node that keeps running can see it through.
+            Command::Swap(order) if order != SwapOrder::List => Err(NO_NODE_RUNS.into()),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
                 let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;

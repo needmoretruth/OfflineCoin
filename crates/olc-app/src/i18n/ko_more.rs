@@ -284,8 +284,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.ask_note", "보내는 사람에게 보일 메모"),
     ("ch.ask_go", "요청 만들기"),
     ("ch.request_waiting", "돈을 기다립니다. 이 코드나 글을 보내는 사람에게 건네세요. 한 시간 동안 쓸 수 있습니다."),
-    ("ch.request_paid", "받았습니다."),
-    ("ch.request_expired", "기한이 지난 요청입니다."),
     ("ch.code", "결제 요청 코드"),
     ("ch.copy", "복사"),
     ("ch.sent", "채널로 보낸 돈"),
