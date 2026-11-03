@@ -2,7 +2,8 @@
 //! by board one, the board on the cable. This runs the app's own pool with board zero as a worker
 //! through board one. The app's fleet signs the work and sends it down board one's cable, board
 //! one passes it on over the radio, board zero grinds it and its shares come back the same way,
-//! credited to board zero.
+//! credited to board zero. A board that does not trust this app's key stays silent: the pool
+//! names it and turns its switch off.
 //!
 //! The fleet, the pool, each board's router and gate, and the rules for lent work are the real
 //! ones; the firmware runs the same `olc_control::lend::handle`. Only the cable and the radio are
@@ -10,15 +11,15 @@
 use olc_board::control_key::ControlKey;
 use olc_board::fleet::Fleet;
 use olc_board::{Args, Extra};
-use olc_control::lend::{handle, sign_lent, Handling, Heard};
+use olc_control::lend::{handle, receipt, sign_lent, Handling, Heard};
 use olc_control::{sign_beacon, Beacon, BoardId, Body, Forward, Gate, Packet, Router};
 use olc_core::{BlockHeader, CoinConfig};
 use olc_crypto::{address_of, Signer};
 use olc_node::hello::Via;
 use olc_node::{Card, Hello, Runner};
 use olc_pool::meets;
-use olc_service::core::{BlockState, Host, Plan, PoolCx, PoolOrder, PoolSeat, PoolSettings, Who};
-use olc_service::fleet::{BoardRow, Connection, FleetPort, LineError, StartError};
+use olc_service::core::{BlockState, Host, Plan, PoolCx, PoolOrder, PoolSeat, PoolSettings, PoolView, SwitchedOff, Who, LENT_ANSWER_WITHIN};
+use olc_service::fleet::{BoardRow, Connection, FleetPort, LentHeard, LineError, StartError};
 use olc_service::local::Supervisor;
 use olc_service::settings::Paths;
 use olc_wallet::format_address;
@@ -118,7 +119,13 @@ impl Desk {
                 packet.hops -= 1;
             }
             if verdict.for_me {
-                if let Handling::Pass(peer, passed) = handle(&packet, &self.one.address, &self.one.gate, &self.one.heard) {
+                let handling = handle(&packet, &self.one.address, &self.one.gate, &self.one.heard);
+                if let Some(body) = receipt(&packet, &handling, &self.one.address) {
+                    let answer = Packet { from: ONE, to: Some(packet.from), id: self.one.router.next_id(), hops: 0, body };
+                    let forward = self.one.router.outgoing(Some(packet.from));
+                    self.one_sends(forward, answer.encode());
+                }
+                if let Handling::Pass(peer, passed) = handling {
                     assert_eq!(peer, ZERO_ON_ONE, "board one passes work to the peer board zero spoke from");
                     self.one.passed += 1;
                     self.one_sends(Forward::Peer(peer), passed.encode());
@@ -133,7 +140,12 @@ impl Desk {
             if !verdict.for_me {
                 continue;
             }
-            match handle(&packet, &zero.address, &zero.gate, &Heard::default()) {
+            let handling = handle(&packet, &zero.address, &zero.gate, &Heard::default());
+            if let Some(body) = receipt(&packet, &handling, &zero.address) {
+                let answer = Packet { from: ZERO, to: Some(packet.from), id: zero.router.next_id(), hops: 0, body };
+                self.one.inbox.push_back((ZERO_ON_ONE, answer.encode()));
+            }
+            match handling {
                 Handling::Take(Some((header, difficulty))) => {
                     zero.work = Some((BlockHeader::decode(&header).unwrap(), difficulty, packet.from));
                     zero.taken += 1;
@@ -187,6 +199,9 @@ impl FleetPort for Boards {
     fn take_lent_shares(&self, worker: &[u8; 20]) -> Vec<Vec<u8>> {
         self.0.lock().unwrap().app.take_shares(worker)
     }
+    fn lent_heard(&self, worker: &[u8; 20]) -> LentHeard {
+        self.0.lock().unwrap().app.lent_heard(worker)
+    }
     fn start_update(&self, _board: BoardId) {}
     fn start_install(&self, _path: &str, _name: &str) -> bool {
         false
@@ -211,8 +226,8 @@ fn coin() -> CoinConfig {
     coin
 }
 
-fn fresh_folder() -> PathBuf {
-    let folder = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("pool_relay");
+fn fresh_folder(name: &str) -> PathBuf {
+    let folder = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     folder
@@ -236,15 +251,18 @@ fn host(folder: &Path) -> Host {
     Host::start(plan, None).unwrap()
 }
 
-fn desk(folder: &Path) -> Desk {
+/// The two boards; each trusts this app's control key, or another computer's.
+fn desk(folder: &Path, one_trusts: bool, zero_trusts: bool) -> Desk {
     let key = ControlKey::load_or_create(folder).unwrap();
-    let trusted = key.public().unwrap();
+    let ours = key.public().ok();
+    let theirs = olc_crypto::public_key(&[0x44; 32]);
+    let trusted = |trusts: bool| if trusts { ours } else { theirs };
     let app = Fleet::new(key, cable_link).unwrap();
     let one_signer = Signer::new(&[0x11; 32]).unwrap();
     let zero_signer = Signer::new(&[0x22; 32]).unwrap();
     let mut one = Relay {
         router: Router::new(ONE, 100),
-        gate: Gate::new(ONE, Some(trusted), 0),
+        gate: Gate::new(ONE, trusted(one_trusts), 0),
         address: address_of(one_signer.public_key()),
         signer: one_signer,
         heard: Heard::default(),
@@ -254,7 +272,7 @@ fn desk(folder: &Path) -> Desk {
     };
     let zero = Worker {
         router: Router::new(ZERO, 200),
-        gate: Gate::new(ZERO, Some(trusted), 0),
+        gate: Gate::new(ZERO, trusted(zero_trusts), 0),
         address: address_of(zero_signer.public_key()),
         inbox: VecDeque::new(),
         work: None,
@@ -274,10 +292,10 @@ fn hello_of(zero: [u8; 20]) -> Hello {
 
 #[test]
 fn board_zero_works_for_the_pool_through_board_one() {
-    let folder = fresh_folder();
+    let folder = fresh_folder("pool_relay");
     let host = host(&folder);
     let mut local = Supervisor::with_program(Paths { root: folder.clone() }, "olc-core".into());
-    let boards = Arc::new(Boards(Mutex::new(desk(&folder))));
+    let boards = Arc::new(Boards(Mutex::new(desk(&folder, true, true))));
     let port: Arc<dyn FleetPort> = boards.clone();
     let zero = boards.0.lock().unwrap().zero.address;
     let zero_hello = hello_of(zero);
@@ -330,6 +348,9 @@ fn board_zero_works_for_the_pool_through_board_one() {
     {
         let desk = boards.0.lock().unwrap();
         assert!(desk.one.passed > 0 && desk.zero.taken > 0 && desk.zero.sent > 0);
+        let heard = desk.app.lent_heard(&zero);
+        assert!(heard.passed.is_some() && heard.taken.is_some(), "both boards said so: {heard:?}");
+        assert!(view.switched_off.is_empty(), "{:?}", view.switched_off);
         println!("board one passed {} works, board zero took {} and sent {} shares; the pool took {}", desk.one.passed, desk.zero.taken, desk.zero.sent, row.accepted);
     }
 
@@ -340,4 +361,69 @@ fn board_zero_works_for_the_pool_through_board_one() {
         boards.0.lock().unwrap().turn();
     }
     assert!(boards.0.lock().unwrap().zero.work.is_none(), "board zero mines for itself again");
+}
+
+/// Runs the pool with board zero chosen until the pool gives up on it. What the page has then,
+/// the settings left, how long after Start, and what board one passed on and board zero took.
+fn until_switched_off(name: &str, one_trusts: bool, zero_trusts: bool) -> (SwitchedOff, PoolView, PoolSettings, Duration, (u32, u32)) {
+    let folder = fresh_folder(name);
+    let host = host(&folder);
+    let mut local = Supervisor::with_program(Paths { root: folder.clone() }, "olc-core".into());
+    let boards = Arc::new(Boards(Mutex::new(desk(&folder, one_trusts, zero_trusts))));
+    let port: Arc<dyn FleetPort> = boards.clone();
+    let zero = boards.0.lock().unwrap().zero.address;
+    let zero_hello = hello_of(zero);
+    let hellos = [(&zero_hello, Some(CABLE_LINK))];
+    let mut settings = PoolSettings::default();
+    let mut seat = PoolSeat::default();
+    let began = Instant::now();
+    let mut started: Option<Instant> = None;
+    loop {
+        boards.0.lock().unwrap().turn();
+        let mut cx = PoolCx { host: &host, local: &mut local, fleet: Some(&port), specs: &[], hellos: &hellos, settings: &mut settings };
+        let changed = seat.step(&mut cx);
+        let view = seat.view();
+        // Nothing tells the app before Start that a board does not trust it.
+        let offered = view.choices.iter().any(|choice| choice.who == Some(Who::Lent(zero)) && choice.why_not.is_none());
+        if started.is_none() && offered {
+            let chosen = PoolSettings { port: 0, fixed_difficulty: SHARE_DIFFICULTY, workers: vec![Who::Lent(zero)], ..PoolSettings::default() };
+            assert!(seat.order(PoolOrder::Start(chosen), &mut cx), "{:?}", view.error);
+            started = Some(Instant::now());
+        }
+        if let Some(off) = view.switched_off.first() {
+            assert!(changed, "the turn that switched it off says the settings changed");
+            let desk = boards.0.lock().unwrap();
+            return (off.clone(), view.clone(), settings.clone(), started.unwrap().elapsed(), (desk.one.passed, desk.zero.taken));
+        }
+        assert!(began.elapsed() < WAIT, "{view:#?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_board_that_does_not_trust_this_app_is_named_and_switched_off() {
+    let (off, view, settings, after, (passed, taken)) = until_switched_off("pool_relay_untrusted_zero", true, false);
+    assert_eq!((off.why, off.relay.as_str()), ("pool.lent_untrusted", "보드원"));
+    assert!(matches!(off.who, Who::Lent(_)));
+    assert!(after >= LENT_ANSWER_WITHIN && after < LENT_ANSWER_WITHIN + Duration::from_secs(3), "after {after:?}");
+    // Board one passed the work on each time it went out again; board zero never took it.
+    assert!(passed >= 3, "passed {passed}");
+    assert_eq!(taken, 0);
+    assert!(!settings.workers.contains(&off.who), "its switch is off: {:?}", settings.workers);
+    assert!(view.link_of(off.who).is_none(), "nothing is lent to it any more");
+    // Its row in the pool's table is still its own, not a stranger's.
+    for row in view.workers.iter().filter(|row| row.name == off.user) {
+        assert_eq!(row.here, Some(off.who));
+    }
+    println!("board zero was switched off {after:?} after Start; board one passed {passed} works on");
+}
+
+#[test]
+fn a_relay_that_does_not_pass_the_work_on_is_named() {
+    let (off, view, settings, after, (passed, taken)) = until_switched_off("pool_relay_untrusted_one", false, true);
+    assert_eq!((off.why, off.relay.as_str()), ("pool.relay_untrusted", "보드원"));
+    assert!(after >= LENT_ANSWER_WITHIN && after < LENT_ANSWER_WITHIN + Duration::from_secs(3), "after {after:?}");
+    assert_eq!((passed, taken), (0, 0));
+    assert!(!settings.workers.contains(&off.who));
+    assert!(view.link_of(off.who).is_none());
 }

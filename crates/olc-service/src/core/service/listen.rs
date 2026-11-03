@@ -90,7 +90,11 @@ impl Service {
             hellos: &hellos,
             settings: &mut self.settings.pool,
         };
-        self.pool.step(&mut cx);
+        // A board switched off for never taking the pool's work stays off after a restart.
+        if self.pool.step(&mut cx) {
+            drop(hellos);
+            self.save();
+        }
     }
 
     /// What a person asked of the pool. The choices it leaves are kept for the next start.

@@ -3,7 +3,7 @@ mod cap_test;
 mod real;
 
 pub use cap_test::CapTest;
-pub use olc_board::{Args, BoardState, Connection, Seen};
+pub use olc_board::{Args, BoardState, Connection, LentHeard, Seen};
 pub use olc_board::manager::{BoardRow, ExtraRun, LineError, StartError};
 pub use real::RealFleet;
 
@@ -48,6 +48,10 @@ pub trait FleetPort: Send + Sync {
     /// What the board that mines to `worker` found for lent work since the last call.
     fn take_lent_shares(&self, _worker: &[u8; 20]) -> Vec<Vec<u8>> {
         Vec::new()
+    }
+    /// When lent work for `worker` was last passed on by the board on the cable, and taken.
+    fn lent_heard(&self, _worker: &[u8; 20]) -> LentHeard {
+        LentHeard::default()
     }
     fn start_update(&self, board: BoardId);
     fn start_install(&self, path: &str, name: &str) -> bool;

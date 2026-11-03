@@ -80,6 +80,10 @@ impl FleetPort for RealFleet {
         self.manager.take_lent_shares(worker)
     }
 
+    fn lent_heard(&self, worker: &[u8; 20]) -> olc_board::LentHeard {
+        self.manager.lent_heard(worker)
+    }
+
     fn start_update(&self, board: BoardId) {
         self.manager.start_update(board);
     }

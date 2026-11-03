@@ -3,7 +3,7 @@
 //! listed, and one that cannot take pool work says why in one line.
 use super::pool_parts::{found_blocks, how_it_works, workers_table};
 use super::Cx;
-use crate::core::{Choice, Command, Method, PoolOrder, PoolSettings, PoolView, Who, LAST_SHARES, MOST_FEE_BPS, POOL_PORT};
+use crate::core::{Choice, Command, Method, PoolOrder, PoolSettings, PoolView, SwitchedOff, Who, LAST_SHARES, MOST_FEE_BPS, POOL_PORT};
 use crate::ui::explain;
 use crate::ui::format;
 use crate::ui::tokens;
@@ -21,6 +21,8 @@ pub struct PoolTab {
     fee: String,
     /// Why Start was not pressed: a key.
     wrong: Option<&'static str>,
+    /// When the pool last switched a board off, as far as this page followed it.
+    followed: u64,
 }
 
 /// What a miner here is called on this page.
@@ -54,6 +56,7 @@ fn fee_of(text: &str) -> Option<u32> {
 impl PoolTab {
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let view = cx.snap.pool.clone();
+        self.follow(cx, &view);
         if view.running {
             // The running pool is the whole page: its own miner's standing is the workers table,
             // and a joining card below would move with every worker that joins. Each miner's pool
@@ -73,8 +76,9 @@ impl PoolTab {
         }
     }
 
-    fn form(&mut self, ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
-        let t = cx.t;
+    /// The choices, taken from the last pool's once. A board the pool switched off is switched off
+    /// here too, once: switched on again, it stays on.
+    fn follow(&mut self, cx: &Cx, view: &PoolView) {
         let form = self.form.get_or_insert_with(|| {
             let mut kept = cx.settings.pool.clone();
             if kept.workers.is_empty() {
@@ -82,6 +86,18 @@ impl PoolTab {
             }
             kept
         });
+        for off in view.switched_off.iter().filter(|off| off.at_ms > self.followed) {
+            form.workers.retain(|who| *who != off.who);
+        }
+        let newest = view.switched_off.iter().map(|off| off.at_ms).max().unwrap_or_default();
+        self.followed = self.followed.max(newest);
+    }
+
+    fn form(&mut self, ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
+        let t = cx.t;
+        let Some(form) = &mut self.form else {
+            return;
+        };
         if self.fee.is_empty() {
             self.fee = percent(form.fee_bps);
         }
@@ -95,7 +111,8 @@ impl PoolTab {
             section(ui, cx.say("pool.workers"));
             widgets::slot(ui, |ui| {
                 for choice in &view.choices {
-                    choice_row(ui, cx, choice, &mut form.workers);
+                    let off = view.switched_off.iter().find(|off| Some(off.who) == choice.who);
+                    choice_row(ui, cx, choice, &mut form.workers, off);
                 }
             });
             ui.add_space(tokens::GAP);
@@ -146,7 +163,8 @@ impl PoolTab {
 }
 
 /// One miner that could work: a switch when it can, its name and the one reason when it cannot.
-fn choice_row(ui: &mut Ui, cx: &Cx, choice: &Choice, chosen: &mut Vec<Who>) {
+/// A board the pool switched off says why while its switch stays off.
+fn choice_row(ui: &mut Ui, cx: &Cx, choice: &Choice, chosen: &mut Vec<Who>, off: Option<&SwitchedOff>) {
     let t = cx.t;
     let name = label_of(cx, choice.who, &choice.label);
     ui.horizontal_wrapped(|ui| {
@@ -172,10 +190,11 @@ fn choice_row(ui: &mut Ui, cx: &Cx, choice: &Choice, chosen: &mut Vec<Who>) {
             meta(ui, &cx.fill("pool.through", &[through]), t);
         }
     });
-    if let Some(why) = choice.why_not {
+    let switched_off = off.filter(|off| !chosen.contains(&off.who)).map(|off| cx.fill(off.why, &[&off.relay]));
+    if let Some(why) = choice.why_not.map(|why| cx.say(why).to_string()).or(switched_off) {
         ui.horizontal(|ui| {
             ui.add_space(44.0);
-            ui.label(RichText::new(cx.say(why)).size(tokens::META).color(t.warn));
+            ui.label(RichText::new(why).size(tokens::META).color(t.warn));
         });
     }
 }

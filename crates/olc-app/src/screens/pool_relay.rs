@@ -2,12 +2,14 @@
 //! updated its row says why it cannot work; after, it is a worker of the pool here, and what each
 //! worker was paid reads to two decimals in basic mode and in full for an expert. Staged, since no
 //! test may touch a board: `crates/olc-service/tests/pool_relay.rs` runs the same rows for real.
+//! A board that never took the work says why under its row, and its switch goes off.
 //! The pictures go to `.scratch/live/pool-shots`, at 1280 by 800, dark.
 use super::live::live_folder;
 use super::shots::{shot, tap};
 use super::{app, harness, quiet_settings, scratch, wait_until, Window, SETTLE_STEPS};
-use crate::core::{BlockState, Choice, FoundRow, PoolSettings, Snapshot, Who, WorkerRow};
+use crate::core::{BlockState, Choice, FoundRow, PoolSettings, Snapshot, SwitchedOff, Who, WorkerRow};
 use crate::i18n::{self, Lang, Mode, Voice};
+use egui::accesskit::{Role, Toggled};
 use egui_kittest::kittest::{By, NodeT, Queryable};
 
 const SIZE: (u32, u32) = (1280, 800);
@@ -128,4 +130,71 @@ fn board_zero_works_through_board_one_and_payouts_read_to_two_decimals() {
     save(&mut window, "relay-paid-expert-en");
     assert!(says(&window, &format!("14.2621875 {ticker}")), "{:#?}", texts(&window));
     assert!(says(&window, i18n::text(Voice { lang: Lang::En, mode: Mode::Expert }, "pool.kept")), "{:#?}", texts(&window));
+}
+
+/// The pool switched board zero off: it never said it took the work.
+fn switched_off(mut stage: Snapshot, at_ms: u64) -> Snapshot {
+    let user = "olc1example.보드제로".to_string();
+    stage.pool.switched_off = vec![SwitchedOff { who: Who::Lent(ZERO), user: user.clone(), why: "pool.lent_untrusted", relay: "보드원".into(), at_ms }];
+    for row in stage.pool.workers.iter_mut().filter(|row| row.name == user) {
+        (row.online, row.speed, row.accepted, row.paid, row.last_share_secs) = (false, 0, 0, 0, None);
+    }
+    stage
+}
+
+fn switch_of(window: &Window, label: &str) -> Option<bool> {
+    let mut found = window.query_all(By::new().role(Role::Switch).label(label));
+    found.next().map(|node| matches!(node.accesskit_node().toggled(), Some(Toggled::True)))
+}
+
+#[test]
+fn a_board_that_never_took_the_work_says_why_and_its_switch_goes_off() {
+    let mut settings = quiet_settings();
+    settings.pool = PoolSettings { workers: vec![Who::Own, Who::Lent(ZERO)], ..PoolSettings::default() };
+    let mut window = harness(app(scratch("pool-relay-off-shots"), settings, None), SIZE);
+    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
+    let live = window.state().snapshot();
+    speak(&mut window, Mode::Basic, Lang::Ko);
+    window.state_mut().set_stage(Some(choosing(&live, true)));
+    window.state_mut().open("page.boards");
+    window.run_steps(SETTLE_STEPS);
+    tap(&mut window, "boards.tab_pool");
+    assert_eq!(switch_of(&window, "보드제로"), Some(true), "board zero was chosen");
+    let said = i18n::text(Voice { lang: Lang::Ko, mode: Mode::Basic }, "pool.lent_untrusted");
+
+    // Running for a quarter minute, nothing found yet: board zero's row is grey, and the line
+    // under it says why and what to do.
+    let mut started = paid(&live, 0);
+    started.pool.found.clear();
+    for row in &mut started.pool.workers {
+        (row.paid, row.accepted) = (0, row.accepted / 40);
+    }
+    window.state_mut().set_stage(Some(switched_off(started, 1_000)));
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "relay-untrusted-running-basic-ko");
+    assert!(says(&window, said), "{:#?}", texts(&window));
+
+    // Stopped: its switch is off and says why; switched on again, it stays on.
+    window.state_mut().set_stage(Some(switched_off(choosing(&live, true), 1_000)));
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "relay-untrusted-stopped-basic-ko");
+    assert_eq!(switch_of(&window, "보드제로"), Some(false), "the pool switched it off");
+    assert!(says(&window, said), "{:#?}", texts(&window));
+    tap_switch(&mut window, "보드제로");
+    assert_eq!(switch_of(&window, "보드제로"), Some(true), "switched on again by hand");
+    assert!(!says(&window, said), "the reason went on showing once it was switched on to try again");
+
+    speak(&mut window, Mode::Expert, Lang::En);
+    window.state_mut().set_stage(Some(switched_off(choosing(&live, true), 2_000)));
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "relay-untrusted-stopped-expert-en");
+    assert_eq!(switch_of(&window, "보드제로"), Some(false), "a second switch-off turns it off again");
+}
+
+fn tap_switch(window: &mut Window, label: &str) {
+    let Some(switch) = window.query_all(By::new().role(Role::Switch).label(label)).next() else {
+        panic!("{label} has no switch");
+    };
+    switch.click_accesskit();
+    window.run_steps(SETTLE_STEPS);
 }

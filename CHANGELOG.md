@@ -13,6 +13,10 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - Every coin chooses how its difficulty moves in its coin file: at each block, as above, or every set number of blocks as in Bitcoin, either as Bitcoin does it or as Bitcoin's test network does, where a block that comes after two block times may take the lowest difficulty. A coin file from before keeps Bitcoin's way.
 - A block's time must be after the middle time of the 11 blocks before it, and a computer takes no block more than 30 seconds ahead of its clock, on the new OLC and every coin made since.
 - New OLC blocks have Bitcoin's 80-byte header and proof of work, the shape mining software and machines made for Bitcoin work on, with room in the first payment for a pool's extra numbers.
+- A mining pool on your computer that other computers join over Stratum v1, the way Bitcoin's pools work. This computer, the miners on it and your boards work in it, and when it finds a block each is paid for the shares it sent. OLC Core can also join a pool that runs on another computer.
+- A board heard only by radio through the board on your cable works in the pool through that board. Its work goes out signed with the app's control key, and its shares come back the same way and are paid to it. Both boards need build i19 or later.
+- A board that does not trust this app, or a cable board that does not pass the work on, is switched off after 15 seconds, and its row says why and what to do.
+- Pool payouts show 2 decimals. Expert mode shows every decimal.
 
 ### Fixed
 

@@ -2,7 +2,7 @@
 //! pool found and where every coin of each went, and what is behind Details.
 use super::pool::label_of;
 use super::Cx;
-use crate::core::{BlockState, FoundRow, PoolView, Who, WorkerRow};
+use crate::core::{BlockState, FoundRow, PoolView, SwitchedOff, Who, WorkerRow};
 use crate::ui::explain::{self, Choice};
 use crate::ui::format;
 use crate::ui::tokens::{self, Tokens};
@@ -30,6 +30,10 @@ fn name_of(cx: &Cx, row: &WorkerRow) -> String {
 /// Each worker: speed, its last share, what was taken and refused, and what it was paid.
 pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     let t = cx.t;
+    let unlisted = view.switched_off.iter().filter(|off| !view.workers.iter().any(|row| row.name == off.user));
+    for off in unlisted {
+        switched_off(ui, cx, off, Some(worker_of(&off.user)));
+    }
     if view.workers.is_empty() {
         meta(ui, cx.say("pool.no_workers_yet"), t);
         return;
@@ -66,7 +70,24 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
             5 => right_cell(ui, format::payout(cx.voice(), row.paid, cx.ticker())),
             _ => right_cell(ui, format::number(row.difficulty.into())),
         });
+        // A board the pool switched off for never taking its work says why under its row.
+        if let Some(off) = view.switched_off.iter().find(|off| off.user == row.name) {
+            switched_off(ui, cx, off, None);
+        }
     }
+}
+
+/// Why the pool switched a board off and what to do, with its name when no row above names it.
+fn switched_off(ui: &mut Ui, cx: &Cx, off: &SwitchedOff, name: Option<&str>) {
+    let why = cx.fill(off.why, &[&off.relay]);
+    let line = match name {
+        Some(name) => format!("{name} · {why}"),
+        None => why,
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(tokens::GAP_WIDE);
+        ui.label(RichText::new(line).size(tokens::META).color(cx.t.warn));
+    });
 }
 
 fn last_share(cx: &Cx, secs: Option<u64>) -> String {

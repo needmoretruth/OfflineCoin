@@ -142,11 +142,14 @@ pub enum Body {
     },
     /// Pool work for a board this computer reaches only through another. See [`crate::lend`].
     Lend(crate::lend::Lent),
-    /// Headers that reached lent work's difficulty, from the board that ground them.
+    /// Headers that reached lent work's difficulty, from the board that ground them. Sent with
+    /// none the moment it takes signed work, so the computer knows it was taken.
     Shares {
         worker: [u8; 20],
         headers: Vec<Vec<u8>>,
     },
+    /// From the board on the cable: it passed signed work on to the board that mines to `worker`.
+    Passed { worker: [u8; 20] },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
