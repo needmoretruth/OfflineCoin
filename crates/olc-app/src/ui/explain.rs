@@ -3,8 +3,8 @@
 //! good one exists, then the same criteria for every option it is compared with, so similar choices
 //! are judged by one stated measure and none is favoured by the wording.
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::widgets::{button, card, cell, header_cell, meta, Kind};
-use egui::{Grid, RichText, Ui};
+use crate::ui::widgets::{button, card, meta, Kind};
+use egui::{Grid, Label, RichText, Ui};
 use std::hash::Hash;
 
 /// The widest text that still reads as three lines in place, in Latin characters. A Hangul
@@ -51,22 +51,37 @@ pub fn analogy(ui: &mut Ui, t: &Tokens, text: &str) {
     ui.label(RichText::new(text).italics().color(t.soft));
 }
 
-/// Similar options on the same criteria: a row per criterion, a column per option.
+/// The widest a column of the comparison grows, so a long value wraps instead of stretching it.
+const COLUMN_MOST: f32 = 320.0;
+
+/// Similar options on the same criteria: a row per criterion, a column per option. Every column
+/// has one width and its text wraps: a cut cell would hide the very value being compared.
 pub fn compare(ui: &mut Ui, t: &Tokens, id: impl Hash + std::fmt::Debug, criteria: &[&str], choices: &[Choice]) {
-    Grid::new(ui.make_persistent_id(("compare", id))).spacing([tokens::GAP_WIDE, tokens::GAP]).show(ui, |ui| {
-        header_cell(ui, t, "");
-        for choice in choices {
-            header_cell(ui, t, choice.name);
-        }
-        ui.end_row();
-        for (row, criterion) in criteria.iter().enumerate() {
-            meta(ui, criterion, t);
+    let columns = choices.len() as f32 + 1.0;
+    let width = ((ui.available_width() - tokens::GAP_WIDE * (columns - 1.0)) / columns).clamp(80.0, COLUMN_MOST);
+    let wrapped = |ui: &mut Ui, text: RichText| {
+        ui.set_width(width);
+        ui.add(Label::new(text).wrap());
+    };
+    Grid::new(ui.make_persistent_id(("compare", id)))
+        .spacing([tokens::GAP_WIDE, tokens::GAP])
+        .min_col_width(width)
+        .max_col_width(width)
+        .show(ui, |ui| {
+            ui.label("");
             for choice in choices {
-                cell(ui, choice.values.get(row).copied().unwrap_or_default());
+                ui.scope(|ui| wrapped(ui, RichText::new(choice.name).size(tokens::META).color(t.muted)));
             }
             ui.end_row();
-        }
-    });
+            for (row, criterion) in criteria.iter().enumerate() {
+                ui.scope(|ui| wrapped(ui, RichText::new(*criterion).size(tokens::META).color(t.soft)));
+                for choice in choices {
+                    let value = choice.values.get(row).copied().unwrap_or_default();
+                    ui.scope(|ui| wrapped(ui, RichText::new(value).color(t.text)));
+                }
+                ui.end_row();
+            }
+        });
 }
 
 #[cfg(test)]

@@ -1,7 +1,15 @@
 //! Experiments that use a board only through the commands any owner has. They live here, outside
 //! the coin: a miner with most of the hash power can do this with ordinary software, and nothing
-//! in the coin or the node exists for it.
+//! in the coin or the node exists for it. The same experiments run on miners on this computer,
+//! which answer the lines a board answers.
 mod attack;
+mod split;
+mod steps;
+
+pub use attack::{attack_with, AttackOptions};
+pub use olc_board::journal::Journal;
+pub use split::{split_with, SplitOptions};
+pub use steps::{Outcome, Step, Watch};
 
 use olc_board::{Args, BoardLink, Extra, Say};
 use std::sync::atomic::AtomicBool;

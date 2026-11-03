@@ -133,6 +133,8 @@ struct Service {
     late: LateNotices,
     pool: PoolSeat,
     swaps: Swaps,
+    /// This computer's speed over the last ten minutes, for the speed line.
+    trail: super::chain_race::Trail,
     out: Arc<Mutex<Arc<Snapshot>>>,
 }
 
@@ -181,6 +183,7 @@ impl Service {
         };
         let service = Self {
             swaps: Swaps::load(paths.wallet()),
+            trail: super::chain_race::Trail::default(),
             paths,
             page: settings.clone(),
             settings,

@@ -1,0 +1,314 @@
+//! The latest blocks with who mined each, the branch that raced them and the last one that lost:
+//! what a person watches to see their own small network mine. The node's thread keeps this up to
+//! date one block at a time, so a new tip costs one block read and a quiet publish costs nothing.
+use olc_core::{Block, Chain, Hash, ADDRESS_LANGUAGE};
+use olc_wallet::format_address;
+use std::collections::VecDeque;
+
+/// How many of the latest blocks the shares count. At 60 blocks a miner with half the speed reads
+/// 50 % give or take 6 points, steady enough to tell two miners apart, and a changed speed shows
+/// within 60 blocks: six minutes at a six second block.
+pub const SHARE_WINDOW: usize = 60;
+/// A branch more than this far below the top is history, not a race.
+pub const RIVAL_DEPTH: u64 = 6;
+/// A move of the best chain this long or longer is a sync, read again from the start.
+const REORG_LOOK: u64 = 100;
+
+/// Who found a block, as far as this computer can tell from the address its reward went to.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Miner {
+    /// This app's own wallet or the address its node mines to.
+    You,
+    /// A miner process on this computer, by its name.
+    Here(String),
+    /// A board, by its name.
+    Board(String),
+    /// Some other computer, by the address its reward went to.
+    Away(String),
+    /// A reward with no plain address.
+    #[default]
+    Unknown,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MinedBlock {
+    pub height: u64,
+    pub id: Hash,
+    pub time_ms: u64,
+    /// Payments in it, the reward aside.
+    pub payments: usize,
+    /// What the reward paid out, fees included.
+    pub reward: u64,
+    pub difficulty: u64,
+    /// The address the reward went to, as people write it.
+    pub payee: Option<String>,
+    pub miner: Miner,
+}
+
+impl MinedBlock {
+    pub fn of(height: u64, block: &Block) -> Self {
+        let coinbase = block.txs.first();
+        let outputs = coinbase.map(|tx| tx.outputs.as_slice()).unwrap_or_default();
+        let paid = outputs.iter().filter(|output| !output.is_data());
+        let payee = outputs
+            .iter()
+            .filter(|output| output.language == ADDRESS_LANGUAGE)
+            .max_by_key(|output| output.value)
+            .and_then(|output| <[u8; 20]>::try_from(output.lock.as_slice()).ok());
+        Self {
+            height,
+            id: block.id(),
+            time_ms: block.header.time_ms,
+            payments: block.txs.len().saturating_sub(1),
+            reward: paid.map(|output| output.value).sum(),
+            difficulty: block.header.difficulty,
+            payee: payee.map(|address| format_address(&address)),
+            miner: Miner::Unknown,
+        }
+    }
+
+    /// The first eight hex digits of the id, as the explorer shows it.
+    pub fn short_hash(&self) -> String {
+        self.id[..4].iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+}
+
+/// A branch beside the best chain, oldest block first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Branch {
+    pub blocks: Vec<MinedBlock>,
+    /// When this computer saw it.
+    pub seen_ms: u64,
+}
+
+impl Branch {
+    pub fn first(&self) -> u64 {
+        self.blocks.first().map_or(0, |block| block.height)
+    }
+
+    pub fn last(&self) -> u64 {
+        self.blocks.last().map_or(0, |block| block.height)
+    }
+}
+
+/// One miner's part of the latest blocks.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Share {
+    pub miner: Miner,
+    pub blocks: u32,
+    /// Its speed now, where this computer hears it.
+    pub hashrate: Option<u64>,
+}
+
+/// Everything the block strip, the race bars, the speed line and the next block bar draw.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChainView {
+    /// The latest blocks of the best chain, newest first, at most [`SHARE_WINDOW`].
+    pub latest: Vec<MinedBlock>,
+    /// A branch this node holds that races the top of the best chain right now.
+    pub rival: Option<Branch>,
+    /// The last blocks that left the best chain because another branch won.
+    pub replaced: Option<Branch>,
+    /// Each miner's blocks among `latest`, most first, and miners that hash with none yet.
+    pub shares: Vec<Share>,
+    /// Hashes a second on this computer, this app and its miners together, oldest first, as
+    /// (unix ms, rate) over the last ten minutes.
+    pub trail: Vec<(u64, u64)>,
+    pub hashrate_here: u64,
+    /// All the speed the network has: what this computer hears, or what the latest blocks took
+    /// when some came from miners it cannot hear.
+    pub hashrate_all: u64,
+    /// How long the next block takes at that speed and the current difficulty.
+    pub expected_ms: Option<u64>,
+    /// How long the last blocks really took, on average, to set beside the expected wait.
+    pub average_ms: Option<u64>,
+}
+
+impl ChainView {
+    /// When the newest block was made, by its own clock.
+    pub fn last_block_ms(&self) -> Option<u64> {
+        self.latest.first().map(|block| block.time_ms)
+    }
+
+    /// How many blocks the shares count.
+    pub fn window(&self) -> u32 {
+        self.shares.iter().map(|share| share.blocks).sum()
+    }
+}
+
+/// The node thread's part: blocks as they come, and the branches beside them.
+#[derive(Default)]
+pub struct ChainWatch {
+    /// Oldest first.
+    blocks: VecDeque<MinedBlock>,
+    tip: Hash,
+    replaced: Option<Branch>,
+    rival: Option<Branch>,
+    /// The tips other miners hold and this node's tip, when the rival was last looked for.
+    rivals_for: (Vec<Hash>, Hash),
+}
+
+fn on_best(chain: &Chain, id: &Hash) -> Option<u64> {
+    let height = chain.height_of_block(id)?;
+    (chain.id_at(height) == Some(*id)).then_some(height)
+}
+
+fn height_in(block: &Block, chain: &Chain) -> u64 {
+    let id = block.id();
+    chain
+        .height_of_block(&id)
+        .or_else(|| block.txs.first().and_then(|tx| tx.coinbase_height))
+        .unwrap_or(0)
+}
+
+impl ChainWatch {
+    /// Follows a new tip: one block read when it extends the last, the whole window again after a
+    /// jump, and the losing side kept when the best chain moved to another branch.
+    pub fn follow(&mut self, chain: &Chain, now_ms: u64) {
+        let tip = chain.tip();
+        if tip == self.tip {
+            return;
+        }
+        let old = std::mem::replace(&mut self.tip, tip);
+        let height = chain.height();
+        match on_best(chain, &old) {
+            Some(at) if !self.blocks.is_empty() && height - at <= SHARE_WINDOW as u64 => {
+                let fresh = chain.blocks_from(at + 1, (height - at) as usize);
+                let rows = fresh.iter().enumerate().map(|(index, block)| MinedBlock::of(at + 1 + index as u64, block));
+                self.blocks.extend(rows);
+            }
+            _ => {
+                self.keep_replaced(chain, &old, now_ms);
+                let first = (height + 1).saturating_sub(SHARE_WINDOW as u64).max(chain.oldest_held()).max(1);
+                let blocks = chain.blocks_from(first, SHARE_WINDOW);
+                let rows = blocks.iter().enumerate().map(|(index, block)| MinedBlock::of(first + index as u64, block));
+                self.blocks = rows.collect();
+            }
+        }
+        while self.blocks.len() > SHARE_WINDOW {
+            self.blocks.pop_front();
+        }
+    }
+
+    fn keep_replaced(&mut self, chain: &Chain, old: &Hash, now_ms: u64) {
+        let Some(old_height) = chain.height_of_block(old) else {
+            return;
+        };
+        let still_best = on_best(chain, old).is_some();
+        if still_best || *old == [0; 32] || chain.height().abs_diff(old_height) > REORG_LOOK {
+            return;
+        }
+        let (left, _) = chain.branches_from(old);
+        if left.is_empty() {
+            return;
+        }
+        let blocks = left.iter().map(|block| MinedBlock::of(height_in(block, chain), block));
+        self.replaced = Some(Branch { blocks: blocks.collect(), seen_ms: now_ms });
+    }
+
+    /// Looks for a branch near the top among the tips other miners say they hold. Only blocks this
+    /// node keeps can be shown, so a tip it never received stays out.
+    pub fn look_for_rivals(&mut self, chain: &Chain, tips: &[Hash], now_ms: u64) {
+        let key = (tips.to_vec(), chain.tip());
+        if key == self.rivals_for {
+            return;
+        }
+        self.rivals_for = key;
+        let top = chain.height();
+        let mut best: Option<Branch> = None;
+        for tip in tips {
+            let mut blocks = Vec::new();
+            let mut cursor = *tip;
+            while blocks.len() < RIVAL_DEPTH as usize && on_best(chain, &cursor).is_none() {
+                let Some(block) = chain.block(&cursor) else {
+                    break;
+                };
+                cursor = block.header.previous;
+                blocks.push(MinedBlock::of(height_in(&block, chain), &block));
+            }
+            let joins = on_best(chain, &cursor).is_some();
+            let near = blocks.first().is_some_and(|newest| newest.height + RIVAL_DEPTH > top);
+            if !joins || !near {
+                continue;
+            }
+            blocks.reverse();
+            if best.as_ref().is_none_or(|kept| blocks.len() > kept.blocks.len()) {
+                let seen_ms = self.rival.as_ref().filter(|old| old.blocks == blocks).map_or(now_ms, |old| old.seen_ms);
+                best = Some(Branch { blocks, seen_ms });
+            }
+        }
+        self.rival = best;
+    }
+
+    /// The node's side of the view, newest block first, miners still to be named.
+    pub fn view(&self) -> ChainView {
+        ChainView {
+            latest: self.blocks.iter().rev().cloned().collect(),
+            rival: self.rival.clone(),
+            replaced: self.replaced.clone(),
+            ..ChainView::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::{Address, CoinConfig, Consensus, Plugins};
+    use olc_pow::ProofOfWork;
+    use olc_wallet::Wallet;
+
+    fn chain() -> Chain {
+        let mut coin = CoinConfig::olc();
+        coin.initial_difficulty = 8;
+        coin.rules.retarget_interval = 0;
+        Chain::new(coin, Plugins { consensus: Box::new(ProofOfWork), languages: olc_lang::all() })
+    }
+
+    fn mine(chain: &mut Chain, miner: &Address) -> Block {
+        let time = chain.tip_header().time_ms + 1_000;
+        let mut block = chain.block_template(miner, &[], time);
+        assert!(ProofOfWork.try_seal(&mut block.header, 1_000_000));
+        chain.add_block(block.clone()).unwrap();
+        block
+    }
+
+    /// Alice's node mines one block, then Bob's longer branch arrives: the strip shows Bob's
+    /// blocks and keeps Alice's as the one that lost, and Bob's tip seen early is a race.
+    #[test]
+    fn blocks_say_who_mined_them_and_a_lost_race_is_kept() {
+        let alice = Wallet::from_secret([1; 32]).unwrap().address();
+        let bob = Wallet::from_secret([2; 32]).unwrap().address();
+        let (mut a, mut b) = (chain(), chain());
+        let shared = mine(&mut a, &alice);
+        b.add_block(shared).unwrap();
+        let mut watch = ChainWatch::default();
+        watch.follow(&a, 10);
+        let lost = mine(&mut a, &alice);
+        watch.follow(&a, 20);
+        let view = watch.view();
+        assert_eq!(view.latest.len(), 2);
+        assert_eq!(view.latest[0].payee.as_deref(), Some(format_address(&alice).as_str()));
+        assert_eq!(view.latest[0].reward, a.config().rules.reward_at(2));
+        assert_eq!(view.latest[0].short_hash().len(), 8);
+
+        let first = mine(&mut b, &bob);
+        a.add_block(first.clone()).unwrap();
+        watch.look_for_rivals(&a, &[first.id()], 30);
+        let rival = watch.view().rival.expect("Bob's block races Alice's");
+        assert_eq!((rival.first(), rival.last()), (2, 2));
+        assert_eq!(rival.blocks[0].payee.as_deref(), Some(format_address(&bob).as_str()));
+
+        let second = mine(&mut b, &bob);
+        a.add_block(second).unwrap();
+        watch.follow(&a, 40);
+        watch.look_for_rivals(&a, &[b.tip()], 40);
+        let view = watch.view();
+        assert_eq!(view.latest.iter().map(|block| block.height).collect::<Vec<_>>(), [3, 2, 1]);
+        assert_eq!(view.latest[0].payee.as_deref(), Some(format_address(&bob).as_str()));
+        let replaced = view.replaced.expect("Alice's block lost");
+        assert_eq!(replaced.blocks.len(), 1);
+        assert_eq!((replaced.first(), replaced.blocks[0].id), (2, lost.id()));
+        assert!(view.rival.is_none(), "the race is over");
+    }
+}
