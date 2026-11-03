@@ -70,16 +70,20 @@ fn about(cx: &Cx, secs: f64) -> String {
 
 /// Until the first block after the change. With no easy block for a late one, the block mined at
 /// the old difficulty takes as many times the target as mining fell, so that is what to expect and
-/// one run's luck is the smaller line under it; with easy blocks the floor sets it, as measured.
+/// one run's luck is the smaller line under it; with easy blocks the floor sets it, as measured. A
+/// run measured with the floor says nothing of a coin that turned it off: then only the wait to
+/// expect shows.
 fn first(cx: &Cx, run: &Run, case: &str, easy: bool) -> String {
     let Some(measured) = run.first() else {
         return String::new();
     };
+    let as_measured = run.late_floor.is_none_or(|floor| floor == easy);
     match coin_rule_data::drop_factor(case).filter(|_| !easy) {
-        Some(times) => {
+        Some(times) if as_measured => {
             let usual = cx.fill("coin.v_usual", &[&about(cx, times * run.target)]);
             format!("{usual}\n{}", cx.fill("coin.v_this_time", &[&span(cx, measured)]))
         }
+        Some(times) => cx.fill("coin.v_usual", &[&about(cx, times * run.target)]),
         None => span(cx, measured),
     }
 }
