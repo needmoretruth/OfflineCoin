@@ -90,10 +90,15 @@ impl Channels {
                 ui.label(widgets::strong_text(name.clone()));
                 meta(ui, &state_line(cx, channel), t);
                 ui.add_space(4.0);
+                // After an old balance, the whole channel is ours, as the sentence above says.
+                let (ours, theirs) = match channel.cheated {
+                    true => (channel.ours.saturating_add(channel.theirs), 0),
+                    false => (channel.ours, channel.theirs),
+                };
                 ui.horizontal(|ui| {
-                    ui.label(cx.fill("ch.yours", &[&format::coins(channel.ours, cx.ticker())]));
+                    ui.label(cx.fill("ch.yours", &[&format::coins(ours, cx.ticker())]));
                     ui.add_space(tokens::GAP_WIDE);
-                    ui.label(cx.fill("ch.theirs", &[&format::coins(channel.theirs, cx.ticker())]));
+                    ui.label(cx.fill("ch.theirs", &[&format::coins(theirs, cx.ticker())]));
                 });
                 if matches!(channel.phase, Phase::Open | Phase::Closing) {
                     ui.add_space(tokens::GAP);
@@ -109,12 +114,12 @@ impl Channels {
             });
             ui.add_space(tokens::GAP);
             if let Some(force) = order {
-                let (warning, sign) = match force {
-                    true => ("ch.alone_warning", "ch.close_alone"),
-                    false => ("ch.close_warning", "ch.close"),
+                let (warning, sign, what) = match force {
+                    true => ("ch.alone_warning", "ch.close_alone", "ch.alone_what"),
+                    false => ("ch.close_warning", "ch.close", "ch.close_what"),
                 };
                 *cx.slip = Some(cx.slip_for(Slipping {
-                    what: cx.say(sign),
+                    what: cx.say(what),
                     rows: vec![
                         (cx.say("ch.other"), name),
                         (cx.say("ch.mine"), format::coins(channel.ours, cx.ticker())),
@@ -145,8 +150,9 @@ impl Channels {
         for (key, name) in &view.peers {
             let shown = name_of(cx, name, key);
             let current = self.open_with.as_deref() == Some(key.as_str());
+            // A label that can be selected would take the press meant for the row.
             let row = pick_row(ui, t, tokens::ROW, current, &shown, |ui| {
-                ui.label(shown.clone());
+                ui.add(Label::new(shown.clone()).truncate().selectable(false));
             });
             if row.clicked() {
                 self.open_with = Some(key.clone());

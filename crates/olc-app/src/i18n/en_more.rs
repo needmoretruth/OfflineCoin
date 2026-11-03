@@ -264,6 +264,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.other", "Other computer"),
     ("ch.close", "Close"),
     ("ch.close_alone", "Close alone"),
+    ("ch.close_what", "Close the channel"),
+    ("ch.alone_what", "Close the channel alone"),
     ("ch.close_warning", "Your share comes back in the next block. The other computer has to be on."),
     ("ch.alone_warning", "Your share comes back only after a long wait. If the other computer is on, press Close instead."),
     ("ch.open", "Open a channel"),

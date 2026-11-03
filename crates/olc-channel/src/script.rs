@@ -3,17 +3,19 @@
 use olc_crypto::{ripemd160, sha256, Hash, PublicKey, SignatureBytes};
 use olc_lang::gamma::{number_bytes, op};
 
+/// Keys, hashes, signatures and numbers are all this crate pushes, none near 256 bytes.
 fn push(script: &mut Vec<u8>, data: &[u8]) {
-    match data.len() {
+    let length = u8::try_from(data.len()).unwrap_or(u8::MAX);
+    match length {
         0 => script.push(op::ZERO),
-        length if length <= usize::from(op::PUSH_MAX) => {
-            script.push(length as u8);
+        length if length <= op::PUSH_MAX => {
+            script.push(length);
             script.extend_from_slice(data);
         }
         length => {
             script.push(op::PUSH_DATA_1);
-            script.push(length as u8);
-            script.extend_from_slice(data);
+            script.push(length);
+            script.extend_from_slice(&data[..usize::from(length)]);
         }
     }
 }
@@ -21,7 +23,7 @@ fn push(script: &mut Vec<u8>, data: &[u8]) {
 fn push_number(script: &mut Vec<u8>, value: i64) {
     match value {
         0 => script.push(op::ZERO),
-        1..=16 => script.push(op::ONE + (value as u8) - 1),
+        1..=16 => script.push(op::ONE + u8::try_from(value - 1).unwrap_or_default()),
         _ => push(script, &number_bytes(value)),
     }
 }

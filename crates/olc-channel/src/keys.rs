@@ -27,7 +27,8 @@ pub fn state_point(seed: &Hash, number: u64) -> Option<PublicKey> {
 fn derive_down(mut value: Hash, bits: u32, index: u64) -> Hash {
     for bit in (0..bits).rev() {
         if index >> bit & 1 == 1 {
-            value[(bit / 8) as usize] ^= 1 << (bit % 8);
+            // `bits` is at most 48, so the byte is one of the first six.
+            value[usize::try_from(bit / 8).unwrap_or_default()] ^= 1 << (bit % 8);
             value = sha256(&value);
         }
     }
@@ -51,7 +52,7 @@ impl SecretStore {
         let index = LAST_INDEX - number;
         let slot = slot_of(index);
         for (known_index, known) in self.known.iter().take(slot) {
-            if derive_down(secret, slot as u32, *known_index) != *known {
+            if derive_down(secret, u32::try_from(slot).unwrap_or(u32::MAX), *known_index) != *known {
                 return false;
             }
         }
@@ -71,7 +72,8 @@ impl SecretStore {
         let index = LAST_INDEX.checked_sub(number)?;
         self.known.iter().enumerate().find_map(|(bits, (known_index, secret))| {
             let mask = !((1u64 << bits) - 1);
-            (index & mask == *known_index).then(|| derive_down(*secret, bits as u32, index))
+            let bits = u32::try_from(bits).unwrap_or(u32::MAX);
+            (index & mask == *known_index).then(|| derive_down(*secret, bits, index))
         })
     }
 }

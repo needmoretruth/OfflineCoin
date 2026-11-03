@@ -168,7 +168,8 @@ impl Channel {
             .iter()
             .position(|out| out.language == GAMMA && out.lock == lock && out.value == self.terms.capacity)
             .ok_or("the funding output is missing")?;
-        self.terms.funding = OutPoint { txid: tx.id(), index: index as u32 };
+        let index = u32::try_from(index).map_err(|_| "the funding output is missing")?;
+        self.terms.funding = OutPoint { txid: tx.id(), index };
         let theirs = self.their_commitment(&self.their_state)?;
         let secrets = self.secrets();
         let signature = sign_input(&theirs.tx, 0, &lock, &self.terms.coin, &secrets.funding).ok_or("could not sign")?;

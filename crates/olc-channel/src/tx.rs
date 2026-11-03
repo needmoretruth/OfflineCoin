@@ -84,7 +84,9 @@ pub struct Commitment {
 /// The sequence that carries a hidden state number. The top bit keeps it from being a relative
 /// lock (BIP 68), so a commitment is final at once.
 pub fn hide_number(number: u64, obscure: u32) -> u32 {
-    SEQUENCE_DISABLE | ((number as u32 ^ obscure) & !SEQUENCE_DISABLE)
+    // Only the low 31 bits travel: no channel signs two thousand million states.
+    let low = u32::try_from(number & u64::from(!SEQUENCE_DISABLE)).unwrap_or_default();
+    SEQUENCE_DISABLE | ((low ^ obscure) & !SEQUENCE_DISABLE)
 }
 
 pub fn read_number(tx: &Tx, obscure: u32) -> Option<u64> {
@@ -128,7 +130,7 @@ pub fn commitment(
     let mut outputs = Vec::new();
     let mut to_self = None;
     if own >= terms.dust {
-        to_self = Some(outputs.len() as u32);
+        to_self = u32::try_from(outputs.len()).ok();
         outputs.push(gamma(own, keys.to_self_lock(terms.delay)));
     }
     if theirs >= terms.dust {
@@ -138,7 +140,8 @@ pub fn commitment(
     sorted.sort_by_key(|htlc| (!htlc.offered, htlc.id));
     let mut placed = Vec::new();
     for htlc in sorted.into_iter().filter(|htlc| !is_dust(terms, htlc.amount)) {
-        placed.push((outputs.len() as u32, htlc));
+        let Ok(place) = u32::try_from(outputs.len()) else { break };
+        placed.push((place, htlc));
         outputs.push(gamma(htlc.amount, keys.htlc_lock(&htlc)));
     }
     let tx = Tx {
