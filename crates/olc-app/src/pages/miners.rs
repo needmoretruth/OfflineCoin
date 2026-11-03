@@ -5,10 +5,11 @@
 use super::speed::cap_for;
 use super::{Cx, Slipping};
 use crate::ui::floating::Slip;
-use crate::core::Command;
+use super::pool_join::standing_words;
+use crate::core::{Command, Who};
 use crate::local::{Holding, LocalView, NodeSpec, Preset, WalletChoice};
 use crate::ui::format;
-use crate::ui::tokens::Tokens;
+use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{button, cell, dot, header_cell, switch, Columns, Kind};
 use egui::{Label, RichText, Ui};
 
@@ -170,6 +171,28 @@ pub fn table(ui: &mut Ui, cx: &mut Cx) {
     }
     if slip.is_some() {
         *cx.slip = slip;
+    }
+    in_pools(ui, cx, &t);
+}
+
+/// A line for each miner in the table that joined a pool: its speed above is pool work, and its
+/// coins come from the pool. The line stays while the miner is joined, whatever the link does, so
+/// the page holds still.
+fn in_pools(ui: &mut Ui, cx: &Cx, t: &Tokens) {
+    for link in &cx.snap.pool.links {
+        let name = match link.join.who {
+            Who::Own => cx.say("mining.this_app").to_string(),
+            Who::Node(id) => match cx.snap.local.iter().find(|view| view.spec.id == id) {
+                Some(view) => view.spec.name.clone(),
+                None => continue,
+            },
+            Who::Board(_) => continue,
+        };
+        let (colour, said) = standing_words(cx, link);
+        ui.horizontal(|ui| {
+            dot(ui, colour);
+            ui.label(RichText::new(format!("{name}: {said}")).size(tokens::META).color(t.soft));
+        });
     }
 }
 

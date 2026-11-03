@@ -261,17 +261,20 @@ fn running(ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
     });
 }
 
-/// Four numbers a person checks first.
+/// The numbers a person checks first. Coins paid out is the paid column added up, so what the
+/// workers got reads against what the pool found; the rest waits in blocks not yet spendable.
 fn totals(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     let t = cx.t;
     let working = view.workers.iter().filter(|row| row.online).count();
     let speed: u64 = view.workers.iter().filter(|row| row.online).map(|row| row.speed).sum();
     let (coins, blocks) = view.found_total();
+    let paid: u64 = view.workers.iter().map(|row| row.paid).sum();
     let items = [
         ("pool.working", format::number(working as u128)),
         ("pool.speed", format::rate(cx.voice(), speed)),
         ("pool.blocks", format::number(blocks as u128)),
         ("pool.coins_found", format::coins(coins, cx.ticker())),
+        ("pool.paid_out", format::coins(paid, cx.ticker())),
     ];
     ui.horizontal_wrapped(|ui| {
         for (key, value) in items {

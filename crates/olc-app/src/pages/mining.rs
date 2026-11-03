@@ -5,9 +5,10 @@
 use super::boards::state_colour;
 use super::local::Local;
 use super::pool::PoolTab;
+use super::pool_join::standing_words;
 use super::speed::Speed;
 use super::{miners, pacing, Cx, Page};
-use crate::core::unix_ms;
+use crate::core::{unix_ms, Who};
 use crate::ui::chain::{self, Look};
 use crate::ui::explain;
 use crate::ui::theme::desktop_reduces_motion;
@@ -135,6 +136,11 @@ impl Mining {
                     () => cx.say("boards.resting").to_string(),
                 };
                 ui.label(RichText::new(line).size(tokens::META).color(t.soft));
+                if let Some(link) = cx.snap.pool.link_of(Who::Board(board.seen.id)) {
+                    let (colour, said) = standing_words(cx, link);
+                    dot(ui, colour);
+                    ui.label(RichText::new(said).size(tokens::META).color(t.soft));
+                }
             });
         }
     }

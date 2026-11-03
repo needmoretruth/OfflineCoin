@@ -27,6 +27,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.speed", "Speed"),
     ("pool.blocks", "Blocks found"),
     ("pool.coins_found", "Coins found"),
+    ("pool.paid_out", "Paid out"),
     ("pool.who", "Who"),
     ("pool.last_share", "Last work"),
     ("pool.accepted", "Taken"),

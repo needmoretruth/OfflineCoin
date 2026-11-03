@@ -8,6 +8,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("state.connected", "피어 연결됨"),
     ("state.alone", "피어 없음"),
     ("home.mining", "채굴 중"),
+    ("home.mining_pool", "풀에서 채굴 중"),
     ("home.catching_up", "동기화 중: 블록 {} / {}"),
     ("home.light", "라이트 노드는 헤더만 보관하므로 채굴할 수 없습니다."),
     ("home.full", "저장 공간 한도에 도달했습니다."),

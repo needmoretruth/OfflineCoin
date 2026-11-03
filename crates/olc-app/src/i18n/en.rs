@@ -40,6 +40,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("home.send", "Send"),
     ("home.not_mining", "Not mining"),
     ("home.mining", "Mining."),
+    ("home.mining_pool", "Mining in a pool."),
     ("home.catching_up", "Catching up: block {} of {}"),
     ("home.light", "This computer keeps no blocks, so it cannot mine."),
     ("home.full", "The disk has no more room for blocks."),

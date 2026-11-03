@@ -3,7 +3,7 @@
 //! page manages every miner in full.
 use super::speed::Speed;
 use super::Cx;
-use crate::core::{unix_ms, Command};
+use crate::core::{unix_ms, Command, Link, Who};
 use crate::ui::chain::{self, Look};
 use crate::ui::tokens;
 use crate::ui::widgets::{button, button_on, card, dot, section, strong_text, Columns, Kind};
@@ -32,7 +32,8 @@ pub fn state_line(ui: &mut Ui, cx: &Cx) {
         } else if node.mining {
             // No figure here: the speed line below says how fast, for every miner on this computer.
             dot(ui, t.good);
-            ui.add(Label::new(cx.say("home.mining")).wrap());
+            let pooled = cx.snap.pool.link_of(Who::Own).is_some_and(|link| link.trouble.is_none() && link.view.link == Link::Working);
+            ui.add(Label::new(cx.say(if pooled { "home.mining_pool" } else { "home.mining" })).wrap());
         } else {
             dot(ui, t.muted);
             ui.label(RichText::new(cx.say("home.not_mining")).color(t.soft));

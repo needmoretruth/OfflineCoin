@@ -147,16 +147,24 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     wait_in(&mut a, "the stand-in address", 1, |snap| snap.pool.reach.first().is_some_and(|at| at.starts_with("192.168.0.5:")));
 
     // B types the pool's address and its own name, and joins.
+    // Joining sits under opening a pool on Mining, below the window's edge: a person scrolls to it.
+    scroll_to(&mut b, "풀에 들어가기");
     press(&mut b, "풀에 들어가기");
     fill(&mut b, Role::TextInput, "192.168.0.5:3333", &format!("127.0.0.1:{pool_port}"));
     let user = format!("{}.laptop", b.state().snapshot().node.miner);
     retype(&mut b, "이름", &user);
     save(&mut b, "pool-03-join-form-ko-basic");
+    scroll_to(&mut b, "들어가기");
     press(&mut b, "들어가기");
     let working = |snap: &Snapshot| snap.pool.link_of(Who::Own).is_some_and(|link| link.view.link == Link::Working && link.view.accepted > 0);
     wait_in(&mut b, "b's shares are taken", 3, working);
     report(&b, "b joined");
     save(&mut b, "pool-03-joined-ko-basic");
+    // B's own card counts the work it does for the pool and says where it goes.
+    let in_pool = format!("나 (이 앱): 127.0.0.1:{pool_port} 풀에서 채굴 중");
+    scroll_to(&mut b, &in_pool);
+    assert!(b.query_all(By::new().label(&in_pool)).next().is_some(), "b's miners table says it mines in the pool");
+    save(&mut b, "pool-03-computer-ko-basic");
     speak(&mut b, Mode::Expert, Lang::En);
     save(&mut b, "pool-03-joined-en-expert");
     speak(&mut b, Mode::Basic, Lang::Ko);
@@ -165,6 +173,11 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     let both = |snap: &Snapshot| snap.pool.workers.iter().filter(|row| row.accepted > 0).count() >= 2;
     wait_in(&mut a, "both work", 3, both);
     report(&a, "a with both");
+    let in_pool = "나 (이 앱): 이 컴퓨터 풀에서 일하는 중";
+    scroll_to(&mut a, in_pool);
+    assert!(a.query_all(By::new().label(in_pool)).next().is_some(), "a's miners table says it mines in its own pool");
+    save(&mut a, "pool-01-computer-ko-basic");
+    scroll_to(&mut a, "풀이 돌아가고 있습니다");
     save(&mut a, "pool-01-running-ko-basic");
     speak(&mut a, Mode::Expert, Lang::En);
     save(&mut a, "pool-01-running-en-expert");

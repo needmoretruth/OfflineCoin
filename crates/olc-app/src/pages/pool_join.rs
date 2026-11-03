@@ -8,7 +8,7 @@ use crate::ui::explain;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, dot, field, meta, section, Kind};
-use egui::{RichText, Ui};
+use egui::{Color32, RichText, Ui};
 use olc_wallet::format_address;
 
 const ADDRESS_WIDTH: f32 = 220.0;
@@ -41,15 +41,22 @@ fn first_user(cx: &Cx, who: Who) -> String {
     format!("{address}.{}", worker_part(&name))
 }
 
-/// How a joined miner stands, in one line with a light.
-fn standing(ui: &mut Ui, cx: &Cx, link: &LinkRow) {
+/// How a joined miner stands: mining in a pool here or elsewhere, still dialling, or what went
+/// wrong, with the colour of its light.
+pub fn standing_words(cx: &Cx, link: &LinkRow) -> (Color32, String) {
     let t = cx.t;
-    let (colour, said) = match (link.trouble, link.view.link) {
+    match (link.trouble, link.view.link) {
         (Some(key), _) => (t.bad, cx.say(key).to_string()),
         (None, Link::Working) if link.here => (t.good, cx.say("pool.in_pool_here").to_string()),
         (None, Link::Working) => (t.good, cx.fill("pool.mining_in", &[&link.join.address])),
         (None, _) => (t.warn, cx.say("pool.dialling").to_string()),
-    };
+    }
+}
+
+/// How a joined miner stands, in one line with a light.
+fn standing(ui: &mut Ui, cx: &Cx, link: &LinkRow) {
+    let t = cx.t;
+    let (colour, said) = standing_words(cx, link);
     ui.horizontal_wrapped(|ui| {
         dot(ui, colour);
         ui.label(said);

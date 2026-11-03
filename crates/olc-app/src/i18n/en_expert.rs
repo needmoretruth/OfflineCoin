@@ -8,6 +8,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("state.connected", "Connected to peers"),
     ("state.alone", "No peers"),
     ("home.mining", "Mining"),
+    ("home.mining_pool", "Mining in a pool"),
     ("home.catching_up", "Syncing: block {} of {}"),
     ("home.light", "Light node: it holds headers only and cannot mine."),
     ("home.full", "Storage budget is full."),

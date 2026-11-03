@@ -40,6 +40,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("home.send", "보내기"),
     ("home.not_mining", "채굴하고 있지 않습니다"),
     ("home.mining", "채굴 중입니다."),
+    ("home.mining_pool", "풀에서 채굴 중입니다."),
     ("home.catching_up", "따라잡는 중: 블록 {} / {}"),
     ("home.light", "이 컴퓨터는 블록을 보관하지 않아서 채굴할 수 없습니다."),
     ("home.full", "디스크에 블록을 더 넣을 자리가 없습니다."),

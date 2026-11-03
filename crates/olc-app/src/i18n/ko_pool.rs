@@ -27,6 +27,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.speed", "속도"),
     ("pool.blocks", "찾은 블록"),
     ("pool.coins_found", "찾은 코인"),
+    ("pool.paid_out", "나눠 준 코인"),
     ("pool.who", "기기"),
     ("pool.last_share", "마지막 일"),
     ("pool.accepted", "인정"),
