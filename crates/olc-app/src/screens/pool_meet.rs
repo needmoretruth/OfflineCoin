@@ -89,7 +89,7 @@ fn report(window: &Window, who: &str) {
     let links: Vec<String> = pool
         .links
         .iter()
-        .map(|row| format!("{:?} {:?} {}/{} {:?}", row.join.who, row.view.link, row.view.accepted, row.view.refused, row.view.last_refusal))
+        .map(|row| format!("{:?} {:?} {}/{} kept back {} {:?}", row.join.who, row.view.link, row.view.accepted, row.view.refused, row.view.stale, row.view.last_refusal))
         .collect();
     tell(&format!("  {who}: running {}, workers {workers:?}, links {links:?}, found {}", pool.running, pool.found.len()));
 }

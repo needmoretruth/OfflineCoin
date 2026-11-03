@@ -107,3 +107,40 @@ fn a_node_that_joins_by_address_and_name_is_paid_from_the_pools_block() {
     drop(held);
     drop(server);
 }
+
+/// A share found on a job the pool ended with a new block is kept back, as Bitcoin's miners keep
+/// it, instead of being sent only to be refused.
+#[test]
+fn a_share_of_a_job_a_new_block_ended_is_kept_back() {
+    let coin = coin_now();
+    let mut pool_node = node_on(coin.clone(), 1);
+    let pool = Arc::new(Mutex::new(Pool::new(pool_node.address(), Plan { fixed_difficulty: Some(1), ..Plan::default() })));
+    pool.lock().unwrap().refresh(&pool_node, unix_ms());
+    let server = Server::start(SocketAddr::from(([127, 0, 0, 1], 0)), pool.clone()).unwrap();
+    let client = Client::start(&format!("127.0.0.1:{}", server.address().port()), &user(2, "rig"), "x");
+    let grinder = node_on(coin, 9);
+    let wait = |done: &dyn Fn() -> bool| {
+        let started = Instant::now();
+        while !done() {
+            assert!(started.elapsed() < Duration::from_secs(10), "waited too long");
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    wait(&|| client.work(1).is_some());
+    let work = client.work(2).unwrap();
+    let mut old = work.header;
+    while !grinder.grind(&mut old, work.difficulty, 1_000) {}
+
+    // A block comes from elsewhere: the pool's next job starts on it and ends every older one.
+    let generation = client.generation();
+    while !pool_node.mine(100_000, unix_ms()) {}
+    pool.lock().unwrap().refresh(&pool_node, unix_ms());
+    wait(&|| client.generation() != generation);
+
+    client.submit(&old);
+    thread::sleep(Duration::from_millis(300));
+    let view = client.view();
+    assert_eq!((view.stale, view.refused), (1, 0), "kept back, not refused: {view:?}");
+    drop(client);
+    drop(server);
+}

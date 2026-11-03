@@ -48,6 +48,9 @@ pub struct ClientView {
     pub difficulty: u64,
     /// The last reason the pool gave for refusing a share.
     pub last_refusal: Option<String>,
+    /// Shares of a job the pool had already ended with a new block, kept back as Bitcoin's
+    /// miners keep them: the pool could only refuse them.
+    pub stale: u64,
 }
 
 /// A header to hash and the difficulty a share must meet.
@@ -146,6 +149,11 @@ impl Client {
         let Some((job, extranonce2)) = state.handed.get(&header.merkle_root).cloned() else {
             return;
         };
+        // A new block's notice cleared the jobs before it: this share is of work already over.
+        if !state.jobs.iter().any(|notify| notify.job_id == job) {
+            state.view.stale += 1;
+            return;
+        }
         let time = u32::try_from(header.time_ms / 1_000).unwrap_or(u32::MAX);
         let params = json!([self.user, job, hex(&extranonce2), word_hex(time), word_hex(header.nonce)]);
         let id = state.next_id;
