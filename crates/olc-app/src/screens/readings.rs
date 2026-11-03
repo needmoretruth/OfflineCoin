@@ -67,8 +67,9 @@ fn ungrouped(text: &str) -> Vec<String> {
         }
         let before = start.checked_sub(1).and_then(|at| chars.get(at));
         let run: String = chars[start..index].iter().collect();
-        // A shortened key or id ("026217...eaa1") is no amount, whatever digits it starts with.
-        if run.ends_with("..") {
+        // A shortened key or id ("026217...eaa1", "035190...8301") is no amount, whatever digits
+        // stand on either side of its dots.
+        if run.contains("..") {
             continue;
         }
         let run = run.trim_end_matches(['.', ',']);
@@ -87,6 +88,7 @@ fn the_check_tells_a_bare_amount_from_a_name() {
     assert_eq!(ungrouped("모두 1234.5개"), ["1234.5"]);
     assert_eq!(ungrouped("2,400 SHF, 20,159 and 999."), Vec::<String>::new());
     assert_eq!(ungrouped("026217...eaa1@127.0.0.1:36267"), Vec::<String>::new());
+    assert_eq!(ungrouped("035190...8301@127.0.0.1:53920"), Vec::<String>::new());
     assert_eq!(ungrouped("olc12345 127.0.0.1:8333 2026-11-02"), Vec::<String>::new());
 }
 
