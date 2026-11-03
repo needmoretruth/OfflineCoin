@@ -110,6 +110,7 @@ impl Worker {
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
             wallet: wallet_part,
             channels: super::super::host_channels::view_of(&self.state),
+            connections: super::super::host_channels::peers_now(&self.state, runner),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;
