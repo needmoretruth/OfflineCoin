@@ -3,7 +3,7 @@
 use super::money::code;
 use super::{Cx, Page, Slipping};
 use crate::core::host_channels::{read_request, ChannelView, ChannelsView, PayState, Phase};
-use crate::core::{parse_coins, ChannelOrder, Command};
+use crate::core::{parse_coins, unix_ms, ChannelOrder, Command};
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, field, meta, mono, pick_row, section, Kind};
@@ -155,9 +155,22 @@ impl Channels {
         let t = cx.t;
         ui.add_space(tokens::GAP);
         let header = CollapsingHeader::new(widgets::strong_text(cx.say("ch.closed_list")));
+        let now = unix_ms();
         header.id_salt("closed-channels").default_open(false).show(ui, |ui| {
             for channel in done {
                 ui.label(widgets::strong_text(name_of(cx, &channel.peer_name, &hex(&channel.peer.0))));
+                // When and at which block, so two closed channels with one computer read apart.
+                let when = channel.ended_ms.map(|then| format::ago(cx.voice(), now, then));
+                let block = channel.closed_at.map(|height| format::number(height.into()));
+                let line = match (when, block) {
+                    (Some(when), Some(block)) => Some(cx.fill("ch.ended_block", &[&when, &block])),
+                    (Some(when), None) => Some(when),
+                    (None, Some(block)) => Some(cx.fill("ch.closed_block", &[&block])),
+                    (None, None) => None,
+                };
+                if let Some(line) = line {
+                    meta(ui, &line, t);
+                }
                 meta(ui, &state_line(cx, channel), t);
                 if channel.phase == Phase::Closed {
                     ui.label(cx.fill("ch.back", &[&format::coins(channel.back, cx.ticker())]));

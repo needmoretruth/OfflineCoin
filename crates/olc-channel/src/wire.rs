@@ -69,6 +69,8 @@ pub enum Wire {
     AnnounceSigned { id: ChannelId, signature: Signature, funding_signature: Signature },
     Announce(Announcement),
     Terms(ChannelTerms),
+    /// The name a node with a channel goes by (BOLT 7, node_announcement).
+    Node(NodeName),
 }
 
 /// BOLT 7, channel_announcement: both nodes vouch for a funding output on the chain.
@@ -143,6 +145,47 @@ impl ChannelTerms {
     pub fn fee_for(&self, amount: u64) -> u64 {
         let rated = u128::from(amount) * u128::from(self.rate) / 1_000_000;
         self.base_fee.saturating_add(u64::try_from(rated).unwrap_or(u64::MAX))
+    }
+}
+/// BOLT 7's alias: a name of at most 32 bytes.
+pub const MOST_NAME: usize = 32;
+
+/// BOLT 7, node_announcement: the name a node goes by, signed by its key, so a payee out of reach
+/// shows by name. It is shown as given; only its length and line breaks are checked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeName {
+    pub node: NodeId,
+    pub name: String,
+    /// Seconds; a newer one takes the place of an older one.
+    pub stamp: u64,
+    pub signature: Signature,
+}
+
+impl NodeName {
+    pub(crate) fn digest(node: &NodeId, stamp: u64, name: &str) -> Hash {
+        let mut data = b"olc node".to_vec();
+        data.extend_from_slice(&node.0);
+        data.extend_from_slice(&stamp.to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        hash(&data)
+    }
+
+    /// `name` without line breaks, cut to [`MOST_NAME`] bytes at a letter's end, and signed.
+    pub fn new(secret: &[u8; 32], node: NodeId, name: &str, stamp: u64) -> Self {
+        let plain: String = name.chars().filter(|letter| !letter.is_control()).collect();
+        let mut end = plain.len().min(MOST_NAME);
+        while !plain.is_char_boundary(end) {
+            end -= 1;
+        }
+        let name = plain[..end].to_string();
+        let signature = Bytes(sign(secret, &Self::digest(&node, stamp, &name)).unwrap_or([0; 64]));
+        Self { node, name, stamp, signature }
+    }
+
+    pub fn signed(&self) -> bool {
+        self.name.len() <= MOST_NAME
+            && !self.name.chars().any(char::is_control)
+            && verify(&self.node.0, &Self::digest(&self.node, self.stamp, &self.name), &self.signature.0)
     }
 }
 

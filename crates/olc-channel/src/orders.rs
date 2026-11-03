@@ -94,6 +94,10 @@ pub struct ChannelView {
     pub coming: u64,
     /// Blocks our share waits after we close alone.
     pub delay: u16,
+    /// The block the close went into, once the channel is closed.
+    pub closed_at: Option<u64>,
+    /// When it closed or failed to open.
+    pub ended_ms: Option<u64>,
 }
 
 /// What paying a request would take, said before anyone presses pay.
@@ -235,9 +239,15 @@ impl ChannelNode {
     /// What paying a request would take: who gets it, and the fee of the route found now.
     pub fn quote(&self, text: &str, ground: &dyn Ground) -> Result<Quote, Refusal> {
         let (invoice, route) = self.route_for(text, ground)?;
-        let name = self.peers.get(&invoice.payee).map(|seen| seen.name.clone()).unwrap_or_default();
+        let name = self.name_of(&invoice.payee);
         let fee = route.amount.saturating_sub(invoice.amount);
         Ok(Quote { payee: invoice.payee, name, amount: invoice.amount, fee, note: invoice.note })
+    }
+
+    /// The name `node` goes by: the one it says in reach, else the one it signed for the map.
+    pub fn name_of(&self, node: &NodeId) -> String {
+        let heard = self.peers.get(node).map(|seen| seen.name.as_str()).filter(|name| !name.is_empty());
+        heard.or_else(|| self.graph.name_of(node)).unwrap_or_default().to_string()
     }
 
     /// The request read and checked, and the route that pays it now.
@@ -369,7 +379,7 @@ impl ChannelNode {
     }
 
     fn view_of(&self, channel: &Channel, height: u64) -> ChannelView {
-        let peer_name = self.peers.get(&channel.peer).map(|seen| seen.name.clone()).unwrap_or_default();
+        let peer_name = self.name_of(&channel.peer);
         let chain = &channel.chain;
         // After the other side sent an old balance, every coin in the channel is ours, as every
         // screen that shows this channel says next to the shares.
@@ -403,6 +413,8 @@ impl ChannelNode {
             back,
             coming,
             delay: channel.terms.delay,
+            closed_at: chain.seen.first().map(|(height, _)| *height).filter(|_| channel.phase == Phase::Closed),
+            ended_ms: channel.ended_ms,
         }
     }
 

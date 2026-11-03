@@ -342,6 +342,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.back", "돌아온 돈 {}"),
     ("ch.to", "받는 사람"),
     ("ch.fee", "수수료"),
+    ("ch.ended_block", "{}, 블록 {}"),
+    ("ch.closed_block", "블록 {}"),
     ("home.speed_up", "빠르게 보내기"),
     ("home.words_unwritten", "단어 12개를 아직 적어 두지 않았습니다."),
     ("home.words_write", "지금 적기"),

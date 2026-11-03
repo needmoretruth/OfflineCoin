@@ -4,7 +4,7 @@ use crate::bytes::Bytes;
 use crate::channel::{Channel, Phase};
 use crate::graph::gossip_id;
 use crate::node::{ChannelNode, Ground};
-use crate::wire::{Announcement, ChannelId, ChannelTerms, NodeId, Wire};
+use crate::wire::{Announcement, ChannelId, ChannelTerms, NodeId, NodeName, Wire};
 use olc_core::OutPoint;
 use olc_crypto::{sign, verify};
 
@@ -107,6 +107,19 @@ impl ChannelNode {
         self.graph.take_terms(terms.clone());
         self.send_all(&Wire::Announce(announcement), None);
         self.send_all(&Wire::Terms(terms), None);
+        self.announce_name(self.now_ms / 1_000);
+    }
+
+    /// This node's name, once a channel of it is on the map, so payers out of reach see who
+    /// they pay.
+    fn announce_name(&mut self, now_s: u64) {
+        if self.name.is_empty() || !self.graph.has_node(&self.id) {
+            return;
+        }
+        let name = NodeName::new(&self.secret, self.id, &self.name, now_s);
+        if self.graph.take_name(name.clone()) {
+            self.send_all(&Wire::Node(name), None);
+        }
     }
 
     /// Gossip heard: kept and passed on when it is new.
@@ -124,6 +137,7 @@ impl ChannelNode {
                 self.graph.take(announcement.clone(), |point| ground.coin(point).map(|(out, _)| out))
             }
             Wire::Terms(terms) => self.graph.take_terms(terms.clone()),
+            Wire::Node(name) => self.graph.take_name(name.clone()),
             _ => false,
         };
         if new {
@@ -138,6 +152,7 @@ impl ChannelNode {
             pieces.push(Wire::Announce(edge.announcement.clone()));
             pieces.extend(edge.terms.iter().flatten().cloned().map(Wire::Terms));
         }
+        pieces.extend(self.graph.names().cloned().map(Wire::Node));
         for wire in pieces {
             self.send(to, &wire);
         }
@@ -169,5 +184,6 @@ impl ChannelNode {
                 self.send_all(&Wire::Terms(terms), None);
             }
         }
+        self.announce_name(now_s);
     }
 }

@@ -48,6 +48,8 @@ pub struct Party {
     pub folder: PathBuf,
     /// Hears and says nothing while true.
     pub cut: bool,
+    /// Nodes out of this one's reach: neither hears the other, though both hear the rest.
+    pub apart: Vec<NodeId>,
 }
 
 struct Desk<'a> {
@@ -171,7 +173,7 @@ impl World {
             self.mine_to(&address);
         }
         let node = ChannelNode::open(&folder, name, write_new).unwrap();
-        Party { name, node, wallet, folder, cut: false }
+        Party { name, node, wallet, folder, cut: false, apart: Vec::new() }
     }
 
     pub fn balance(&self, party: &Party) -> u64 {
@@ -216,8 +218,10 @@ pub fn deliver(parties: &mut [Party], world: &mut World) {
             return;
         }
         for (from, out) in moving {
+            let sender = parties[from].node.id;
+            let apart = parties[from].apart.clone();
             for (index, party) in parties.iter_mut().enumerate() {
-                if index == from || party.cut {
+                if index == from || party.cut || party.apart.contains(&sender) || apart.contains(&party.node.id) {
                     continue;
                 }
                 let bytes = match &out {

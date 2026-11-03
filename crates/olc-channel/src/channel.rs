@@ -120,6 +120,9 @@ pub struct Channel {
     #[serde(default)]
     pub held: Vec<OutPoint>,
     pub made_ms: u64,
+    /// When it closed or failed to open, so two ended channels with one computer read apart.
+    #[serde(default)]
+    pub ended_ms: Option<u64>,
     #[serde(default)]
     pub origins: Vec<Origin>,
     /// What the chain shows once the funding output is spent.

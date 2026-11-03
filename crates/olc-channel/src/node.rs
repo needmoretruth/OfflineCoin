@@ -194,7 +194,12 @@ impl ChannelNode {
 
     /// Saves a channel, then sends what its step returned. A channel that cannot be saved goes
     /// back to how it was and nothing leaves.
-    pub(crate) fn keep(&mut self, before: Option<Channel>, channel: Channel, wire: Option<Wire>) -> bool {
+    pub(crate) fn keep(&mut self, before: Option<Channel>, mut channel: Channel, wire: Option<Wire>) -> bool {
+        // Every change is saved here, so the moment a channel ends is noted here once.
+        let ended = matches!(channel.phase, Phase::Closed | Phase::Failed);
+        if ended && channel.ended_ms.is_none() && self.now_ms > 0 {
+            channel.ended_ms = Some(self.now_ms);
+        }
         if let Err(error) = self.store.save_channel(&channel) {
             eprintln!("channel {}: {error}", hex(&channel.id[..4]));
             if let Some(before) = before {
@@ -250,7 +255,7 @@ impl ChannelNode {
             Wire::Open { id, capacity, delay, fee, dust, coin, side } => {
                 self.on_open(from, id, Ask { capacity, delay, fee, dust, coin }, side, ground);
             }
-            Wire::Announce(_) | Wire::Terms(_) => self.on_gossip(from, wire, ground),
+            Wire::Announce(_) | Wire::Terms(_) | Wire::Node(_) => self.on_gossip(from, wire, ground),
             other => self.on_channel_wire(from, other, ground),
         }
     }

@@ -342,6 +342,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.back", "Came back {}"),
     ("ch.to", "To"),
     ("ch.fee", "Fee"),
+    ("ch.ended_block", "{}, block {}"),
+    ("ch.closed_block", "Block {}"),
     ("home.speed_up", "Speed up"),
     ("home.words_unwritten", "Your 12 words are not written down yet."),
     ("home.words_write", "Write them down"),

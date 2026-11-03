@@ -82,6 +82,7 @@ fn blank(id: ChannelId, peer: NodeId, we_opened: bool, ask: &Ask, seed: Hash, ou
         their_funding_announce: None,
         held: Vec::new(),
         made_ms,
+        ended_ms: None,
         origins: Vec::new(),
         chain: Default::default(),
     }

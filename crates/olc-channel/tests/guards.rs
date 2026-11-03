@@ -131,16 +131,21 @@ fn the_coins_for_a_channel_stay_held_from_the_ask_until_it_opens() {
 fn a_request_says_who_it_pays_and_the_fee_before_paying() {
     let mut world = World::new();
     let mut parties = vec![world.party("quote", "a", 1), world.party("quote", "b", 2), world.party("quote", "c", 3)];
+    // A and C are out of each other's reach: all A knows of C comes through B.
+    let (a, c) = (parties[0].id(), parties[2].id());
+    parties[0].apart.push(c);
+    parties[2].apart.push(a);
     let ab = open(&mut parties, &mut world, 0, 1, CAPACITY);
     open(&mut parties, &mut world, 1, 2, CAPACITY);
     seconds(&mut parties, &mut world, 3);
     let funding = channel(&parties[0], &ab).funding();
     let heard = |party: &Party| party.node.graph().edges().any(|edge| edge.announcement.funding == funding);
     assert!(heard(&parties[2]), "C heard of A and B's channel, signed by all four keys");
+    assert!(parties[0].node.peers().iter().all(|(node, _)| *node != c), "A never heard C itself");
 
     let text = invoice(&mut parties, &mut world, 2, 50_000);
     let quote = parties[0].with(&mut world, |node, ground| node.quote(&text, ground)).unwrap();
-    assert_eq!((quote.payee, quote.name.as_str(), quote.amount), (parties[2].id(), "c", 50_000));
+    assert_eq!((quote.payee, quote.name.as_str(), quote.amount), (c, "c", 50_000), "C's name came with its own signature");
     assert!(quote.fee > 0, "B asks a fee to pass it on");
     let hash = pay(&mut parties, &mut world, 0, &text);
     seconds(&mut parties, &mut world, 10);
@@ -167,6 +172,7 @@ fn coins_on_their_way_back_show_until_they_are_back() {
 
     parties[0].with(&mut world, |node, ground| node.close(&ab, true, ground)).unwrap();
     block(&mut parties, &mut world);
+    let closed_at = world.chain.height();
     let waiting = view_of(&parties[0], &world, &ab);
     assert_eq!(waiting.phase, Phase::ForceClosing);
     assert_eq!((waiting.coming, waiting.back), (CAPACITY - 200_000, 0), "A's share is on its way back");
@@ -178,6 +184,15 @@ fn coins_on_their_way_back_show_until_they_are_back() {
     let done = view_of(&parties[0], &world, &ab);
     assert_eq!(done.phase, Phase::Closed);
     assert_eq!((done.coming, done.back), (0, CAPACITY - 200_000 - 2 * FEE), "what came back, after the fees");
+
+    // When and at which block it closed, and still so after a restart.
+    assert_eq!(waiting.closed_at, None, "not closed while the share is on its way");
+    assert_eq!(done.closed_at, Some(closed_at), "the block the close went into");
+    let ended = done.ended_ms.expect("the moment it closed");
+    assert!(ended > 0 && ended <= world.now_ms);
+    parties[0].restart();
+    let again = view_of(&parties[0], &world, &ab);
+    assert_eq!((again.closed_at, again.ended_ms), (Some(closed_at), Some(ended)));
 }
 
 #[test]
@@ -193,4 +208,6 @@ fn an_open_nobody_answers_lets_its_coins_go() {
     seconds(&mut parties, &mut world, 1);
     assert_eq!(channel(&parties[0], &id).phase, Phase::Failed);
     assert!(parties[0].node.held_coins().is_empty(), "the coins go back to the wallet");
+    let failed = view_of(&parties[0], &world, &id);
+    assert_eq!((failed.ended_ms, failed.closed_at), (Some(world.now_ms), None), "when it gave up, and no block");
 }
