@@ -95,7 +95,9 @@ fn list_row(ui: &mut Ui, cx: &Cx, board: &BoardView, current: bool) -> bool {
 
 impl Boards {
     /// A board that was plugged in and has no program yet. It comes with a name to set it up.
-    fn new_ports(&mut self, ui: &mut Ui, cx: &Cx) {
+    /// A card for each board in a port that is not set up yet. `in_list` draws it narrow, under
+    /// the list rows, so a board plugged in moves nothing that was already on the page.
+    fn new_ports(&mut self, ui: &mut Ui, cx: &Cx, in_list: bool) {
         let t = cx.t;
         for (index, (port, job)) in cx.snap.new_ports.iter().enumerate() {
             let number = cx.snap.boards.len() + index + 1;
@@ -105,6 +107,25 @@ impl Boards {
                 self.new_names.push((port.clone(), name));
                 self.new_names.len() - 1
             });
+            if in_list {
+                ui.add_space(tokens::GAP);
+                card(ui, t, |ui| {
+                    ui.horizontal(|ui| {
+                        dot(ui, t.info);
+                        ui.label(widgets::medium_text(cx.say("boards.new_board")));
+                    });
+                    if cx.expert() {
+                        meta(ui, port, t);
+                    }
+                    match job {
+                        Some(job) => {
+                            meta(ui, &job_text(cx, job), t);
+                        }
+                        None => self.install(ui, cx, port, place),
+                    }
+                });
+                continue;
+            }
             card(ui, t, |ui| {
                 ui.horizontal(|ui| {
                     dot(ui, t.info);
@@ -132,10 +153,22 @@ impl Boards {
         }
     }
 
+    /// The name box over Install, for the narrow card in the list.
+    fn install(&mut self, ui: &mut Ui, cx: &Cx, port: &str, place: usize) {
+        let width = ui.available_width();
+        field(ui, &mut self.new_names[place].1, cx.say("boards.name"), width);
+        let name = self.new_names[place].1.trim().to_string();
+        let ready = !name.is_empty();
+        if button_on(ui, cx.t, cx.say("boards.install"), Kind::Main, ready).clicked() {
+            cx.send(Command::InstallBoard { path: port.to_string(), name });
+        }
+    }
+
     fn board_list(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
         let snap = cx.snap;
         if snap.boards.is_empty() {
+            self.new_ports(ui, cx, false);
             if snap.new_ports.is_empty() {
                 let body = if snap.usb { "boards.none_body" } else { "boards.usb_off" };
                 let again = cx.say("boards.look_again");
@@ -168,6 +201,7 @@ impl Boards {
                     this.detail.select(cx, board);
                 }
             }
+            this.new_ports(ui, cx, true);
         };
         if side_by_side {
             let rest = ui.available_width() - LIST_WIDTH - tokens::GAP_PAGE;
@@ -204,7 +238,6 @@ impl Page for Boards {
         widgets::title(ui, cx.say("page.boards"));
         explain::short(ui, t, cx.say("devices.about"));
         ui.add_space(tokens::GAP_WIDE);
-        self.new_ports(ui, cx);
         self.board_list(ui, cx);
     }
 }

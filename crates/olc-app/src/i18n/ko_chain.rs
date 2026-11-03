@@ -17,8 +17,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.shares", "최근 블록 {}개를 찾은 채굴기"),
     ("chain.share_blocks", "블록 {}개"),
     ("chain.no_share", "아직 아무도 블록을 찾지 못했습니다."),
-    ("chain.speed", "이 컴퓨터 속도, 최근 10분"),
-    ("chain.ten_minutes", "10분 전"),
+    ("chain.speed", "이 컴퓨터의 모든 채굴기"),
+    ("chain.minutes_ago", "{}분 전"),
     ("chain.now", "지금"),
     ("chain.not_mining", "채굴하지 않고 있습니다."),
     ("chain.next", "다음 블록"),
@@ -27,6 +27,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.overdue", "평소보다 늦습니다."),
     ("chain.nobody", "지금 아무도 채굴하지 않습니다."),
     ("chain.average", "최근 평균 {}"),
+    ("chain.peak", "최고 {}"),
+    ("chain.line_soon", "1분쯤 지나면 선이 그려집니다."),
 ];
 
 /// 전문가 모드에서 쓰는 업계 용어.
@@ -37,7 +39,7 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("chain.replaced", "리오그: 블록 {}부터 {}까지 교체"),
     ("chain.replaced_one", "리오그: 블록 {} 하나 교체"),
     ("chain.shares", "최근 {}블록 점유율"),
-    ("chain.speed", "이 컴퓨터 해시레이트, 최근 10분"),
+    ("chain.speed", "이 컴퓨터 전체 해시레이트"),
     ("chain.expected", "현재 난이도로 예상 {}"),
     ("chain.overdue", "예상보다 늦습니다."),
     ("chain.average", "최근 20블록 평균 {}"),

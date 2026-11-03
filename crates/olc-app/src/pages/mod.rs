@@ -21,6 +21,7 @@ mod local;
 mod locks;
 mod mining;
 mod mining_card;
+mod miners;
 mod message_sign;
 mod money;
 mod note;
@@ -128,6 +129,11 @@ pub trait Page {
     }
     /// Only an expert sees it.
     fn expert_only(&self) -> bool {
+        false
+    }
+    /// Turns to a place it holds, such as a tab, when `title` names one, and says whether it did.
+    /// A place that was a page of its own still opens by its old name.
+    fn open_inside(&mut self, _title: &str) -> bool {
         false
     }
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx);

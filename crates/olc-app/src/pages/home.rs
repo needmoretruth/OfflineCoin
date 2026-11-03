@@ -18,7 +18,7 @@ use crate::ui::{format, Icon, Tokens};
 use egui::{vec2, Align, FontId, Label, Layout, RichText, Sense, Ui};
 
 /// Home shows this many rows of what happened, and the Wallet the rest.
-const RECENT_ROWS: usize = 4;
+const RECENT_ROWS: usize = 5;
 /// The blocks on Home are a little smaller than on Mining, so the rows below stay in sight.
 const BLOCK_SIZE: f32 = 70.0;
 /// How wide the coins take of the first row; mining takes the rest.
@@ -38,7 +38,7 @@ pub struct Home {
 }
 
 /// The large figure, which rolls to a new value over the length of a stamp.
-fn balance_line(ui: &mut Ui, t: &Tokens, units: u64, ticker: &str, still: bool) {
+pub(super) fn balance_line(ui: &mut Ui, t: &Tokens, units: u64, ticker: &str, still: bool) {
     let id = ui.scope_id().with("balance");
     let target = units as f32;
     let seconds = if still { 0.0 } else { tokens::STAMP_SECONDS };
@@ -142,7 +142,16 @@ impl Home {
         card(ui, t, |ui| {
             ui.set_min_height(height);
             let node = &cx.snap.node;
-            meta(ui, cx.say("home.balance"), t);
+            // Which coin the balance is in, at the right of its name, for a person with several.
+            ui.horizontal(|ui| {
+                meta(ui, cx.say("home.balance"), t);
+                if let Some(coin) = &node.coin {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.add(Label::new(RichText::new(&coin.name).size(tokens::META).color(t.soft)).truncate());
+                        ui.add(Label::new(RichText::new(cx.say("home.coin")).size(tokens::META).color(t.muted)).selectable(false));
+                    });
+                }
+            });
             balance_line(ui, t, node.balance, cx.ticker(), still);
             // The line keeps its room, so the buttons stay put when the first block arrives.
             widgets::slot(ui, |ui| {
@@ -202,12 +211,12 @@ impl Home {
         });
     }
 
-    /// The latest blocks as boxes, with who found each, and a Details with what a block is.
+    /// The latest blocks as boxes, with who found each. The strip needs no caption; Details holds
+    /// how to read it and what a block is.
     fn blocks(ui: &mut Ui, cx: &Cx, still: bool) {
         let t = cx.t;
         section(ui, cx.say("home.blocks"));
-        explain::short(ui, t, cx.say("home.blocks_about"));
-        ui.add_space(tokens::GAP);
+        ui.add_space(4.0);
         let ticker = cx.ticker().to_string();
         let look = Look { t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
         let chain_view = &cx.snap.node.chain;

@@ -1,17 +1,19 @@
 //! This computer's mining in one card: on or off, how fast it may go, how its speed went over ten
-//! minutes, how far the next block has come and how many blocks it found. Home and Mining show the
-//! same card.
+//! minutes, how far the next block has come and how many blocks it found. Home shows it; the Mining
+//! page manages every miner in full.
 use super::speed::Speed;
 use super::Cx;
 use crate::core::{unix_ms, Command};
 use crate::ui::chain::{self, Look};
 use crate::ui::tokens;
-use crate::ui::widgets::{button, button_on, card, dot, section, Kind};
+use crate::ui::widgets::{button, button_on, card, dot, section, strong_text, Columns, Kind};
 use crate::ui::format;
 use egui::{Align, Label, Layout, RichText, Ui};
 
 /// The speed line's height on the card.
-const LINE_HEIGHT: f32 = 80.0;
+const LINE_HEIGHT: f32 = 84.0;
+/// Room for every fact the card can show, so the cells keep one width as facts come and go.
+const FACT_CELLS: usize = 4;
 
 #[derive(Default)]
 pub struct MiningCard {
@@ -22,20 +24,15 @@ pub struct MiningCard {
 pub fn state_line(ui: &mut Ui, cx: &Cx) {
     let t = cx.t;
     let node = &cx.snap.node;
-    let voice = cx.voice();
     ui.horizontal(|ui| {
         if let Some(target) = node.syncing_to {
             dot(ui, t.warn);
             let height = format::number(node.height.into());
             ui.add(Label::new(cx.fill("home.catching_up", &[&height, &format::number(target.into())])).wrap());
         } else if node.mining {
+            // No figure here: the speed line below says how fast, for every miner on this computer.
             dot(ui, t.good);
-            let speed = format::rate(voice, node.hashrate);
-            let line = match node.seconds_per_block() {
-                Some(seconds) => cx.fill("home.mining_block", &[&speed, &format::seconds(voice, seconds)]),
-                None => cx.fill("home.mining", &[&speed]),
-            };
-            ui.add(Label::new(line).wrap());
+            ui.add(Label::new(cx.say("home.mining")).wrap());
         } else {
             dot(ui, t.muted);
             ui.label(RichText::new(cx.say("home.not_mining")).color(t.soft));
@@ -81,27 +78,27 @@ impl MiningCard {
     }
 }
 
-/// What this computer found and who it mines beside, in one row. A count of none is left out
-/// where most people have none.
+/// What this computer found and who it mines beside, each in its own cell: a quiet name over its
+/// count. Other miners and boards show once there are some, since most people have none.
 fn facts(ui: &mut Ui, cx: &Cx) {
     let t = cx.t;
     let snap = cx.snap;
-    let mut shown = vec![
-        ("home.found", snap.node.blocks_mined.into()),
-        ("home.others", snap.node.peers as u128),
-    ];
+    let mut shown = vec![("home.found", u128::from(snap.node.blocks_mined)), ("home.others", snap.node.peers as u128)];
     if !snap.local.is_empty() {
         shown.push(("home.miners_here", snap.local.len() as u128));
     }
     if !snap.boards.is_empty() {
         shown.push(("home.boards", snap.boards.len() as u128));
     }
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        for (key, count) in shown {
-            ui.add(Label::new(RichText::new(cx.say(key)).size(tokens::META).color(t.muted)).selectable(false));
-            ui.label(RichText::new(format::number(count)).size(tokens::META).color(t.text));
-            ui.add_space(tokens::GAP_WIDE);
-        }
+    let cells = Columns::new(ui, &[1.0; FACT_CELLS]);
+    cells.row(ui, |ui, index| {
+        let Some((key, count)) = shown.get(index) else {
+            return;
+        };
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            ui.add(Label::new(RichText::new(cx.say(key)).size(tokens::META).color(t.muted)).selectable(false).truncate());
+            ui.label(strong_text(format::number(*count)));
+        });
     });
 }

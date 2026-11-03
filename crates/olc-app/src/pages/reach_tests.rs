@@ -4,17 +4,19 @@ use crate::pages::all;
 
 /// The files of a page.
 const FILES: &[(&str, &[&str])] = &[
-    (HOME, &["home.rs", "money.rs"]),
-    (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs", "local.rs", "pool.rs", "lab.rs", "lab_boards.rs"]),
+    (HOME, &["home.rs", "money.rs", "mining_card.rs", "speed.rs", "ledger.rs"]),
+    (MINING, &["mining.rs", "miners.rs", "speed.rs", "local.rs", "pool.rs"]),
+    (WALLET, &["wallet.rs", "ledger.rs", "money.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs", "locks.rs"]),
+    (LAB, &["lab.rs", "lab_view.rs", "lab_boards.rs"]),
+    (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs"]),
     (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
-    (LOCKS, &["locks.rs"]),
     (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
     (CHANNELS, &["channels.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.
-const EXPERT_FILES: &[&str] = &["board_more.rs", "lab.rs", "lab_boards.rs", "coin_fork.rs", "locks.rs", "message_sign.rs"];
+const EXPERT_FILES: &[&str] = &["board_more.rs", "lab_boards.rs", "coin_fork.rs", "locks.rs"];
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../").to_string() + path).unwrap()
@@ -94,9 +96,11 @@ fn every_board_word_has_a_place() {
 
 #[test]
 fn every_row_names_a_real_place() {
-    let titles: Vec<&str> = all().iter().map(|page| page.title()).collect();
+    // A place is a page of the side bar, or a tab a page turns to by that name, as swaps in Payments.
+    let mut pages = all();
     for row in CLI_ROWS.iter().chain(BOARD_ROWS) {
-        assert!(titles.contains(&row.page), "{} points at {}", row.word, row.page);
+        let real = pages.iter_mut().any(|page| page.title() == row.page || page.open_inside(row.page));
+        assert!(real, "{} points at {}", row.word, row.page);
         assert!(!row.spot.is_empty(), "{} has no spot", row.word);
     }
 }

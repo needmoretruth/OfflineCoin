@@ -67,12 +67,11 @@ fn choose(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, running
             let (mine, theirs) = (choice.share.to_string(), (100 - choice.share).to_string());
             ui.label(RichText::new(fill(text(voice, line), &[&mine, &theirs])).strong().color(t.text));
         });
-        ui.horizontal_wrapped(|ui| {
-            if choice.kind == LabKind::Attack {
-                switch_row(ui, t, &mut choice.helper, text(voice, "lab2.helper"));
-            }
-            switch_row(ui, t, &mut choice.keep, text(voice, "lab2.keep"));
-        });
+        // One switch a line: side by side the two read as one sentence.
+        if choice.kind == LabKind::Attack {
+            switch_row(ui, t, &mut choice.helper, text(voice, "lab2.helper"));
+        }
+        switch_row(ui, t, &mut choice.keep, text(voice, "lab2.keep"));
         if voice.mode == Mode::Expert && choice.kind == LabKind::Attack {
             ui.horizontal(|ui| {
                 ui.label(text(voice, "lab2.amount"));
@@ -204,9 +203,11 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, seen:
         let kind = seen.state.and_then(|state| state.kind).unwrap_or(choice.kind);
         let shown = Seen { state: seen.state.filter(|state| state.kind == Some(choice.kind)), ..*seen };
         now(ui, t, voice, choice, &shown);
-        if let Some(state) = shown.state {
-            ui.add_space(tokens::GAP_WIDE);
-            lab_strip::picture(ui, t, voice, kind, &state.live, LIVE);
+        ui.add_space(tokens::GAP_WIDE);
+        match shown.state {
+            Some(state) => lab_strip::picture(ui, t, voice, kind, &state.live, LIVE),
+            // Before a run, the two rows as they will start, from what is chosen above.
+            None => lab_strip::picture(ui, t, voice, choice.kind, &lab_strip::planned(choice.kind, choice.share, choice.total_rate), LIVE),
         }
         ui.add_space(tokens::GAP);
         let labels = (text(voice, "explain.details"), text(voice, "explain.hide"));

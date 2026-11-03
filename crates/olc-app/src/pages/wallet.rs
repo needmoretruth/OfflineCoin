@@ -1,11 +1,16 @@
-//! The wallet: everything that happened to its coins, and its tools grouped by what a person wants
-//! to do: keep it safe, receive and prove, share with others, and the rest. Expert mode adds locks.
-//! Each tool says in one line what it is for and opens in a sheet.
+//! The wallet, as Bitcoin Core's Overview, Send, Receive and Transactions in one place: the balance
+//! with Receive and Send on top, everything that happened to its coins under it, and its tools
+//! grouped by what a person wants to do: keep it safe, receive and prove, share with others, and
+//! the rest. Expert mode adds locks. Each tool says in one line what it is for and opens in a sheet.
+use super::home::balance_line;
 use super::ledger::Ledger;
 use super::locks::Locks;
+use super::money::{ReceiveSheet, SendSheet};
 use super::wallet_tools::{Tool, WalletTools};
 use super::{Cx, Page};
 use crate::ui::explain;
+use crate::ui::floating::sheet;
+use crate::ui::format;
 use crate::ui::theme::desktop_reduces_motion;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, card, meta, section, Kind};
@@ -64,12 +69,19 @@ fn groups(expert: bool) -> Vec<(&'static str, Vec<Row>)> {
     ]
 }
 
+/// Receive or Send, open over the page.
+enum Money {
+    Receive(ReceiveSheet),
+    Send(SendSheet),
+}
+
 #[derive(Default)]
 pub struct WalletPage {
     ledger: Ledger,
     tools: WalletTools,
     locks: Locks,
     in_locks: bool,
+    money: Option<Money>,
 }
 
 /// A tool's name and line on the left, its button on the right. True when the button is pressed.
@@ -112,8 +124,57 @@ impl WalletPage {
         }
     }
 
+    /// The balance, what is still maturing, and the two things a person does with coins.
+    fn balance(&mut self, ui: &mut Ui, cx: &Cx, still: bool) {
+        let t = cx.t;
+        let node = &cx.snap.node;
+        card(ui, t, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    meta(ui, cx.say("home.balance"), t);
+                    balance_line(ui, t, node.balance, cx.ticker(), still);
+                    // The line keeps its room, so Send and Receive stay put when the first block arrives.
+                    widgets::slot(ui, |ui| {
+                        ui.set_min_height(tokens::META_LINE);
+                        if node.maturing > 0 {
+                            meta(ui, &cx.fill("home.soon", &[&format::coins(node.maturing, cx.ticker())]), t);
+                        }
+                    });
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if button(ui, t, cx.say("home.send"), Kind::Plain).clicked() {
+                        self.money = Some(Money::Send(SendSheet::default()));
+                    }
+                    if button(ui, t, cx.say("home.receive"), Kind::Main).clicked() {
+                        self.money = Some(Money::Receive(ReceiveSheet::for_address(&node.address)));
+                    }
+                });
+            });
+        });
+    }
+
+    fn money_sheet(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        let closed = match &mut self.money {
+            None => false,
+            Some(Money::Receive(receive)) => {
+                let (done, outside) = sheet(ui, t, "wallet-receive", tokens::SLIP_WIDTH, |ui| receive.show(ui, cx));
+                done || outside
+            }
+            Some(Money::Send(send)) => {
+                let (done, outside) = sheet(ui, t, "wallet-send", tokens::SLIP_WIDTH, |ui| send.show(ui, cx));
+                done || outside
+            }
+        };
+        if closed {
+            self.money = None;
+        }
+    }
+
     fn activity(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let still = cx.settings.reduce_motion || desktop_reduces_motion();
+        self.balance(ui, cx, still);
+        ui.add_space(tokens::GAP_WIDE);
         section(ui, cx.say("home.ledger"));
         ui.add_space(2.0);
         if !self.ledger.show(ui, cx, ALL_ROWS, still) {
@@ -133,6 +194,12 @@ impl Page for WalletPage {
 
     fn daily(&self) -> bool {
         true
+    }
+
+    fn open_inside(&mut self, title: &str) -> bool {
+        let locks = title == "page.locks";
+        self.in_locks |= locks;
+        locks
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -167,5 +234,6 @@ impl Page for WalletPage {
             });
         }
         self.tools.show(ui, cx);
+        self.money_sheet(ui, cx);
     }
 }

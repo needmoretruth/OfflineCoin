@@ -248,7 +248,8 @@ impl App {
 
     /// Goes to the page with this name, for tests of the screens.
     pub fn open(&mut self, title: &str) {
-        if let Some(index) = self.pages.iter().position(|page| page.title() == title) {
+        let page = self.pages.iter().position(|page| page.title() == title);
+        if let Some(index) = page.or_else(|| self.pages.iter_mut().position(|page| page.open_inside(title))) {
             self.current = index;
         }
     }

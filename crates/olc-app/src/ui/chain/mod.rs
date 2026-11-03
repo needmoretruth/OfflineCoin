@@ -74,6 +74,18 @@ pub(crate) struct Faces {
     pub label: Color32,
 }
 
+impl Faces {
+    /// The two ends of a filled bar in the block's colour. On a light page the lit top is nearly
+    /// the track's own white, so a bar there runs from the front to the side in shadow instead.
+    pub(crate) fn bar(&self, t: &Tokens) -> (Color32, Color32) {
+        if t.dark {
+            (self.top, self.front_bottom)
+        } else {
+            (self.front_bottom, self.side)
+        }
+    }
+}
+
 /// "You" in the accent, everyone else in one gray: color only says whose it is.
 pub(crate) fn faces(t: &Tokens, you: bool) -> Faces {
     let (light, shade) = match t.dark {

@@ -54,6 +54,15 @@ impl Page for Payments {
         Icon::Channel
     }
 
+    fn open_inside(&mut self, title: &str) -> bool {
+        self.tab = match title {
+            "page.channels" => PaymentsTab::Channels,
+            "page.swap" => PaymentsTab::Swap,
+            _ => return false,
+        };
+        true
+    }
+
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let tabs = [
             (PaymentsTab::Channels, cx.say("page.channels").to_string()),

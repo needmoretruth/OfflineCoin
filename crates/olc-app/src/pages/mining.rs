@@ -1,29 +1,35 @@
-//! Mining on this computer, then everything that adds to it. First this computer's own miner with
-//! its speed and the race it runs against everyone else, then how blocks are paced, then more
-//! miners on this computer, then boards as add-ons, then mining together.
+//! Where miners are managed. First every miner this computer runs, this app's own and the ones
+//! added, with this app's speed control and the line of their speed together; beside them the race
+//! against everyone and how blocks are paced. Then boards as add-ons, each added miner in detail,
+//! and mining together. Home keeps the short card; this page holds the controls.
 use super::boards::state_colour;
 use super::local::Local;
-use super::mining_card::MiningCard;
 use super::pool::PoolTab;
-use super::{Cx, Page};
+use super::speed::Speed;
+use super::{miners, Cx, Page};
 use crate::core::unix_ms;
 use crate::ui::chain::{self, Look};
 use crate::ui::explain;
 use crate::ui::theme::desktop_reduces_motion;
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::widgets::{self, button, card, dot, meta, section, Kind};
+use crate::ui::widgets::{self, button, button_on, card, dot, meta, section, Kind};
 use crate::ui::{format, Icon};
 use egui::{pos2, vec2, Align, CornerRadius, Label, Layout, Rect, RichText, Sense, Ui};
 
-/// How wide this computer's card takes of the first row; the race takes the rest.
-const COMPUTER_SHARE: f32 = 0.5;
+/// How wide the miners take of the first row; the race and the pacing take the rest.
+const MINERS_SHARE: f32 = 0.58;
 const STAT_TRACK: f32 = 6.0;
+/// A figure in the pacing card needs this much room; fewer fit in a row on a narrow column.
+const STAT_WIDTH: f32 = 150.0;
+const LINE_HEIGHT: f32 = 130.0;
 
 #[derive(Default)]
 pub struct Mining {
-    card: MiningCard,
+    speed: Speed,
     local: Local,
     pool: PoolTab,
+    /// The id the next added miner gets.
+    next_miner: u32,
 }
 
 fn details_labels(cx: &Cx) -> (&'static str, &'static str) {
@@ -41,6 +47,7 @@ fn race(ui: &mut Ui, cx: &Cx, still: bool) {
         let look = Look { t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
         chain::race_bars(ui, &look, &cx.snap.node.chain.shares);
         ui.add_space(tokens::GAP);
+        chain::next_block_bar(ui, &look, &cx.snap.node.chain);
         explain::details(ui, t, "mining-race", details_labels(cx), |ui| {
             explain::analogy(ui, t, cx.say("mining.race_analogy"));
             ui.add_space(tokens::GAP);
@@ -56,7 +63,7 @@ fn stat(ui: &mut Ui, t: &Tokens, name: &str, value: &str, under: &str) {
         ui.add(Label::new(RichText::new(name).size(tokens::META).color(t.muted)).selectable(false));
         ui.add(Label::new(RichText::new(value).size(tokens::SECTION).family(crate::ui::fonts::strong())).truncate());
         if !under.is_empty() {
-            ui.add(Label::new(RichText::new(under).size(tokens::META).color(t.soft)).truncate());
+            ui.add(Label::new(RichText::new(under).size(tokens::META).color(t.soft)).wrap());
         }
     });
 }
@@ -73,6 +80,39 @@ fn progress(ui: &mut Ui, t: &Tokens, part: f32, name: &str) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ProgressIndicator, true, name));
 }
 
+/// One figure of the pacing card, some with a track of how far it has come.
+enum Figure<'a> {
+    Plain(&'a str, String, String),
+    Track(&'a str, String, String, f32),
+}
+
+/// The figures in as many columns as the width holds, the rest on the next row.
+fn figure_grid(ui: &mut Ui, t: &Tokens, figures: &[Figure]) {
+    let gap = tokens::GAP_WIDE;
+    let fits = ((ui.available_width() + gap) / (STAT_WIDTH + gap)).floor().max(1.0) as usize;
+    let per_row = fits.min(figures.len()).max(1);
+    let width = (ui.available_width() - gap * (per_row as f32 - 1.0)) / per_row as f32;
+    for row in figures.chunks(per_row) {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for figure in row {
+                ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
+                    ui.set_width(width);
+                    match figure {
+                        Figure::Plain(name, value, under) => stat(ui, t, name, value, under),
+                        Figure::Track(name, value, under, part) => {
+                            stat(ui, t, name, value, under);
+                            ui.add_space(4.0);
+                            progress(ui, t, *part, value);
+                        }
+                    }
+                });
+            }
+        });
+        ui.add_space(tokens::GAP);
+    }
+}
+
 /// How hard a block is, how long one takes, and when that changes. Expert mode adds the whole
 /// network's speed and the node's own counts.
 fn pacing(ui: &mut Ui, cx: &Cx) {
@@ -86,41 +126,27 @@ fn pacing(ui: &mut Ui, cx: &Cx) {
     card(ui, t, |ui| {
         section(ui, cx.say("mining.pacing"));
         ui.add_space(tokens::GAP);
-        let count = if cx.expert() { 4.0 } else { 3.0 };
-        let width = (ui.available_width() - tokens::GAP_WIDE * (count - 1.0)) / count;
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = tokens::GAP_WIDE;
-            ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
-                ui.set_width(width);
-                stat(ui, t, cx.say("mining.tries"), &format::number(node.difficulty.into()), cx.say("mining.tries_under"));
-            });
-            ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
-                ui.set_width(width);
-                let average = node.chain.average_ms.map(|ms| format::seconds(voice, ms.div_ceil(1_000).max(1)));
-                let under = average.map(|average| cx.fill("mining.recent", &[&average])).unwrap_or_default();
-                stat(ui, t, cx.say("mining.block_time"), &cx.fill("mining.aim", &[&aim]), &under);
-            });
-            ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
-                ui.set_width(width);
-                if every == 0 {
-                    stat(ui, t, cx.say("mining.next_change"), cx.say("mining.fixed"), "");
-                } else {
-                    let since = node.height % every;
-                    let left = every - since;
-                    let value = cx.fill("mining.in_blocks", &[&format::number(left.into())]);
-                    stat(ui, t, cx.say("mining.next_change"), &value, &cx.fill("mining.every", &[&format::number(every.into())]));
-                    ui.add_space(4.0);
-                    progress(ui, t, since as f32 / every as f32, &value);
-                }
-            });
-            if cx.expert() {
-                ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
-                    ui.set_width(width);
-                    let all = format::rate(voice, node.chain.hashrate_all);
-                    stat(ui, t, cx.say("pro.network_rate"), &all, &cx.fill("pro.peers_count", &[&node.peers.to_string()]));
-                });
-            }
+        let average = node.chain.average_ms.map(|ms| format::seconds(voice, ms.div_ceil(1_000).max(1)));
+        let mut figures = vec![
+            Figure::Plain(cx.say("mining.tries"), format::number(node.difficulty.into()), cx.say("mining.tries_under").to_string()),
+            Figure::Plain(
+                cx.say("mining.block_time"),
+                cx.fill("mining.aim", &[&aim]),
+                average.map(|average| cx.fill("mining.recent", &[&average])).unwrap_or_default(),
+            ),
+        ];
+        figures.push(if every == 0 {
+            Figure::Plain(cx.say("mining.next_change"), cx.say("mining.fixed").to_string(), String::new())
+        } else {
+            let since = node.height % every;
+            let value = cx.fill("mining.in_blocks", &[&format::number((every - since).into())]);
+            Figure::Track(cx.say("mining.next_change"), value, cx.fill("mining.every", &[&format::number(every.into())]), since as f32 / every as f32)
         });
+        if cx.expert() {
+            let all = format::rate(voice, node.chain.hashrate_all);
+            figures.push(Figure::Plain(cx.say("pro.network_rate"), all, cx.fill("pro.peers_count", &[&node.peers.to_string()])));
+        }
+        figure_grid(ui, t, &figures);
         ui.add_space(tokens::GAP);
         let about = if every == 0 {
             cx.say("mining.pacing_fixed").to_string()
@@ -151,26 +177,55 @@ fn pacing(ui: &mut Ui, cx: &Cx) {
 }
 
 impl Mining {
+    /// Every miner here in one table, this app's speed control under it, and their speed together.
+    fn miners(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
+        let t = *cx.t;
+        card(ui, &t, |ui| {
+            ui.horizontal(|ui| {
+                section(ui, cx.say("mining.computer"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    // A new miner starts at a share of the full speed, known once it is measured.
+                    let ready = cx.snap.full_rate > 0;
+                    if button_on(ui, &t, cx.say("mining.add"), Kind::Plain, ready).clicked() {
+                        miners::add(cx, &mut self.next_miner);
+                    }
+                });
+            });
+            explain::short(ui, &t, cx.say("mining.more_about"));
+            ui.add_space(4.0);
+            miners::table(ui, cx);
+            ui.add_space(tokens::GAP_WIDE);
+            self.speed.show(ui, cx, "mining");
+            ui.add_space(tokens::GAP_WIDE);
+            let ticker = cx.ticker().to_string();
+            let look = Look { t: &t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
+            chain::hashrate_line(ui, &look, &cx.snap.node.chain, LINE_HEIGHT);
+        });
+    }
+
     fn first_row(&mut self, ui: &mut Ui, cx: &mut Cx, still: bool) {
-        let heading = cx.say("mining.computer");
         if ui.available_width() < tokens::COMPACT {
-            self.card.show(ui, cx, heading, "mining", still);
+            self.miners(ui, cx, still);
             ui.add_space(tokens::GAP_WIDE);
             race(ui, cx, still);
+            ui.add_space(tokens::GAP_WIDE);
+            pacing(ui, cx);
             return;
         }
         let total = ui.available_width();
-        let left = ((total - tokens::GAP_WIDE) * COMPUTER_SHARE).round();
+        let left = ((total - tokens::GAP_WIDE) * MINERS_SHARE).round();
         let right = total - left - tokens::GAP_WIDE;
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(vec2(left, 0.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(left);
-                self.card.show(ui, cx, heading, "mining", still);
+                self.miners(ui, cx, still);
             });
             ui.add_space(tokens::GAP_WIDE - ui.spacing().item_spacing.x);
             ui.allocate_ui_with_layout(vec2(right, 0.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(right);
                 race(ui, cx, still);
+                ui.add_space(tokens::GAP_WIDE);
+                pacing(ui, cx);
             });
         });
     }
@@ -226,13 +281,13 @@ impl Page for Mining {
         let still = cx.settings.reduce_motion || desktop_reduces_motion();
         widgets::title(ui, cx.say("page.mining"));
         self.first_row(ui, cx, still);
-        ui.add_space(tokens::GAP_WIDE);
-        pacing(ui, cx);
-        ui.add_space(tokens::GAP_PAGE);
-        section(ui, cx.say("mining.more"));
-        explain::short(ui, t, cx.say("mining.more_about"));
         ui.add_space(tokens::GAP);
-        self.local.show(ui, cx);
+        // Each added miner's memory, disk, payments and the form with every number, one press away:
+        // the table above already switches and removes them. It stands above the boards, so a board
+        // that comes or goes does not move it.
+        let labels = (cx.say("mining.more"), cx.say("explain.hide"));
+        let local = &mut self.local;
+        explain::details(ui, t, "mining-each", labels, |ui| local.show(ui, cx));
         ui.add_space(tokens::GAP_PAGE);
         Self::boards(ui, cx);
         ui.add_space(tokens::GAP_PAGE);

@@ -16,6 +16,8 @@ const BLOCK_MS: u64 = 2_000;
 const APP_CAP: u64 = 3_000;
 const A_CAP: u64 = 4_000;
 const B_CAP: u64 = 2_000;
+/// How long the speed line has run before the pictures.
+const LINE_MS: u64 = 120_000;
 
 fn miner(id: u32, name: &str, cap: u64) -> NodeSpec {
     NodeSpec { name: name.into(), mining: true, hash_cap: cap, joined: true, ..Preset::Custom.spec(id) }
@@ -65,9 +67,15 @@ fn every_place_on_a_real_race() {
     window.state().send(Command::SetMining(true));
     window.state().send(Command::AddNode(Box::new(miner(61, "Miner A", A_CAP))));
     window.state().send(Command::AddNode(Box::new(miner(62, "Miner B", B_CAP))));
-    wait_long(&mut window, "a race with blocks of this app", 240, |snap| {
+    // Two minutes of the speed line, so the pictures show it drawn as a person sees it after a while.
+    wait_long(&mut window, "a race with blocks of this app", 300, |snap| {
         let node = &snap.node;
-        node.chain.latest.len() >= 10 && node.chain.shares.len() >= 2 && node.blocks_mined >= 2 && !node.activity.is_empty()
+        let trail = node.chain.trail.first().zip(node.chain.trail.last()).map_or(0, |(first, last)| last.0 - first.0);
+        node.chain.latest.len() >= 10
+            && node.chain.shares.len() >= 2
+            && node.blocks_mined >= 2
+            && !node.activity.is_empty()
+            && trail >= LINE_MS
     });
     window.run_steps(SETTLE_STEPS);
 

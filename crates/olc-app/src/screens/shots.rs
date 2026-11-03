@@ -213,13 +213,8 @@ fn send_right(window: &mut Window) {
     tap(window, "send.next");
 }
 
+/// Remove on a row of the miners table; the core stops the miner first, so it asks once.
 fn remove_slip(window: &mut Window) {
-    // Only a stopped node can go.
-    if window.state().snapshot().local.iter().all(|view| view.pid.is_some()) {
-        tap(window, "local.stop");
-        wait_until(window, |app| app.snapshot().local.iter().any(|view| view.pid.is_none()));
-        window.run_steps(SETTLE_STEPS);
-    }
     tap(window, "local.remove");
 }
 

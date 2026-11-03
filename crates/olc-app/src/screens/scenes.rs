@@ -49,13 +49,13 @@ fn row_of(snap: &Snapshot, name: &str) -> Option<Entry> {
         .cloned()
 }
 
-/// Three questions and a new coin end on real node processes.
+/// A new coin from the first run, then three miners added from the top of Mining, end on real node
+/// processes. Three quick clicks make three miners even before the core answers the first.
 #[test]
 fn the_first_run_starts_real_node_processes() {
     let settings = Settings { setup_done: false, port: port_of_scene(10), ..quiet_settings() };
     let window = app(scratch("first-nodes"), settings, Some(node_program()));
     let mut harness = harness(window, SIZES[0]);
-    click(&mut harness, "Several miners");
     // A new coin starts easy, so its height moves while the table is watched.
     click(&mut harness, "New coin");
     type_into(&mut harness, 0, "Quick");
@@ -63,6 +63,13 @@ fn the_first_run_starts_real_node_processes() {
     click(&mut harness, "Next");
     click(&mut harness, "Start mining");
     assert!(harness.state_mut().settings_mut().setup_done);
+    // A new miner takes a share of the full speed, so Add waits for it to be measured.
+    wait_until(&mut harness, |app| app.snapshot().full_rate > 0);
+    harness.state_mut().open("page.mining");
+    harness.run_steps(2);
+    for _ in 0..3 {
+        click(&mut harness, "Add a miner");
+    }
     wait_until(&mut harness, |app| {
         let local = &app.snapshot().local;
         local.len() == 3 && local.iter().all(|view| view.status.is_some())

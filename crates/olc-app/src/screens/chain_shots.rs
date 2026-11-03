@@ -239,7 +239,8 @@ fn the_chain_shows_who_mined_each_block_and_the_race() {
 
     // The next block slides in from the left: one picture halfway.
     let height = snap.node.height;
-    wait("one more block", 120, || core.snapshot().node.height == height + 1);
+    // A reorg or two quick blocks can step past one more, so any later height will do.
+    wait("one more block", 120, || core.snapshot().node.height > height);
     window.state_mut().snap = core.snapshot();
     window.run_steps(3);
     if let Ok(folder) = std::env::var("OLC_SHOTS") {

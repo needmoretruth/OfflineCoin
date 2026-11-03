@@ -7,7 +7,7 @@ use crate::ui::explain::{self, Choice};
 use crate::ui::tokens;
 use crate::ui::widgets::{button, meta, number_field, segments, slider, Kind};
 use crate::ui::format;
-use egui::{Align, Layout, RichText, Ui};
+use egui::{Align, FontId, Layout, RichText, Ui};
 
 /// The steps, in percent of this computer's full speed. The last one lifts the limit.
 pub const STEPS: [u64; 4] = [25, 50, 75, 100];
@@ -15,6 +15,9 @@ pub const STEPS: [u64; 4] = [25, 50, 75, 100];
 const LEAST: f32 = 5.0;
 /// A step counts as chosen when the limit is this close to it, in percent.
 const NEAR: f32 = 1.5;
+/// A figure as wide as one computer's speed gets, so the title line keeps one shape from the first
+/// frame, before the full speed is measured.
+const WIDEST_RATE: u64 = 999_999;
 
 /// The limit for a share of the full speed, where 0 means no limit.
 pub fn cap_for(full: u64, percent: u64) -> u64 {
@@ -75,19 +78,35 @@ impl Speed {
         let full = cx.snap.full_rate;
         let cap = self.cap_now(cx);
         let percent = self.held.unwrap_or_else(|| percent_of(cap, full));
-        // The name and the figure on one line, the steps under them: a narrow card keeps both whole.
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(cx.say("rate.title")).color(t.text));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let shown = if full == 0 {
-                    cx.say("rate.measuring").to_string()
-                } else {
-                    let now = (full as f32 * percent / 100.0).round() as u64;
-                    cx.fill("rate.of", &[&format::rate(voice, now), &format::rate(voice, full)])
-                };
-                ui.label(RichText::new(shown).size(tokens::META).color(t.soft));
+        // The limit this control sets, against this computer's full speed for one miner.
+        let shown = if full == 0 {
+            cx.say("rate.measuring").to_string()
+        } else if percent >= 100.0 {
+            cx.fill("rate.max", &[&format::rate(voice, full)])
+        } else {
+            let now = (full as f32 * percent / 100.0).round() as u64;
+            cx.fill("rate.of", &[&format::rate(voice, now), &format::rate(voice, full)])
+        };
+        // The name and the figure share a line when both fit whole; a narrow card puts the figure under.
+        // The longest figure decides, so the slider does not jump a line while it is dragged.
+        let wide = |text: &str, size: f32| {
+            ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(size), t.text).size().x
+        };
+        let widest = format::rate(voice, full.max(WIDEST_RATE));
+        let longest = cx.fill("rate.of", &[&widest, &widest]);
+        let figure_room = wide(&longest, tokens::META).max(wide(&shown, tokens::META));
+        let room = wide(cx.say("rate.title"), tokens::TEXT) + figure_room + tokens::GAP_WIDE;
+        let title = RichText::new(cx.say("rate.title")).color(t.text);
+        let figure = RichText::new(shown).size(tokens::META).color(t.soft);
+        if room <= ui.available_width() {
+            ui.horizontal(|ui| {
+                ui.label(title);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(figure));
             });
-        });
+        } else {
+            ui.label(title);
+            ui.label(figure);
+        }
         let items: Vec<(u64, String)> = STEPS
             .iter()
             .map(|step| (*step, if *step == 100 { cx.say("rate.full").to_string() } else { format!("{step}%") }))

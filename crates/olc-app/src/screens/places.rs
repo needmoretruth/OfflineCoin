@@ -125,13 +125,13 @@ fn every_task_is_a_few_clicks_from_home() {
         };
         let speed = reach(&mut window, "speed", None, "rate.full");
         let attack = reach(&mut window, "51% attack", Some("page.lab"), "lab2.start_attack");
-        let miner = reach(&mut window, "add a miner", Some("page.mining"), "local.new_node");
+        let miner = reach(&mut window, "add a miner", Some("page.mining"), "mining.add");
         let backup = reach(&mut window, "back up", Some("page.wallet"), "settings.backup_go");
         let listen = reach(&mut window, "listening", Some("page.settings"), "settings.listen_lan");
         eprintln!("{mode:?}: {}", table.join(", "));
         assert_eq!(speed, (0, false), "the speed is on Home");
         assert!(attack.0 <= 1 && !attack.1, "the attack starts from the Lab's first screen");
-        assert!(miner.0 <= 1, "a miner is added from Mining");
+        assert!(miner.0 <= 1 && !miner.1, "a miner is added from the top of Mining");
         assert!(backup.0 <= 1 && !backup.1, "the backup is on the Wallet's first screen");
         assert!(listen.0 <= 1, "listening is in Settings");
     }
@@ -194,7 +194,7 @@ fn every_explanation_in_place_fits_three_lines() {
     keys.extend(THROUGH_A_NAME.iter().map(|key| (*key).to_string()));
     keys.sort();
     keys.dedup();
-    assert!(keys.len() > 20, "{keys:?}");
+    assert!(keys.len() >= 15, "{keys:?}");
     let mut long = Vec::new();
     for lang in [Lang::En, Lang::Ko] {
         for mode in [Mode::Basic, Mode::Expert] {

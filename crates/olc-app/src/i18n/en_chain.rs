@@ -18,8 +18,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.shares", "Who found the last {} blocks"),
     ("chain.share_blocks", "{} blocks"),
     ("chain.no_share", "Nobody has found a block yet."),
-    ("chain.speed", "This computer's speed, last 10 minutes"),
-    ("chain.ten_minutes", "10 min ago"),
+    ("chain.speed", "All miners on this computer"),
+    ("chain.minutes_ago", "{} min ago"),
     ("chain.now", "Now"),
     ("chain.not_mining", "Not mining."),
     ("chain.next", "Next block"),
@@ -28,6 +28,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.overdue", "Later than usual."),
     ("chain.nobody", "Nobody is mining."),
     ("chain.average", "Recent average {}"),
+    ("chain.peak", "Highest {}"),
+    ("chain.line_soon", "The line starts after a minute."),
 ];
 
 /// The same in the words of the trade.
@@ -38,7 +40,7 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("chain.replaced", "Reorg: blocks {} to {} replaced"),
     ("chain.replaced_one", "Reorg: block {} replaced"),
     ("chain.shares", "Share of the last {} blocks"),
-    ("chain.speed", "Hashrate here, last 10 minutes"),
+    ("chain.speed", "Hashrate on this computer"),
     ("chain.expected", "Expected {} at this difficulty"),
     ("chain.overdue", "Past the expected time."),
     ("chain.average", "Last 20 blocks, mean {}"),

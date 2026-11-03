@@ -9,9 +9,14 @@ const ROW: f32 = 34.0;
 const BAR: f32 = 10.0;
 const NAME: f32 = 132.0;
 const FIGURES: f32 = 260.0;
+/// The percent and the block count alone, when the speed leaves the row.
+const FIGURES_NARROW: f32 = 140.0;
+/// Below this the bars are too short to compare, so a narrow column drops the speed instead.
+const MIN_TRACK: f32 = 110.0;
 
 /// One bar per miner, most blocks first as the view already sorts them, with "you" in the accent.
-/// A miner that hashes and has found nothing yet keeps an empty bar.
+/// A miner that hashes and has found nothing yet keeps an empty bar. In a narrow column the speed
+/// leaves the row, so the bars keep room and no figure is cut at the edge; the hover still says it.
 pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
     let window: u32 = shares.iter().map(|share| share.blocks).sum();
     let t = look.t;
@@ -30,7 +35,9 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
     }
     let most = shares.iter().map(|share| share.blocks).max().unwrap_or(1).max(1);
     let track_left = rect.left() + NAME;
-    let track_width = (width - NAME - FIGURES).max(40.0);
+    let with_speed = width - NAME - FIGURES >= MIN_TRACK;
+    let figures = if with_speed { FIGURES } else { FIGURES_NARROW };
+    let track_width = (width - NAME - figures).max(40.0);
     for (index, share) in shares.iter().enumerate() {
         let you = share.miner == Miner::You;
         let colours = faces(t, you);
@@ -48,7 +55,8 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
         let part = share.blocks as f32 / most as f32;
         if share.blocks > 0 {
             let fill = Rect::from_min_size(track.min, vec2((track_width * part).max(BAR), BAR));
-            painter.add(paint::gradient(fill, BAR / 2.0, colours.top, colours.front_bottom));
+            let (start, end) = colours.bar(t);
+            painter.add(paint::gradient(fill, BAR / 2.0, start, end));
         }
         let percent = (share.blocks * 100).checked_div(window).unwrap_or(0);
         let count = i18n::fill(i18n::text(voice, "chain.share_blocks"), &[&format::number(share.blocks.into())]);
@@ -57,7 +65,7 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
         let shown = painter.text(pos2(figure_left, middle), Align2::LEFT_CENTER, format!("{percent}%"), big, name_colour);
         let counted = painter.text(pos2(shown.right() + 8.0, middle), Align2::LEFT_CENTER, &count, small.clone(), t.soft);
         let speed = share.hashrate.map(|rate| format::rate(voice, rate));
-        if let Some(speed) = &speed {
+        if let Some(speed) = speed.as_ref().filter(|_| with_speed) {
             painter.text(pos2(counted.right() + 12.0, middle), Align2::LEFT_CENTER, speed, small.clone(), t.muted);
         }
         let row = Rect::from_min_size(pos2(rect.left(), middle - ROW / 2.0), vec2(width, ROW));

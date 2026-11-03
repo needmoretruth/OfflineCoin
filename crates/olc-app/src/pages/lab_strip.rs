@@ -4,7 +4,7 @@
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab::{LabKind, Mark, Picture, Row, Side};
 use crate::ui::tokens::{self, Tokens};
-use egui::epaint::{CornerRadius, Stroke};
+use egui::epaint::{CornerRadius, Stroke, StrokeKind};
 use egui::{pos2, vec2, Align2, Color32, FontId, Rect, Sense, Ui};
 
 /// Sizes of one block: the live strip and the small one beside each step.
@@ -18,6 +18,8 @@ pub struct Scale {
 
 pub const LIVE: Scale = Scale { width: 46.0, height: 32.0, gap: 6.0, numbers: true };
 pub const SMALL: Scale = Scale { width: 22.0, height: 15.0, gap: 3.0, numbers: false };
+/// Empty places a row shows before its first block.
+const EMPTY_SLOTS: usize = 10;
 
 /// The colour of a block by whose reward it holds. The attacker's side takes the colour of harm.
 pub fn side_colour(t: &Tokens, kind: LabKind, side: Side) -> Color32 {
@@ -133,7 +135,7 @@ fn heading(ui: &mut Ui, t: &Tokens, voice: Voice, kind: LabKind, row: &Row, uppe
         ui.label(egui::RichText::new(text(voice, name)).strong().color(t.text));
         share_bar(ui, t, row.share, colour);
         let percent = format!("{:.0}", row.share * 100.0);
-        let rate = row.rate.to_string();
+        let rate = crate::ui::format::number(row.rate.into());
         ui.label(egui::RichText::new(fill(text(voice, "lab2.row_share"), &[&percent, &rate])).color(t.soft).size(tokens::META));
         if row.apart {
             ui.label(egui::RichText::new(text(voice, "lab2.apart")).color(t.warn).size(tokens::META).strong());
@@ -146,11 +148,44 @@ pub fn fits(width: f32, scale: Scale) -> usize {
     ((width / (scale.width + scale.gap)).floor() as usize).max(4)
 }
 
-/// Both rows, and the replaced blocks under them when there are any.
+/// The rows before a run, from what was chosen: each side's share of the hashing and no blocks yet.
+pub fn planned(kind: LabKind, strong_percent: u8, total_rate: u64) -> Picture {
+    let strong = f32::from(strong_percent.min(100)) / 100.0;
+    let row = |share: f32| Row { blocks: Vec::new(), height: 0, rate: (total_rate as f32 * share).round() as u64, share, apart: false };
+    let (upper, lower) = match kind {
+        LabKind::Attack => (row(1.0 - strong), row(strong)),
+        LabKind::Split => (row(strong), row(1.0 - strong)),
+    };
+    Picture { upper, lower, replaced: Vec::new() }
+}
+
+/// Outlined places where blocks will stand, for rows that have none yet.
+fn empty(ui: &mut Ui, t: &Tokens, count: usize, scale: Scale) {
+    let width = count as f32 * (scale.width + scale.gap);
+    let (rect, _) = ui.allocate_exact_size(vec2(width, scale.height), Sense::hover());
+    for column in 0..count {
+        let left = rect.left() + column as f32 * (scale.width + scale.gap);
+        let place = Rect::from_min_size(pos2(left, rect.top()), vec2(scale.width, scale.height));
+        ui.painter().rect_stroke(place, CornerRadius::same(6), Stroke::new(1.0, t.line_strong), StrokeKind::Inside);
+    }
+}
+
+/// Both rows, and the replaced blocks under them when there are any. Before the first block the
+/// rows stand empty with their shares, so a person sees what will race before it starts.
 pub fn picture(ui: &mut Ui, t: &Tokens, voice: Voice, kind: LabKind, picture: &Picture, scale: Scale) {
     let fit = fits(ui.available_width(), scale);
     let rows = [picture.upper.blocks.as_slice(), picture.lower.blocks.as_slice(), picture.replaced.as_slice()];
     let Some(span) = span(&rows, fit) else {
+        let slots = fit.min(EMPTY_SLOTS);
+        if scale.numbers {
+            heading(ui, t, voice, kind, &picture.upper, true);
+        }
+        empty(ui, t, slots, scale);
+        ui.add_space(6.0);
+        if scale.numbers {
+            heading(ui, t, voice, kind, &picture.lower, false);
+        }
+        empty(ui, t, slots, scale);
         return;
     };
     let gap = if scale.numbers { 6.0 } else { 2.0 };
