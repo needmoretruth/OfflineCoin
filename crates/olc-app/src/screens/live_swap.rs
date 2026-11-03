@@ -17,7 +17,7 @@ const SIZE: (u32, u32) = (1280, 1100);
 const OLC_SIDE_PORT: u16 = 7880;
 const NEW_SIDE_PORT: u16 = 7890;
 
-fn unix_ms() -> u128 {
+pub(super) fn unix_ms() -> u128 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis())
 }
 
@@ -29,7 +29,7 @@ fn shots() -> PathBuf {
 
 /// Waits while the window keeps drawing, and stops at once on a swap notice that went wrong.
 #[track_caller]
-fn wait_in(window: &mut Window, what: &str, minutes: u64, mut done: impl FnMut(&Snapshot) -> bool) {
+pub(super) fn wait_in(window: &mut Window, what: &str, minutes: u64, mut done: impl FnMut(&Snapshot) -> bool) {
     let started = Instant::now();
     loop {
         window.run_steps(1);
@@ -46,16 +46,16 @@ fn wait_in(window: &mut Window, what: &str, minutes: u64, mut done: impl FnMut(&
     tell(&format!("{what}: {} s", started.elapsed().as_secs()));
 }
 
-fn swap_of(snap: &Snapshot, id: &str) -> Option<SwapView> {
+pub(super) fn swap_of(snap: &Snapshot, id: &str) -> Option<SwapView> {
     snap.swaps.swaps.iter().find(|swap| swap.id == id).cloned()
 }
 
-fn stage_of(window: &Window, id: &str) -> Option<Stage> {
+pub(super) fn stage_of(window: &Window, id: &str) -> Option<Stage> {
     swap_of(&window.state().snapshot(), id).map(|swap| swap.stage)
 }
 
 /// The swap that is new since `known`.
-fn new_swap(window: &Window, known: &[String]) -> Option<SwapView> {
+pub(super) fn new_swap(window: &Window, known: &[String]) -> Option<SwapView> {
     window.state().snapshot().swaps.swaps.iter().find(|swap| !known.contains(&swap.id)).cloned()
 }
 
@@ -63,20 +63,20 @@ fn ids(window: &Window) -> Vec<String> {
     window.state().snapshot().swaps.swaps.iter().map(|swap| swap.id.clone()).collect()
 }
 
-fn press(window: &mut Window, label: &str) {
+pub(super) fn press(window: &mut Window, label: &str) {
     let button = window.query(By::new().role(Role::Button).label(label));
     let choice = || window.query(By::new().role(Role::Tab).label(label));
     button.or_else(choice).unwrap_or_else(|| panic!("no button {label}")).click();
     window.run_steps(3);
 }
 
-fn has(window: &Window, label: &str) -> bool {
+pub(super) fn has(window: &Window, label: &str) -> bool {
     window.query(By::new().role(Role::Button).label(label)).is_some()
 }
 
 /// Presses until `done` holds. A line that appears above a button between two frames gives the
 /// button a new id, and a press sent to the old one goes nowhere, as a reader's press would.
-fn press_till(window: &mut Window, label: &str, done: impl Fn(&Window) -> bool) {
+pub(super) fn press_till(window: &mut Window, label: &str, done: impl Fn(&Window) -> bool) {
     for _ in 0..5 {
         if has(window, label) || window.query(By::new().role(Role::Tab).label(label)).is_some() {
             press(window, label);
@@ -93,19 +93,19 @@ fn press_till(window: &mut Window, label: &str, done: impl Fn(&Window) -> bool) 
 }
 
 /// Types into the field a person reads as `label`, as pasting would.
-fn fill(window: &mut Window, role: Role, label: &str, text: &str) {
+pub(super) fn fill(window: &mut Window, role: Role, label: &str, text: &str) {
     window.query(By::new().role(role).label(label)).unwrap_or_else(|| panic!("no field {label}")).focus();
     window.run_steps(2);
     window.query(By::new().role(role).label(label)).unwrap_or_else(|| panic!("no field {label}")).type_text(text);
     window.run_steps(3);
 }
 
-fn save(window: &mut Window, name: &str) {
+pub(super) fn save(window: &mut Window, name: &str) {
     shot(window, &shots(), name);
     tell(&format!("  shot {name}"));
 }
 
-fn start(root: &Path, port: u16, peers: Vec<String>, cap: u64) -> Window {
+pub(super) fn start(root: &Path, port: u16, peers: Vec<String>, cap: u64) -> Window {
     let mut settings = live_settings(port, &peers);
     settings.hash_cap = cap;
     settings.mine_on_start = true;
@@ -139,10 +139,7 @@ fn live_swap_and_a_way_back() {
     n.state().send(Command::Join { coin: Box::new(coin), address: None });
     wait_in(&mut n, "the new coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "SWT"));
     n.state().send(Command::SetMining(true));
-    // A new coin keeps its own peers, so the other person's nodes are added by hand, as someone
-    // swapping with a stranger would type their address.
-    n.state().send(Command::AddAddress(peer));
-    n.state().send(Command::AddAddress(new_other));
+    // Nobody types an address: the offer and its answer carry where each side's node listens.
     wait_in(&mut o, "OLC to spend", 30, |snap| snap.node.spendable >= 40 * COIN);
     o.state().send(Command::SetMining(false));
     wait_in(&mut n, "SWT to spend", 10, |snap| snap.node.spendable >= 250 * COIN);

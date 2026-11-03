@@ -10,6 +10,8 @@ mod shots;
 mod steady;
 mod wallet_shots;
 mod first_words;
+mod swap_local;
+mod swap_page;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};

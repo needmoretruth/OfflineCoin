@@ -6,12 +6,18 @@ use crate::core::coins::{coin_folder, format_coins, known_coin, parse_coins, rea
 use crate::core::commands::SwapOrder;
 use crate::core::host::Plan;
 use crate::core::rows::{device_kind, hostname};
-use crate::core::swap::{make_offer, take_offer, Accept, Happened, Offer, Role, Side};
-use crate::core::swap_book::notice_of;
+use crate::core::swap::{make_offer, take_offer, Accept, Happened, Role, Side};
+use crate::core::swap_book::{coins_at_hand, notice_of};
+use crate::core::swap_text::{find_coin, OfferText, MOST_ADDRESSES};
+use crate::discovery::{ask, local_networks};
 use crate::settings::PORT_TRIES;
 use olc_core::CoinConfig;
 use olc_node::Card;
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// How long the taker waits for each of the maker's addresses to answer.
+const ASK_WAIT: Duration = Duration::from_secs(3);
 
 type Said = Result<(&'static str, String), (&'static str, String)>;
 
@@ -77,6 +83,22 @@ impl Service {
         all
     }
 
+    /// Where this app's main node listens, as another computer dials it: its address on each
+    /// local network when it listens there, and this computer's own.
+    fn my_addresses(&self) -> Vec<String> {
+        let Some(port) = self.host.port else { return Vec::new() };
+        let lan = if self.settings.listen_lan { local_networks() } else { Vec::new() };
+        let hosts = lan.into_iter().map(|ip| ip.to_string()).chain(["127.0.0.1".to_string()]);
+        hosts.map(|host| format!("{host}:{port}")).take(MOST_ADDRESSES).collect()
+    }
+
+    /// Lets the node on the other coin dial the other side's node.
+    fn follow(&self, addresses: &[String]) {
+        if let Some((_, other)) = &self.swaps.other {
+            addresses.iter().for_each(|address| other.connect(address.clone()));
+        }
+    }
+
     /// Runs the node on `other`, unless an open swap already holds one on a third coin.
     fn run_other(&mut self, main: &CoinConfig, other: &CoinConfig) -> Result<(), (&'static str, String)> {
         let open = self.swaps.other_coin(&coin_folder(main));
@@ -102,7 +124,8 @@ impl Service {
         }
         self.run_other(&main, &other)?;
         let runner = self.host.ready().map_err(|_| HELD)?;
-        let made = make_offer(&runner.engine, Side { coin: main, units: give }, Side { coin: other, units: take }, wait_minutes);
+        let sides = (Side { coin: main, units: give }, Side { coin: other, units: take });
+        let made = make_offer(&runner.engine, sides, wait_minutes, self.my_addresses());
         drop(runner);
         let swap = made.map_err(|error| ("swap.failed", error))?;
         let text = swap.text();
@@ -111,25 +134,32 @@ impl Service {
     }
 
     fn accept_swap(&mut self, text: &str) -> Said {
-        let offer = Offer::from_text(text).ok_or(("swap.bad_text", String::new()))?;
-        if self.swaps.list.iter().any(|swap| swap.id() == offer.id()) {
+        let read = OfferText::from_text(text).ok_or(("swap.bad_text", String::new()))?;
+        if self.swaps.list.iter().any(|swap| swap.id() == read.id()) {
             return Err(("swap.known", String::new()));
         }
         let main = self.main_config()?;
         // The taker pays with what the maker takes, and that is the coin this app runs.
-        if coin_folder(&offer.take.coin) != coin_folder(&main) {
-            return Err(("swap.pay_with_main", offer.take.coin.ticker.clone()));
+        if !read.take.is(&main) {
+            return Err(("swap.pay_with_main", read.take.ticker.clone()));
         }
-        if coin_folder(&offer.give.coin) == coin_folder(&main) {
+        if read.give.is(&main) {
             return Err(("swap.same_coin", main.ticker));
         }
-        if self.host.view().spendable < offer.take.units.saturating_add(main.rules.min_fee) {
-            return Err(("swap.not_enough", format!("{} {}", format_coins(offer.take.units), main.ticker)));
+        if self.host.view().spendable < read.take.units.saturating_add(main.rules.min_fee) {
+            return Err(("swap.not_enough", format!("{} {}", format_coins(read.take.units), main.ticker)));
         }
+        // The text names the maker's coin by id. A coin this app ran serves; any other comes from
+        // the maker's node, which runs it.
+        let fetch = |address: &str| ask(address, ASK_WAIT).map(|hello| hello.coin);
+        let give = find_coin(&read.give, coins_at_hand(&self.paths), &read.at, fetch);
+        let give = give.ok_or(("swap.coin_not_found", read.give.ticker.clone()))?;
+        let offer = read.with_coins(give, main.clone()).ok_or(("swap.bad_text", String::new()))?;
         self.run_other(&main, &offer.give.coin)?;
         let runner = self.host.ready().map_err(|_| HELD)?;
-        let swap = take_offer(offer, &runner.engine);
+        let swap = take_offer(offer, &runner.engine, self.my_addresses());
         drop(runner);
+        self.follow(&swap.offer.at);
         let text = swap.text();
         self.swaps.list.push(swap);
         Ok(("swap.accepted", text))
@@ -142,9 +172,12 @@ impl Service {
         if swap.accept.is_some() || swap.outcome.is_some() {
             return Err(("swap.known", String::new()));
         }
+        let at = accept.at.clone();
         swap.accept = Some(accept);
         let (give, get) = swap.coins();
-        Ok(("swap.started", format!("{} {} > {} {}", format_coins(give.units), give.coin.ticker, format_coins(get.units), get.coin.ticker)))
+        let said = format!("{} {} > {} {}", format_coins(give.units), give.coin.ticker, format_coins(get.units), get.coin.ticker);
+        self.follow(&at);
+        Ok(("swap.started", said))
     }
 
     fn cancel_swap(&mut self, id: &str) -> Said {
@@ -168,8 +201,9 @@ impl Service {
             Some(_) => return,
             None => return self.swaps.let_other_go(&folder),
         }
-        if let (true, Some((_, other))) = (fresh, &self.swaps.other) {
-            self.every_address().into_iter().for_each(|address| other.connect(address));
+        if fresh {
+            self.follow(&self.every_address());
+            self.follow(&self.swaps.their_addresses());
         }
         let mut heard = Vec::new();
         {

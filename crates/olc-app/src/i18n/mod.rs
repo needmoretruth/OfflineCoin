@@ -230,6 +230,18 @@ mod tests {
     }
 
     #[test]
+    fn every_reason_a_node_refuses_a_payment_reads_in_english_and_korean() {
+        use crate::core::refusals::{refusal_key, ALL};
+        let hangul = |c: char| ('\u{AC00}'..='\u{D7A3}').contains(&c);
+        for why in ALL {
+            let key = refusal_key(why);
+            let (english, korean) = (text(voice(Lang::En), key), text(voice(Lang::Ko), key));
+            assert!(english != "?" && !english.chars().any(hangul), "{why:?} has no English line: {english}");
+            assert!(korean != "?" && korean.chars().any(hangul), "{why:?} has no Korean line: {korean}");
+        }
+    }
+
+    #[test]
     fn blanks_fill_in_order() {
         assert_eq!(fill("{} of {}", &["1", "2"]), "1 of 2");
         assert_eq!(fill("plain", &["ignored"]), "plain");

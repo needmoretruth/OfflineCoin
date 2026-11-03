@@ -52,7 +52,8 @@ fn neighbours(ip: Ipv4Addr) -> impl Iterator<Item = Ipv4Addr> {
         .map(move |last| Ipv4Addr::new(a, b, c, last))
 }
 
-fn local_networks() -> Vec<Ipv4Addr> {
+/// This computer's address on each local network.
+pub fn local_networks() -> Vec<Ipv4Addr> {
     let Ok(interfaces) = if_addrs::get_if_addrs() else {
         return Vec::new();
     };

@@ -60,7 +60,6 @@ impl Swaps {
         rested
     }
 
-    /// Reads again, now and then, which coins this app ran before.
     /// Reads the coins this app ran again, now and then. True when it did.
     pub fn refresh_known(&mut self, paths: &Paths) -> bool {
         if self.known_at.is_some_and(|at| at.elapsed() < KNOWN_EVERY) {
@@ -73,6 +72,22 @@ impl Swaps {
         known.sort();
         self.known = known.into_iter().map(|(ticker, name)| (name, ticker)).collect();
         true
+    }
+
+    /// Where the other side's nodes listen, for every open swap that says. The node on the other
+    /// coin follows that chain from there.
+    pub fn their_addresses(&self) -> Vec<String> {
+        let said = self.open().flat_map(|swap| match swap.role {
+            Role::Taker => swap.offer.at.clone(),
+            Role::Maker => swap.accept.as_ref().map(|accept| accept.at.clone()).unwrap_or_default(),
+        });
+        let mut all: Vec<String> = Vec::new();
+        for address in said {
+            if !all.contains(&address) {
+                all.push(address);
+            }
+        }
+        all
     }
 
     /// Runs a node on `coin` beside the main one, or keeps the one that runs on it.
@@ -132,6 +147,7 @@ impl Swaps {
                 text: matches!(swap.stage(), Stage::WaitingForAnswer | Stage::WaitingForTheirLock).then(|| swap.text()),
                 refund_at: swap.my_refund_at(),
                 height: height_on(&give.coin),
+                block_ms: give.coin.rules.block_time_ms,
                 wait_minutes: swap.offer.wait_minutes,
             }
         });
@@ -150,6 +166,13 @@ impl Swaps {
         let lines: Vec<String> = view.swaps.iter().map(line).collect();
         if lines.is_empty() { "No swaps yet.".into() } else { lines.join("\n") }
     }
+}
+
+/// Every coin this app ran, and the one every build carries.
+pub fn coins_at_hand(paths: &Paths) -> Vec<CoinConfig> {
+    let folders = fs::read_dir(paths.root.join("coins")).into_iter().flatten().flatten();
+    let names = folders.filter_map(|entry| entry.file_name().into_string().ok());
+    names.filter_map(|name| known_coin(paths, &name)).chain([CoinConfig::olc()]).collect()
 }
 
 /// Where a swap stands, as the command line says it.

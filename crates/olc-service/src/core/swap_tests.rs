@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::swap_text::{coin_id, find_coin, OfferText, MOST_ADDRESSES};
 use olc_core::coin::{CoinConfig, COIN, NEVER};
 use olc_core::Plugins;
 use olc_wallet::Wallet;
@@ -67,10 +68,11 @@ fn agreed(wait_minutes: u32) -> (Coin, Coin, Swap, Swap) {
         new.mine(Role::Taker);
     }
     let (give, take) = (old.side(5 * COIN), new.side(7 * COIN));
-    let mut made = make_offer(&old.maker, give, take, wait_minutes).unwrap();
-    let offer = Offer::from_text(&made.text()).unwrap();
+    let mut made = make_offer(&old.maker, (give, take), wait_minutes, vec!["127.0.0.1:7801".into()]).unwrap();
+    let read = OfferText::from_text(&made.text()).unwrap();
+    let offer = read.with_coins(old_coin(), new_coin()).unwrap();
     assert_eq!(offer, made.offer, "an offer goes over as text");
-    let taken = take_offer(offer, &new.taker);
+    let taken = take_offer(offer, &new.taker, vec!["127.0.0.1:7901".into()]);
     made.accept = Some(Accept::from_text(&taken.text()).unwrap());
     assert_eq!(made.locks(), taken.locks(), "both sides write the same two locks");
     (old, new, made, taken)
@@ -138,21 +140,100 @@ fn the_secret_is_read_back_from_the_unlock_that_used_it() {
     let unlock = lock_from_text(&words).unwrap().0;
     assert_eq!(secret_in(&unlock, &hash20), Some(secret.to_vec()));
     assert_eq!(secret_in(&unlock, &[0; 20]), None);
-    assert_eq!(Offer::from_text("olcswap1.zz"), None);
+    assert_eq!(OfferText::from_text("olcswap1.zz"), None);
     assert_eq!(Accept::from_text("hello"), None);
 }
 
-#[test]
-fn an_offer_read_back_names_the_same_two_coins() {
-    // OLC keeps rules the binary form of a coin leaves out, so a text that carried that form
-    // would send the other side to a coin nobody runs.
+/// A coin with rules the binary form of a coin leaves out, and an offer of OLC for it.
+fn offer_for_another_coin() -> (CoinConfig, Offer) {
     let mut other = new_coin();
     other.rules.floor_from_height = 3;
     other.message_in_block = true;
     let side = |coin: &CoinConfig| Side { coin: coin.clone(), units: 5 * COIN };
-    let offer = Offer { give: side(&CoinConfig::olc()), take: side(&other), hash: [1; 20], maker: [2; 20], refund_at: 9, wait_minutes: 10 };
-    let read = Offer::from_text(&offer.to_text()).unwrap();
-    assert_eq!(read.give.coin.genesis().id(), CoinConfig::olc().genesis().id());
-    assert_eq!(read.take.coin.genesis().id(), other.genesis().id());
-    assert_eq!(read, offer);
+    let at = vec!["192.168.0.20:7800".to_string(), "127.0.0.1:7800".to_string()];
+    let (give, take) = (side(&CoinConfig::olc()), side(&other));
+    (other, Offer { give, take, hash: [1; 20], maker: [2; 20], refund_at: 9, wait_minutes: 10, at })
+}
+
+#[test]
+fn an_offer_text_names_each_coin_by_id_and_carries_no_coin_file() {
+    let (other, offer) = offer_for_another_coin();
+    let text = offer.to_text();
+    let file = olc_store::coin_file::to_json(&other).unwrap();
+    assert!(!text.contains(&hex(file.as_bytes())[..40]), "the coin file stays out of the text");
+    assert!(text.len() < 400, "the text is {} characters long", text.len());
+    let read = OfferText::from_text(&text).unwrap();
+    assert_eq!((read.give.id, read.take.id), (coin_id(&CoinConfig::olc()), coin_id(&other)));
+    assert_eq!(read.id(), offer.id(), "both sides name the swap alike");
+    assert_eq!(read.clone().with_coins(CoinConfig::olc(), other.clone()), Some(offer.clone()));
+    // A fork keeps the genesis block and the ticker, and differs by its rules: still another coin.
+    let mut fork = other.clone();
+    fork.rules.min_fee += 1;
+    assert_eq!(fork.genesis().id(), other.genesis().id());
+    assert_eq!(read.with_coins(CoinConfig::olc(), fork), None);
+    // The wallet keeps the whole coin beside the swap.
+    let kept: Offer = serde_json::from_str(&serde_json::to_string(&offer).unwrap()).unwrap();
+    assert_eq!(kept, offer);
+}
+
+#[test]
+fn a_coin_fetched_from_the_maker_counts_only_when_it_hashes_to_the_named_id() {
+    let (other, offer) = offer_for_another_coin();
+    let read = OfferText::from_text(&offer.to_text()).unwrap();
+    let mut fork = other.clone();
+    fork.rules.min_fee += 1;
+    let at = ["10.0.0.1:7800".to_string(), "10.0.0.2:7800".to_string()];
+    let liar = |_: &str| Some(fork.clone());
+    assert_eq!(find_coin(&read.take, [], &at, liar), None, "another coin under the same name is refused");
+    let second = |address: &str| (address == at[1]).then(|| other.clone()).or_else(|| Some(fork.clone()));
+    assert_eq!(find_coin(&read.take, [], &at, second), Some(other.clone()));
+    let never = |_: &str| -> Option<CoinConfig> { panic!("a coin at hand needs no asking") };
+    assert_eq!(find_coin(&read.take, [CoinConfig::olc(), other.clone()], &at, never), Some(other));
+    let mut crowded = offer;
+    crowded.at = (0..=MOST_ADDRESSES).map(|n| format!("10.0.0.{n}:7800")).collect();
+    assert_eq!(OfferText::from_text(&crowded.to_text()), None, "a text with too many addresses is not this app's");
+}
+
+/// The taker's node asks the maker's node, on a real socket, for the coin an offer names.
+#[test]
+fn the_taker_fetches_the_makers_coin_from_its_node() {
+    use crate::core::{Host, Plan};
+    use crate::discovery::ask;
+    use std::time::Duration;
+    let (other, offer) = offer_for_another_coin();
+    let folder = std::env::temp_dir().join(format!("olc-swap-coin-{}", std::process::id()));
+    let plan = Plan {
+        coin: other.clone(),
+        folder: folder.join("chain"),
+        wallet_folder: folder.join("wallet"),
+        bind_host: "127.0.0.1".into(),
+        port: 7360,
+        port_tries: 20,
+        peers: Vec::new(),
+        cap: 0,
+        mining: false,
+        card: olc_node::Card::default(),
+        storage: None,
+        shares_wallet: false,
+    };
+    let host = Host::start(plan, None).unwrap();
+    let mut port = None;
+    for _ in 0..100 {
+        port = host.view().port.filter(|_| host.view().coin.is_some());
+        if port.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The first address is where nothing listens, as a maker's address on another network.
+    let at = vec!["127.0.0.1:1".to_string(), format!("127.0.0.1:{}", port.unwrap())];
+    let fetch = |address: &str| ask(address, Duration::from_secs(2)).map(|hello| hello.coin);
+    let read = OfferText::from_text(&offer.to_text()).unwrap();
+    assert_eq!(find_coin(&read.take, [], &at, fetch), Some(other.clone()));
+    let mut fork = other;
+    fork.rules.min_fee += 1;
+    let named_fork = Offer { take: Side { coin: fork, units: 1 }, ..offer }.as_text().take;
+    assert_eq!(find_coin(&named_fork, [], &at, fetch), None, "that node runs another coin than the one named");
+    drop(host);
+    let _ = std::fs::remove_dir_all(folder);
 }

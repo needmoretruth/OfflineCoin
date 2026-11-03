@@ -4,7 +4,7 @@ use super::radios;
 use super::explorer::{explore, Explored};
 use super::host::Host;
 use super::host_locks::{failure_key, wallet_key, NO_WATCHED};
-use olc_core::{BlockHeader, ChainError, Tx};
+use olc_core::{BlockHeader, Tx};
 use olc_node::{Rank, Runner, Status};
 use olc_store::{
     back_up, format_secret, new_secret, parse_secret, restore, save_wallet, NodeSettings,
@@ -333,7 +333,7 @@ impl Host {
                     WRONG_PASSWORD => "notice.wrong_password",
                     NEEDS_PASSWORD => "notice.needs_password",
                     NOT_A_BACKUP => "notice.not_a_backup",
-                    named => match failure_key(named) {
+                    named => match failure_key(named).or_else(|| super::refusals::known(named)) {
                         Some(key) => return (key, String::new(), false),
                         None => failed,
                     },
@@ -403,7 +403,7 @@ impl Book for Host {
             full.then(|| chain.check_tx(&tx, chain.height() + 1).err()).flatten()
         })?;
         if let Some(why) = refused {
-            return Err(format!("This node refused the payment: {}.", refused_because(why)));
+            return Err(super::refusals::refusal_key(why).to_string());
         }
         let id = self.on_runner(|runner| runner.engine.send_signed(tx))?;
         Ok(json!({ "id": id.iter().map(|byte| format!("{byte:02x}")).collect::<String>() }).to_string())
@@ -415,23 +415,5 @@ impl Book for Host {
             .unwrap_or(Explored::Nothing);
         self.set_explored(explored);
         Ok(())
-    }
-}
-
-/// Why the chain refuses a payment, in words a person reads.
-fn refused_because(why: ChainError) -> &'static str {
-    match why {
-        ChainError::NotFinal => "its lock time or relative lock has not come yet",
-        ChainError::NeedsNewVersion => "this coin takes only payments signed the new way from its fork",
-        ChainError::NotYetAllowed => "this coin takes that version only from a later block",
-        ChainError::MissingInput => "a coin it spends is spent already or unknown here",
-        ChainError::DuplicateInput => "it spends one coin twice",
-        ChainError::BadLock => "a signature or lock does not open its coins",
-        ChainError::Overspend => "it pays out more than its coins hold",
-        ChainError::FeeTooLow => "its fee is too low",
-        ChainError::ImmatureCoinbase => "it spends mined coins that are not ready yet",
-        ChainError::TooLarge => "it is too large",
-        ChainError::UnknownLanguage => "a lock is written in words this coin does not know",
-        _ => "it breaks this coin's rules",
     }
 }

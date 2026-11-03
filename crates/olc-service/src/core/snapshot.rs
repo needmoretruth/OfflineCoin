@@ -151,8 +151,9 @@ pub struct SwapView {
     pub text: Option<String>,
     /// The block from which this side's coins come back, on the coin it pays with.
     pub refund_at: Option<u64>,
-    /// The height of the coin this side pays with.
+    /// The height of the coin this side pays with, and how often that coin makes a block.
     pub height: u64,
+    pub block_ms: u64,
     pub wait_minutes: u32,
 }
 

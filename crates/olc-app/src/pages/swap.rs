@@ -3,7 +3,8 @@
 //! themselves, and this page says where each swap stands in plain words.
 use super::money::code;
 use super::{Cx, Page};
-use crate::core::swap::{Offer, Outcome, Stage};
+use crate::core::swap::{Outcome, Stage};
+use crate::core::swap_text::OfferText;
 use crate::core::{Command, SwapOrder, SwapView};
 use crate::ui::format;
 use crate::ui::picker::{Picked, Picker};
@@ -37,6 +38,8 @@ pub struct Swap {
     /// The swap whose text shows as a code.
     code_of: Option<String>,
     picker: Option<Picker>,
+    /// Whether the swaps that ended show, below the open ones.
+    show_ended: bool,
 }
 
 impl Default for Swap {
@@ -50,6 +53,7 @@ impl Default for Swap {
             answers: Vec::new(),
             code_of: None,
             picker: None,
+            show_ended: false,
         }
     }
 }
@@ -67,6 +71,17 @@ fn stage_key(swap: &SwapView) -> &'static str {
         Stage::Ended(Outcome::Cancelled) => "swap.stage_cancelled",
         Stage::Ended(Outcome::TooLate) => "swap.stage_too_late",
     }
+}
+
+/// A block on a coin, with about how long until it comes while it is still ahead.
+fn block_at(cx: &Cx, ticker: &str, block: u64, (now, block_ms): (u64, u64)) -> String {
+    let number = format::number(u128::from(block));
+    let ahead = block.saturating_sub(now);
+    if ahead == 0 {
+        return cx.fill("swap.block", &[ticker, &number]);
+    }
+    let wait = format::span(cx.voice(), ahead.saturating_mul(block_ms) / 1_000);
+    cx.fill("swap.block_ahead", &[ticker, &number, &wait])
 }
 
 impl Swap {
@@ -87,8 +102,10 @@ impl Swap {
         ui.label(cx.fill("swap.line", &[&give, &get]));
         meta(ui, cx.say(stage_key(swap)), t);
         if let (Stage::Locked, Some(from)) = (swap.stage, swap.refund_at) {
-            let (from, now) = (format::number(u128::from(from)), format::number(u128::from(swap.height)));
-            meta(ui, &cx.fill("swap.back_from", &[&from, &now]), t);
+            let ticker = swap.give.0.as_str();
+            let back = block_at(cx, ticker, from, (swap.height, swap.block_ms));
+            let now = block_at(cx, ticker, swap.height, (swap.height, swap.block_ms));
+            meta(ui, &cx.fill("swap.back_from", &[&back, &now]), t);
         }
         if cx.expert() {
             meta(ui, &cx.fill("pro.swap_id", &[&swap.id]), t);
@@ -208,10 +225,10 @@ impl Swap {
         let t = cx.t;
         section(ui, cx.say("swap.take_offer"));
         words_box(ui, &mut self.pasted, cx.say("swap.paste_hint"), WIDE);
-        let offer = Offer::from_text(&self.pasted);
+        let offer = OfferText::from_text(&self.pasted);
         if let Some(offer) = &offer {
-            let gives = format::coins(offer.take.units, &offer.take.coin.ticker);
-            let gets = format::coins(offer.give.units, &offer.give.coin.ticker);
+            let gives = format::coins(offer.take.units, &offer.take.ticker);
+            let gets = format::coins(offer.give.units, &offer.give.ticker);
             meta(ui, &cx.fill("swap.offer_reads", &[&gives, &gets]), t);
         } else if !self.pasted.trim().is_empty() {
             meta(ui, cx.say("swap.bad_text"), t);
@@ -219,6 +236,28 @@ impl Swap {
         if button_on(ui, t, cx.say("swap.accept"), Kind::Main, offer.is_some()).clicked() && offer.is_some() {
             cx.send(Command::Swap(SwapOrder::Accept(self.pasted.trim().to_string())));
             self.pasted.clear();
+        }
+    }
+
+    /// Swaps that finished, were cancelled or came back, folded away under one button.
+    fn ended(&mut self, ui: &mut Ui, cx: &mut Cx, ended: &[SwapView]) {
+        if ended.is_empty() {
+            return;
+        }
+        ui.add_space(tokens::GAP);
+        let count = ended.len().to_string();
+        let words = match self.show_ended {
+            true => cx.say("swap.ended_hide").to_string(),
+            false => cx.fill("swap.ended_show", &[&count]),
+        };
+        if button(ui, cx.t, &words, Kind::Quiet).clicked() {
+            self.show_ended = !self.show_ended;
+        }
+        if self.show_ended {
+            for swap in ended {
+                ui.add_space(tokens::GAP);
+                card(ui, cx.t, |ui| self.one(ui, cx, swap));
+            }
         }
     }
 
@@ -248,15 +287,18 @@ impl Page for Swap {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         widgets::title(ui, cx.say("page.swap"));
         meta(ui, cx.say("swap.about"), cx.t);
-        if let Some((ticker, height, _)) = &cx.snap.swaps.other {
+        if let Some((ticker, height, peers)) = &cx.snap.swaps.other {
             let height = format::number(u128::from(*height));
-            meta(ui, &cx.fill("swap.other_coin", &[ticker, &height]), cx.t);
+            let key = if *peers == 0 { "swap.other_coin_alone" } else { "swap.other_coin" };
+            meta(ui, &cx.fill(key, &[ticker, ticker, &height]), cx.t);
         }
-        let swaps = cx.snap.swaps.swaps.clone();
-        for swap in &swaps {
+        let (ended, open): (Vec<SwapView>, Vec<SwapView>) =
+            cx.snap.swaps.swaps.iter().cloned().partition(|swap| matches!(swap.stage, Stage::Ended(_)));
+        for swap in &open {
             ui.add_space(tokens::GAP);
             card(ui, cx.t, |ui| self.one(ui, cx, swap));
         }
+        self.ended(ui, cx, &ended);
         ui.add_space(tokens::GAP_WIDE);
         self.make(ui, cx);
         ui.add_space(tokens::GAP_WIDE);

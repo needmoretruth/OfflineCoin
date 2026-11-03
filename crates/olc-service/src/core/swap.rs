@@ -14,7 +14,6 @@ use olc_node::Engine;
 use olc_wallet::format_address;
 use serde::{Deserialize, Serialize};
 
-const OFFER_START: &str = "olcswap1";
 const ACCEPT_START: &str = "olcswapok1";
 /// Blocks the shortest wait may be, so a slow block or two cannot eat it.
 const FEWEST_BLOCKS: u64 = 6;
@@ -25,8 +24,8 @@ const RECENT_BLOCKS: u64 = 60;
 /// Blocks a maker leaves before the taker's way back opens.
 const CLAIM_MARGIN: u64 = 2;
 
-/// One coin of a swap and how much of it changes hands. The coin goes whole, so the other side
-/// can run a node on it with nothing more than the text.
+/// One coin of a swap and how much of it changes hands. A swap text names the coin by its id, and
+/// the side that lacks it fetches it from the maker's node; the wallet keeps it whole.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Side {
     #[serde(with = "coin_as_file")]
@@ -34,9 +33,9 @@ pub struct Side {
     pub units: u64,
 }
 
-/// A coin in a swap text goes as its coin file. The binary form leaves out the rules older
+/// A coin kept with a swap goes as its coin file. The binary form leaves out the rules older
 /// builds could not read, and a coin read back from it would be another coin. The built-in coin
-/// every build carries goes as nothing, which keeps the text and its QR code short.
+/// every build carries goes as nothing.
 mod coin_as_file {
     use olc_core::coin::CoinConfig;
     use olc_store::coin_file::{from_json, to_json};
@@ -70,6 +69,10 @@ pub struct Offer {
     pub refund_at: u64,
     /// How long the taker's lock waits, in minutes. The maker's waits twice as long.
     pub wait_minutes: u32,
+    /// Where the maker's node listens: the taker's node fetches the maker's coin there and follows
+    /// that chain, so nobody types an address.
+    #[serde(default)]
+    pub at: Vec<String>,
 }
 
 /// What the taker answers.
@@ -79,6 +82,9 @@ pub struct Accept {
     pub taker: [u8; 20],
     /// The height on the taker's coin from which the taker may take its coins back.
     pub refund_at: u64,
+    /// Where the taker's node listens, for the maker's node on the taker's coin to follow it.
+    #[serde(default)]
+    pub at: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,28 +156,14 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
     (text.len().is_multiple_of(2)).then(|| (0..text.len()).step_by(2).map(digit).collect())?
 }
 
-fn text_of<T: Serialize>(start: &str, value: &T) -> String {
+pub(super) fn text_of<T: Serialize>(start: &str, value: &T) -> String {
     format!("{start}.{}", hex(&postcard::to_allocvec(value).unwrap_or_default()))
 }
 
-fn read_text<T: for<'a> Deserialize<'a>>(start: &str, text: &str) -> Option<T> {
+pub(super) fn read_text<T: for<'a> Deserialize<'a>>(start: &str, text: &str) -> Option<T> {
     let (head, body) = text.trim().split_once('.')?;
     head.eq_ignore_ascii_case(start).then_some(())?;
     postcard::from_bytes(&from_hex(body)?).ok()
-}
-
-impl Offer {
-    pub fn id(&self) -> Hash {
-        hash(&postcard::to_allocvec(self).unwrap_or_default())
-    }
-
-    pub fn to_text(&self) -> String {
-        text_of(OFFER_START, self)
-    }
-
-    pub fn from_text(text: &str) -> Option<Self> {
-        read_text(OFFER_START, text)
-    }
 }
 
 impl Accept {
@@ -180,7 +172,8 @@ impl Accept {
     }
 
     pub fn from_text(text: &str) -> Option<Self> {
-        read_text(ACCEPT_START, text)
+        let read: Self = read_text(ACCEPT_START, text)?;
+        (read.at.len() <= super::swap_text::MOST_ADDRESSES).then_some(read)
     }
 }
 
@@ -210,19 +203,19 @@ pub fn secret_in(unlock: &[u8], hash20: &[u8; 20]) -> Option<Vec<u8>> {
 }
 
 /// A new secret and the offer for it, with the maker's coins locked until `wait_minutes` twice.
-pub fn make_offer(maker: &Engine, give: Side, take: Side, wait_minutes: u32) -> Result<Swap, String> {
+pub fn make_offer(maker: &Engine, (give, take): (Side, Side), wait_minutes: u32, at: Vec<String>) -> Result<Swap, String> {
     let mut secret = [0u8; 32];
     getrandom::fill(&mut secret).map_err(|error| error.to_string())?;
     let refund_at = maker.chain().height() + 2 * blocks_in(maker, wait_minutes);
     let hash20: [u8; 20] = hash(&secret)[..20].try_into().map_err(|_| "hash".to_string())?;
-    let offer = Offer { give, take, hash: hash20, maker: maker.wallet().address(), refund_at, wait_minutes };
+    let offer = Offer { give, take, hash: hash20, maker: maker.wallet().address(), refund_at, wait_minutes, at };
     Ok(Swap::new(Role::Maker, offer, Some(hex(&secret))))
 }
 
 /// Takes an offer: the answer names this wallet's key and when its own lock opens again.
-pub fn take_offer(offer: Offer, taker: &Engine) -> Swap {
+pub fn take_offer(offer: Offer, taker: &Engine, at: Vec<String>) -> Swap {
     let refund_at = taker.chain().height() + blocks_in(taker, offer.wait_minutes);
-    let accept = Accept { offer: offer.id(), taker: taker.wallet().address(), refund_at };
+    let accept = Accept { offer: offer.id(), taker: taker.wallet().address(), refund_at, at };
     let mut swap = Swap::new(Role::Taker, offer, None);
     swap.accept = Some(accept);
     swap
