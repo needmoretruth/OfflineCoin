@@ -128,6 +128,10 @@ pub const CLI_ROWS: &[Row] = &[
     row("channel-close", CHANNELS, "Your channels, Close and Close alone", "ChannelOrder::Close"),
     row("invoice", CHANNELS, "Ask to be paid", "ChannelOrder::Invoice"),
     row("channel-pay", CHANNELS, "Pay a request", "ChannelOrder::Pay"),
+    row("peers", COINS, "Connections", "node.connections"),
+    row("disconnect", COINS, "Connections, Disconnect", "ChannelOrder::Disconnect"),
+    row("ban", COINS, "Connections, Ban 1h and Ban 1d", "ChannelOrder::Ban"),
+    row("unban", COINS, "Connections, Unban", "ChannelOrder::Unban"),
 ];
 
 /// The words a board reads.

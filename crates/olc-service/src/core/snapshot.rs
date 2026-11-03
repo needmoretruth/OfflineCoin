@@ -78,6 +78,8 @@ pub struct NodeView {
     /// A spend waiting for another signer, and whose signatures it needs.
     pub half_spend: Option<(String, Vec<String>)>,
     pub channels: super::host_channels::ChannelsView,
+    /// Who the node is connected to now, as the peers list shows it.
+    pub connections: super::host_peers::PeersView,
     /// Seed words to write down and wallets shared with others.
     pub wallet: super::host_wallet::WalletView,
 }

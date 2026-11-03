@@ -203,7 +203,6 @@ const SENTENCES: &[(&str, &str)] = &[
     ("ch.banned", "{} is kept out. Its connections ended."),
     ("ch.connecting", "Connecting to {}. The channel opens as soon as that node answers."),
     ("ch.disconnected", "Disconnected."),
-    ("ch.no_link", "This node takes no network connections."),
     ("ch.no_such_peer", "That connection has already ended."),
     ("ch.not_connected", "No node called {} is connected. Give its whole channel address, KEY@HOST:PORT."),
     ("ch.said_reached", "The other node answered. Opening channel {}."),

@@ -35,7 +35,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.banned", "{} 주소를 막았습니다. 연결이 끊겼습니다."),
     ("ch.connecting", "{}에 연결하는 중입니다. 상대가 답하면 채널이 열립니다."),
     ("ch.disconnected", "연결을 끊었습니다."),
-    ("ch.no_link", "이 컴퓨터는 네트워크 연결을 받지 않습니다."),
     ("ch.no_such_peer", "이미 끊긴 연결입니다."),
     ("ch.not_connected", "{} 컴퓨터와 연결되어 있지 않습니다. 채널 주소 전체를 붙여 넣어 주세요."),
     ("ch.said_reached", "상대가 답했습니다. 채널을 여는 중입니다."),

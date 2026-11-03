@@ -2,7 +2,7 @@
 pub mod lan;
 mod peers;
 
-pub use peers::{control_on, PeerInfo};
+pub use peers::PeerInfo;
 use peers::{is_banned, Banned, Stats, PING_EVERY};
 
 use olc_node::frame::{encode, Decoder};
@@ -186,7 +186,6 @@ fn start_listening(shared: &Shared, address: &str) -> std::io::Result<SocketAddr
     if let Ok(mut bound) = shared.bound.lock() {
         *bound = Some(local);
     }
-    peers::register(local.port(), TcpControl(shared.clone()));
     listener.set_nonblocking(true)?;
     let stop = Arc::new(AtomicBool::new(false));
     let (taking, ends) = (shared.clone(), stop.clone());

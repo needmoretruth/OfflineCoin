@@ -145,7 +145,7 @@ impl Coins {
     /// Who this computer is connected to, and connecting to a new address.
     pub(super) fn peers(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
-        let view = &cx.snap.node.channels.network;
+        let view = &cx.snap.node.connections;
         card(ui, t, |ui| {
             section(ui, cx.say("peers.title"));
             explain::short(ui, t, cx.say("peers.about"));

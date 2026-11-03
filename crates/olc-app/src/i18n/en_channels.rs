@@ -36,7 +36,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("ch.banned", "{} is blocked. Its connections ended."),
     ("ch.connecting", "Connecting to {}. The channel opens when it answers."),
     ("ch.disconnected", "Disconnected."),
-    ("ch.no_link", "This computer takes no connections from the network."),
     ("ch.no_such_peer", "That connection has already ended."),
     ("ch.not_connected", "{} is not connected. Paste its whole channel address."),
     ("ch.said_reached", "The other computer answered. Opening the channel."),
