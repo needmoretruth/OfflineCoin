@@ -65,15 +65,17 @@ impl Consensus for ProofOfWork {
     }
 
     /// ASERT anchored on the parent: the spec's formula with the parent as its anchor block, so
-    /// its parent's time is the anchor time and one block has passed. Over blocks that stay
+    /// its parent's time is the anchor time and one block has passed. Late blocks at the floor
+    /// leave the anchor where it was, and then more blocks have passed. Over blocks that stay
     /// between the floor and the top this comes, up to rounding, to what an anchor at the first
     /// block gives. A node needs nothing older than a block's grandparent, and a chain that
     /// sat at the floor through a quiet hour follows new hash power from its next block, where
     /// a fixed anchor would wait for the hour to be made up.
     fn per_block_difficulty(&self, input: &PerBlockInput) -> u64 {
-        let gap = i128::from(input.gap_ms);
-        let exponent = asert::exponent(gap, 0, input.block_time_ms, input.half_life_ms);
-        asert::difficulty(input.parent_difficulty, exponent, input.min_difficulty)
+        let since = i128::from(input.time_delta_ms);
+        let blocks = i128::from(input.height_delta);
+        let exponent = asert::exponent(since, blocks, input.block_time_ms, input.half_life_ms);
+        asert::difficulty(input.anchor_difficulty, exponent, input.min_difficulty)
     }
 
     fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool {

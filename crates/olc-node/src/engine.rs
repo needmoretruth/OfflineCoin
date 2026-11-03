@@ -493,7 +493,7 @@ impl Engine {
     fn refresh_candidate(&mut self, device_ms: u64) {
         let stale = device_ms.saturating_sub(self.candidate_built_ms) >= REFRESH_TEMPLATE_EVERY_MS;
         let now = self.chain_now(device_ms);
-        let retime = self.candidate.as_ref().is_some_and(|block| stale || self.floor_has_come(block, now));
+        let retime = self.candidate.as_ref().is_some_and(|block| stale || self.floor_has_come(&block.header, now));
         match self.candidate.as_mut() {
             None => {
                 let miner = self.miner();

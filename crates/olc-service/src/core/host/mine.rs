@@ -156,12 +156,17 @@ impl Crew {
         let basis = Basis::of(engine);
         let time_ms = now_ms.max(engine.chain().tip_header().time_ms + 1);
         if self.basis.as_ref() == Some(&basis) {
-            // Only the time is out of date: building again would copy the unspent set.
-            if let Some(block) = self.block.as_mut().filter(|_| self.built.elapsed() >= BUILD_EVERY) {
-                block.header.time_ms = time_ms.max(block.header.time_ms);
-                let header = block.header;
-                self.publish(Some((header, header.difficulty, false)));
+            // Only the time is out of date: building again would copy the unspent set. The engine
+            // gives the time as the coin carries it and the difficulty that time asks, at once
+            // when a late block's floor comes.
+            let due = |block: &Block| self.built.elapsed() >= BUILD_EVERY || engine.floor_came(&block.header, now_ms);
+            if let Some(block) = self.block.as_mut().filter(|block| due(block)) {
+                let header = engine.retimed(&block.header, now_ms);
                 self.built = Instant::now();
+                if header != block.header {
+                    block.header = header;
+                    self.publish(Some((header, header.difficulty, false)));
+                }
             }
             if self.block.is_some() {
                 return;
@@ -342,5 +347,30 @@ mod tests {
         );
         assert!(all as f64 >= 0.8 * one as f64 * used as f64);
         assert!(all >= on_cores, "fewer threads would mine more");
+    }
+
+    /// A block's time moves on as the coin carries it, with the difficulty that time asks: whole
+    /// seconds on Bitcoin's header, and the floor the moment a late block may take it.
+    #[test]
+    fn a_moved_time_keeps_the_rules() {
+        let mut coin = olc_core::CoinConfig::olc();
+        coin.initial_difficulty = 1 << 40;
+        let plugins = olc_core::Plugins { consensus: Box::new(ProofOfWork), languages: Vec::new() };
+        let wallet = olc_wallet::Wallet::from_secret([3; 32]).unwrap();
+        let mut engine = Engine::new(coin.clone(), plugins, wallet);
+        let published = |crew: &Crew| crew.shared.job.lock().unwrap().unwrap().header;
+        let mut crew = Crew::default();
+        let start = coin.genesis_time_ms + 1_234;
+        crew.lead(&mut engine, start);
+        let first = published(&crew);
+        assert_eq!(first.time_ms, coin.genesis_time_ms + 1_000);
+        crew.built -= BUILD_EVERY;
+        crew.lead(&mut engine, start + 7_500);
+        let moved = published(&crew);
+        assert_eq!((moved.time_ms, moved.difficulty), (coin.genesis_time_ms + 8_000, first.difficulty));
+        let late = engine.chain().floor_after(&engine.chain().tip()).unwrap();
+        crew.lead(&mut engine, late + 1_400);
+        let floored = published(&crew);
+        assert_eq!((floored.time_ms, floored.difficulty), (late + 1_000, coin.rules.min_difficulty));
     }
 }

@@ -436,8 +436,8 @@ impl Chain {
         self.next_difficulty_at(parent, earliest)
     }
 
-    /// The difficulty a block on top of `parent` must carry if its time is `time_ms`. Only BIP 94
-    /// reads the time, which drops a late block to the floor.
+    /// The difficulty a block on top of `parent` must carry if its time is `time_ms`. The time
+    /// counts where the rule drops a late block to the floor, see [`Chain::floor_after`].
     pub fn next_difficulty_at(&self, parent: &Hash, time_ms: u64) -> u64 {
         match self.entries.get(parent) {
             Some(entry) => {
@@ -447,6 +447,13 @@ impl Chain {
             }
             None => self.config.first_difficulty(),
         }
+    }
+
+    /// The time after which a block on top of `parent` carries the floor, where its coin's rule
+    /// has that exception: BIP 94, and ASERT with `allow_min_difficulty_blocks`.
+    pub fn floor_after(&self, parent: &Hash) -> Option<u64> {
+        let entry = self.entries.get(parent)?;
+        pace::floor_after(&self.config, &entry.header, entry.height + 1, &self.below(entry))
     }
 
     /// The earliest time a block on top of `parent` may carry (see [`pace::earliest_time`]).
