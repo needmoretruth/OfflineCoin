@@ -2,7 +2,10 @@
 //! node code: real hashing, real blocks and signatures, real validation, its own folder, and TCP
 //! between them. What it is given is enforced by the operating system, and what it uses is
 //! measured from the operating system, so the two can stand side by side.
+mod board_lines;
 mod child;
+pub mod lab;
+mod lab_picture;
 mod measure;
 mod preset;
 mod spawn;
@@ -12,7 +15,7 @@ pub use child::run_node;
 pub use measure::{is_running, Measured};
 pub use preset::{Preset, PROCESS_OVERHEAD_MIB};
 pub use spawn::Enforcement;
-pub use supervisor::{address_of, ChildStatus, LocalView, Supervisor};
+pub use supervisor::{address_of, ChainBlock, ChildStatus, LocalLink, LocalView, Supervisor};
 
 use olc_store::NodeSettings;
 use serde::{Deserialize, Serialize};

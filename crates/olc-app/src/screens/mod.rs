@@ -1,6 +1,7 @@
 //! Tests of the whole window: every page in every language and mode, drawn by the real app on a
 //! real core. Node processes in the scenes are real. No test may open a serial port, so boards
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
+mod lab_shots;
 mod live;
 mod live_swap;
 mod readings;

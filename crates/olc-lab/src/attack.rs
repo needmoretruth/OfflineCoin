@@ -3,6 +3,10 @@
 //! is gone. Nothing stops this: the chain with the most work wins, which is the point of showing it.
 //! A third board may help the attacker. Then every board stays at its own cap, and the victim is
 //! the one cut off, because the two attacking boards must keep hearing each other.
+//! The same steps run on miners on this computer, which answer a board's lines. Their caps are
+//! set before the run, so the attacker holds the share a person chose, and an attacker under half
+//! may give up and come back to a chain that kept the payment.
+use crate::steps::{Outcome, Step, Watch};
 use olc_board::journal::Journal;
 use olc_board::{Args, Board, BoardLink, Place, Say, Status, UsbBoard};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +29,27 @@ struct Plan {
     timeout: Duration,
     /// Time between looks at the boards.
     poll: Duration,
+    /// Leaves every cap as it was set before the run.
+    keep_caps: bool,
+    /// The attacker gives up this many blocks behind the public chain. 0 never gives up.
+    give_up_behind: u64,
+    /// The attacker gives up after racing this long.
+    race_limit: Duration,
+    watch: Watch,
+}
+
+/// A double spend on miners whose caps already hold the share a person chose.
+pub struct AttackOptions {
+    pub amount: String,
+    pub confirmations: u64,
+    pub journal: Journal,
+    pub timeout: Duration,
+    pub give_up_behind: u64,
+    pub race_limit: Duration,
+}
+
+fn no_watch() -> Watch {
+    Arc::new(|_| {})
 }
 
 impl Plan {
@@ -40,6 +65,10 @@ impl Plan {
             journal: Journal::standard()?,
             timeout: Duration::from_secs(args.number("timeout", 1800)?),
             poll: Duration::from_secs(2),
+            keep_caps: false,
+            give_up_behind: 0,
+            race_limit: Duration::MAX,
+            watch: no_watch(),
         })
     }
 }
@@ -56,7 +85,7 @@ pub fn run(args: &Args) -> Result<(), String> {
     let mut attacker = Board::new("attacker", Box::new(UsbBoard::open(attacker)?));
     let mut victim = Board::new("victim", Box::new(UsbBoard::open(victim)?));
     let say: Say = Arc::new(|line| println!("{line}"));
-    attack(&mut attacker, &mut victim, None, &plan, &say, &stop)
+    attack(&mut attacker, &mut victim, None, &plan, &say, &stop).map(|_| ())
 }
 
 /// From the app, on boards reached any way at all.
@@ -74,6 +103,37 @@ pub fn run_on(
     let mut attacker = Board::new("attacker", attacker);
     let mut victim = Board::new("victim", victim);
     let mut helper = boards.next().map(|link| Board::new("helper", link));
+    attack(&mut attacker, &mut victim, helper.as_mut(), &plan, &say, &stop).map(|_| ())
+}
+
+/// On miners of this computer, or boards, whose caps are set already: attacker, victim, then
+/// an optional helper. Each step goes to `watch` as it happens.
+pub fn attack_with(
+    links: Vec<Box<dyn BoardLink>>,
+    options: AttackOptions,
+    say: Say,
+    watch: Watch,
+    stop: Arc<AtomicBool>,
+) -> Result<Outcome, String> {
+    let plan = Plan {
+        amount: options.amount,
+        confirmations: options.confirmations,
+        victim_limit: 0,
+        journal: options.journal,
+        timeout: options.timeout,
+        poll: Duration::from_millis(500),
+        keep_caps: true,
+        give_up_behind: options.give_up_behind,
+        race_limit: options.race_limit,
+        watch,
+    };
+    let mut links = links.into_iter();
+    let (Some(attacker), Some(victim)) = (links.next(), links.next()) else {
+        return Err("Two miners are needed.".into());
+    };
+    let mut attacker = Board::new("attacker", attacker);
+    let mut victim = Board::new("victim", victim);
+    let mut helper = links.next().map(|link| Board::new("helper", link));
     attack(&mut attacker, &mut victim, helper.as_mut(), &plan, &say, &stop)
 }
 
@@ -85,7 +145,7 @@ fn attack(
     plan: &Plan,
     say: &Say,
     stop: &AtomicBool,
-) -> Result<(), String> {
+) -> Result<Outcome, String> {
     put_back_leftovers(attacker, plan, say)?;
     put_back_leftovers(victim, plan, say)?;
     let saved = (attacker.status()?, victim.status()?);
@@ -126,7 +186,7 @@ fn attack(
         }
         say("All boards are back to their cap and network state.".to_string());
     }
-    result.and(restored)
+    result.and_then(|outcome| restored.map(|()| outcome))
 }
 
 /// A run that died left this board changed, so it starts from its true state.
@@ -197,7 +257,7 @@ impl Race<'_> {
         Ok(())
     }
 
-    fn steps(&mut self, attacker: &Status, victim: &Status) -> Result<(), String> {
+    fn steps(&mut self, attacker: &Status, victim: &Status) -> Result<Outcome, String> {
         say!(
             self,
             "Attacker {} at height {}",
@@ -221,15 +281,19 @@ impl Race<'_> {
         self.go_dark()?;
         let confirmed = self.confirm(&payment)?;
         let spend = self.spend_again(&attacker.address)?;
-        self.outrun(&spend)?;
+        if !self.outrun(&spend)? {
+            return self.come_back_behind(&payment);
+        }
         self.come_back()?;
         self.refused(&payment)?;
-        self.judge(&payment, &spend, [&before, &confirmed])
+        self.judge(&payment, &spend, [&before, &confirmed])?;
+        (self.plan.watch)(Step::Gone);
+        Ok(Outcome::Gone)
     }
 
     fn measure_power(&mut self) -> Result<(), String> {
         say!(self, "\n1. Hash power");
-        let together = self.helper.is_some();
+        let together = self.helper.is_some() || self.plan.keep_caps;
         for board in [&mut *self.attacker, &mut *self.victim] {
             if !together {
                 board.set_limit(0)?;
@@ -277,6 +341,10 @@ impl Race<'_> {
             victim / samples,
             share(victim)
         );
+        (self.plan.watch)(Step::Power {
+            attacker: attacker / samples,
+            victim: victim / samples,
+        });
         Ok(())
     }
 
@@ -293,6 +361,7 @@ impl Race<'_> {
                 if self.same_tip()? {
                     let height = self.attacker.status()?.height;
                     say!(self, "\n   Both boards agree at height {height}");
+                    (self.plan.watch)(Step::LinedUp { height });
                     return Ok(());
                 }
                 self.attacker.set_mining(true)?;
@@ -317,6 +386,7 @@ impl Race<'_> {
             for _ in 0..POWER_SAMPLES {
                 if self.victim.tx(&id)? == Place::Pool {
                     say!(self, "   payment {} reached the victim", short(&id));
+                    (self.plan.watch)(Step::Paid { payment: id.clone() });
                     return Ok(id);
                 }
                 self.pause()?;
@@ -351,6 +421,7 @@ impl Race<'_> {
         }
         self.attacker.set("pool clear", |now| now.pool == 0)?;
         self.victim.set_mining(true)?;
+        (self.plan.watch)(Step::Dark);
         Ok(())
     }
 
@@ -369,6 +440,10 @@ impl Race<'_> {
                         "   payment at height {height}, {depth} of {} confirmations",
                         self.plan.confirmations
                     );
+                    (self.plan.watch)(Step::Confirmed {
+                        depth: depth.min(self.plan.confirmations),
+                        of: self.plan.confirmations,
+                    });
                     if depth >= self.plan.confirmations {
                         let balance = self.victim.status()?.balance;
                         say!(self, "   payment confirmed, victim balance {balance} OLC");
@@ -387,6 +462,7 @@ impl Race<'_> {
         );
         let id = self.attacker_pays(own_address)?;
         say!(self, "   private spend {}", short(&id));
+        (self.plan.watch)(Step::SpentAgain { spend: id.clone() });
         self.attacker.set_mining(true)?;
         if let Some(helper) = &mut self.helper {
             helper.set_mining(true)?;
@@ -394,9 +470,12 @@ impl Race<'_> {
         Ok(id)
     }
 
-    fn outrun(&mut self, spend: &str) -> Result<(), String> {
+    /// True once the private chain is heavier and holds the spend. False when the attacker
+    /// gives up: too far behind, or racing too long.
+    fn outrun(&mut self, spend: &str) -> Result<bool, String> {
         say!(self, "\n6. The private chain against the public chain");
         let mut shown = (0, 0);
+        let started = Instant::now();
         loop {
             let (attacker, victim) = (self.attacker.status()?, self.victim.status()?);
             if (attacker.height, victim.height) != shown {
@@ -415,93 +494,21 @@ impl Race<'_> {
             let heavier = attacker.work > victim.work;
             if heavier && matches!(self.attacker.tx(spend)?, Place::Height(_)) {
                 say!(self, "   the private chain is heavier");
-                return Ok(());
+                (self.plan.watch)(Step::Heavier);
+                return Ok(true);
+            }
+            let behind = victim.height.saturating_sub(attacker.height);
+            let far = self.plan.give_up_behind > 0 && behind >= self.plan.give_up_behind;
+            if far || started.elapsed() > self.plan.race_limit {
+                say!(self, "   the attacker gives up, {behind} blocks behind");
+                (self.plan.watch)(Step::GaveUp { behind });
+                return Ok(false);
             }
             self.pause()?;
         }
-    }
-
-    fn come_back(&mut self) -> Result<(), String> {
-        say!(self, "\n7. The attacker comes back");
-        let earlier = self.victim.status()?.reorg;
-        if self.helper.is_some() {
-            self.victim.set_offline(false)?;
-        } else {
-            self.attacker.set_offline(false)?;
-        }
-        loop {
-            let attacker = self.attacker.status()?;
-            let victim = self.victim.status_within(BRANCH_MOVE_WAIT)?;
-            if attacker.tip == victim.tip {
-                // The board counts a branch move just after it makes it, so give it one more look.
-                self.pause()?;
-                let settled = self.victim.status()?;
-                if settled.reorg == earlier {
-                    return Err("the victim's own chain won the race.".into());
-                }
-                let (height, replaced) = settled.reorg;
-                say!(
-                    self,
-                    "   the victim dropped {replaced} blocks at height {height}"
-                );
-                return Ok(());
-            }
-            self.pause()?;
-        }
-    }
-
-    /// Bitcoin's rule: a dropped block's payments go back through the pool's check. This one fails
-    /// only because the coins are gone, which is what makes the attack a double spend.
-    fn refused(&mut self, payment: &str) -> Result<(), String> {
-        say!(
-            self,
-            "\n8. The payment goes back to the pool and is refused"
-        );
-        match self.victim.tx(payment)? {
-            Place::Dropped(reason) if reason == "Some(MissingInput)" => {
-                say!(
-                    self,
-                    "   the dropped blocks gave payment {} back",
-                    short(payment)
-                );
-                say!(
-                    self,
-                    "   refused: its coins are already spent on the winning chain"
-                );
-                Ok(())
-            }
-            Place::Dropped(other) => Err(format!("the payment was refused for {other}.")),
-            _ => Err("the victim did not refuse the payment.".into()),
-        }
-    }
-
-    fn judge(
-        &mut self,
-        payment: &str,
-        spend: &str,
-        [before, confirmed]: [&str; 2],
-    ) -> Result<(), String> {
-        say!(self, "\n9. Result");
-        let after = self.victim.status()?;
-        let spent = match self.victim.tx(spend)? {
-            Place::Height(height) => height,
-            _ => return Err("the private spend is not on the winning chain.".into()),
-        };
-        let gone = |place| matches!(place, Place::Nowhere | Place::Dropped(_));
-        if !gone(self.victim.tx(payment)?) || !gone(self.attacker.tx(payment)?) {
-            return Err("the payment is still on the winning chain.".into());
-        }
-        say!(self, "   winning chain height {}", after.height);
-        say!(self, "   payment: gone");
-        say!(self, "   private spend: at height {spent}");
-        say!(
-            self,
-            "   victim balance: {before} before, {confirmed} confirmed, {} now",
-            after.balance
-        );
-        Ok(())
     }
 }
 
+mod back;
 #[cfg(test)]
 mod tests;

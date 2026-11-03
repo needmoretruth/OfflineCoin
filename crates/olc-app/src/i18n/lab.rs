@@ -35,6 +35,18 @@ const LINES: &[(&str, &str)] = &[
     ("winning chain height {}", "이긴 체인 높이 $1"),
     ("payment: gone", "송금: 사라짐"),
     ("All boards are back to their cap and network state.", "보드가 모두 원래 상한과 네트워크 상태로 돌아왔습니다."),
+    ("the attacker gives up, {} blocks behind", "공격자가 블록 $1개 뒤처져 포기합니다"),
+    ("7. The attacker comes back behind", "7. 공격자가 뒤처진 채 돌아옵니다"),
+    ("the attacker dropped {} blocks at height {}", "공격자가 높이 $2에서 블록 $1개를 버렸습니다"),
+    ("8. Result", "8. 결과"),
+    ("payment: still at height {}", "송금: 높이 $1에 그대로 있음"),
+    ("1. Both groups mine one chain", "1. 두 묶음이 한 체인을 채굴합니다"),
+    ("every miner agrees at height {}", "모든 채굴기가 높이 $1에서 같습니다"),
+    ("2. The link between the groups is cut", "2. 두 묶음 사이 연결을 끊습니다"),
+    ("left branch at height {}, right branch at height {}", "왼쪽 갈래 높이 $1, 오른쪽 갈래 높이 $2"),
+    ("3. The groups are joined again", "3. 두 묶음을 다시 잇습니다"),
+    ("the left branch had more work: {} blocks from height {} were replaced", "왼쪽 갈래의 일이 더 많았습니다. 높이 $2부터 블록 $1개가 바뀌었습니다"),
+    ("the right branch had more work: {} blocks from height {} were replaced", "오른쪽 갈래의 일이 더 많았습니다. 높이 $2부터 블록 $1개가 바뀌었습니다"),
 ];
 
 /// The words of `line` where `shape` has `{}`, when the line has that shape.
