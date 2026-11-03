@@ -186,7 +186,8 @@ fn in_pools(ui: &mut Ui, cx: &Cx, t: &Tokens) {
                 Some(view) => view.spec.name.clone(),
                 None => continue,
             },
-            Who::Board(_) => continue,
+            // Boards say it on their own lines.
+            Who::Board(_) | Who::Lent(_) => continue,
         };
         let (colour, said) = standing_words(cx, link);
         ui.horizontal(|ui| {

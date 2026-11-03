@@ -4,9 +4,9 @@
 //! test may touch a board: `crates/olc-service/tests/pool_relay.rs` runs the same rows for real.
 //! The pictures go to `.scratch/live/pool-shots`, at 1280 by 800, dark.
 use super::live::live_folder;
-use super::shots::{shot, tap};
-use super::{app, harness, quiet_settings, scratch, wait_until, Window, SETTLE_STEPS};
-use crate::core::{BlockState, Choice, FoundRow, PoolSettings, Snapshot, Who, WorkerRow};
+use super::shots::shot;
+use super::{app, harness, quiet_settings, scratch, staged_board, wait_until, Window, SETTLE_STEPS};
+use crate::core::{BlockState, BoardView, Choice, ClientView, FoundRow, Join, Link, LinkRow, PoolSettings, Snapshot, Who, WorkerRow};
 use crate::i18n::{self, Lang, Mode, Voice};
 use egui_kittest::kittest::{By, NodeT, Queryable};
 
@@ -23,6 +23,27 @@ fn choice(who: Option<Who>, label: &str, through: Option<&str>, why_not: Option<
     Choice { who, label: label.into(), through: through.map(Into::into), why_not, speed: 9_000 }
 }
 
+/// A board on this computer's cable, mining at the speed the pool lists for it.
+fn board(id: [u8; 6], name: &str) -> BoardView {
+    let mut board = staged_board(true, false);
+    board.seen.id = id;
+    board.seen.beacon.name = name.into();
+    board.seen.beacon.hashrate = 9_000;
+    board.seen.beacon.limit = 10_000;
+    board
+}
+
+/// This computer's miner at `speed` and boards one and two on the cable, so the cards above the
+/// pool on Mining count what the pool lists.
+fn mining_at(stage: &mut Snapshot, speed: u64) {
+    stage.node.mining = true;
+    stage.node.hashrate = speed;
+    stage.node.chain.hashrate_here = speed;
+    let now = crate::core::unix_ms();
+    stage.node.chain.trail = (0..=36).map(|step| (now - (36 - step) * 5_000, speed)).collect();
+    stage.boards = vec![board(ONE, "보드원"), board(TWO, "보드투")];
+}
+
 /// The pool page before Start, with board zero's row as the two builds make it.
 fn choosing(live: &Snapshot, updated: bool) -> Snapshot {
     let zero = match updated {
@@ -30,6 +51,7 @@ fn choosing(live: &Snapshot, updated: bool) -> Snapshot {
         false => choice(None, "보드제로", Some("보드원"), Some("pool.why_heard_only")),
     };
     let mut stage = live.clone();
+    mining_at(&mut stage, 40_000);
     stage.pool.running = false;
     stage.pool.choices = vec![
         Choice { speed: 40_000, ..choice(Some(Who::Own), "", None, None) },
@@ -61,6 +83,17 @@ fn paid(live: &Snapshot, fee_bps: u32) -> Snapshot {
         ..WorkerRow::default()
     });
     let mut stage = live.clone();
+    mining_at(&mut stage, 9_000);
+    // Each miner here works for the pool here, and its own line says so.
+    stage.pool.links = SHARES
+        .iter()
+        .zip(here)
+        .map(|((worker, shares), who)| {
+            let join = Join { who, address: "127.0.0.1:3333".into(), user: format!("olc1example.{worker}") };
+            let view = ClientView { link: Link::Working, accepted: *shares, ..ClientView::default() };
+            LinkRow { join, label: String::new(), view, trouble: None, here: true }
+        })
+        .collect();
     stage.pool.running = true;
     stage.pool.port = 3333;
     stage.pool.fee_bps = fee_bps;
@@ -87,7 +120,14 @@ fn says(window: &Window, part: &str) -> bool {
     texts(window).iter().any(|text| text.contains(part))
 }
 
+/// The picture is of the pool, which sits on Mining under mining together: scrolled to it first.
 fn save(window: &mut Window, name: &str) {
+    let settings = window.state().settings();
+    let title = i18n::text(Voice { lang: settings.language, mode: settings.mode }, "mining.together");
+    if let Some(node) = window.query_all_by_label(title).next() {
+        node.scroll_to_me();
+    }
+    window.run_steps(SETTLE_STEPS);
     shot(window, &live_folder().join("pool-shots"), name);
 }
 
@@ -100,9 +140,8 @@ fn board_zero_works_through_board_one_and_payouts_read_to_two_decimals() {
     let live = window.state().snapshot();
     speak(&mut window, Mode::Basic, Lang::Ko);
     window.state_mut().set_stage(Some(choosing(&live, false)));
-    window.state_mut().open("page.boards");
+    window.state_mut().open("page.mining");
     window.run_steps(SETTLE_STEPS);
-    tap(&mut window, "boards.tab_pool");
     save(&mut window, "relay-before-update-basic-ko");
     assert!(says(&window, "보드원 통해 연결"), "{:#?}", texts(&window));
     assert!(says(&window, "둘 다 업데이트해야"), "{:#?}", texts(&window));
