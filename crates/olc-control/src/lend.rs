@@ -113,6 +113,20 @@ pub fn handle(packet: &Packet, me: &Address, gate: &Gate, heard: &Heard) -> Hand
     }
 }
 
+/// What the board that mines to `me` tells the packet's sender at once: that it passed the work
+/// on, or took it, as shares with none in them yet. Nothing for work it ignored or a stop, so a
+/// computer that hears nothing knows which board stayed silent.
+pub fn receipt(packet: &Packet, handling: &Handling, me: &Address) -> Option<Body> {
+    match (handling, &packet.body) {
+        (Handling::Pass(..), Body::Lend(lent)) => Some(Body::Passed { worker: lent.worker }),
+        (Handling::Take(Some(_)), _) => Some(Body::Shares {
+            worker: *me,
+            headers: Vec::new(),
+        }),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +219,23 @@ mod tests {
             ..sent(sign_lent(&SECRET, ZERO, None).unwrap())
         };
         assert_eq!(Packet::decode(&shares.encode()), Some(shares));
+    }
+
+    #[test]
+    fn each_board_answers_only_for_work_it_handled() {
+        let packet = sent(sign_lent(&SECRET, ZERO, Some((vec![5; 88], 40))).unwrap());
+        let passing = handle(&packet, &[4; 20], &gate(&SECRET), &relay());
+        assert_eq!(receipt(&packet, &passing, &[4; 20]), Some(Body::Passed { worker: ZERO }));
+        let taking = handle(&packet, &ZERO, &gate(&SECRET), &Heard::default());
+        let taken = receipt(&packet, &taking, &ZERO);
+        assert_eq!(taken, Some(Body::Shares { worker: ZERO, headers: vec![] }));
+        let answer = Packet { body: taken.unwrap(), ..packet.clone() };
+        assert_eq!(Packet::decode(&answer.encode()), Some(answer));
+        // A board that does not trust the key, and a stop, say nothing.
+        let untrusting = Gate::new([3; 6], None, 0);
+        let ignored = handle(&packet, &ZERO, &untrusting, &Heard::default());
+        assert_eq!(receipt(&packet, &ignored, &ZERO), None);
+        let stop = sent(sign_lent(&SECRET, ZERO, None).unwrap());
+        assert_eq!(receipt(&stop, &handle(&stop, &ZERO, &gate(&SECRET), &Heard::default()), &ZERO), None);
     }
 }

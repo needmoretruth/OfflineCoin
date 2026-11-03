@@ -84,8 +84,24 @@ pub struct PoolView {
     pub found: Vec<FoundRow>,
     pub links: Vec<LinkRow>,
     pub choices: Vec<Choice>,
+    /// Boards heard through another that the pool switched off because they never took its work.
+    pub switched_off: Vec<SwitchedOff>,
     /// Why the pool did not start, as a sentence's key and its detail.
     pub error: Option<(&'static str, String)>,
+}
+
+/// A board the pool switched off, kept until it is switched on again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwitchedOff {
+    pub who: Who,
+    /// The name it signed in to the pool with.
+    pub user: String,
+    /// The key of the sentence saying why and what to do.
+    pub why: &'static str,
+    /// The board on the cable it was heard through, for the sentence.
+    pub relay: String,
+    /// When, in Unix ms, so a page turns its switch off once.
+    pub at_ms: u64,
 }
 
 impl PoolView {

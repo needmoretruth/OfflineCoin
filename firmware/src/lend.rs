@@ -1,11 +1,11 @@
 //! Pool work a computer lends a board it reaches only through another board. The board on the
 //! cable passes it one hop on; the board it is for grinds it and sends the shares back to the
-//! computer. What to do with each packet is decided in `olc_control::lend`, so the computer's
-//! tests run the same rules.
+//! computer. Both answer at once, so the computer can tell which of them stays silent. What to do
+//! with each packet is decided in `olc_control::lend`, so the computer's tests run the same rules.
 use crate::commands::Work;
 use crate::node::Node;
 use alloc::vec::Vec;
-use olc_control::lend::{handle, Handling, LENT_FOR_MS};
+use olc_control::lend::{handle, receipt, Handling, LENT_FOR_MS};
 use olc_control::{Body, Packet};
 use olc_core::BlockHeader;
 use olc_node::{Message, Outgoing};
@@ -14,7 +14,10 @@ impl Node {
     /// Lent work that reached this board: passed on to the board it is for, or taken.
     pub fn lent(&mut self, packet: &Packet, now: u64) {
         let me = self.runner.engine.address();
-        match handle(packet, &me, &self.control.gate, &self.control.heard) {
+        let handling = handle(packet, &me, &self.control.gate, &self.control.heard);
+        // The computer hears that the work went on, or was taken, so it can name a silent board.
+        let answer = receipt(packet, &handling, &me);
+        match handling {
             Handling::Pass(peer, passed) => {
                 self.runner.send_now(Outgoing::To(peer, Message::Control(passed.encode())));
             }
@@ -37,6 +40,9 @@ impl Node {
                 }
             }
             Handling::Ignore => {}
+        }
+        if let Some(body) = answer {
+            self.start_packet(Some(packet.from), body);
         }
     }
 

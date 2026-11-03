@@ -5,9 +5,9 @@
 //! reach on this computer's loopback. Each link hands its miner a header in the generic work line
 //! and sends back the shares the miner found.
 use super::host::Host;
-use super::pool_lend::{lend, lent_name, take_lent};
+use super::pool_lend::{lend, lent_name, relay_name, take_lent, Said, Watch};
 use super::pool_plan::{pool_address, worker_part, Join, PoolOrder, PoolSettings, Who};
-use super::pool_view::{choices, link_trouble, reach, short_address, FoundRow, LinkRow, PoolView, WorkerRow};
+use super::pool_view::{choices, link_trouble, reach, short_address, FoundRow, LinkRow, PoolView, SwitchedOff, WorkerRow};
 use crate::fleet::{BoardRow, FleetPort};
 use crate::local::{NodeSpec, Supervisor};
 use olc_core::BlockHeader;
@@ -63,6 +63,8 @@ struct WorkLink {
     asked: Option<Instant>,
     found: Arc<Mutex<Vec<BlockHeader>>>,
     trouble: Trouble,
+    /// For a board heard through another: lent work until the board says it took it.
+    watch: Option<Watch>,
 }
 
 #[derive(Default)]
@@ -77,6 +79,7 @@ pub struct PoolSeat {
     view: PoolView,
     /// The chain's tip at the pool's last turn.
     tip: Option<olc_core::Hash>,
+    switched_off: Vec<SwitchedOff>,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -256,7 +259,9 @@ impl PoolSeat {
             asked: None,
             found: Arc::new(Mutex::new(Vec::new())),
             trouble: Arc::new(Mutex::new(None)),
+            watch: None,
         };
+        self.switched_off.retain(|row| row.who != link.join.who);
         self.links.insert(link.join.who, link);
     }
 
@@ -272,8 +277,8 @@ impl PoolSeat {
     }
 
     /// One turn: the pool takes in the chain and adds what it found; each miner gets fresh work
-    /// and sends what it found.
-    pub fn step(&mut self, cx: &mut PoolCx) {
+    /// and sends what it found. True when it switched a board off, which changes the settings.
+    pub fn step(&mut self, cx: &mut PoolCx) -> bool {
         if !self.resumed {
             self.resumed = true;
             self.resume(cx);
@@ -310,7 +315,45 @@ impl PoolSeat {
         for (who, link) in &mut self.links {
             link.hand_work(*who, mining, cx);
         }
+        let silent = self.silent_boards(cx);
+        for (who, why) in silent.iter().copied() {
+            self.switch_off(who, why, cx);
+        }
         self.refresh_view(cx);
+        !silent.is_empty()
+    }
+
+    /// Boards heard through another that never said they took the work, with why. Work nobody
+    /// answered yet goes out again at the next turn.
+    fn silent_boards(&mut self, cx: &PoolCx) -> Vec<(Who, &'static str)> {
+        let mut silent = Vec::new();
+        for (who, link) in &mut self.links {
+            let (Who::Lent(worker), Some(watch)) = (who, link.watch.as_mut()) else {
+                continue;
+            };
+            match watch.check(worker, cx) {
+                Said::Again => link.sent = None,
+                Said::Silent(why) => silent.push((*who, why)),
+                Said::Taken | Said::Waiting => {}
+            }
+        }
+        silent
+    }
+
+    /// Turns off a board that never took the pool's work, as if its switch were turned off, and
+    /// keeps why for its row until it is switched on again.
+    fn switch_off(&mut self, who: Who, why: &'static str, cx: &mut PoolCx) {
+        let Who::Lent(worker) = who else {
+            return;
+        };
+        let relay = relay_name(&worker, cx);
+        let user = self.links.get(&who).map(|link| link.join.user.clone()).unwrap_or_default();
+        self.leave(who, cx);
+        cx.settings.workers.retain(|known| *known != who);
+        cx.settings.joins.retain(|join| join.who != who);
+        self.switched_off.retain(|row| row.who != who);
+        self.switched_off.push(SwitchedOff { who, user, why, relay, at_ms: unix_ms() });
+        self.viewed = None;
     }
 
     /// After a start: the pool here again if it ran, and the pools the miners here had joined.
@@ -371,6 +414,7 @@ impl PoolSeat {
             fee_bps: settings.fee_bps,
             fixed_difficulty: settings.fixed_difficulty,
             error: self.error.clone(),
+            switched_off: self.switched_off.clone(),
             ..PoolView::default()
         };
         let rows = cx.fleet.map(|fleet| fleet.board_rows()).unwrap_or_default();
@@ -404,7 +448,9 @@ impl PoolSeat {
             })
             .collect();
         if let Some(pool) = self.running.as_ref().and_then(|running| running.pool.lock().ok()) {
-            let here = |name: &str| view.links.iter().find(|row| row.here && row.join.user == name).map(|row| row.join.who);
+            let linked = |name: &str| view.links.iter().find(|row| row.here && row.join.user == name).map(|row| row.join.who);
+            let off = |name: &str| view.switched_off.iter().find(|row| row.user == name).map(|row| row.who);
+            let here = |name: &str| linked(name).or_else(|| off(name));
             view.workers = pool
                 .workers(now)
                 .into_iter()
@@ -479,6 +525,9 @@ impl WorkLink {
             (Who::Lent(worker), _) => {
                 let sent = lend(worker, Some((&work.header, work.difficulty)), cx);
                 self.set_trouble((!sent).then_some("pool.why_heard_only"));
+                if sent {
+                    self.watch.get_or_insert_with(Watch::start).sent();
+                }
             }
         }
     }

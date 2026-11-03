@@ -26,6 +26,6 @@ pub use args::Args;
 pub use board::{on_off, Board, BoardLink, Place, Status, UsbBoard};
 pub use state::BoardState;
 pub use extra::{Extra, Say};
-pub use fleet::{Connection, Fleet, Seen};
+pub use fleet::{Connection, Fleet, LentHeard, Seen};
 pub use manager::Manager;
 pub use remote::{RemoteBoard, SharedFleet};

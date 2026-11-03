@@ -268,8 +268,9 @@ fn short_name(bytes: &[u8]) -> String {
 impl CoinConfig {
     /// The default coin, started over on 3 November 2026 with today's rules from its first block:
     /// version 1 and version 2 transactions, the floor, the median time past and per-block
-    /// adjustment. It starts where one device at 1,000 hashes per second finds a block every 30
-    /// seconds, and each block's difficulty follows the hash power present from there.
+    /// adjustment, with the floor for a block that comes late. It starts where one device at 1,000
+    /// hashes per second finds a block every 30 seconds, and each block's difficulty follows the
+    /// hash power present from there.
     pub fn olc() -> Self {
         Self {
             name: "OfflineCoin".into(),

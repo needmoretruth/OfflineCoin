@@ -40,6 +40,9 @@ type Inbox = SyncSender<(u32, Vec<u8>)>;
 
 struct Peer {
     stream: TcpStream,
+    /// The far end, noted when the connection began: Windows does not give it back from a copy
+    /// of a socket that was dialled with a time limit.
+    far: SocketAddr,
     frames: SyncSender<Frame>,
     accepted: bool,
     stats: Arc<Stats>,
@@ -85,7 +88,7 @@ impl TcpControl {
     /// The address of a peer, which a person may want to reach again.
     pub fn ip_of(&self, peer: u32) -> Option<IpAddr> {
         let peers = self.0.peers.lock().ok()?;
-        peers.get(&peer)?.stream.peer_addr().ok().map(|found| found.ip())
+        peers.get(&peer).map(|found| found.far.ip())
     }
 
     /// Peers connected right now.
@@ -194,8 +197,8 @@ fn start_listening(shared: &Shared, address: &str) -> std::io::Result<SocketAddr
         while !taking.closed.load(Ordering::Relaxed) && !ends.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((_, from)) if is_banned(&taking, from.ip()) => {}
-                Ok((stream, _)) if has_room(&taking) && stream.set_nonblocking(false).is_ok() => {
-                    attach(stream, &taking, refused.clone(), None);
+                Ok((stream, from)) if has_room(&taking) && stream.set_nonblocking(false).is_ok() => {
+                    attach(stream, from, &taking, refused.clone(), None);
                 }
                 _ => thread::sleep(ACCEPT_POLL),
             }
@@ -217,12 +220,12 @@ fn dial(shared: Shared, address: String) {
     let started_in = shared.round.load(Ordering::Relaxed);
     let target = address.to_socket_addrs().ok().and_then(|mut found| found.next());
     let target = target.filter(|target| !is_banned(&shared, target.ip()));
-    let stream = target.and_then(|target| TcpStream::connect_timeout(&target, DIAL_TIMEOUT).ok());
+    let stream = target.and_then(|target| TcpStream::connect_timeout(&target, DIAL_TIMEOUT).ok().map(|stream| (stream, target)));
     let cancelled = shared.cancelled.lock().is_ok_and(|mut set| set.remove(&address));
     match stream {
-        Some(stream) if !cancelled && shared.round.load(Ordering::Relaxed) == started_in => {
+        Some((stream, target)) if !cancelled && shared.round.load(Ordering::Relaxed) == started_in => {
             let refused = shared.no_control.clone();
-            attach(stream, &shared, refused, Some(address));
+            attach(stream, target, &shared, refused, Some(address));
         }
         _ => {
             let _ = shared.news.send(News::Failed { address });
@@ -232,7 +235,7 @@ fn dial(shared: Shared, address: String) {
 
 /// Starts the two threads of a connection, or says that it failed. Running out of threads is
 /// the one thing here a flood could still reach, and it must not end the listener with a panic.
-fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, address: Option<String>) {
+fn attach(stream: TcpStream, far: SocketAddr, shared: &Shared, no_control: Arc<AtomicBool>, address: Option<String>) {
     let accepted = address.is_none();
     let failed = |address: Option<String>| {
         if let Some(address) = address {
@@ -254,7 +257,7 @@ fn attach(stream: TcpStream, shared: &Shared, no_control: Arc<AtomicBool>, addre
     let peer = shared.next_peer.fetch_add(1, Ordering::Relaxed);
     let answers = frames.clone();
     if let Ok(mut peers) = shared.peers.lock() {
-        peers.insert(peer, Peer { stream: kept, frames, accepted, stats: stats.clone() });
+        peers.insert(peer, Peer { stream: kept, far, frames, accepted, stats: stats.clone() });
     }
     let _ = shared.news.send(News::Opened { number: peer, address });
     let reading = shared.clone();
