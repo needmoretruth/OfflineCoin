@@ -3,13 +3,14 @@
 //! The genesis decides which chain a node is on. The rules decide which blocks a node accepts.
 //! As in Bitcoin they are separate: edit the rules on some nodes and those nodes fork away from
 //! the others on the same chain history, and no new coin is needed.
-use crate::types::{merkle_root, Block, BlockHeader, Tx, TxOut};
+pub use crate::added::{CoinAdded, SpokenAdded};
+use crate::timing::{chosen, DifficultyRule, Timing, HALF_LIFE_MS, MAX_AHEAD_MS, MEDIAN_TIME_BLOCKS};
+use crate::types::{merkle_root, Block, BlockHeader, Tx, TxOut, BITCOIN_VERSION, MARK_BITS};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
 use core::fmt;
-use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// One coin is 100,000,000 base units, as in Bitcoin.
@@ -21,41 +22,20 @@ pub const LOWEST_HASHES_A_SECOND: u64 = 1_000;
 /// The floor and first difficulty of a new coin: that device finds a block every 30 seconds.
 pub const MIN_DIFFICULTY: u64 = 30 * LOWEST_HASHES_A_SECOND;
 
-/// OLC blocks 1,180 to 1,209 sit below the floor and stay valid, and difficulty still comes close
-/// to it, so the floor starts at a height ahead of the chain. Every node has to run a build with
-/// the floor before then, as with a soft fork. This must stay above the tip until it is released.
-const OLC_FLOOR_FROM_HEIGHT: u64 = 20_000;
-
-/// The height OLC takes version 2 transactions from, ahead of the chain when it was released. A
-/// version 2 transaction carries what Bitcoin added after Satoshi:
-/// - its signatures name the coin they are for, so it cannot be replayed on a fork of OLC or on
-///   another coin, nor one of theirs here (see [`CoinConfig::signing_id_at`]), and each may carry
-///   one of Bitcoin's signature kinds (see [`crate::sighash`]);
-/// - it is named without its unlock data, as SegWit's txid is (see [`crate::Tx::id`]);
-/// - it carries Bitcoin's lock time and sequences (BIP 68), and spends gamma locks, today's
-///   Bitcoin Script.
-///
-/// Version 1 transactions stay valid beside them in the same blocks, as legacy transactions do
-/// beside SegWit ones in Bitcoin: same bytes, same name, same signatures as ever. A fork made
-/// with new rules takes only version 2 from its height (see
-/// [`CoinConfig::takes_version_one_at`]). As with the floor, every node runs a build that knows
-/// this before the chain gets there: a block with a version 2 transaction splits from nodes that
-/// do not.
-pub const OLC_UPGRADE_FROM: u64 = 6_240;
-
 /// A coin made before version 2, whose history stays valid as it is. It takes version 2 from its
 /// first fork, if it ever forks.
 pub const NEVER: u64 = u64::MAX;
 
 /// A file or message from before the upgrade said nothing. [`CoinConfig::settle_floor`] makes it
-/// [`OLC_UPGRADE_FROM`] on OLC's genesis and [`NEVER`] on any other.
+/// [`NEVER`].
 pub const UNSAID: u64 = u64::MAX - 1;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rules {
     /// Target time between blocks.
     pub block_time_ms: u64,
-    /// Blocks between difficulty changes. 0 keeps the difficulty fixed.
+    /// Blocks between difficulty changes under Bitcoin's rule and BIP 94. Per-block adjustment
+    /// changes it at every block. 0 keeps the difficulty fixed under every rule.
     pub retarget_interval: u64,
     /// Reward of the first block, in base units.
     pub reward: u64,
@@ -75,6 +55,23 @@ pub struct Rules {
     /// deployments, this lets a floor join a chain whose older blocks went below it.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub floor_from_height: u64,
+    /// How the difficulty follows the hash rate. A file from before the choice reads as
+    /// Bitcoin's, which every coin had then. This and the three after it travel in binary after
+    /// what older builds read, see [`CoinAdded`].
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub difficulty_rule: DifficultyRule,
+    /// Under per-block adjustment, how far a block may come late or early for the difficulty
+    /// after it to halve or double.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub half_life_ms: u64,
+    /// A block's time must pass the middle time of this many blocks before it, as Bitcoin's
+    /// median time past. 0 asks only that it come after its parent's, as every coin did before.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub median_time_blocks: u64,
+    /// A node whose clock knows the date takes no block more than this ahead of it, and takes it
+    /// once the time comes. 0 sets no limit.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub max_ahead_ms: u64,
 }
 
 /// Older builds read a coin in a fixed binary layout, and postcard cannot tell a missing field
@@ -109,6 +106,10 @@ impl Default for Rules {
             min_fee: 0,
             min_difficulty: MIN_DIFFICULTY,
             floor_from_height: 0,
+            difficulty_rule: DifficultyRule::Asert,
+            half_life_ms: HALF_LIFE_MS,
+            median_time_blocks: MEDIAN_TIME_BLOCKS,
+            max_ahead_ms: MAX_AHEAD_MS,
         }
     }
 }
@@ -130,6 +131,19 @@ impl Rules {
     /// The floor at which the lowest device still keeps the block time.
     pub fn floor_for(block_time_ms: u64) -> u64 {
         block_time_ms.saturating_mul(LOWEST_HASHES_A_SECOND) / 1_000
+    }
+
+    /// What these rules say about difficulty and time, as the binary form carries it.
+    pub fn timing(&self) -> Timing {
+        (self.difficulty_rule, self.half_life_ms, self.median_time_blocks, self.max_ahead_ms)
+    }
+
+    fn set_timing(&mut self, timing: Timing) {
+        let (rule, half_life_ms, median_time_blocks, max_ahead_ms) = timing;
+        self.difficulty_rule = rule;
+        self.half_life_ms = half_life_ms;
+        self.median_time_blocks = median_time_blocks;
+        self.max_ahead_ms = max_ahead_ms;
     }
 
     pub fn reward_at(&self, height: u64) -> u64 {
@@ -156,18 +170,32 @@ pub struct CoinConfig {
     /// Coins that exist from the start, as (address, base units).
     pub premine: Vec<(Address, u64)>,
     pub rules: Rules,
-    /// Also keeps the message as data in the genesis block, where anyone can read it. The default
-    /// coin's genesis came first, so it only hashes the message.
+    /// Also keeps the message as data in the genesis block, where anyone can read it. Coins made
+    /// before OfflineCoin started over only hash it.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub message_in_block: bool,
     /// Rule changes, oldest first. The genesis and history stay, and each applies from its height.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub forks: Vec<Fork>,
-    /// The height version 2 transactions start at, as [`OLC_UPGRADE_FROM`] lists them: 0 for a
-    /// coin made since, [`NEVER`] for a coin made before them, which takes them from its first
-    /// fork.
+    /// The height version 2 transactions start at: 0 for a coin made since, [`NEVER`] for a coin
+    /// made before them, which takes them from its first fork. A version 2 transaction carries
+    /// what Bitcoin added after Satoshi:
+    /// - its signatures name the coin they are for, so it cannot be replayed on a fork or on
+    ///   another coin, nor one of theirs here (see [`CoinConfig::signing_id_at`]), and each may
+    ///   carry one of Bitcoin's signature kinds (see [`crate::sighash`]);
+    /// - it is named without its unlock data, as SegWit's txid is (see [`crate::Tx::id`]);
+    /// - it carries Bitcoin's lock time and sequences (BIP 68), and spends gamma locks.
+    ///
+    /// Version 1 transactions stay valid beside them in the same blocks, as legacy transactions
+    /// do beside SegWit ones in Bitcoin. A fork made with new rules takes only version 2 from its
+    /// height (see [`CoinConfig::takes_version_one_at`]).
     #[serde(default = "unsaid", serialize_with = "text_only", deserialize_with = "read_text_or_unsaid")]
     pub upgrade_from: u64,
+    /// Blocks carry Bitcoin's 80-byte header and its proof of work, so miners and pools built for
+    /// Bitcoin can work them (see [`BlockHeader::bitcoin_bytes`]). A file from before says
+    /// nothing and keeps OfflineCoin's first header.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub bitcoin_header: bool,
 }
 
 fn unsaid() -> u64 {
@@ -190,7 +218,7 @@ pub struct Fork {
 }
 
 /// A fork in binary, where [`Rules`] leaves out what came later: height, rules, floor, floor start.
-type ForkBytes = (u64, Rules, u64, u64);
+pub(crate) type ForkBytes = (u64, Rules, u64, u64);
 
 impl Fork {
     fn bytes(&self) -> ForkBytes {
@@ -204,95 +232,18 @@ impl Fork {
         Self { from_height, rules }
     }
 
-    /// Added to the difficulty at the fork's first block. Both sides then refuse each other from
-    /// that height whichever rule changed, even a change only one side would notice, and a header
-    /// alone shows which side it is on.
+    /// Set in the fork's first block: in the low bits of its version on a coin with Bitcoin's
+    /// header, where it leaves the target as the difficulty rule asks and no miner's version
+    /// rolling reaches it, and added to the difficulty on a coin from before. Both sides then
+    /// refuse each other from that height whichever rule changed, even a change only one side
+    /// would notice, and a header alone shows which side it is on.
     pub fn mark(&self) -> u64 {
-        let bytes = postcard::to_allocvec(&self.bytes()).unwrap_or_default();
+        let mut bytes = postcard::to_allocvec(&self.bytes()).unwrap_or_default();
+        let timing = [self.rules.timing()];
+        if chosen(&timing) {
+            bytes.extend(postcard::to_allocvec(&timing).unwrap_or_default());
+        }
         1 + u64::from(olc_crypto::hash(&bytes)[0])
-    }
-}
-
-/// What a coin gained after older builds fixed its binary layout. It travels after the end of
-/// a message, where they stop reading, and a message from one of them just ends before it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CoinAdded {
-    min_difficulty: u64,
-    message_in_block: bool,
-    floor_from_height: u64,
-    forks: Vec<ForkBytes>,
-    /// Comes after the forks, where older builds stop. A coin from before it leaves it out.
-    upgrade_from: Option<u64>,
-}
-
-impl Serialize for CoinAdded {
-    /// A coin without forks or a signing height stays byte for byte what it was.
-    fn serialize<S: Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
-        let first = (self.min_difficulty, self.message_in_block, self.floor_from_height);
-        match (self.forks.is_empty(), self.upgrade_from) {
-            (_, Some(from)) => (first.0, first.1, first.2, &self.forks, from).serialize(writer),
-            (true, None) => first.serialize(writer),
-            (false, None) => (first.0, first.1, first.2, &self.forks).serialize(writer),
-        }
-    }
-}
-
-/// Reads what a coin gained. `fields` is 4 where a message goes on after the forks.
-struct AddedFields {
-    fields: usize,
-}
-
-impl<'de> Visitor<'de> for AddedFields {
-    type Value = CoinAdded;
-
-    fn expecting(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        out.write_str("what a coin gained")
-    }
-
-    /// A message from an older build ends after the third field, or before the first.
-    fn visit_seq<A: SeqAccess<'de>>(self, mut fields: A) -> Result<CoinAdded, A::Error> {
-        let mut added = CoinAdded::default();
-        let first = fields.next_element().ok().flatten();
-        let second = first.and_then(|_| fields.next_element().ok().flatten());
-        let third = second.and_then(|_| fields.next_element().ok().flatten());
-        if let (Some(floor), Some(in_block), Some(from)) = (first, second, third) {
-            added.min_difficulty = floor;
-            added.message_in_block = in_block;
-            added.floor_from_height = from;
-            let forks: Option<Vec<ForkBytes>> = fields.next_element().ok().flatten();
-            if forks.is_some() && self.fields > 4 {
-                added.upgrade_from = fields.next_element().ok().flatten();
-            }
-            added.forks = forks.unwrap_or_default();
-        }
-        Ok(added)
-    }
-}
-
-impl<'de> Deserialize<'de> for CoinAdded {
-    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
-        Ok(reader.deserialize_tuple(5, AddedFields { fields: 5 }).unwrap_or_default())
-    }
-}
-
-/// [`CoinAdded`] with its forks written even when there are none, so a message can go on after it
-/// without the next byte reading as forks.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SpokenAdded(pub CoinAdded);
-
-impl Serialize for SpokenAdded {
-    fn serialize<S: Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
-        let added = &self.0;
-        (added.min_difficulty, added.message_in_block, added.floor_from_height, &added.forks)
-            .serialize(writer)
-    }
-}
-
-impl<'de> Deserialize<'de> for SpokenAdded {
-    /// Stops after the forks, where the message goes on. A hello carries the signing height at
-    /// its own end.
-    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
-        Ok(Self(reader.deserialize_tuple(4, AddedFields { fields: 4 }).unwrap_or_default()))
     }
 }
 
@@ -307,21 +258,23 @@ fn short_name(bytes: &[u8]) -> String {
 }
 
 impl CoinConfig {
-    /// The default coin. Its first difficulty is in the genesis block and stays. From there the
-    /// retarget follows the hash power present, down to one device at 1,000 hashes per second
-    /// finding a block every 30 seconds.
+    /// The default coin, started over on 3 November 2026 with today's rules from its first block:
+    /// version 1 and version 2 transactions, the floor, the median time past and per-block
+    /// adjustment. It starts where one device at 1,000 hashes per second finds a block every 30
+    /// seconds, and each block's difficulty follows the hash power present from there.
     pub fn olc() -> Self {
         Self {
             name: "OfflineCoin".into(),
             ticker: "OLC".into(),
-            message: "OLCC genesis".into(),
-            genesis_time_ms: 1_793_491_200_000,
-            initial_difficulty: 900_000,
+            message: "OfflineCoin genesis 2026-11-03".into(),
+            genesis_time_ms: 1_793_664_000_000,
+            initial_difficulty: MIN_DIFFICULTY,
             premine: Vec::new(),
-            rules: Rules { floor_from_height: OLC_FLOOR_FROM_HEIGHT, ..Rules::default() },
-            message_in_block: false,
+            rules: Rules::default(),
+            message_in_block: true,
             forks: Vec::new(),
-            upgrade_from: OLC_UPGRADE_FROM,
+            upgrade_from: 0,
+            bitcoin_header: true,
         }
     }
 
@@ -338,7 +291,33 @@ impl CoinConfig {
         let forks: Vec<ForkBytes> = come.map(Fork::bytes).collect();
         let rules = (self.rules.min_difficulty, self.rules.floor_from_height, self.upgrade_from);
         let named = (b"OLC coin", self.genesis().id(), &self.rules, rules, forks);
-        Some(olc_crypto::hash(&postcard::to_allocvec(&named).unwrap_or_default()))
+        let mut bytes = postcard::to_allocvec(&named).unwrap_or_default();
+        let timings = self.timings_until(height);
+        if chosen(&timings) {
+            bytes.extend(postcard::to_allocvec(&timings).unwrap_or_default());
+        }
+        Some(olc_crypto::hash(&bytes))
+    }
+
+    /// Difficulty and time of the base rules, then of each fork.
+    pub fn timings(&self) -> Vec<Timing> {
+        self.timings_until(u64::MAX)
+    }
+
+    /// As [`CoinConfig::timings`], for the forks whose height has come by `height`.
+    fn timings_until(&self, height: u64) -> Vec<Timing> {
+        let come = self.forks.iter().filter(|fork| fork.from_height <= height);
+        core::iter::once(self.rules.timing()).chain(come.map(|fork| fork.rules.timing())).collect()
+    }
+
+    /// Takes what [`CoinConfig::timings`] gave, from a binary form. Left out, a coin keeps what
+    /// every coin had before the choice.
+    pub fn set_timings(&mut self, timings: &[Timing]) {
+        let mut given = timings.iter();
+        let all = core::iter::once(&mut self.rules).chain(self.forks.iter_mut().map(|fork| &mut fork.rules));
+        for rules in all {
+            rules.set_timing(given.next().copied().unwrap_or(crate::timing::LEGACY));
+        }
     }
 
     /// True when a block at `height` takes version 2 transactions: from the upgrade, or from the
@@ -378,8 +357,6 @@ impl CoinConfig {
         Some(coin)
     }
 
-    /// A short name for this coin's rule changes. Empty when it has none, so a coin without forks
-    /// is named as it always was.
     /// The first height where this coin and `other` go by different rules, if there is one. Blocks
     /// below it mean the same to both, and blocks from it on belong to one side only.
     pub fn parts_from(&self, other: &Self) -> Option<u64> {
@@ -398,12 +375,19 @@ impl CoinConfig {
         [next(self), next(other), signing].into_iter().flatten().min().or(Some(0))
     }
 
+    /// A short name for this coin's rule changes. Empty when it has none, so a coin without forks
+    /// is named as it always was.
     pub fn forks_id(&self) -> String {
         if self.forks.is_empty() {
             return String::new();
         }
         let forks: Vec<ForkBytes> = self.forks.iter().map(Fork::bytes).collect();
-        short_name(&postcard::to_allocvec(&forks).unwrap_or_default())
+        let mut bytes = postcard::to_allocvec(&forks).unwrap_or_default();
+        let timings: Vec<Timing> = self.forks.iter().map(|fork| fork.rules.timing()).collect();
+        if chosen(&timings) {
+            bytes.extend(postcard::to_allocvec(&timings).unwrap_or_default());
+        }
+        short_name(&bytes)
     }
 
     /// A short name for every rule this coin runs by, now and at later heights. Two nodes on one
@@ -417,27 +401,22 @@ impl CoinConfig {
         if self.upgrade_from != NEVER {
             bytes.extend(postcard::to_allocvec(&self.upgrade_from).unwrap_or_default());
         }
+        let timings = self.timings();
+        if chosen(&timings) {
+            bytes.extend(postcard::to_allocvec(&timings).unwrap_or_default());
+        }
         short_name(&bytes)
     }
 
-    /// Fills in a floor left open by a file or answer from before floors. OLC takes its own, and
-    /// any other coin was made when the only limit was 1. The same goes for the height signatures
-    /// name the coin from: OLC and every fork of it take OLC's, and any other coin left without
-    /// one was made before it, so its signatures never name it.
+    /// Fills in a floor left open by a file or answer from before floors: a coin made then had no
+    /// limit but 1. The same goes for the height signatures name the coin from: a coin left
+    /// without one was made before it, so its signatures never name it.
     pub fn settle_floor(&mut self) {
         if self.upgrade_from == UNSAID {
-            self.upgrade_from = match self.is_olc() {
-                true => OLC_UPGRADE_FROM,
-                false => NEVER,
-            };
+            self.upgrade_from = NEVER;
         }
         if self.rules.min_difficulty == 0 {
-            let olc = Self::olc();
             self.rules.min_difficulty = 1;
-            if self.genesis().id() == olc.genesis().id() {
-                self.rules.min_difficulty = olc.rules.min_difficulty;
-                self.rules.floor_from_height = olc.rules.floor_from_height;
-            }
         }
         self.forks.sort_by_key(|fork| fork.from_height);
         let mut floor = self.rules.min_difficulty;
@@ -456,12 +435,9 @@ impl CoinConfig {
             floor_from_height: self.rules.floor_from_height,
             forks: self.forks.iter().map(Fork::bytes).collect(),
             upgrade_from: self.upgrade_said(),
+            timings: self.timings(),
+            bitcoin_header: self.bitcoin_header,
         }
-    }
-
-    /// Does this coin start from OLC's genesis, as OLC and its forks do?
-    pub fn is_olc(&self) -> bool {
-        self.genesis().id() == Self::olc().genesis().id()
     }
 
     /// A coin from before the upgrade leaves the height out, so its bytes stay as they were.
@@ -475,6 +451,8 @@ impl CoinConfig {
         self.message_in_block = added.message_in_block;
         self.forks = added.forks.into_iter().map(Fork::from_bytes).collect();
         self.upgrade_from = added.upgrade_from.unwrap_or(UNSAID);
+        self.set_timings(&added.timings);
+        self.bitcoin_header = added.bitcoin_header;
         self.settle_floor();
         self
     }
@@ -502,7 +480,10 @@ impl CoinConfig {
                 lock: address.to_vec(),
             })
             .collect();
-        if self.message_in_block {
+        if self.bitcoin_header {
+            outputs.push(TxOut::data(self.name.as_bytes().to_vec()));
+        }
+        if self.message_in_block || self.bitcoin_header {
             outputs.push(TxOut::data(self.message.as_bytes().to_vec()));
         }
         let tx = Tx {
@@ -513,18 +494,45 @@ impl CoinConfig {
             lock_time: 0,
         };
         let txs = vec![tx];
-        // The name and message are hashed into the root, so they define the chain.
+        // The name and message define the chain: in the block's own tree on a coin with
+        // Bitcoin's header, hashed into the root beside it on one from before.
         let mut root_input = merkle_root(&txs).to_vec();
         root_input.extend_from_slice(self.name.as_bytes());
         root_input.extend_from_slice(self.message.as_bytes());
-        let header = BlockHeader {
-            version: 1,
-            previous: [0; 32],
-            merkle_root: olc_crypto::hash(&root_input),
-            time_ms: self.genesis_time_ms,
-            difficulty: self.initial_difficulty,
-            nonce: 0,
+        let header = match self.bitcoin_header {
+            true => BlockHeader {
+                version: BITCOIN_VERSION,
+                previous: [0; 32],
+                merkle_root: merkle_root(&txs),
+                time_ms: self.genesis_time_ms / 1_000 * 1_000,
+                difficulty: self.first_difficulty(),
+                nonce: 0,
+            },
+            false => BlockHeader {
+                version: 1,
+                previous: [0; 32],
+                merkle_root: olc_crypto::hash(&root_input),
+                time_ms: self.genesis_time_ms,
+                difficulty: self.initial_difficulty,
+                nonce: 0,
+            },
         };
         Block { header, txs }
+    }
+
+    /// The genesis block's difficulty: the first one asked, as a compact target stands for it
+    /// on a coin with Bitcoin's header.
+    pub fn first_difficulty(&self) -> u64 {
+        match self.bitcoin_header {
+            true => crate::bits::rounded(self.initial_difficulty),
+            false => self.initial_difficulty,
+        }
+    }
+
+    /// The version a block at `height` carries on a coin with Bitcoin's header: BIP 9's top
+    /// bits, and the mark of a fork that starts there in the low ones.
+    pub fn header_version_at(&self, height: u64) -> u32 {
+        let mark = self.fork_starting_at(height).map_or(0, Fork::mark);
+        BITCOIN_VERSION | (u32::try_from(mark).unwrap_or(0) & MARK_BITS)
     }
 }

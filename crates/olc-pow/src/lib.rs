@@ -1,17 +1,40 @@
 //! Proof of work: find a nonce whose header hash falls below a target.
 #![no_std]
 
-use olc_core::{BlockHeader, Consensus, RetargetInput};
+pub mod asert;
+
+use olc_core::bits::{self, Wide};
+use olc_core::{BlockHeader, Consensus, Hash, PerBlockInput, RetargetInput};
 
 pub struct ProofOfWork;
 
-impl ProofOfWork {
-    /// A hash passes when its first eight bytes are at most `u64::MAX / difficulty`,
-    /// so a difficulty of N takes about N attempts.
-    fn meets_target(header_hash: &[u8; 32], difficulty: u64) -> bool {
-        let mut head = [0u8; 8];
-        head.copy_from_slice(&header_hash[..8]);
-        u64::from_be_bytes(head) <= u64::MAX / difficulty.max(1)
+/// What a header's hash must reach.
+enum Goal {
+    /// Bitcoin's: the hash, read little-endian, at most the target of the compact bits the
+    /// difficulty gives (Bitcoin Core's `CheckProofOfWork`).
+    Bitcoin(Wide),
+    /// OfflineCoin's first: the hash's first eight bytes at most `u64::MAX / difficulty`, so a
+    /// difficulty of N takes about N attempts.
+    First(u64),
+}
+
+impl Goal {
+    fn of(header: &BlockHeader, difficulty: u64) -> Option<Self> {
+        if !header.is_bitcoin_shaped() {
+            return Some(Self::First(u64::MAX / difficulty.max(1)));
+        }
+        bits::target_of(bits::bits_of(difficulty)).map(Self::Bitcoin)
+    }
+
+    fn met(&self, hash: &Hash) -> bool {
+        match self {
+            Self::Bitcoin(target) => bits::hash_meets(hash, target),
+            Self::First(most) => {
+                let mut head = [0u8; 8];
+                head.copy_from_slice(&hash[..8]);
+                u64::from_be_bytes(head) <= *most
+            }
+        }
     }
 }
 
@@ -20,8 +43,10 @@ impl Consensus for ProofOfWork {
         "pow"
     }
 
+    /// A header in Bitcoin's shape must also say nothing its 80 bytes leave out, so one id
+    /// never stands for two headers.
     fn check_seal(&self, header: &BlockHeader) -> bool {
-        Self::meets_target(&header.id(), header.difficulty)
+        header.is_whole() && self.meets(header, header.difficulty)
     }
 
     fn work(&self, header: &BlockHeader) -> u128 {
@@ -39,13 +64,31 @@ impl Consensus for ProofOfWork {
         scaled.clamp(u128::from(input.min_difficulty.max(1)), u128::from(u64::MAX)) as u64
     }
 
-    fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool {
-        Self::meets_target(&header.id(), difficulty)
+    /// ASERT anchored on the parent: the spec's formula with the parent as its anchor block, so
+    /// its parent's time is the anchor time and one block has passed. Over blocks that stay
+    /// between the floor and the top this comes, up to rounding, to what an anchor at the first
+    /// block gives. A node needs nothing older than a block's grandparent, and a chain that
+    /// sat at the floor through a quiet hour follows new hash power from its next block, where
+    /// a fixed anchor would wait for the hour to be made up.
+    fn per_block_difficulty(&self, input: &PerBlockInput) -> u64 {
+        let gap = i128::from(input.gap_ms);
+        let exponent = asert::exponent(gap, 0, input.block_time_ms, input.half_life_ms);
+        asert::difficulty(input.parent_difficulty, exponent, input.min_difficulty)
     }
 
+    fn meets(&self, header: &BlockHeader, difficulty: u64) -> bool {
+        Goal::of(header, difficulty).is_some_and(|goal| goal.met(&header.id()))
+    }
+
+    /// Lays the header out once and changes only its nonce between attempts.
     fn try_meet(&self, header: &mut BlockHeader, difficulty: u64, attempts: u32) -> bool {
+        let Some(goal) = Goal::of(header, difficulty) else {
+            return false;
+        };
+        let mut sealing = header.sealing();
         for _ in 0..attempts {
-            if self.meets(header, difficulty) {
+            sealing.set_nonce(header.nonce);
+            if goal.met(&sealing.id()) {
                 return true;
             }
             header.nonce = header.nonce.wrapping_add(1);

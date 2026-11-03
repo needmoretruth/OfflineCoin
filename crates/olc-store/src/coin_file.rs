@@ -26,9 +26,16 @@ struct CoinFile {
     /// Left out when there are none, so a coin file stays what it was.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     forks: Vec<Fork>,
-    /// The upgrade height, left out for a coin from before it. See [`olc_core::coin::OLC_UPGRADE_FROM`].
+    /// The upgrade height, left out for a coin from before it. See [`CoinConfig::upgrade_from`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     upgrade_from: Option<u64>,
+    /// Whether blocks carry Bitcoin's header, left out for a coin from before it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    bitcoin_header: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl From<&CoinConfig> for CoinFile {
@@ -52,6 +59,7 @@ impl From<&CoinConfig> for CoinFile {
             message_in_block: coin.message_in_block,
             forks: coin.forks.clone(),
             upgrade_from: coin.upgrade_said(),
+            bitcoin_header: coin.bitcoin_header,
         }
     }
 }
@@ -90,6 +98,7 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
         message_in_block: file.message_in_block,
         forks: file.forks,
         upgrade_from: file.upgrade_from.unwrap_or(UNSAID),
+        bitcoin_header: file.bitcoin_header,
     };
     coin.settle_floor();
     Ok(coin)
@@ -121,13 +130,25 @@ mod tests {
 
     #[test]
     fn a_file_from_before_floors_still_loads() {
-        let olc = CoinConfig::olc();
-        assert_eq!(from_json(&without_floor(&olc)).unwrap(), olc);
-
+        // Every coin from before floors, the first OLC among them, came before OLC's new genesis.
         let mut other = CoinConfig::olc();
         other.name = "Older".into();
         let loaded = from_json(&without_floor(&other)).unwrap();
         assert_eq!(loaded.rules.min_difficulty, 1, "that coin never had a floor");
+    }
+
+    #[test]
+    fn a_file_from_before_the_choice_keeps_bitcoins_rule_and_header() {
+        let mut file: serde_json::Value = serde_json::from_str(&to_json(&CoinConfig::olc()).unwrap()).unwrap();
+        let rules = file["rules"].as_object_mut().unwrap();
+        for key in ["difficulty_rule", "half_life_ms", "median_time_blocks", "max_ahead_ms"] {
+            assert!(rules.remove(key).is_some(), "{key}");
+        }
+        assert!(file.as_object_mut().unwrap().remove("bitcoin_header").is_some());
+        let loaded = from_json(&file.to_string()).unwrap();
+        assert_eq!(loaded.rules.timing(), olc_core::timing::LEGACY);
+        assert!(!loaded.bitcoin_header);
+        assert_eq!(CoinConfig::olc().rules.difficulty_rule, olc_core::DifficultyRule::Asert);
     }
 
     #[test]

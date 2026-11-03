@@ -15,7 +15,7 @@ pub(crate) struct AtHeight<'a> {
     pub(crate) rules: &'a Rules,
     /// What a signature there names. See [`CoinConfig::signing_id_at`].
     pub(crate) coin: Option<Hash>,
-    /// Version 2 transactions are valid there. See [`crate::coin::OLC_UPGRADE_FROM`].
+    /// Version 2 transactions are valid there. See [`CoinConfig::upgrade_from`].
     pub(crate) upgraded: bool,
     /// Version 1 transactions are valid there. See [`CoinConfig::takes_version_one_at`].
     pub(crate) version_one: bool,

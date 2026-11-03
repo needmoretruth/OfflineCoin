@@ -9,7 +9,8 @@ use crate::ledger::{Found, Overlay, UnspentSet};
 use crate::log::{read_block_record, Kind, Log, NOWHERE};
 use crate::medium::{Keep, Medium, SECTOR};
 use crate::orphans::Orphans;
-use crate::headers::difficulty_after;
+use crate::headers::HeaderRefused;
+use crate::pace;
 use crate::plugin::Plugins;
 use crate::rules::{self, AtHeight};
 use crate::shelf::Shelf;
@@ -17,6 +18,8 @@ use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
 use crate::types::{Block, BlockHeader, OutPoint, Tx};
 use alloc::boxed::Box;
+use alloc::vec;
+use core::cell::RefCell;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
 
@@ -427,26 +430,67 @@ impl Chain {
         !entry.coinbase || spend_height >= self.config.rules_at(spend_height).matures_at(entry.height)
     }
 
-    /// The difficulty a block on top of `parent` must carry.
+    /// The difficulty a block on top of `parent` must carry at the earliest time it may.
     pub fn next_difficulty(&self, parent: &Hash) -> u64 {
+        let earliest = self.earliest_time(parent);
+        self.next_difficulty_at(parent, earliest)
+    }
+
+    /// The difficulty a block on top of `parent` must carry if its time is `time_ms`. Only BIP 94
+    /// reads the time, which drops a late block to the floor.
+    pub fn next_difficulty_at(&self, parent: &Hash, time_ms: u64) -> u64 {
         match self.entries.get(parent) {
-            Some(entry) => self.difficulty_after(entry),
-            None => self.config.initial_difficulty,
+            Some(entry) => {
+                let below = self.below(entry);
+                let consensus = self.plugins.consensus.as_ref();
+                pace::difficulty_after(&self.config, consensus, &entry.header, entry.height + 1, time_ms, &below)
+            }
+            None => self.config.first_difficulty(),
         }
     }
 
-    pub(crate) fn difficulty_after(&self, entry: &Entry) -> u64 {
-        let consensus = self.plugins.consensus.as_ref();
-        difficulty_after(&self.config, consensus, &entry.header, entry.height + 1, |interval| {
-            let mut first = *entry;
-            for _ in 1..interval {
-                match self.parent_of(&first) {
-                    Some(previous) => first = previous,
-                    None => break,
-                }
+    /// The earliest time a block on top of `parent` may carry (see [`pace::earliest_time`]).
+    pub fn earliest_time(&self, parent: &Hash) -> u64 {
+        match self.entries.get(parent) {
+            Some(entry) => pace::earliest_time(&self.config, &entry.header, entry.height + 1, &self.below(entry)),
+            None => 0,
+        }
+    }
+
+    /// The version a block at `height` carries: Bitcoin's with a fork's mark on a coin with
+    /// Bitcoin's header, else 1, as every block had before.
+    pub fn header_version_at(&self, height: u64) -> u32 {
+        match self.config.bitcoin_header {
+            true => self.config.header_version_at(height),
+            false => 1,
+        }
+    }
+
+    /// The headers at and below `top` on its branch, by height, walked to once each when first
+    /// asked.
+    pub(crate) fn below(&self, top: &Entry) -> impl Fn(u64) -> Option<BlockHeader> + '_ {
+        let walked = RefCell::new(vec![*top]);
+        let top_height = top.height;
+        move |height| {
+            let back = usize::try_from(top_height.checked_sub(height)?).ok()?;
+            let mut walked = walked.borrow_mut();
+            while walked.len() <= back {
+                let older = self.parent_of(walked.last()?)?;
+                walked.push(older);
             }
-            first.header.time_ms
-        })
+            walked.get(back).map(|entry| entry.header)
+        }
+    }
+
+    /// Checks what `header` says on top of `parent`, all but its seal.
+    pub(crate) fn check_header(&self, header: &BlockHeader, parent: &Entry) -> Result<(), ChainError> {
+        let consensus = self.plugins.consensus.as_ref();
+        let below = self.below(parent);
+        match pace::check(&self.config, consensus, header, &parent.header, parent.height + 1, &below) {
+            Ok(()) => Ok(()),
+            Err(HeaderRefused::BadTime) => Err(ChainError::BadTime),
+            Err(_) => Err(ChainError::BadDifficulty),
+        }
     }
 
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.

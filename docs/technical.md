@@ -68,7 +68,7 @@ OLCL alpha pays an address. OLCL beta is a stack language at the level of early 
 
 ## Transaction versions
 
-From height 6,240 on OLC, and from the genesis of a coin made since, a version 2 transaction carries what Bitcoin added after 2009. Its signatures name the coin, so a fork or another coin can't replay it. A signature may carry Bitcoin's kinds: ALL, NONE, SINGLE and ANYONECANPAY. Its id leaves out the unlock data, as SegWit's does, and the block's Merkle root still covers every byte. It has a lock time by height and sequences (BIP 68), and only it can spend gamma.
+From the genesis of OLC and of every coin made since, a version 2 transaction carries what Bitcoin added after 2009. Its signatures name the coin, so a fork or another coin can't replay it. A signature may carry Bitcoin's kinds: ALL, NONE, SINGLE and ANYONECANPAY. Its id leaves out the unlock data, as SegWit's does, and the block's Merkle root still covers every byte. It has a lock time by height and sequences (BIP 68), and only it can spend gamma.
 
 Version 1 transactions stay valid beside them in the same blocks, as legacy transactions do in Bitcoin. Wallets write version 2. Expert mode's "Sign the old way" and `olc version1 on` write version 1. A coin made with Change rules takes only version 2 from its fork height.
 
@@ -109,6 +109,45 @@ channel-pay REQUEST
 
 A coin's rules can change at a height with no new coin. Expert mode has Change rules on the Network page, and `olc` has the same word. Blocks before that height stay valid, so the chain keeps its history and splits from nodes on the old rules, as a fork does in Bitcoin. You can go back.
 
+## Blocks, difficulty and time
+
+OLC started over on 3 November 2026 from a new genesis (time 1,793,664,000 seconds, message `OfflineCoin genesis 2026-11-03`), with today's rules from block 0: version 1 and version 2 transactions, the floor, the time rules and per-block difficulty. Coins made before keep the rules they were made with, and a coin file from before reads as it did.
+
+### Header
+
+A block of a coin made since carries Bitcoin's 80-byte header: version, previous block, Merkle root, time in seconds, bits and nonce, little-endian as in Bitcoin. Its id is the double SHA-256 of those bytes, and that hash, read as a little-endian number, must be at most the target in bits, as in Bitcoin Core's `CheckProofOfWork`. So a miner or a Stratum pool built for Bitcoin can work an OLC block. Coins made before keep OLC's first 88-byte header, with the time in milliseconds and the difficulty as a number, hashed as before.
+
+- **Version**: BIP 9's top bits `001`. A Change rules fork marks its first block in bits 0 to 12, which no miner rolls (miners roll bits 13 to 28, BIP 310 and BIP 320). On coins made before, the mark is added to the difficulty; in the version it leaves the target to the difficulty rule, and a header alone still shows which side of a fork it is on.
+- **Difficulty**: the hashes a block takes on average, which is Bitcoin Core's `GetBlockProof` of the target in bits. A difficulty rounds up to the nearest one a compact target stands for. OLC's floor, its proof-of-work limit, is 30,000 (bits `0x1f022f3d`): one device at 1,000 hashes a second finds a block every 30 seconds.
+- **Coinbase**: its last output holds 8 zero bytes as data, Stratum's extranonce 1 and 2 of 4 bytes each. Stratum's `coinb1` is the coinbase up to them and `coinb2` what follows (`olc_core::coinbase_split`), and the coinbase's leaf is the double SHA-256 of the three together, as in Bitcoin.
+- **Merkle tree**: Bitcoin's, pairs of double SHA-256 with the last repeated on an odd level. Each leaf is the hash of all of a transaction's bytes, as in Bitcoin before SegWit, so the root covers unlock data without a second tree in the coinbase.
+
+### Difficulty rules
+
+Each coin chooses one in its file as `rules.difficulty_rule`. A file from before the choice reads as `bitcoin`, which every coin had then. `rules.retarget_interval` of 0 keeps the difficulty fixed under every rule.
+
+| Rule | What it does |
+|---|---|
+| `bitcoin` | Bitcoin Core's `pow.cpp`: every `retarget_interval` blocks the difficulty follows how long the last window took, at most four times either way, and never below the floor. OLC compares the window's N−1 gaps with N−1 block times. Bitcoin Core compares them with N, which is 0.05 % off at its 2,016 blocks and would be 10 % off at 10. |
+| `bip94` | Bitcoin Core's test network since BIP 94. Bitcoin's rule, and between retargets a block more than two block times after its parent must carry the floor; any other carries the last difficulty that is not such a block's. A retarget starts from the first block of the window it measures, which never takes the exception. The first block of a window may be at most one block time before its parent (BIP 94's 600 seconds, scaled to the block time). |
+| `asert` | Bitcoin Cash's aserti3-2d (spec `2020-11-15-asert.md`): at every block the difficulty halves for each `rules.half_life_ms` the parent came late and doubles for each it came early. |
+
+OLC uses `asert` with a half-life of 3 minutes, six blocks: a miner who drops to a twentieth of the hash rate waits one long block, and the next ones come about as fast as the rate allows.
+
+ASERT here follows the spec in integer steps: the exponent `((Δt − T(Δh + 1)) × 2^16) / τ` divided toward zero, the split into whole shifts and a fraction, and the spec's cubic for 2 to the fraction. Bitcoin Cash moves a 256-bit target; OLC moves a difficulty, the target's inverse, so it runs the same steps with the exponent's sign turned, never below the floor. Each block anchors on its parent, which over blocks off the floor comes, up to rounding, to the spec's fixed anchor; a node needs only the grandparent, and a chain that sat at the floor through a quiet hour follows new hash power at its next block, where a fixed anchor would wait for the hour to be made up.
+
+The spec's 12 published test vectors (`crates/olc-pow/tests/asert`) pass two ways. In the spec's own 256-bit form, with OLC's exponent and cubic, all 14,000 rows come out exactly, after times turn from seconds into milliseconds, which leaves every exponent as it was. Turned into difficulties, as 2^20 × the spec's limit / target, the 5,144 rows that fit in 64 bits land within 0.023 % of OLC's own step: the cubic's error each way and the 15 bits nBits keeps.
+
+### Time rules
+
+From OLC's new genesis, and on every coin made since:
+
+- A block's time must be after the median of the 11 blocks before it (`rules.median_time_blocks`), as Bitcoin's median time past. With 30 second blocks that reaches back about 3 minutes: one miner with a wrong clock cannot hold the chain back, and a block's time stays near when it was found.
+- A computer takes no block more than 2 minutes ahead of its clock (`rules.max_ahead_ms`), and takes it when it comes again later, as Bitcoin Core does with 2 hours. Clocks set over the internet agree within seconds, and under ASERT a block 2 minutes ahead makes the next one at most about 1.6 times easier. A board has no clock of the date, so it runs at the chain's time and sets no limit.
+- Under BIP 94, the first block of a window may be at most one block time before its parent.
+
+Times are whole seconds on a coin with Bitcoin's header. The rules' numbers stay in milliseconds in the file. A coin made before keeps a block after its parent and no limit.
+
 ## Kinds of node
 
 Boards and computers run the same rules, and each person picks what their node does.
@@ -148,7 +187,7 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 
 These come from the rules, and changing them means a fork.
 
-- A block's time has no upper limit, because a board has no clock of its own.
+- A board takes a block of any time, because it has no clock of the date. A computer takes none more than 2 minutes ahead of its own.
 - A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 20, so stalling a board takes a mined block.
 - A version 1 transaction id covers its unlock data, as in Bitcoin before SegWit.
 - A 64-byte transaction could be mistaken for an inner node of the Merkle tree.

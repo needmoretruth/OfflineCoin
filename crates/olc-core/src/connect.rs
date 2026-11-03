@@ -49,12 +49,7 @@ impl Chain {
         if block.size() as u64 > self.config.rules_at(parent.height + 1).max_block_bytes {
             return Err(ChainError::TooLarge);
         }
-        if block.header.time_ms <= parent.header.time_ms {
-            return Err(ChainError::BadTime);
-        }
-        if block.header.difficulty != self.difficulty_after(&parent) {
-            return Err(ChainError::BadDifficulty);
-        }
+        self.check_header(&block.header, &parent)?;
         let mut entry = Entry {
             header: block.header,
             height: parent.height.saturating_add(1),

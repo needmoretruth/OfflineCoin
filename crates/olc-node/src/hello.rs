@@ -4,6 +4,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use olc_core::coin::SpokenAdded;
+use olc_core::timing::{chosen, Timing};
 use olc_core::{Address, CoinConfig, Hash};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -103,6 +104,7 @@ struct Spoken {
     added: SpokenAdded,
     keeps: Keeps,
     upgrade: Upgrade,
+    later: Later,
 }
 
 /// The coin's upgrade height, after everything else, so older builds stop before it. A hello from
@@ -116,13 +118,29 @@ impl<'de> Deserialize<'de> for Upgrade {
     }
 }
 
+/// The coin's difficulty and time rules and whether its blocks carry Bitcoin's header, after
+/// the upgrade height, so older builds stop before them. Left out, the coin keeps what every coin
+/// had before them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+struct Later(Option<(Vec<Timing>, bool)>);
+
+impl<'de> Deserialize<'de> for Later {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        Ok(Self(Option::deserialize(reader).unwrap_or_default()))
+    }
+}
+
 impl From<Spoken> for Hello {
     fn from(spoken: Spoken) -> Self {
-        let Spoken { coin, tip, height, work, address, mut card, added, keeps, upgrade } = spoken;
+        let Spoken { coin, tip, height, work, address, mut card, added, keeps, upgrade, later } = spoken;
         card.keeps = keeps;
         let mut coin = coin.with_added(added.0);
         if let Some(from) = upgrade.0 {
             coin.upgrade_from = from;
+        }
+        if let Some((timings, bitcoin_header)) = later.0 {
+            coin.set_timings(&timings);
+            coin.bitcoin_header = bitcoin_header;
         }
         Self { coin, tip, height, work, address, card }
     }
@@ -134,7 +152,10 @@ impl From<Hello> for Spoken {
         let added = SpokenAdded(coin.added());
         let keeps = card.keeps;
         let upgrade = Upgrade(coin.upgrade_said());
-        Self { coin, tip, height, work, address, card, added, keeps, upgrade }
+        let timings = coin.timings();
+        let said = chosen(&timings) || coin.bitcoin_header;
+        let later = Later(said.then(|| (timings, coin.bitcoin_header)));
+        Self { coin, tip, height, work, address, card, added, keeps, upgrade, later }
     }
 }
 
