@@ -9,6 +9,7 @@ mod coin_fork;
 mod coin_new;
 mod coin_rows;
 mod coin_rule;
+mod coin_rule_data;
 mod coins;
 mod console;
 pub mod history;

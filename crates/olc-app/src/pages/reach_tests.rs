@@ -23,7 +23,7 @@ const FILES: &[(&str, &[&str])] = &[
     ),
     (LAB, &["lab.rs", "lab_view.rs", "lab_boards.rs"]),
     (BOARDS, &["boards.rs", "board_detail.rs", "board_more.rs"]),
-    (COINS, &["coins.rs", "coins_peers.rs", "coin_new.rs", "coin_rows.rs", "coin_rule.rs", "coin_fork.rs"]),
+    (COINS, &["coins.rs", "coins_peers.rs", "coin_new.rs", "coin_rows.rs", "coin_rule.rs", "coin_rule_data.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "settings_compare.rs"]),

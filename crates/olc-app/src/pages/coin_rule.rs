@@ -1,137 +1,206 @@
-//! The three difficulty rules a coin chooses from, as a picker. Behind Details: a picture of how
-//! long each took to get back to its pace after the miners left, then the same three criteria for
-//! each. The numbers are the ones measured on 2026-11-04 with three real nodes at OLC's numbers:
-//! 30 second blocks, windows of 10, mining dropped from 20,000 to 1,000 tries a second
-//! (docs/technical.md, Difficulty rules).
+//! The three difficulty rules a coin chooses from, as a picker named by what each does. Behind
+//! Details: what a person would see on the block strip after mining changes, one row a rule on one
+//! time axis, then the same criteria for each. The blocks came from real nodes
+//! ([`super::coin_rule_data`]).
+use super::coin_rule_data::{self, Run};
 use super::Cx;
 use crate::core::DIFFICULTY_RULES;
 use crate::ui::explain::{self, Choice};
 use crate::ui::register::{setting_details, When};
 use crate::ui::tokens;
 use crate::ui::widgets::{meta, segments};
-use egui::{pos2, vec2, Align2, FontId, Rect, Sense, Ui};
+use egui::{pos2, vec2, Align2, FontId, Id, Pos2, Rect, Sense, Stroke, Ui};
 
-/// What was measured for one rule, in minutes after the drop: its first block, and the first
-/// block its own rule asked at the usual pace, with the blocks it took to get there.
-struct Measured {
-    first: f32,
-    back: f32,
-    blocks: u32,
-}
-
-/// In the order of [`DIFFICULTY_RULES`]: Bitcoin's, BIP 94's and ASERT.
-const MEASURED: [Measured; 3] = [
-    Measured { first: 30.8, back: 110.5, blocks: 25 },
-    Measured { first: 1.0, back: 56.3, blocks: 45 },
-    Measured { first: 11.5, back: 16.3, blocks: 8 },
-];
-
-/// The picture's minutes, a little past the slowest, in steps a person counts.
-const AXIS_MINUTES: f32 = 120.0;
-const AXIS_STEP: f32 = 30.0;
-/// The rule's name on the left, and room for the minutes after the longest bar.
-const NAME_WIDTH: f32 = 150.0;
-const VALUE_ROOM: f32 = 96.0;
-const BAR_ROW: f32 = 30.0;
-const BAR: f32 = 10.0;
-const AXIS_ROOM: f32 = 24.0;
+/// The picture's minutes after the change, in steps a person counts.
+const AXIS_MINUTES: f64 = 120.0;
+const AXIS_STEPS: [f64; 5] = [0.0, 30.0, 60.0, 90.0, 120.0];
+/// Each rule's row: its name over a strip of blocks.
+const NAME_ROW: f32 = 18.0;
+const STRIP: f32 = 16.0;
+const ROW_GAP: f32 = 10.0;
+const AXIS_ROOM: f32 = 22.0;
 const LEGEND_ROOM: f32 = 24.0;
-const SWATCH: f32 = 12.0;
+/// Room after the axis for its last label.
+const END_ROOM: f32 = 22.0;
+/// A block is a bar this wide and tall; an easy block at the floor is half as tall.
+const TICK: f32 = 2.0;
+const TALL: f32 = 14.0;
+const EASY: f32 = 7.0;
+/// How strongly the stretch at pace is washed in the colour of things going well.
+const PACE_WASH: f32 = 0.22;
 
-/// A rule's name, by its name in the coin file.
-pub fn name_key(rule: &str) -> &'static str {
-    match rule {
+/// A rule's name: in basic mode what it does, with the blocks between its adjustments; in expert
+/// mode the name the trade uses.
+pub fn rule_name(cx: &Cx, rule: &str, window: u64) -> String {
+    let key = match rule {
         "bitcoin" => "coin.rule_bitcoin",
         "bip94" => "coin.rule_bip94",
         _ => "coin.rule_asert",
+    };
+    cx.fill(key, &[&window.to_string()])
+}
+
+fn used_in(cx: &Cx, rule: &str) -> String {
+    let key = match rule {
+        "bitcoin" => "coin.used_bitcoin",
+        "bip94" => "coin.used_bip94",
+        _ => "coin.used_asert",
+    };
+    cx.say(key).to_string()
+}
+
+/// Seconds as a person reads them: seconds under a minute, else minutes to a tenth.
+fn span(cx: &Cx, secs: f64) -> String {
+    match secs < 60.0 {
+        true => cx.fill("coin.v_seconds", &[&format!("{secs:.0}")]),
+        false => cx.fill("coin.v_minutes", &[&format!("{:.1}", secs / 60.0)]),
     }
 }
 
-fn minutes(cx: &Cx, value: f32) -> String {
-    cx.fill("coin.v_minutes", &[&format!("{value:.1}")])
+fn case_name(cx: &Cx, case: &str) -> String {
+    coin_rule_data::case_words(case).map_or_else(|| case.to_string(), |(key, number)| cx.fill(key, &[number]))
 }
 
 /// The picker as a line of the form. `now` is the rule the coin would have and `window` its blocks
 /// between retargets. Returns the rule chosen.
 pub fn rule_row(ui: &mut Ui, cx: &Cx, now: &str, window: u64) -> Option<&'static str> {
     let t = cx.t;
-    let items: Vec<(&'static str, String)> = DIFFICULTY_RULES.iter().map(|rule| (*rule, cx.say(name_key(rule)).to_string())).collect();
+    let items: Vec<(&'static str, String)> = DIFFICULTY_RULES.iter().map(|rule| (*rule, rule_name(cx, rule, window))).collect();
     let current = DIFFICULTY_RULES.iter().copied().find(|rule| *rule == now);
     let mut chosen = None;
     let name = (cx.say("coin.rule"), (When::Now, ""));
     let labels = (cx.say("explain.details"), cx.say("explain.hide"));
     let control = |ui: &mut Ui| chosen = segments(ui, t, &items, current);
     setting_details(ui, t, name, (cx.say("coin.rule_about"), "difficulty-rules", labels), control, |ui| {
-        picture(ui, cx, current);
+        let Some(case) = case_choice(ui, cx) else {
+            return;
+        };
+        picture(ui, cx, current, case, window);
         ui.add_space(tokens::GAP_WIDE);
-        table(ui, cx, window);
+        table(ui, cx, case, window);
         ui.add_space(tokens::GAP);
-        meta(ui, cx.say("coin.rule_measured"), t);
+        let target = DIFFICULTY_RULES.iter().find_map(|rule| coin_rule_data::run(rule, case)).map_or(0.0, |run| run.target);
+        meta(ui, &cx.fill("coin.rule_measured", &[&format!("{target:.0}")]), t);
     });
     chosen
 }
 
-/// One bar a rule: the grey part is the wait for the first block, the bright part the slow blocks
-/// after it, and the bar ends where blocks come at their pace again. The rule picked above is named
-/// in full white, the others a step softer, so the eye finds it.
-fn picture(ui: &mut Ui, cx: &Cx, current: Option<&str>) {
+/// Which change of mining the picture shows. A tray to switch when more than one was measured.
+fn case_choice(ui: &mut Ui, cx: &Cx) -> Option<&'static str> {
+    let cases = coin_rule_data::cases();
+    let id = Id::unique("difficulty-case");
+    let mut shown = ui.ctx().data(|data| data.get_temp::<usize>(id)).unwrap_or(0).min(cases.len().saturating_sub(1));
+    if cases.len() > 1 {
+        let items: Vec<(usize, String)> = cases.iter().enumerate().map(|(index, case)| (index, case_name(cx, case))).collect();
+        if let Some(index) = segments(ui, cx.t, &items, Some(shown)) {
+            shown = index;
+            ui.ctx().data_mut(|data| data.insert_temp(id, index));
+        }
+        ui.add_space(tokens::GAP);
+    }
+    cases.get(shown).copied()
+}
+
+/// One row a rule on one time axis, 0 the moment mining changed: a tall bar for each block when it
+/// came, a short one for an easy block at the floor, and a wash from where blocks came at their
+/// pace again. The rule picked above is named in full white.
+fn picture(ui: &mut Ui, cx: &Cx, current: Option<&str>, case: &str, window: u64) {
     let t = cx.t;
-    let width = ui.available_width();
-    let rows = MEASURED.len() as f32;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, BAR_ROW * rows + AXIS_ROOM + LEGEND_ROOM), Sense::hover());
+    let row = NAME_ROW + STRIP + ROW_GAP;
+    let rows: f32 = DIFFICULTY_RULES.iter().map(|_| row).sum();
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), rows + AXIS_ROOM + LEGEND_ROOM), Sense::hover());
     let painter = ui.painter();
     let font = FontId::proportional(tokens::META);
-    let (left, right) = (rect.left() + NAME_WIDTH, rect.right() - VALUE_ROOM);
-    let x = |value: f32| left + (right - left) * (value / AXIS_MINUTES).min(1.0);
-    for (index, (rule, measured)) in DIFFICULTY_RULES.iter().zip(&MEASURED).enumerate() {
-        let middle = rect.top() + BAR_ROW * (index as f32 + 0.5);
-        let bar = |from: f32, to: f32| Rect::from_min_max(pos2(x(from), middle - BAR / 2.0), pos2(x(to), middle + BAR / 2.0));
-        let named = if current == Some(*rule) { t.text } else { t.soft };
-        painter.text(pos2(rect.left(), middle), Align2::LEFT_CENTER, cx.say(name_key(rule)), font.clone(), named);
-        painter.rect_filled(bar(0.0, measured.back), 2.0, t.text);
-        painter.rect_filled(bar(0.0, measured.first), 2.0, t.muted);
-        let end = pos2(x(measured.back) + tokens::GAP, middle);
-        painter.text(end, Align2::LEFT_CENTER, minutes(cx, measured.back), font.clone(), t.muted);
+    let (left, right) = (rect.left(), rect.right() - END_ROOM);
+    let horizon = AXIS_MINUTES * 60.0;
+    let x = |secs: f64| left + (right - left) * (secs / horizon).clamp(0.0, 1.0) as f32;
+    let mut top = rect.top();
+    let mut any_easy = false;
+    for rule in DIFFICULTY_RULES {
+        let colour = if current == Some(rule) { t.text } else { t.soft };
+        painter.text(pos2(left, top), Align2::LEFT_TOP, rule_name(cx, rule, window), font.clone(), colour);
+        let (strip_top, base) = (top + NAME_ROW, top + NAME_ROW + STRIP);
+        if let Some(run) = coin_rule_data::run(rule, case) {
+            if let Some(back) = run.back.filter(|back| *back <= horizon) {
+                let wash = Rect::from_min_max(pos2(x(back), strip_top), pos2(right, base));
+                painter.rect_filled(wash, 2.0, t.good.gamma_multiply(PACE_WASH));
+            }
+            painter.line_segment([pos2(left, base), pos2(right, base)], Stroke::new(1.0, t.line_strong));
+            for block in run.blocks.iter().filter(|block| block.secs <= horizon) {
+                let (height, colour) = if block.easy { (EASY, t.muted) } else { (TALL, t.text) };
+                any_easy |= block.easy;
+                let middle = x(block.secs);
+                painter.rect_filled(Rect::from_min_max(pos2(middle - TICK / 2.0, base - height), pos2(middle + TICK / 2.0, base)), 0.0, colour);
+            }
+        }
+        painter.line_segment([pos2(left, strip_top - 2.0), pos2(left, base)], Stroke::new(1.0, t.muted));
+        top += row;
     }
-    let axis = rect.top() + BAR_ROW * rows + AXIS_ROOM / 2.0;
-    let mut step = 0.0;
-    while step <= AXIS_MINUTES {
-        let label = cx.fill("coin.v_minutes", &[&format!("{step:.0}")]);
-        painter.text(pos2(x(step), axis), Align2::CENTER_CENTER, label, font.clone(), t.muted);
-        step += AXIS_STEP;
+    let axis = top - ROW_GAP / 2.0 + AXIS_ROOM / 2.0;
+    for step in AXIS_STEPS {
+        let place = if step == 0.0 { Align2::LEFT_CENTER } else { Align2::CENTER_CENTER };
+        let said = cx.fill("coin.v_minutes", &[&format!("{step:.0}")]);
+        painter.text(pos2(x(step * 60.0), axis), place, said, font.clone(), t.muted);
     }
-    let legend = rect.bottom() - LEGEND_ROOM / 2.0;
-    let mut from = left;
-    for (colour, key) in [(t.muted, "coin.rule_waiting"), (t.text, "coin.rule_slow")] {
-        let swatch = Rect::from_center_size(pos2(from + SWATCH / 2.0, legend), vec2(SWATCH, BAR));
-        painter.rect_filled(swatch, 2.0, colour);
-        let said = painter.text(pos2(swatch.right() + tokens::GAP, legend), Align2::LEFT_CENTER, cx.say(key), font.clone(), t.soft);
-        from = said.right() + tokens::GAP_WIDE;
-    }
+    legend(ui, cx, pos2(left, rect.bottom() - LEGEND_ROOM / 2.0), any_easy);
     let name = cx.say("coin.rule_picture");
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, name));
 }
 
-/// The three rules on when they adjust, the first block after the miners left, and how long until
-/// blocks came at their pace.
-fn table(ui: &mut Ui, cx: &Cx, window: u64) {
+/// What the marks mean, under the axis: a block, an easy block when there were any, the wash.
+fn legend(ui: &Ui, cx: &Cx, at: Pos2, any_easy: bool) {
+    let t = cx.t;
+    let painter = ui.painter();
+    let font = FontId::proportional(tokens::META);
+    let mut from = at.x;
+    let base = at.y + TALL / 2.0;
+    let marks = [(TALL, t.text, "coin.legend_block", true), (EASY, t.muted, "coin.legend_easy", any_easy)];
+    for (height, colour, key, _) in marks.into_iter().filter(|mark| mark.3) {
+        let bar = Rect::from_min_max(pos2(from, base - height), pos2(from + TICK, base));
+        painter.rect_filled(bar, 0.0, colour);
+        let said = painter.text(pos2(from + TICK + tokens::GAP, at.y), Align2::LEFT_CENTER, cx.say(key), font.clone(), t.soft);
+        from = said.right() + tokens::GAP_WIDE;
+    }
+    let wash = Rect::from_min_max(pos2(from, base - TALL), pos2(from + 16.0, base));
+    painter.rect_filled(wash, 2.0, t.good.gamma_multiply(PACE_WASH));
+    painter.text(pos2(wash.right() + tokens::GAP, at.y), Align2::LEFT_CENTER, cx.say("coin.legend_pace"), font, t.soft);
+}
+
+/// The three rules on the same criteria: where each is used, in expert mode when it adjusts, the
+/// first block after the change and how long until blocks came at their pace.
+fn table(ui: &mut Ui, cx: &Cx, case: &str, window: u64) {
     let every = window.to_string();
-    let values: Vec<[String; 3]> = DIFFICULTY_RULES
+    let values: Vec<Vec<String>> = DIFFICULTY_RULES
         .iter()
-        .zip(&MEASURED)
-        .map(|(rule, measured)| {
-            let when = match *rule {
-                "bitcoin" => cx.fill("coin.v_every", &[&every]),
-                "bip94" => cx.fill("coin.v_every_wait", &[&every]),
-                _ => cx.say("coin.v_each").to_string(),
-            };
-            let back = cx.fill("coin.v_back", &[&format!("{:.1}", measured.back), &measured.blocks.to_string()]);
-            [when, minutes(cx, measured.first), back]
+        .map(|rule| {
+            let run = coin_rule_data::run(rule, case);
+            let mut row = vec![used_in(cx, rule)];
+            if cx.expert() {
+                row.push(match *rule {
+                    "bitcoin" => cx.fill("coin.v_every", &[&every]),
+                    "bip94" => cx.fill("coin.v_every_wait", &[&every]),
+                    _ => cx.say("coin.v_each").to_string(),
+                });
+            }
+            row.push(run.and_then(Run::first).map(|secs| span(cx, secs)).unwrap_or_default());
+            row.push(run.map(|run| back(cx, run)).unwrap_or_default());
+            row
         })
         .collect();
     let shown: Vec<Vec<&str>> = values.iter().map(|row| row.iter().map(String::as_str).collect()).collect();
-    let names: Vec<&str> = DIFFICULTY_RULES.iter().map(|rule| cx.say(name_key(rule))).collect();
+    let names: Vec<String> = DIFFICULTY_RULES.iter().map(|rule| rule_name(cx, rule, window)).collect();
     let choices: Vec<Choice> = names.iter().zip(&shown).map(|(name, values)| Choice { name, values }).collect();
-    let criteria = [cx.say("coin.c_when"), cx.say("coin.c_first"), cx.say("coin.c_back")];
+    let mut criteria = vec![cx.say("coin.c_used")];
+    if cx.expert() {
+        criteria.push(cx.say("coin.c_when"));
+    }
+    criteria.extend([cx.say("coin.c_first"), cx.say("coin.c_back")]);
     explain::compare(ui, cx.t, "difficulty-rules", &criteria, &choices);
+}
+
+fn back(cx: &Cx, run: &Run) -> String {
+    match (run.back, run.blocks_to_back()) {
+        (Some(secs), Some(blocks)) => cx.fill("coin.v_back", &[&span(cx, secs), &blocks.to_string()]),
+        _ => cx.fill("coin.v_never", &[&format!("{AXIS_MINUTES:.0}")]),
+    }
 }

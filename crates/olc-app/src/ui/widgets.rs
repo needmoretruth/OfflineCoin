@@ -282,12 +282,19 @@ pub fn switch_row(ui: &mut Ui, t: &Tokens, on: &mut bool, label: &str) -> bool {
 const SEGMENT_PAD: f32 = 24.0;
 /// Between choices, and the tray's margin around them.
 const SEGMENT_GAP: f32 = 2.0;
+/// Above and below a choice's words when they wrap to a second line.
+const SEGMENT_LEADING: f32 = 10.0;
 
-fn segment(ui: &mut Ui, t: &Tokens, label: &str, current: bool, least: f32) -> Response {
+/// One choice. Stacked, every choice has the tray's one `width` and words longer than it wrap.
+fn segment(ui: &mut Ui, t: &Tokens, label: &str, current: bool, width: Option<f32>) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
     let colour = if current { t.text } else { t.soft };
-    let galley = layout(ui, label, font, colour);
-    let size = vec2((galley.size().x + SEGMENT_PAD).max(least), tokens::CONTROL - 6.0);
+    let galley = match width {
+        Some(width) => ui.painter().layout(label.to_string(), font, colour, width - SEGMENT_PAD),
+        None => layout(ui, label, font, colour),
+    };
+    let height = (galley.size().y + SEGMENT_LEADING).max(tokens::CONTROL - 6.0);
+    let size = vec2(width.unwrap_or(galley.size().x + SEGMENT_PAD), height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let area = pressed_area(ui, &response, rect);
     if current {
@@ -310,8 +317,8 @@ fn segment(ui: &mut Ui, t: &Tokens, label: &str, current: bool, least: f32) -> R
 }
 
 /// Choices side by side in one tray, one of them current. Returns the one clicked. When their
-/// words are wider than the room, the tray stacks them at one width, so no choice runs past its
-/// column into the words beside it.
+/// words are wider than the room, the tray stacks them at one width, wrapping any still wider, so
+/// no choice runs past its column into the words beside it.
 pub fn segments<T: Copy + PartialEq>(
     ui: &mut Ui,
     t: &Tokens,
@@ -321,8 +328,9 @@ pub fn segments<T: Copy + PartialEq>(
     let font = TextStyle::Button.resolve(ui.style());
     let widths: Vec<f32> = items.iter().map(|(_, label)| layout(ui, label, font.clone(), t.text).size().x + SEGMENT_PAD).collect();
     let across = widths.iter().sum::<f32>() + SEGMENT_GAP * (widths.len() + 1) as f32 + 2.0;
-    let stacked = across > ui.available_width();
-    let least = if stacked { widths.iter().copied().fold(0.0, f32::max) } else { 0.0 };
+    let room = ui.available_width();
+    let widest = widths.iter().copied().fold(0.0, f32::max);
+    let width = (across > room).then(|| widest.min(room - 2.0 * SEGMENT_GAP - 2.0));
     let mut chosen = None;
     let tray = Frame::new()
         .fill(t.hover)
@@ -332,14 +340,14 @@ pub fn segments<T: Copy + PartialEq>(
     let mut each = |ui: &mut Ui| {
         ui.spacing_mut().item_spacing = vec2(SEGMENT_GAP, SEGMENT_GAP);
         for (value, label) in items {
-            if segment(ui, t, label, current == Some(*value), least).clicked() {
+            if segment(ui, t, label, current == Some(*value), width).clicked() {
                 chosen = Some(*value);
             }
         }
     };
-    tray.show(ui, |ui| match stacked {
-        true => ui.vertical(|ui| each(ui)),
-        false => ui.horizontal(|ui| each(ui)),
+    tray.show(ui, |ui| match width {
+        Some(_) => ui.vertical(|ui| each(ui)),
+        None => ui.horizontal(|ui| each(ui)),
     });
     chosen
 }

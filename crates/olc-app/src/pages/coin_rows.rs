@@ -2,7 +2,7 @@
 use super::Cx;
 use crate::core::{Bad, CoinField, FieldKind, Why};
 use crate::ui::register::row;
-use super::coin_rule::name_key;
+use super::coin_rule::rule_name;
 use crate::ui::widgets::{field, meta, segments, switch};
 use egui::Ui;
 use olc_core::CoinConfig;
@@ -58,8 +58,10 @@ pub fn rule_row(ui: &mut Ui, cx: &Cx, setting: &CoinField, text: &mut String, hi
             }
         }
         FieldKind::Choice(names) => {
-            // The difficulty rule is the one choice a coin has; the picker names it as the form does.
-            let items: Vec<(&str, String)> = names.iter().map(|name| (*name, cx.say(name_key(name)).to_string())).collect();
+            // The difficulty rule is the one choice a coin has; the picker names it as the form does,
+            // with the running coin's blocks between adjustments.
+            let window = cx.snap.node.coin.as_ref().map_or(0, |coin| coin.rules.retarget_interval);
+            let items: Vec<(&str, String)> = names.iter().map(|name| (*name, rule_name(cx, name, window))).collect();
             let now = if text.trim().is_empty() { hint } else { text.trim() };
             let current = names.iter().copied().find(|name| *name == now);
             if let Some(chosen) = segments(ui, cx.t, &items, current) {
