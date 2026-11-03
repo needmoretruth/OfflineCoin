@@ -1,5 +1,5 @@
 //! 새 코인의 난이도 방식에 쓰는 한국어: 하는 일로 지은 이름, 블록 줄 그림과 비교 기준, 그리고
-//! 전문가 모드의 반감 주기, 시간 규칙, 비트코인 헤더 줄.
+//! 전문가 모드의 반감 주기, 늦은 블록의 최저 난이도, 시간 규칙, 비트코인 헤더 줄.
 pub const WORDS: &[(&str, &str)] = &[
     ("coin.rule", "블록 간격 맞추기"),
     ("coin.rule_about", "채굴하는 컴퓨터가 늘거나 줄 때 블록 간격을 되돌리는 방식입니다."),
@@ -11,6 +11,9 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.used_bip94", "비트코인 테스트넷"),
     ("coin.used_asert", "비트코인 캐시"),
     ("coin.c_when", "맞추는 때"),
+    ("coin.c_easy", "늦으면 쉬운 블록"),
+    ("coin.v_yes", "있음"),
+    ("coin.v_no", "없음"),
     ("coin.c_first", "첫 블록까지"),
     ("coin.c_back", "제 간격으로 돌아오기까지"),
     ("coin.v_every", "{}블록마다"),
@@ -47,6 +50,9 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("coin.rule_measured", "노드 세 대에서 {}초 블록, 10블록 창으로 잰 값입니다. 0분은 해시레이트가 바뀐 때입니다."),
     ("pro.half_life", "ASERT 반감 주기 (블록)"),
     ("pro.half_life_about", "블록이 블록 시간의 이 배수만큼 늦으면 다음 난이도가 절반이 됩니다."),
+    ("coin.c_easy", "최저 난이도 블록"),
+    ("pro.late_floor", "최저 난이도 블록 허용"),
+    ("pro.late_floor_about", "블록 시간 2배와 최대 미래 시간이 지나도록 블록이 없으면 다음 블록은 최저 난이도로 캘 수 있습니다. testnet4와 같은 예외입니다."),
     ("pro.median_time", "MTP 블록 수"),
     ("pro.median_time_about", "블록 시간은 앞 블록들 시간의 중앙값보다 늦어야 합니다. 0이면 바로 앞 블록보다 늦기만 하면 됩니다."),
     ("pro.max_ahead", "최대 미래 시간 (ms)"),

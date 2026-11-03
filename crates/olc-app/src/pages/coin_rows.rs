@@ -32,6 +32,7 @@ pub fn words_of(key: &str) -> (&'static str, &'static str) {
         "rules.floor_from_height" => ("pro.floor_from_height", "pro.floor_from_height_about"),
         "rules.difficulty_rule" => ("coin.rule", "coin.rule_about"),
         "rules.half_life_blocks" => ("pro.half_life", "pro.half_life_about"),
+        "rules.allow_min_difficulty_blocks" => ("pro.late_floor", "pro.late_floor_about"),
         "rules.median_time_blocks" => ("pro.median_time", "pro.median_time_about"),
         "rules.max_ahead_ms" => ("pro.max_ahead", "pro.max_ahead_about"),
         "bitcoin_header" => ("pro.bitcoin_header", "pro.bitcoin_header_about"),

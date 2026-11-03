@@ -8,7 +8,7 @@ use crate::ui::register::row;
 use crate::ui::widgets::{field, segments, slot};
 use egui::Ui;
 use olc_core::coin::COIN;
-use olc_core::CoinConfig;
+use olc_core::{CoinConfig, DifficultyRule};
 use std::collections::HashMap;
 
 const BLOCK_CHOICES: [u64; 3] = [10, 30, 60];
@@ -18,6 +18,7 @@ const NO_LETTERS: &str = "NEW";
 const BLOCK_TIME: &str = "rules.block_time_ms";
 const REWARD: &str = "rules.reward";
 const RULE: &str = "rules.difficulty_rule";
+const LATE_FLOOR: &str = "rules.allow_min_difficulty_blocks";
 const SMALL_FIELD: f32 = 90.0;
 
 pub struct CoinForm {
@@ -136,14 +137,28 @@ impl CoinForm {
             true => own.unwrap_or_default(),
             false => typed.clone(),
         };
-        if let Some(rule) = coin_rule::rule_row(ui, cx, &now, preview.rules.retarget_interval) {
+        let rules = &preview.rules;
+        if let Some(rule) = coin_rule::rule_row(ui, cx, &now, rules.retarget_interval, rules.allow_min_difficulty_blocks) {
             *typed = rule.to_string();
         }
     }
 
-    /// Every setting of a coin but the name, reward and rule above, in the order of the table.
+    /// Under the per-block rule, whether a block that comes late may be mined at the floor. The
+    /// other two rules settle it themselves, so the switch stands only under this one.
+    fn late_floor_row(&mut self, ui: &mut Ui, cx: &Cx, preview: &CoinConfig) {
+        let Some(field) = COIN_FIELDS.iter().find(|field| field.key == LATE_FLOOR) else {
+            return;
+        };
+        if preview.rules.difficulty_rule == DifficultyRule::Asert {
+            let text = self.typed.entry(LATE_FLOOR).or_default();
+            rule_row(ui, cx, field, text, &hint_of(field, preview, cx));
+        }
+    }
+
+    /// Every setting of a coin but the name, reward, rule and late floor above, in the order of the
+    /// table.
     fn expert_rows(&mut self, ui: &mut Ui, cx: &Cx, preview: &CoinConfig) {
-        for field in COIN_FIELDS.iter().filter(|field| !matches!(field.key, "name" | "rules.reward" | RULE)) {
+        for field in COIN_FIELDS.iter().filter(|field| !matches!(field.key, "name" | "rules.reward" | RULE | LATE_FLOOR)) {
             let text = self.typed.entry(field.key).or_default();
             let changed = rule_row(ui, cx, field, text, &hint_of(field, preview, cx));
             if changed && field.key == BLOCK_TIME {
@@ -164,9 +179,11 @@ impl CoinForm {
             self.seconds_row(ui, cx);
         }
         self.reward_row(ui, cx);
-        self.rule_choice(ui, cx, made.as_ref().unwrap_or(&olc));
+        let preview = made.as_ref().unwrap_or(&olc);
+        self.rule_choice(ui, cx, preview);
         if cx.expert() {
-            self.expert_rows(ui, cx, made.as_ref().unwrap_or(&olc));
+            self.late_floor_row(ui, cx, preview);
+            self.expert_rows(ui, cx, preview);
         }
     }
 
@@ -230,7 +247,7 @@ mod tests {
     /// Whatever the table holds, the form takes it and the made coin has it.
     #[test]
     fn every_box_of_the_form_reaches_the_coin() {
-        let samples: [(&str, String); 20] = [
+        let samples: [(&str, String); 21] = [
             ("ticker", "WLK".into()),
             ("message", "우리 코인 첫 블록".into()),
             ("message_in_block", "off".into()),
@@ -248,6 +265,7 @@ mod tests {
             ("rules.floor_from_height", "19".into()),
             ("rules.difficulty_rule", "bip94".into()),
             ("rules.half_life_blocks", "23".into()),
+            ("rules.allow_min_difficulty_blocks", "off".into()),
             ("rules.median_time_blocks", "5".into()),
             ("rules.max_ahead_ms", "60000".into()),
             ("bitcoin_header", "off".into()),

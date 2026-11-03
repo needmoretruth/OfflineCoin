@@ -65,7 +65,8 @@ pub const WORDS: &[Word] = &[
                 [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
                 [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
                 [--min-difficulty N] [--floor-from-height HEIGHT] [--difficulty-rule bitcoin|bip94|asert]\n              \
-                [--half-life BLOCKS] [--median-time BLOCKS] [--max-ahead-ms MS] [--bitcoin-header on|off]",
+                [--half-life BLOCKS] [--min-difficulty-blocks on|off] [--median-time BLOCKS]\n              \
+                [--max-ahead-ms MS] [--bitcoin-header on|off]",
         run: make_coin,
     },
     Word {
@@ -73,7 +74,8 @@ pub const WORDS: &[Word] = &[
         usage: "fork [--at HEIGHT] [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
                 [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
                 [--min-difficulty N] [--floor-from-height HEIGHT] [--difficulty-rule bitcoin|bip94|asert]\n              \
-                [--half-life BLOCKS] [--median-time BLOCKS] [--max-ahead-ms MS]   new rules on this same chain",
+                [--half-life BLOCKS] [--min-difficulty-blocks on|off] [--median-time BLOCKS]\n              \
+                [--max-ahead-ms MS]   new rules on this same chain",
         run: fork,
     },
     Word { name: "fork-back", usage: "fork-back            go back to the rules before the last fork", run: fork_back },

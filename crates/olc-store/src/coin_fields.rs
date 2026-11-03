@@ -353,6 +353,16 @@ pub const COIN_FIELDS: &[CoinField] = &[
         },
     },
     CoinField {
+        key: "rules.allow_min_difficulty_blocks",
+        flag: "min-difficulty-blocks",
+        kind: FieldKind::Switch,
+        get: |coin| if coin.rules.allow_min_difficulty_blocks { "on" } else { "off" }.to_string(),
+        set: |coin, text| {
+            coin.rules.allow_min_difficulty_blocks = switch(text)?;
+            Ok(())
+        },
+    },
+    CoinField {
         key: "rules.median_time_blocks",
         flag: "median-time",
         kind: FieldKind::Number,
@@ -501,6 +511,7 @@ mod tests {
             ("rules.floor_from_height", "19".to_string()),
             ("rules.difficulty_rule", "bip94".to_string()),
             ("rules.half_life_blocks", "23".to_string()),
+            ("rules.allow_min_difficulty_blocks", "off".to_string()),
             ("rules.median_time_blocks", "5".to_string()),
             ("rules.max_ahead_ms", "60000".to_string()),
             ("bitcoin_header", "off".to_string()),

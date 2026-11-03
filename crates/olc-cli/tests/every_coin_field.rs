@@ -32,6 +32,7 @@ fn sample(key: &str) -> String {
         "rules.floor_from_height" => "19".into(),
         "rules.difficulty_rule" => "bip94".into(),
         "rules.half_life_blocks" => "23".into(),
+        "rules.allow_min_difficulty_blocks" => "off".into(),
         "rules.median_time_blocks" => "5".into(),
         "rules.max_ahead_ms" => "60000".into(),
         "bitcoin_header" => "off".into(),

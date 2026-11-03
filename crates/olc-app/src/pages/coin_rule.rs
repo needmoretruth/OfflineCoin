@@ -61,9 +61,10 @@ fn case_name(cx: &Cx, case: &str) -> String {
     coin_rule_data::case_words(case).map_or_else(|| case.to_string(), |(key, number)| cx.fill(key, &[number]))
 }
 
-/// The picker as a line of the form. `now` is the rule the coin would have and `window` its blocks
-/// between retargets. Returns the rule chosen.
-pub fn rule_row(ui: &mut Ui, cx: &Cx, now: &str, window: u64) -> Option<&'static str> {
+/// The picker as a line of the form. `now` is the rule the coin would have, `window` its blocks
+/// between retargets and `late_floor` whether the per-block rule lets a late block come easy.
+/// Returns the rule chosen.
+pub fn rule_row(ui: &mut Ui, cx: &Cx, now: &str, window: u64, late_floor: bool) -> Option<&'static str> {
     let t = cx.t;
     let items: Vec<(&'static str, String)> = DIFFICULTY_RULES.iter().map(|rule| (*rule, rule_name(cx, rule, window))).collect();
     let current = DIFFICULTY_RULES.iter().copied().find(|rule| *rule == now);
@@ -77,7 +78,7 @@ pub fn rule_row(ui: &mut Ui, cx: &Cx, now: &str, window: u64) -> Option<&'static
         };
         picture(ui, cx, current, case, window);
         ui.add_space(tokens::GAP_WIDE);
-        table(ui, cx, case, window);
+        table(ui, cx, case, (window, late_floor));
         ui.add_space(tokens::GAP);
         let target = DIFFICULTY_RULES.iter().find_map(|rule| coin_rule_data::run(rule, case)).map_or(0.0, |run| run.target);
         meta(ui, &cx.fill("coin.rule_measured", &[&format!("{target:.0}")]), t);
@@ -168,7 +169,7 @@ fn legend(ui: &Ui, cx: &Cx, at: Pos2, any_easy: bool) {
 
 /// The three rules on the same criteria: where each is used, in expert mode when it adjusts, the
 /// first block after the change and how long until blocks came at their pace.
-fn table(ui: &mut Ui, cx: &Cx, case: &str, window: u64) {
+fn table(ui: &mut Ui, cx: &Cx, case: &str, (window, late_floor): (u64, bool)) {
     let every = window.to_string();
     let values: Vec<Vec<String>> = DIFFICULTY_RULES
         .iter()
@@ -182,6 +183,14 @@ fn table(ui: &mut Ui, cx: &Cx, case: &str, window: u64) {
                     _ => cx.say("coin.v_each").to_string(),
                 });
             }
+            // Bitcoin's rule never lets a late block come easy and BIP 94 always does; the
+            // per-block rule does as the coin says.
+            let easy = match *rule {
+                "bitcoin" => false,
+                "bip94" => true,
+                _ => late_floor,
+            };
+            row.push(cx.say(if easy { "coin.v_yes" } else { "coin.v_no" }).to_string());
             row.push(run.and_then(Run::first).map(|secs| span(cx, secs)).unwrap_or_default());
             row.push(run.map(|run| back(cx, run)).unwrap_or_default());
             row
@@ -194,7 +203,7 @@ fn table(ui: &mut Ui, cx: &Cx, case: &str, window: u64) {
     if cx.expert() {
         criteria.push(cx.say("coin.c_when"));
     }
-    criteria.extend([cx.say("coin.c_first"), cx.say("coin.c_back")]);
+    criteria.extend([cx.say("coin.c_easy"), cx.say("coin.c_first"), cx.say("coin.c_back")]);
     explain::compare(ui, cx.t, "difficulty-rules", &criteria, &choices);
 }
 

@@ -1,6 +1,6 @@
 //! English words for a new coin's difficulty rule: the picker named by what each rule does, the
-//! block strip and the criteria it is compared on, and the expert rows for the half-life, the time
-//! rules and Bitcoin's header.
+//! block strip and the criteria it is compared on, and the expert rows for the half-life, the late
+//! floor, the time rules and Bitcoin's header.
 pub const WORDS: &[(&str, &str)] = &[
     ("coin.rule", "Keeping the pace"),
     ("coin.rule_about", "How blocks get back to their pace when computers start or stop mining."),
@@ -12,6 +12,9 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.used_bip94", "Bitcoin's test network"),
     ("coin.used_asert", "Bitcoin Cash"),
     ("coin.c_when", "When it adjusts"),
+    ("coin.c_easy", "Easy block when late"),
+    ("coin.v_yes", "Yes"),
+    ("coin.v_no", "No"),
     ("coin.c_first", "Until the first block"),
     ("coin.c_back", "Until blocks keep pace"),
     ("coin.v_every", "Every {} blocks"),
@@ -48,6 +51,9 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("coin.rule_measured", "Measured on three nodes with {} second blocks and windows of 10. 0 min is when the hash rate changed."),
     ("pro.half_life", "ASERT half-life (blocks)"),
     ("pro.half_life_about", "A block this many block times late halves the difficulty after it."),
+    ("coin.c_easy", "Minimum-difficulty blocks"),
+    ("pro.late_floor", "Allow minimum-difficulty blocks"),
+    ("pro.late_floor_about", "With no block for two block times plus the max time ahead, the next may be mined at minimum difficulty, as on testnet4."),
     ("pro.median_time", "Median time past (blocks)"),
     ("pro.median_time_about", "A block's time must pass the median of this many blocks before it. 0 asks only that it follow its parent."),
     ("pro.max_ahead", "Max time ahead (ms)"),
