@@ -413,7 +413,13 @@ impl Coins {
             if button(ui, t, cx.say("coins.look_again"), Kind::Quiet).clicked() {
                 cx.send(Command::Rescan);
             }
+            let hidden = !cx.expert() && !self.by_address;
+            if hidden && button(ui, t, cx.say("coins.by_address"), Kind::Quiet).clicked() {
+                self.by_address = true;
+            }
         });
+        // Up here, above the lists that grow and shrink, so the field stays put.
+        self.add_address(ui, cx);
     }
 
     fn new_coin_sheet(&mut self, ui: &mut Ui, cx: &mut Cx) {
@@ -486,7 +492,7 @@ impl Page for Coins {
         widgets::slot(ui, |ui| self.found(ui, cx));
         ui.add_space(tokens::GAP_WIDE);
         widgets::slot(ui, |ui| history_card(ui, cx));
-        // Connecting by address sits with the list of who is connected.
+        // Who is connected now, with what each connection carried.
         ui.add_space(tokens::GAP_WIDE);
         widgets::slot(ui, |ui| self.peers(ui, cx));
         if cx.expert() {

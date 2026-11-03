@@ -154,20 +154,16 @@ impl Coins {
                     });
                 }
             }
-            ui.add_space(tokens::GAP);
-            self.add_address(ui, cx);
         });
     }
 
     /// Connects to an address typed in, and keeps it for next time.
-    fn add_address(&mut self, ui: &mut Ui, cx: &Cx) {
+    pub(super) fn add_address(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         if !cx.expert() && !self.by_address {
-            if button(ui, t, cx.say("coins.by_address"), Kind::Plain).clicked() {
-                self.by_address = true;
-            }
             return;
         }
+        ui.add_space(tokens::GAP);
         ui.horizontal(|ui| {
             let hint = cx.say("coins.address_hint");
             let response = field(ui, &mut self.address, hint, 280.0);
