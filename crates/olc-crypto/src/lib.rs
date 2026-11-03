@@ -6,6 +6,8 @@ use k256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha256};
 
+pub mod tweak;
+
 pub type Hash = [u8; 32];
 pub type Address = [u8; 20];
 pub type PublicKey = [u8; 33];

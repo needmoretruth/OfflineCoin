@@ -1,0 +1,20 @@
+[package]
+name = "olc-channel"
+description = "Payment channels on OfflineCoin after Lightning's BOLT 2, 3, 7 and 11: payments off the chain that either side can take back to it, and a penalty for an old state."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+olc-core.workspace = true
+olc-crypto.workspace = true
+olc-lang.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+postcard.workspace = true
+getrandom = "0.3"
+
+[dev-dependencies]
+olc-pow.workspace = true
+olc-wallet.workspace = true
