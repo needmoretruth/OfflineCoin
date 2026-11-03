@@ -6,6 +6,7 @@ mod board_lines;
 mod terminal;
 mod words;
 mod words_channels;
+mod words_swap;
 mod words_wallet;
 mod coins;
 mod commands;
@@ -32,6 +33,10 @@ mod returning;
 mod rows;
 mod service;
 mod snapshot;
+pub mod refusals;
+pub mod swap;
+mod swap_book;
+pub mod swap_text;
 
 pub use board_action::BoardAction;
 pub use folder::Folder;
@@ -41,7 +46,7 @@ pub use ops::Book;
 pub use olc_store::coin_fields::{
     first_fork_height, fork_coin, new_coin, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS,
 };
-pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin};
+pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use explorer::{BlockRow, Explored, NoteRow, TxRow};
 pub use history::{Activity, ActivityKind};
 pub use coins::{read_coin_file, write_coin_file, coin_folder, format_coins, group_thousands, parse_coins, save_coin};
@@ -52,4 +57,4 @@ pub use host::{HeardFrom, Host, PayError, Plan};
 pub use pool_run::{shares_in, PoolRow, PoolRun, PoolView, Worker};
 pub use rows::device_kind;
 pub use service::{short_hex, Core, CoreLaunch};
-pub use snapshot::{BoardView, ExperimentView, KeyView, NodeView, Notice, ScanView, Snapshot};
+pub use snapshot::{BoardView, ExperimentView, KeyView, NodeView, Notice, ScanView, Snapshot, SwapView, SwapsView};

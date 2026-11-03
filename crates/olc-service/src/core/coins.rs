@@ -53,6 +53,13 @@ pub fn load_coin(paths: &Paths, name: &str) -> Option<CoinConfig> {
     coin_file::from_json(&text).ok()
 }
 
+/// A coin this app ran, by its folder name. The built-in coin has no file of its own, so its
+/// folder or its ticker names it too.
+pub fn known_coin(paths: &Paths, name: &str) -> Option<CoinConfig> {
+    let olc = CoinConfig::olc();
+    load_coin(paths, name).or_else(|| (name == coin_folder(&olc) || name.eq_ignore_ascii_case(&olc.ticker)).then_some(olc))
+}
+
 /// `olc app` kept the default coin's blocks beside the wallet. They carry over once.
 pub fn bring_old_blocks(paths: &Paths, coin: &CoinConfig) {
     let old = paths.wallet().join("blocks.log");

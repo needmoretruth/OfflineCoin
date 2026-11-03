@@ -30,6 +30,7 @@ fn other_node(root: &Path, port: u16) -> (Host, String) {
         mining: false,
         card: Card::default(),
         storage: None,
+        shares_wallet: false,
     };
     let host = Host::start(plan, None).unwrap();
     let address = format!("127.0.0.1:{}", host.port.unwrap());

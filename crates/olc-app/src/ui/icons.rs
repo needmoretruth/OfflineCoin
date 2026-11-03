@@ -16,6 +16,7 @@ pub enum Icon {
     Explorer,
     Pool,
     Channel,
+    Swap,
 }
 
 const WIDTH: f32 = 1.5;
@@ -113,6 +114,12 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
                 line(&[(x, y + 1.8), (9.0, 11.5)]);
             }
             boxed(6.5, 11.5, 11.5, 15.5, 1.0);
+        }
+        Icon::Swap => {
+            line(&[(3.0, 6.0), (15.0, 6.0)]);
+            line(&[(12.0, 3.0), (15.0, 6.0), (12.0, 9.0)]);
+            line(&[(15.0, 12.0), (3.0, 12.0)]);
+            line(&[(6.0, 9.0), (3.0, 12.0), (6.0, 15.0)]);
         }
     }
 }

@@ -21,6 +21,7 @@ mod records;
 pub mod reach;
 mod settings;
 mod settings_more;
+mod swap;
 pub(crate) mod seed_words;
 mod shared_wallets;
 pub mod setup;
@@ -124,6 +125,7 @@ pub fn all() -> Vec<Box<dyn Page>> {
         Box::<coins::Coins>::default(),
         Box::<records::Records>::default(),
         Box::<channels::Channels>::default(),
+        Box::<swap::Swap>::default(),
         Box::<locks::Locks>::default(),
         Box::<console::Console>::default(),
         Box::<settings::SettingsPage>::default(),

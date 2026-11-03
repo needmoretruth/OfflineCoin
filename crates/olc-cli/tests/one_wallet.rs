@@ -126,6 +126,7 @@ fn sample(word: &str, home: &Path) -> String {
         "lock-pay" => "lock-pay 1 HASH 0x00 EQUAL".into(),
         "lock-spend" => format!("lock-spend {}:0 x", "aa".repeat(32)),
         "lock-sign" => "lock-sign nothing".into(),
+        "swap" => "swap list".into(),
         "join" => format!("join {}", file("new.json")),
         "save-coin" => format!("save-coin {}", file("saved.json")),
         "board" => "board x name y".into(),
@@ -154,7 +155,7 @@ fn sample(word: &str, home: &Path) -> String {
 
 /// Words about the app's boards and its own nodes, and words that change the coin a node runs.
 fn not_for_a_lone_node(word: &str) -> bool {
-    let app = ["boards", "board", "update", "move", "cap-test", "install", "pool-start", "pool-stop"];
+    let app = ["boards", "board", "update", "move", "cap-test", "install", "pool-start", "pool-stop", "swap"];
     let own = ["lab-stop", "join", "fork", "fork-back"];
     app.contains(&word) || own.contains(&word) || word.starts_with("node-")
 }

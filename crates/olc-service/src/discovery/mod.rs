@@ -8,7 +8,7 @@ mod udp;
 pub use olc_node::Medium;
 pub use group::{group, ChainGroup, CoinGroup, Entry, Identity, Relation, Work};
 pub use probe::ask;
-pub use sweep::{Scanner, ScanPlan};
+pub use sweep::{local_networks, Scanner, ScanPlan};
 pub use udp::Shout;
 
 use std::net::IpAddr;

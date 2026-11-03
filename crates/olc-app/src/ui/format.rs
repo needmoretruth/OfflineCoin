@@ -20,6 +20,22 @@ pub fn seconds(voice: Voice, value: u64) -> String {
     i18n::fill(i18n::text(voice, "unit.minutes"), &[&number((value / 60).into())])
 }
 
+/// About how long a wait of `seconds` is, in minutes, hours or days as anyone would say it.
+pub fn span(voice: Voice, seconds: u64) -> String {
+    let minutes = seconds.div_ceil(60).max(1);
+    let (hours, days) = (minutes / 60, minutes / 1_440);
+    let (key, values) = match minutes {
+        0..=59 => ("span.minutes", vec![minutes]),
+        60..=1_439 if minutes.is_multiple_of(60) => ("span.hours", vec![hours]),
+        60..=1_439 => ("span.hours_minutes", vec![hours, minutes % 60]),
+        _ if hours.is_multiple_of(24) => ("span.days", vec![days]),
+        _ => ("span.days_hours", vec![days, hours % 24]),
+    };
+    let values: Vec<String> = values.into_iter().map(|value| number(value.into())).collect();
+    let values: Vec<&str> = values.iter().map(String::as_str).collect();
+    i18n::fill(i18n::text(voice, key), &values)
+}
+
 /// How long ago a moment was.
 pub fn ago(voice: Voice, now_ms: u64, then_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(then_ms) / 60_000;

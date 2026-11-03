@@ -4,6 +4,7 @@ use super::coins::{
     bring_old_blocks, coin_folder, load_coin, read_coin_file, save_coin, write_coin_file,
 };
 use super::board_action::BoardAction;
+use super::swap_book::Swaps;
 use olc_store::coin_file::new_coin;
 use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
@@ -103,6 +104,7 @@ mod listen;
 mod orders;
 mod view;
 mod channels;
+mod swaps;
 
 struct Service {
     paths: Paths,
@@ -125,6 +127,7 @@ struct Service {
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
     pool: PoolSeat,
+    swaps: Swaps,
     out: Arc<Mutex<Arc<Snapshot>>>,
 }
 
@@ -156,6 +159,7 @@ impl Service {
                     ..Card::default()
                 },
                 storage: None,
+                shares_wallet: false,
             },
             launch.fleet.clone(),
         )?;
@@ -167,6 +171,7 @@ impl Service {
             None => Supervisor::new(paths.clone())?,
         };
         let service = Self {
+            swaps: Swaps::load(paths.wallet()),
             paths,
             settings,
             host,
@@ -213,6 +218,7 @@ impl Service {
             }
             self.let_go();
             self.listen();
+            self.step_swaps();
             self.publish();
         }
     }
@@ -249,20 +255,7 @@ impl Service {
                 }
             }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
-            Command::Save(settings) => {
-                let was = bind_host(&self.settings);
-                self.settings.take_choices(&settings);
-                let now = bind_host(&self.settings);
-                // A person who shuts others out expects it now, not at the next start.
-                if now != was {
-                    if let Err(error) = self.host.listen_on(&now) {
-                        self.say("notice.listen_failed", error, false);
-                    }
-                }
-                self.host.set_cap(self.settings.hash_cap);
-                self.save();
-                self.plan_scan();
-            }
+            Command::Save(settings) => self.save_settings(&settings),
             Command::Join { coin, address } => self.join(*coin, address),
             Command::SetMining(on) => {
                 self.host.set_mining(on);
@@ -278,9 +271,7 @@ impl Service {
             Command::AddAddress(address) => self.add_address(address),
             Command::Rescan => self.scanner.look_now(),
             Command::SetLinks(rank) => self.set_links(rank),
-            Command::OpenDataFolder => {
-                let _ = platform().open_folder(&self.paths.root);
-            }
+            Command::OpenDataFolder => drop(platform().open_folder(&self.paths.root)),
             Command::Board { id, action } => self.board_action(id, action),
             Command::NewCoinFile { choices, path } => {
                 let made = new_coin(&choices).map_err(|bad| bad.to_string());
@@ -293,6 +284,7 @@ impl Service {
             Command::ForkBack => self.fork_back(),
             Command::Lock(order) => self.lock_order(order),
             Command::Channel(order) => self.channel_order(order),
+            Command::Swap(order) => self.swap_order(order),
             Command::JoinCoinFile(path) => match read_coin_file(&path) {
                 Ok(coin) => self.join(coin, None),
                 Err(detail) => self.say("notice.coin_file", detail, false),

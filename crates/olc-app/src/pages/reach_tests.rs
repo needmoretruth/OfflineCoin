@@ -9,6 +9,7 @@ const FILES: &[(&str, &[&str])] = &[
     (COINS, &["coins.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (LOCKS, &["locks.rs"]),
+    (SWAP, &["swap.rs"]),
     (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
     (CHANNELS, &["channels.rs"]),
 ];

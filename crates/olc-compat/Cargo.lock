@@ -325,6 +325,7 @@ dependencies = [
 name = "olc-wallet"
 version = "0.1.1"
 dependencies = [
+ "k256",
  "olc-core 0.1.1",
  "olc-crypto 0.1.1",
  "olc-lang 0.1.1",

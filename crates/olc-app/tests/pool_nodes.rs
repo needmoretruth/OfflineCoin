@@ -53,6 +53,7 @@ fn host(folder: &std::path::Path) -> Host {
             mining: false,
             card: Card::default(),
             storage: None,
+            shares_wallet: false,
         },
         None,
     )

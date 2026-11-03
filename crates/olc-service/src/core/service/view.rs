@@ -1,4 +1,5 @@
 //! The snapshot the window reads: the node, the boards, the computers around and what runs here.
+use super::super::coins::coin_folder;
 use super::super::found::link_of;
 use super::super::returning::is_returning;
 use super::super::rows::{board_entry, coin_of_board, earlier_rules, keeps_of, merge_local, on_other_rules, own_entry, reach_of_board};
@@ -78,6 +79,7 @@ impl Service {
         let (lines, running) = fleet.map_or_else(Default::default, |fleet| fleet.run_log());
         let snapshot = Snapshot {
             groups: group(&entries, identity.as_ref()),
+            swaps: self.swaps.view((&node.coin.as_ref().map(coin_folder).unwrap_or_default(), node.height)),
             node,
             boards,
             local,
