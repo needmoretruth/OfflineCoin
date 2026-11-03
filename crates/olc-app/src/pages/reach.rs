@@ -74,7 +74,7 @@ pub const CLI_ROWS: &[Row] = &[
     row("explore", RECORDS, "Search", "Personal::Explore"),
     row("mine", HOME, "Start and stop", "Command::SetMining"),
     row("cap", SETTINGS, "Mining, speed", "Command::SetCap"),
-    row("pay", HOME, "Send", "Command::Pay"),
+    row("pay", HOME, "Send", "WalletOrder::Pay"),
     row("add", COINS, "Add an address", "Command::AddAddress"),
     row("scan", COINS, "Look again", "Command::Rescan"),
     expert("fork", COINS, "Change rules", "Command::Fork", "Rules that part from a running chain are expert work"),

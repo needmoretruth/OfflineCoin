@@ -88,6 +88,7 @@ fn kind_key(item: &Activity) -> &'static str {
         ActivityKind::Received => "home.received",
         ActivityKind::Sent => "home.sent",
         ActivityKind::ToSelf => "home.to_self",
+        ActivityKind::Joined => "history.joined",
     }
 }
 

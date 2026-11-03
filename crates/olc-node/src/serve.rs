@@ -104,6 +104,13 @@ impl Engine {
         }
     }
 
+    /// Stops following `address`. True when it was followed.
+    pub fn unwatch(&mut self, address: &Address) -> bool {
+        let before = self.watched.len();
+        self.watched.retain(|known| known != address);
+        before != self.watched.len()
+    }
+
     pub fn watched(&self) -> Vec<(Address, u64)> {
         let balance = |address: &Address| (*address, self.coins().balance(address));
         self.watched.iter().map(balance).collect()

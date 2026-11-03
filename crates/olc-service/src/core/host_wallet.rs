@@ -1,7 +1,8 @@
 //! The wallet's newer parts on a running node: seed words to write down, shared wallets with what
 //! they hold, spends of them that pass between signers, and speeding up a waiting payment.
-use super::explorer::parse_hash;
-use super::history::{Activity, ActivityKind};
+use super::explorer::{parse_hash, PendingRow};
+use super::fees::FeeLevels;
+use super::history::{Activity, ActivityKind, History};
 use super::host::Host;
 use super::host_locks::wallet_key;
 use olc_core::amount::{format_coins, parse_coins};
@@ -9,9 +10,9 @@ use olc_core::{Address, Hash};
 use olc_node::shared::{SharedDone, SharedFailure};
 use olc_node::Engine;
 use olc_wallet::shared::{SharedError, SharedSpend};
-use olc_wallet::{parse_address, SeedRecord, Wallet};
-use std::collections::BTreeSet;
-use std::sync::Mutex;
+use olc_wallet::{format_address, parse_address, SeedRecord, Wallet};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
 /// Seed words on their way to the screen. They never show in a log.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -46,6 +47,30 @@ pub struct SpeedQuote {
     pub new: u64,
 }
 
+/// One address of this wallet with what it holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AddressView {
+    pub address: String,
+    /// The name a person gave it, or empty.
+    pub label: String,
+    pub balance: u64,
+    pub coins: usize,
+    pub receiving: bool,
+}
+
+/// One coin of this wallet, for choosing which coins a payment spends.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CoinView {
+    /// The payment id and output number, as `id:number`.
+    pub point: String,
+    pub address: String,
+    pub value: u64,
+    /// The block that made it.
+    pub height: u64,
+    /// Old enough to spend, and not already spent by a waiting payment.
+    pub ready: bool,
+}
+
 /// The wallet beyond its keys.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WalletView {
@@ -64,6 +89,15 @@ pub struct WalletView {
     /// The block from which this coin takes shared wallets.
     pub shared_from: u64,
     pub speed: Vec<SpeedQuote>,
+    /// Every settled row of the history, newest first. Waiting rows are in the node's activity.
+    pub history: Arc<Vec<Activity>>,
+    /// Every payment waiting in the pool, oldest first.
+    pub pool: Vec<PendingRow>,
+    pub addresses: Vec<AddressView>,
+    pub coins: Vec<CoinView>,
+    /// Names of addresses and payments, by address or payment id.
+    pub labels: BTreeMap<String, String>,
+    pub fees: FeeLevels,
 }
 
 fn words_of(record: &SeedRecord) -> Option<Words> {
@@ -105,7 +139,35 @@ pub(super) fn amount_of(engine: &Engine, units: u64) -> String {
     format!("{} {}", format_coins(units), engine.chain().config().ticker)
 }
 
-pub(super) fn wallet_view(engine: &Engine, activity: &[Activity]) -> WalletView {
+fn hex_point(point: &olc_core::OutPoint) -> String {
+    format!("{}:{}", hex(&point.txid), point.index)
+}
+
+/// Each address of the wallet with its coins, and each coin.
+fn addresses_and_coins(engine: &Engine, leaving: &BTreeSet<olc_core::OutPoint>) -> (Vec<AddressView>, Vec<CoinView>) {
+    let (wallet, coins) = (engine.wallet(), engine.coins());
+    let next = coins.height() + 1;
+    let (mut addresses, mut all) = (Vec::new(), Vec::new());
+    for (index, (address, _)) in wallet.keys().enumerate() {
+        let text = format_address(&address);
+        let held = coins.unspent_of(&address);
+        for (point, entry) in &held {
+            let ready = coins.is_mature(entry, next) && !leaving.contains(point);
+            all.push(CoinView { point: hex_point(point), address: text.clone(), value: entry.output.value, height: entry.height, ready });
+        }
+        addresses.push(AddressView {
+            label: wallet.labels.get(&text).cloned().unwrap_or_default(),
+            balance: held.iter().map(|(_, entry)| entry.output.value).sum(),
+            coins: held.len(),
+            receiving: index == wallet.receiving(),
+            address: text,
+        });
+    }
+    all.sort_by_key(|coin| std::cmp::Reverse(coin.height));
+    (addresses, all)
+}
+
+pub(super) fn wallet_view(engine: &Engine, activity: &[Activity], history: &History, pool: Vec<PendingRow>) -> WalletView {
     let wallet = engine.wallet();
     let coins = engine.coins();
     // A coin a waiting payment spends, such as the move to the words, is on its way out.
@@ -115,6 +177,7 @@ pub(super) fn wallet_view(engine: &Engine, activity: &[Activity]) -> WalletView 
     let outside: Vec<_> = outside_coins.filter(|(point, _)| !leaving.contains(point)).collect();
     let ripe = outside.iter().filter(|(_, entry)| coins.is_mature(entry, next)).map(|(_, entry)| entry.output.value).sum();
     let outside = outside.iter().map(|(_, entry)| entry.output.value).sum();
+    let (addresses, coin_list) = addresses_and_coins(engine, &leaving);
     let waiting = activity.iter().filter(|item| item.kind == ActivityKind::Sent && item.height.is_none());
     let speed = waiting.filter_map(|item| engine.speed_up_fees(&item.id).ok().map(|(now, new)| SpeedQuote { id: item.id, now, new }));
     let unwritten = wallet.seed.as_ref().filter(|seed| !seed.written);
@@ -135,6 +198,12 @@ pub(super) fn wallet_view(engine: &Engine, activity: &[Activity]) -> WalletView 
         shared: shared.collect(),
         shared_from: engine.chain().config().upgrade_from,
         speed: speed.collect(),
+        history: history.all(),
+        pool,
+        addresses,
+        coins: coin_list,
+        labels: wallet.labels.clone(),
+        fees: FeeLevels::read(engine.chain(), engine.pool()),
     }
 }
 

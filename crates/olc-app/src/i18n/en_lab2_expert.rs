@@ -33,7 +33,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lab2.step_lined", "Both nodes share one tip."),
     ("lab2.step_paid", "The attacker broadcasts a payment to the victim."),
     ("lab2.step_dark", "The attacker goes offline and mines a private chain."),
-    ("lab2.step_confirmed", "Payment confirmed: {} of {} confirmations."),
+    ("lab2.step_confirmed", "Payment confirmations: {} of {}."),
     ("lab2.step_spent", "The attacker double spends the same inputs to itself on the private chain."),
     ("lab2.step_heavier", "The private chain has more cumulative work."),
     ("lab2.step_gave_up", "The attacker gives up {} blocks behind."),

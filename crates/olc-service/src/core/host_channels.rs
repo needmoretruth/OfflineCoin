@@ -5,9 +5,8 @@ use super::coins::{format_coins, parse_coins};
 use super::commands::ChannelOrder;
 use super::host::{Host, State};
 use super::host_parts::unix_ms;
-use olc_channel::node::DELAY;
+use super::host_peers::{peer_order, peers_of, PeerOrder, PeersView};
 use olc_channel::invoice::{coin_tag, Invoice, InvoiceError};
-use olc_channel::opening::{FEWEST_DELAY, MOST_DELAY};
 use olc_channel::{ChannelNode, Ground, NodeId, Out, Quote, Refusal, Said};
 use olc_core::{Address, Hash, OutPoint, Tx, TxOut};
 use olc_node::{Engine, PeerId, Runner};
@@ -26,6 +25,11 @@ pub use olc_channel::{PayState, Phase};
 /// The last request read before paying it, numbered so a page tells a new answer from an old one:
 /// who it pays and at what fee, or the words and detail of why it cannot be paid.
 pub type Quoted = (u64, String, Result<Quote, (&'static str, String)>);
+
+mod paying;
+mod reach;
+pub use reach::read_channel_address;
+use reach::Waiting;
 
 /// The network link, the only one channel messages travel on.
 const TCP_LINK: usize = 0;
@@ -58,6 +62,11 @@ pub struct ChannelsView {
     /// Newest first.
     pub events: Vec<ChannelEvent>,
     pub quote: Option<Quoted>,
+    /// What another person pastes to open a channel with this node: `key@host:port`.
+    pub address: String,
+    /// Addresses dialled for a channel that opens once the node there answers.
+    pub reaching: Vec<String>,
+    pub network: PeersView,
 }
 
 #[derive(Default)]
@@ -71,6 +80,9 @@ pub struct ChannelDesk {
     events: VecDeque<ChannelEvent>,
     number: u64,
     quote: Option<Quoted>,
+    waiting: Vec<Waiting>,
+    /// The last event before the payment sent last, until its ending is told.
+    paying_from: Option<u64>,
 }
 
 /// The chain, wallet and pool of the running node, as the channel node asks for them.
@@ -245,6 +257,10 @@ impl ChannelDesk {
             }
         }
         let now = unix_ms();
+        self.open_reached(runner, now);
+        let Some(node) = self.node.as_mut() else {
+            return;
+        };
         if now.saturating_sub(self.ticked_ms) >= TICK_EVERY_MS {
             self.ticked_ms = now;
             node.tick(now, &mut NodeGround { engine: &mut runner.engine });
@@ -253,6 +269,14 @@ impl ChannelDesk {
             self.refresh(runner);
         }
         self.send(runner);
+    }
+
+    fn tell(&mut self, key: &'static str, detail: String) {
+        self.number += 1;
+        if self.events.len() >= MOST_EVENTS {
+            self.events.pop_back();
+        }
+        self.events.push_front(ChannelEvent { number: self.number, key, detail });
     }
 
     /// Sends what the channel node has to say, to the node it is for where that one is known.
@@ -273,18 +297,38 @@ impl ChannelDesk {
             return;
         };
         let ticker = runner.engine.chain().config().ticker.clone();
+        let mut heard = Vec::new();
         while let Some(said) = node.take_said() {
-            let (key, detail) = event_of(said, &ticker);
-            self.number += 1;
-            if self.events.len() >= MOST_EVENTS {
-                self.events.pop_back();
-            }
-            self.events.push_front(ChannelEvent { number: self.number, key, detail });
+            heard.push(event_of(said, &ticker));
         }
+        for (key, detail) in heard {
+            self.tell(key, detail);
+        }
+        let Some(node) = self.node.as_ref() else {
+            return;
+        };
         let height = runner.engine.chain().height();
+        // The channel node heard on each connection, by the connection's number. A route names a
+        // neighbour, which may be heard on several connections of the network link.
+        let routes = &self.routes;
+        let neighbours = runner.neighbours();
+        let names: BTreeMap<u32, (String, String)> = node
+            .peers()
+            .into_iter()
+            .filter_map(|(key, name)| Some((neighbours.iter().find(|one| Some(&one.peer) == routes.get(&key))?, name, key)))
+            .flat_map(|(one, name, key)| {
+                let numbers = one.paths.iter().filter(|path| path.link == TCP_LINK).map(|path| path.number);
+                numbers.map(move |number| (number, (name.clone(), hex(&key.0)))).collect::<Vec<_>>()
+            })
+            .collect();
+        let network = peers_of(runner, &|number| names.get(&number).cloned());
+        let key = hex(&node.node_key().0);
         self.view = ChannelsView {
+            address: network.reach_at.as_ref().map(|at| format!("{key}@{at}")).unwrap_or_default(),
+            reaching: self.waiting.iter().map(|waiting| waiting.address.clone()).collect(),
+            network,
             running: true,
-            key: hex(&node.node_key().0),
+            key,
             channels: node.views(height),
             payments: node.payments(),
             invoices: node.invoices(unix_ms() / 1_000),
@@ -295,6 +339,14 @@ impl ChannelDesk {
     }
 
     fn carry(&mut self, runner: &mut Runner, order: ChannelOrder) -> (&'static str, String, bool) {
+        // These reach the network link as well as the channel node, so they come first.
+        let order = match order {
+            ChannelOrder::Open { peer, amount, delay, push } => return self.open_order(runner, &peer, &amount, &push, &delay),
+            ChannelOrder::Disconnect(number) => return peer_order(runner, PeerOrder::Disconnect(number)),
+            ChannelOrder::Ban { address, hours } => return peer_order(runner, PeerOrder::Ban { address, hours }),
+            ChannelOrder::Unban(address) => return peer_order(runner, PeerOrder::Unban(address)),
+            order => order,
+        };
         let Some(node) = self.node.as_mut() else {
             return ("ch.no_running", String::new(), false);
         };
@@ -318,24 +370,8 @@ impl ChannelDesk {
                 ("", String::new(), true)
             }
             ChannelOrder::Show => ("ch.list", listing(&self.view), true),
-            ChannelOrder::Open { peer, amount, delay } => {
-                let Some(to) = node.find_peer(&peer) else {
-                    return ("ch.no_peer", peer.trim().to_string(), false);
-                };
-                let Some(units) = parse_coins(amount.trim()).filter(|units| *units > 0) else {
-                    return ("notice.bad_amount", String::new(), false);
-                };
-                let delay = match delay.trim() {
-                    "" => Some(DELAY),
-                    typed => typed.parse::<u16>().ok().filter(|blocks| (FEWEST_DELAY..=MOST_DELAY).contains(blocks)),
-                };
-                let Some(delay) = delay else {
-                    return ("ch.no_delay", String::new(), false);
-                };
-                match node.open_channel(to, units, delay, &mut ground) {
-                    Ok(id) => ("ch.opening", short_id(&id), true),
-                    Err(refusal) => refused(refusal),
-                }
+            ChannelOrder::Open { .. } | ChannelOrder::Disconnect(_) | ChannelOrder::Ban { .. } | ChannelOrder::Unban(_) => {
+                ("", String::new(), false)
             }
             ChannelOrder::Close { channel, force } => {
                 let Some(id) = node.find(&channel) else {
@@ -362,10 +398,12 @@ impl ChannelDesk {
                     Err(refusal) => return refused(refusal),
                 };
                 let ticker = ground.engine.chain().config().ticker.clone();
-                match node.pay(&text, &mut ground) {
+                let said = match node.pay(&text, &mut ground) {
                     Ok(_) => ("ch.paying", format!("{} {ticker}", format_coins(amount)), true),
-                    Err(refusal) => refused(refusal),
-                }
+                    Err(refusal) => return refused(refusal),
+                };
+                self.paying_now();
+                said
             }
         }
     }
@@ -425,6 +463,10 @@ pub fn standing(channel: &ChannelView) -> String {
 /// Everything about the channels, as `olc channels` prints it.
 fn listing(view: &ChannelsView) -> String {
     let mut lines = vec![format!("This node: {}", view.key)];
+    if !view.address.is_empty() {
+        lines.push(format!("Channel address: {}", view.address));
+    }
+    lines.extend(view.reaching.iter().map(|address| format!("Connecting to {address}")));
     for (key, name) in &view.peers {
         lines.push(format!("Nearby: {} {name}", &key[..key.len().min(16)]));
     }

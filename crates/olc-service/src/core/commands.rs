@@ -230,9 +230,10 @@ pub enum LockOrder {
 pub enum ChannelOrder {
     /// Everything about the channels, as text.
     Show,
-    /// Opens a channel to a node heard lately, named by its name or the start of its key. An
-    /// empty `delay` is the usual wait.
-    Open { peer: String, amount: String, delay: String },
+    /// Opens a channel to a node: one heard lately, named by its name or the start of its key, or
+    /// any node by `key@host:port`, which is dialled first. An empty `delay` is the usual wait and
+    /// an empty `push` gives the other side nothing.
+    Open { peer: String, amount: String, delay: String, push: String },
     /// Closes together with the other side, or alone with `force`.
     Close { channel: String, force: bool },
     /// Makes a payment request.
@@ -241,6 +242,11 @@ pub enum ChannelOrder {
     Pay { text: String },
     /// Reads a request and finds who it pays and the fee, before anyone presses pay. Says nothing.
     Quote { text: String },
+    /// Ends one connection on the network link, by its number there.
+    Disconnect(u32),
+    /// Keeps an address off the network link for `hours`, and ends its connections now.
+    Ban { address: String, hours: u64 },
+    Unban(String),
 }
 
 /// Something to do with a coin swap.

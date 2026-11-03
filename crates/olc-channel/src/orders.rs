@@ -98,6 +98,11 @@ pub struct ChannelView {
     pub closed_at: Option<u64>,
     /// When it closed or failed to open.
     pub ended_ms: Option<u64>,
+    /// What a payment out of this channel can carry now, as Lightning wallets say "can send".
+    pub can_send: u64,
+    /// What a payment into this channel can carry now: the other side's share less what it
+    /// keeps for the closing fee.
+    pub can_receive: u64,
 }
 
 /// What paying a request would take, said before anyone presses pay.
@@ -137,6 +142,12 @@ pub struct InvoiceView {
     pub made_s: u64,
 }
 
+/// What the other side can offer us now: its side less the fee it would pay as opener.
+pub fn receivable(channel: &Channel) -> u64 {
+    let fee = if channel.we_opened { 0 } else { channel.terms.fee };
+    channel.state.theirs.saturating_sub(fee)
+}
+
 /// What we can offer in a channel now: our side less the fee we would pay as opener.
 pub fn spendable(channel: &Channel) -> u64 {
     let fee = if channel.we_opened { channel.terms.fee } else { 0 };
@@ -146,11 +157,17 @@ pub fn spendable(channel: &Channel) -> u64 {
 impl ChannelNode {
     /// Opens a channel to `peer` with `amount` of this wallet's coins.
     pub fn open_channel(&mut self, peer: NodeId, amount: u64, delay: u16, ground: &mut dyn Ground) -> Result<ChannelId, Refusal> {
+        self.open_pushing(peer, amount, 0, delay, ground)
+    }
+
+    /// Opens a channel and gives `push` of it to the other side from the start, so the opener can
+    /// be paid through it at once.
+    pub fn open_pushing(&mut self, peer: NodeId, amount: u64, push: u64, delay: u16, ground: &mut dyn Ground) -> Result<ChannelId, Refusal> {
         if peer == self.id {
             return Err(Refusal::ThisNode);
         }
         let coin = ground.coin_id().ok_or(Refusal::NoV2Yet)?;
-        let ask = Ask { capacity: amount, delay, fee: ground.fee(), dust: DUST, coin };
+        let ask = Ask { capacity: amount, push, delay, fee: ground.fee(), dust: DUST, coin };
         let seed = fresh_secret().map_err(|_| Refusal::NotSaved)?;
         let (mut channel, wire) = Channel::start(peer, ask, seed, ground.pay_to(), self.now_ms).map_err(|_| Refusal::TooLittle)?;
         // The coins are chosen now and written with the channel, so no other payment takes them.
@@ -389,6 +406,7 @@ impl ChannelNode {
             false => (channel.state.ours, channel.state.theirs),
         };
         let back = came_back(channel);
+        let open = channel.phase == Phase::Open && !chain.cheated();
         let coming = match channel.phase {
             Phase::Closing | Phase::ForceClosing => ours.saturating_sub(back),
             _ => 0,
@@ -415,6 +433,8 @@ impl ChannelNode {
             delay: channel.terms.delay,
             closed_at: chain.seen.first().map(|(height, _)| *height).filter(|_| channel.phase == Phase::Closed),
             ended_ms: channel.ended_ms,
+            can_send: if open { spendable(channel) } else { 0 },
+            can_receive: if open { receivable(channel) } else { 0 },
         }
     }
 
