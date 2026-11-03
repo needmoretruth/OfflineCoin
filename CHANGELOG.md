@@ -17,11 +17,34 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - A board heard only by radio through the board on your cable works in the pool through that board. Its work goes out signed with the app's control key, and its shares come back the same way and are paid to it. Both boards need build i19 or later.
 - A board that does not trust this app, or a cable board that does not pass the work on, is switched off after 15 seconds, and its row says why and what to do.
 - Pool payouts show 2 decimals. Expert mode shows every decimal.
+- Open a channel by pasting the other computer's channel address (key@host:port). Your own address shows in both modes with Copy and a QR code. Expert mode adds an amount to send at opening and a delay.
+- `olc channel open KEY@HOST:PORT AMOUNT` opens a channel from the terminal the same way.
+- Payment requests are listed with their state: waiting, paid or expired.
+- Peers show in plain words in basic mode and as a table in expert mode: direction, ping, bytes sent and received, version and link. Disconnect a peer, or ban it for an hour or a day.
+- `olc swap` and the other terminal words reach the OLC Core or `olc node` already running on the same data folder.
+- History on Home and on the Wallet page shows the time, what happened, how sure it is and the amount, and moves with each block. A row opens its block with every coin in and out.
+- Filter the history by kind and save it as CSV. Name a payment for yourself, pay several addresses at once, and ask for an amount with an `olc:` link.
+- Blocks are drawn newest first with who found each, and blocks that lost a race are marked.
+- The Lab runs a 51% attack on a practice coin on this computer, one step at a time.
+- Mining can use every core but one. Set the speed on Home in steps of 25 %, 50 %, 75 % and max, or with a slider.
+- Making a coin shows the three ways of moving difficulty side by side, measured on real nodes after mining falls 20 or 50 times or rises 50 times.
+
+### Changed
+
+- The menu reads Home, Mining, Wallet, Blocks, Payments, Lab, Coins and Devices, with Console and Settings below, in both modes.
+- The pool moved from Devices to Mining.
+- Settings come in four groups, General, Mining, Network and Display, with a button that returns them to their defaults.
+- A computer combines small coins only after you turn it on, on the Wallet page.
+- Explanations keep to three lines. Details opens the rest with a picture.
 
 ### Fixed
 
 - `olc --version` and `olc-core --version` printed help instead of the version. They now print the program's name and version.
 - The Move to the words button jumped up when the last mined coins matured, so a click at that moment missed it. The line about coins that must wait now sits below the button and keeps its place.
+- Combining coins showed as a payment of 400 to yourself. It now reads as 8 coins joined into one, with an amount of 0.
+- The wait for the next block counted only this computer's mining. It now counts every miner on the chain.
+- Addresses added by hand were cleared while a chain opened, so those computers were not reached.
+- On Windows a computer you connected to showed no address in the peer list, and a ban could miss it.
 
 ## [0.2.0] - 2026-11-03
 
