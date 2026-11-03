@@ -101,6 +101,7 @@ impl Service {
             notice: self.notice.clone(),
             usb: self.usb,
             full_rate: self.full_rate,
+            mine_on_start: self.settings.mine_on_start,
             folder: self.paths.root.display().to_string(),
         };
         if let Ok(mut out) = self.out.lock() {

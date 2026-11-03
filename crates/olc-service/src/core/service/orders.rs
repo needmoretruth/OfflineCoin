@@ -81,10 +81,21 @@ impl Service {
         }
     }
 
-    /// Saves the settings and applies what can change at once.
+    /// Saves what the Settings page changed and applies what can change at once. A value set
+    /// elsewhere since the page's last save, as by the console, stays.
     pub(super) fn save_settings(&mut self, settings: &Settings) {
         let was = bind_host(&self.settings);
-        self.settings.take_choices(settings);
+        let page = std::mem::replace(&mut self.page, settings.clone());
+        self.settings.take_changes(&page, settings);
+        if page.mining_threads != settings.mining_threads {
+            self.set_threads();
+        }
+        // Several miners chosen after the first run are made now, as at the first run.
+        if self.settings.setup_done {
+            for spec in self.add_wanted_nodes() {
+                self.start_node(&spec);
+            }
+        }
         let now = bind_host(&self.settings);
         // A person who shuts others out expects it now, not at the next start.
         if now != was {

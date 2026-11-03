@@ -67,6 +67,7 @@ fn core(paths: &Paths, port: u16, local: &NodeSpec) -> Core {
         mine_on_start: true,
         coin: Some(coin_folder(&coin())),
         nodes: vec![local.clone()],
+        listen_lan: false,
         ..Settings::default()
     };
     let launch = CoreLaunch {

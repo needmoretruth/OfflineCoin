@@ -218,6 +218,28 @@ pub fn shared_udp(port: u16) -> std::io::Result<std::net::UdpSocket> {
     Ok(socket.into())
 }
 
+/// Cores of their own, not counting a second thread of one core, where the system lists them as
+/// Linux does; elsewhere every thread the system offers.
+pub fn physical_cores() -> usize {
+    let text = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut socket = "";
+    for line in text.lines() {
+        let mut parts = line.splitn(2, ':').map(str::trim);
+        match (parts.next(), parts.next()) {
+            (Some("physical id"), Some(value)) => socket = value,
+            (Some("core id"), Some(value)) => {
+                seen.insert(format!("{socket}/{value}"));
+            }
+            _ => {}
+        }
+    }
+    match seen.len() {
+        0 => std::thread::available_parallelism().map_or(1, |threads| threads.get()),
+        cores => cores,
+    }
+}
+
 /// A helper program: beside the app, in [`Platform::tool_folders`], or on the search path.
 pub fn tool(name: &str) -> PathBuf {
     let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);

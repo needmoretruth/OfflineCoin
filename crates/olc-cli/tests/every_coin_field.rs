@@ -57,7 +57,7 @@ fn every_field_goes_from_the_word_to_a_running_coin() {
 
     let paths = Paths { root: folder.join("app") };
     std::fs::create_dir_all(&paths.root).unwrap();
-    let settings = Settings { setup_done: true, scan_lan: false, broadcast: false, port: 0, ..Settings::default() };
+    let settings = Settings { setup_done: true, scan_lan: false, broadcast: false, port: 0, listen_lan: false, ..Settings::default() };
     let launch = CoreLaunch { paths, fleet: None, usb: false, node_program: None };
     let core = Core::start(launch, settings).unwrap();
     core.send(Order::JoinCoinFile(file.display().to_string()));

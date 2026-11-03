@@ -27,7 +27,9 @@ const B: u32 = 47;
 const MEASURED: usize = 24;
 
 fn miner(id: u32, name: &str, cap: u64, joined: bool) -> NodeSpec {
-    NodeSpec { name: name.into(), mining: true, hash_cap: cap, joined, ..Preset::Custom.spec(id) }
+    // A small disk opens at once after a restart, so Miner A's branch is still the heavier one when
+    // it joins; a first opening reads every sector of the room it is given.
+    NodeSpec { name: name.into(), mining: true, hash_cap: cap, joined, disk_mib: 16, ..Preset::Custom.spec(id) }
 }
 
 #[track_caller]
@@ -203,8 +205,19 @@ fn the_chain_shows_who_mined_each_block_and_the_race() {
     restart(&core, miner(A, "Miner A", ALONE_CAP, true));
     // Miner A forked at the first block, so the branch that lost starts there. A race between this
     // app and Miner B before it would be kept the same way, so this waits for the one from 1.
-    wait("the lost blocks", 120, || core.snapshot().node.chain.replaced.as_ref().is_some_and(|lost| lost.first() == 1));
-    let snap = core.snapshot();
+    // The view it was seen in is kept: a small race right after would replace it in the next one.
+    // The strip draws an open race in place of the last reorg, so the view kept has none open.
+    let mut seen = None;
+    wait("the lost blocks", 120, || {
+        let snap = core.snapshot();
+        let chain = &snap.node.chain;
+        let from_one = chain.replaced.as_ref().is_some_and(|lost| lost.first() == 1);
+        if from_one && chain.rival.is_none() {
+            seen = Some(snap);
+        }
+        seen.is_some()
+    });
+    let snap = seen.expect("a view with the lost blocks");
     let replaced = snap.node.chain.replaced.clone().expect("a reorg");
     let other_side = |miner: &Miner| *miner == Miner::You || *miner == Miner::Here("Miner B".into());
     assert!(replaced.blocks.iter().all(|block| other_side(&block.miner)), "{replaced:?}");

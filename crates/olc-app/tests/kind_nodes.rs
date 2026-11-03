@@ -67,6 +67,7 @@ fn a_list_of_real_nodes_says_what_each_one_keeps_and_a_cap_moves_on_a_running_no
         broadcast: false,
         port: base,
         coin: Some(coin_folder(&coin())),
+        listen_lan: false,
         ..Settings::default()
     };
     let own = Preset::Esp32S3.spec(700);

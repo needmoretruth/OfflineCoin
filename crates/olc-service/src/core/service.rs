@@ -20,7 +20,7 @@ use super::snapshot::{Notice, Snapshot};
 use crate::discovery::{Scanner, Shout};
 use crate::fleet::{CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
-use crate::settings::{Paths, Settings, PORT_TRIES};
+use crate::settings::{standard_threads, Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Card;
@@ -126,7 +126,12 @@ struct Service {
     shout: Shout,
     found: Found,
     local: Supervisor,
+    /// Hashes a second on all mining threads together, measured at the start.
     full_rate: u64,
+    /// What one of those threads did beside the others.
+    thread_rate: u64,
+    /// The settings as the app last sent them, so a save takes only what it changed.
+    page: Settings,
     notice: Option<Notice>,
     notices: Arc<AtomicU64>,
     asked_boards: Option<Instant>,
@@ -150,6 +155,9 @@ impl Service {
         let paths = launch.paths;
         let coin = current_coin(&paths, &settings);
         bring_old_blocks(&paths, &coin);
+        // Measured before anything mines, on as many cores as will mine.
+        let threads = settings.threads(standard_threads());
+        let measured = full_rate(threads);
         let host = Host::start(
             Plan {
                 folder: paths.coin(&coin_folder(&coin)),
@@ -173,6 +181,7 @@ impl Service {
             },
             launch.fleet.clone(),
         )?;
+        host.set_threads(threads);
         if let Some(fleet) = &launch.fleet {
             fleet.attach(host.runner.clone());
         }
@@ -184,6 +193,7 @@ impl Service {
             swaps: Swaps::load(paths.wallet()),
             trail: super::chain_race::Trail::default(),
             paths,
+            page: settings.clone(),
             settings,
             host,
             fleet: launch.fleet,
@@ -194,7 +204,8 @@ impl Service {
             shout: Shout::start(),
             found: Found::default(),
             local,
-            full_rate: full_rate(),
+            full_rate: measured,
+            thread_rate: measured / threads.max(1) as u64,
             notice: None,
             notices: Arc::default(),
             asked_boards: None,
@@ -258,6 +269,13 @@ impl Service {
                 self.say("notice.no_bluetooth", String::new(), false);
             }
             Command::Own(Personal::SetBluetooth(on)) => self.change_node(|node| node.bluetooth = on),
+            // The console's `mining on|off`: mine now, and from every start of the app.
+            Command::Own(Personal::SetMining(on)) => {
+                self.host.set_mining(on);
+                self.settings.mine_on_start = on;
+                self.save();
+                self.say("notice.saved", String::new(), true);
+            }
             // No node runs before the first run's questions are done; words go to the wallet's folder.
             Command::Own(Personal::Wallet(order)) if self.host.ready().is_err() => self.wallet_in_folder(order),
             Command::Own(order) => {
@@ -269,11 +287,8 @@ impl Service {
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => self.save_settings(&settings),
             Command::Join { coin, address } => self.join(*coin, address),
-            Command::SetMining(on) => {
-                self.host.set_mining(on);
-                self.settings.mine_on_start = on;
-                self.save();
-            }
+            // Start and Stop act now. Whether mining starts with the app is a setting of its own.
+            Command::SetMining(on) => self.host.set_mining(on),
             Command::SetCap(cap) => {
                 self.host.set_cap(cap);
                 self.settings.hash_cap = cap;
@@ -445,21 +460,38 @@ impl Service {
     }
 
     fn finish_setup(&mut self, settings: Settings, start: StartCoin) {
+        self.page = settings.clone();
         self.settings = settings;
         self.settings.setup_done = true;
-        let wanted = self.settings.device.defaults().local_nodes;
-        for id in self.settings.nodes.len() as u32..wanted {
-            self.settings.nodes.push(Preset::Esp32S3.spec(id));
-        }
+        self.add_wanted_nodes();
         match start {
             StartCoin::Default => self.join(CoinConfig::olc(), None),
             StartCoin::New(coin) => self.join(coin, None),
             StartCoin::Join { coin, address } => self.join(coin, address),
         }
         self.host.set_cap(self.settings.hash_cap);
+        self.set_threads();
         self.host.set_mining(self.settings.mine_on_start);
         self.save();
         self.plan_scan();
+    }
+
+    /// Miners the device choice asks for that are not there yet, sized for this computer.
+    pub(super) fn add_wanted_nodes(&mut self) -> Vec<NodeSpec> {
+        let wanted = self.settings.device.defaults().local_nodes;
+        let have = self.settings.nodes.len() as u32;
+        let next = self.settings.nodes.iter().map(|spec| spec.id + 1).max().unwrap_or(0);
+        let ids = next..next + wanted.saturating_sub(have);
+        let added: Vec<NodeSpec> = ids.map(|id| Preset::default().spec(id)).collect();
+        self.settings.nodes.extend(added.iter().cloned());
+        added
+    }
+
+    /// Mining threads as the settings say, and the full rate that goes with them.
+    pub(super) fn set_threads(&mut self) {
+        let threads = self.settings.threads(standard_threads());
+        self.host.set_threads(threads);
+        self.full_rate = self.thread_rate * threads as u64;
     }
 
     /// The node comes back as the other kind on the same coin and the same folder.
@@ -510,3 +542,6 @@ impl Service {
 pub fn short_hex(hash: &Hash) -> String {
     hash[..4].iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+#[cfg(test)]
+mod kept_tests;

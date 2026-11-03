@@ -30,7 +30,7 @@ pub struct Local {
 impl Default for Local {
     fn default() -> Self {
         Self {
-            form: Preset::Esp32S3.spec(0),
+            form: Preset::default().spec(0),
             open_form: false,
             pay_to: String::new(),
             mine_to: String::new(),
@@ -48,6 +48,7 @@ fn next_id(cx: &Cx) -> u32 {
 
 fn preset_name(cx: &Cx, preset: Preset) -> &'static str {
     cx.say(match preset {
+        Preset::Computer => "local.preset_computer",
         Preset::Esp32S3 => "local.preset_esp32",
         Preset::RaspberryPi4 => "local.preset_pi",
         Preset::Custom => "local.preset_custom",
@@ -103,7 +104,10 @@ fn budget(ui: &mut Ui, cx: &Cx, view: &LocalView) {
 
 fn tags(ui: &mut Ui, cx: &Cx, view: &LocalView) {
     let t = cx.t;
-    tag(ui, preset_name(cx, view.spec.preset), t.muted, t);
+    // A miner of this computer needs no tag for it. One that copies a board says which.
+    if view.spec.preset.is_board() {
+        tag(ui, preset_name(cx, view.spec.preset), t.muted, t);
+    }
     let wallet = match view.spec.wallet {
         WalletChoice::Own => "local.wallet_own",
         WalletChoice::Shared => "local.wallet_shared",
