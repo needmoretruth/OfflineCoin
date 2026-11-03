@@ -179,6 +179,10 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     wait_until(&mut window, |app| !app.snapshot().node.wallet.speed.is_empty());
     window.run_steps(SETTLE_STEPS);
     picture(&mut window, folder, "speed-up-row");
+    // The waiting payment is the row that takes coins away; its detail holds the way to send it again.
+    let row = window.query_all_by_label_contains(" -").next().expect("the waiting payment's row");
+    row.click();
+    window.run_steps(SETTLE_STEPS);
     tap(&mut window, "home.speed_up");
     picture(&mut window, folder, "speed-up-slip");
     let quote = window.state().snapshot().node.wallet.speed[0];

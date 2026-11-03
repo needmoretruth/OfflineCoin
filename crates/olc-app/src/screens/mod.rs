@@ -286,7 +286,7 @@ fn an_empty_home_says_what_to_do() {
     assert!(harness.query_all_by_label("Start mining").count() > 0);
     assert!(harness.query_by_label("Receive").is_some());
     assert!(harness.query_by_label("Send").is_some());
-    assert!(harness.query_by_label("Start mining and your first coins appear here.").is_some());
+    assert!(harness.query_by_label("No payments yet").is_some(), "the history says it has nothing yet");
     assert!(harness.query_by_label("Latest blocks").is_some());
 }
 
