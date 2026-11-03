@@ -118,7 +118,9 @@ impl Home {
         // hold: coins mined later need the words just the same; then coins the words cannot bring back.
         let words_line = match () {
             () if node.wallet.words_to_write.is_some() => Some((cx.say("home.words_unwritten").to_string(), "home.words_write")),
-            () if !node.wallet.has_words => Some((cx.say("home.words_none").to_string(), "words.make")),
+            // Before the core's first word the snapshot is empty, and an empty wallet has no words
+            // either; the line waits for an address, so a wallet with words never flashes it.
+            () if !node.wallet.has_words && !node.address.is_empty() => Some((cx.say("home.words_none").to_string(), "words.make")),
             () if node.wallet.outside_words > 0 => {
                 Some((cx.fill("home.words_outside", &[&format::coins(node.wallet.outside_words, cx.ticker())]), "common.open"))
             }
@@ -128,8 +130,14 @@ impl Home {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 dot(ui, t.warn);
-                ui.label(line);
-                if button(ui, t, cx.say(open), Kind::Quiet).clicked() {
+                // The text wraps in what the button leaves, so on a narrow window the button stays in sight.
+                let label = cx.say(open);
+                let room = ui.available_width() - widgets::button_width(ui, label) - ui.spacing().item_spacing.x;
+                ui.scope(|ui| {
+                    ui.set_max_width(room.max(0.0));
+                    ui.add(Label::new(line).wrap());
+                });
+                if button(ui, t, label, Kind::Quiet).clicked() {
                     self.open = Some(Open::Words(super::seed_words::WordsSheet::default()));
                 }
             });

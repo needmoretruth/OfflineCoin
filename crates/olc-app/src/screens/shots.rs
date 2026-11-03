@@ -23,6 +23,8 @@ const LIVE_SECONDS: u64 = 40;
 pub(super) fn shot(harness: &mut Window, folder: &Path, name: &str) {
     harness.run_steps(SETTLE_STEPS);
     let image = harness.render().expect("a renderer");
+    // Made here, so a test that saves first does not hang on another making the folder.
+    std::fs::create_dir_all(folder).expect("the picture folder");
     image.save(folder.join(format!("{name}.png"))).expect("save");
 }
 

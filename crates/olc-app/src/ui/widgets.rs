@@ -53,9 +53,15 @@ pub fn button(ui: &mut Ui, t: &Tokens, text: &str, kind: Kind) -> Response {
     button_on(ui, t, text, kind, true)
 }
 
+/// How wide [`button`] draws a button with this text, so a line beside it can leave the room.
+pub fn button_width(ui: &Ui, text: &str) -> f32 {
+    let font = TextStyle::Button.resolve(ui.style());
+    layout(ui, text, font, Color32::PLACEHOLDER).size().x + 28.0
+}
+
 pub fn button_on(ui: &mut Ui, t: &Tokens, text: &str, kind: Kind, enabled: bool) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
-    let width = layout(ui, text, font.clone(), t.text).size().x + 28.0;
+    let width = button_width(ui, text);
     let sense = if enabled { Sense::click() } else { Sense::hover() };
     let (rect, response) = ui.allocate_exact_size(vec2(width, tokens::CONTROL), sense);
     // Named before the visibility check, or a button below the fold has no name for a screen reader.

@@ -10,6 +10,7 @@ mod shots;
 mod steady;
 mod wallet_shots;
 mod first_words;
+mod home_words;
 mod swap_local;
 mod swap_page;
 
