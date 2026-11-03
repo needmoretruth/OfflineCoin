@@ -23,6 +23,11 @@ pub trait Medium: Send {
     fn lowest(&self) -> u64 {
         0
     }
+    /// The position from which nothing was ever written, when the medium knows it without
+    /// reading, as a computer's files do. A survey stops there instead of at the capacity.
+    fn written_end(&self) -> Option<u64> {
+        None
+    }
     /// Bytes before `below` are not wanted any more, so a file may give them back.
     fn forget(&mut self, _below: u64) {}
     /// Returns once everything written is safe from a power cut.

@@ -101,3 +101,26 @@ fn a_new_coin_starts_where_one_slow_device_can_keep_the_block_time() {
     assert_eq!(rules.min_difficulty, MIN_DIFFICULTY);
     assert_eq!(MIN_DIFFICULTY, 1_000 * rules.block_time_ms / 1_000);
 }
+
+/// Under ASERT, a node whose hash dropped takes the floor the moment its block is late enough,
+/// without waiting for its candidate to go stale.
+#[test]
+fn a_miner_takes_the_floor_once_its_block_is_late() {
+    let mut coin = test_coin();
+    coin.initial_difficulty = 50_000;
+    coin.rules.retarget_interval = WINDOW;
+    coin.rules.min_difficulty = FLOOR;
+    let rules = coin.rules.clone();
+    let mut node = engine_of(1, coin);
+    let start = node.chain().tip_header().time_ms;
+    mine(&mut node, start + rules.block_time_ms);
+    silence(&mut node);
+    let first = node.chain().tip_header();
+    let late = node.chain().floor_after(&node.chain().tip()).unwrap();
+    assert_eq!(late, first.time_ms + 2 * rules.block_time_ms + rules.max_ahead_ms);
+    // One try at the regular difficulty, a second before the floor comes.
+    assert!(!node.mine(1, late - 1_000));
+    assert!(node.mine(1_000, late + 1_000), "two seconds on, the candidate took the floor");
+    assert_eq!(node.chain().tip_header().difficulty, FLOOR);
+    assert_eq!(node.chain().tip_header().time_ms, late + 1_000);
+}

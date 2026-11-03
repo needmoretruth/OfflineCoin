@@ -5,7 +5,7 @@ use crate::pages::all;
 /// The files of a page.
 const FILES: &[(&str, &[&str])] = &[
     (HOME, &["home.rs", "money.rs", "send.rs", "mining_card.rs", "speed.rs", "history.rs", "history_detail.rs"]),
-    (MINING, &["mining.rs", "miners.rs", "speed.rs", "local.rs", "pool.rs"]),
+    (MINING, &["mining.rs", "miners.rs", "speed.rs", "local.rs", "pool.rs", "pool_join.rs", "pool_parts.rs"]),
     (
         WALLET,
         &[

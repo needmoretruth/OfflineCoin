@@ -31,6 +31,8 @@ mod money;
 mod note;
 mod places;
 mod pool;
+mod pool_join;
+mod pool_parts;
 mod records;
 mod records_detail;
 pub mod reach;

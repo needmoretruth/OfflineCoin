@@ -115,6 +115,11 @@ impl Found {
         self.boards.get(address)
     }
 
+    /// Every board heard over a link this app opened, by what it said.
+    pub fn boards(&self) -> impl Iterator<Item = &Hello> {
+        self.boards.values()
+    }
+
     /// Notes who passed an address on, the first time.
     pub fn passed_on(&mut self, address: &str, via: &str) {
         self.room_for_one_more(address);

@@ -2,7 +2,7 @@
 //! the board said them.
 use super::shots::{tap, with_boards};
 use super::{app, harness, quiet_settings, scratch, type_into, wait_until, Window, SETTLE_STEPS, SIZES};
-use crate::core::{Activity, ActivityKind, PoolRow, Snapshot};
+use crate::core::{Activity, ActivityKind, Snapshot, WorkerRow};
 use crate::fleet::BoardState;
 use crate::i18n::{self, Lang, Mode, Voice};
 use egui::accesskit::{Role, Toggled};
@@ -35,7 +35,7 @@ fn large(quiet: &Snapshot) -> Snapshot {
     }
     stage.pool.running = true;
     let paid = 8_800 * COIN;
-    stage.pool.rows = vec![PoolRow { name: "Kitchen".into(), shares: 1, rejected: 0, paid }];
+    stage.pool.workers = vec![WorkerRow { worker: "Kitchen".into(), accepted: 1, paid, online: true, ..WorkerRow::default() }];
     stage
 }
 

@@ -57,29 +57,37 @@ pub fn wallet_folder(args: &Args) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-/// `olc channel open …` is `olc channel-open …`, as Lightning's programs spell it apart.
+/// The two-word commands, spelled as one: `olc channel open …` is `olc channel-open …`, as
+/// Lightning's programs spell it apart, and `olc pool join …` is `olc pool-join …`.
+fn one_word(first: &str, second: &str) -> Option<String> {
+    match (first, second) {
+        ("channel", "open" | "close" | "pay") | ("pool", "start" | "stop" | "join" | "leave") => {
+            Some(format!("{first}-{second}"))
+        }
+        ("channel", "list") => Some("channels".into()),
+        _ => None,
+    }
+}
+
 pub fn joined(words: Vec<String>) -> Vec<String> {
     let pair = words.first().map(String::as_str).zip(words.get(1).map(String::as_str));
-    match pair {
-        Some(("channel", second @ ("open" | "close" | "pay"))) => {
-            let first = format!("channel-{second}");
-            std::iter::once(first).chain(words.into_iter().skip(2)).collect()
-        }
-        Some(("channel", "list")) => std::iter::once("channels".to_string()).chain(words.into_iter().skip(2)).collect(),
-        _ => words,
+    match pair.and_then(|(first, second)| one_word(first, second)) {
+        Some(word) => std::iter::once(word).chain(words.into_iter().skip(2)).collect(),
+        None => words,
     }
 }
 
 /// The same for a typed line, which keeps its quotes.
 pub fn joined_line(line: &str) -> String {
-    let typed = line.trim_start();
-    let Some(rest) = typed.strip_prefix("channel ").map(str::trim_start) else {
+    let Some((first, rest)) = line.trim_start().split_once(' ') else {
         return line.to_string();
     };
-    match rest.split_once(' ').map_or(rest, |(first, _)| first) {
-        "open" | "close" | "pay" => format!("channel-{rest}"),
-        "list" => format!("channels{}", &rest[4..]),
-        _ => line.to_string(),
+    let rest = rest.trim_start();
+    let (second, after) = rest.split_once(' ').unwrap_or((rest, ""));
+    match one_word(first, second) {
+        Some(word) if after.is_empty() => word,
+        Some(word) => format!("{word} {after}"),
+        None => line.to_string(),
     }
 }
 
@@ -139,5 +147,24 @@ fn main() {
     if let Err(message) = result {
         eprintln!("{message}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_word_commands_reach_their_words() {
+        let words = |line: &str| joined(line.split(' ').map(str::to_string).collect()).join(" ");
+        assert_eq!(words("pool join own 192.168.0.5 addr.rig"), "pool-join own 192.168.0.5 addr.rig");
+        assert_eq!(words("pool start --open"), "pool-start --open");
+        assert_eq!(words("channel open key@host:1 5"), "channel-open key@host:1 5");
+        assert_eq!(words("channel list"), "channels");
+        assert_eq!(words("pool"), "pool");
+        assert_eq!(joined_line("pool stop"), "pool-stop");
+        assert_eq!(joined_line("channel list --all"), "channels --all");
+        assert_eq!(joined_line("  invoice 5 \"for tea\""), "  invoice 5 \"for tea\"");
+        assert_eq!(joined_line("channel pay \"lnolc1 x\""), "channel-pay \"lnolc1 x\"");
     }
 }

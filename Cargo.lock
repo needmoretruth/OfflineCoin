@@ -3012,10 +3012,13 @@ name = "olc-pool"
 version = "0.2.0"
 dependencies = [
  "olc-core",
+ "olc-crypto",
  "olc-lang",
  "olc-node",
  "olc-pow",
  "olc-wallet",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3061,6 +3064,7 @@ dependencies = [
  "getrandom 0.3.4",
  "olc-core",
  "olc-platform",
+ "olc-pow",
  "olc-wallet",
  "postcard",
  "serde",

@@ -184,6 +184,8 @@ pub struct Settings {
     /// The defaults the file was written under. A file without it is older than all of them.
     #[serde(default)]
     pub format: u32,
+    /// The pool this app runs and the pools its miners joined.
+    pub pool: crate::core::PoolSettings,
 }
 
 impl Default for Settings {
@@ -214,6 +216,7 @@ impl Default for Settings {
             added: Vec::new(),
             book: Vec::new(),
             format: FORMAT,
+            pool: crate::core::PoolSettings::default(),
         }
     }
 }

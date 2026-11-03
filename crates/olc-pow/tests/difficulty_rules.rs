@@ -48,7 +48,8 @@ fn changed(mut block: Block, change: impl Fn(&mut BlockHeader)) -> Block {
 
 #[test]
 fn asert_halves_after_a_block_one_half_life_late_and_rises_after_a_fast_one() {
-    let coin = coin(DifficultyRule::Asert);
+    let mut coin = coin(DifficultyRule::Asert);
+    coin.rules.allow_min_difficulty_blocks = false;
     let half_life = coin.rules.half_life_blocks * T;
     let mut chain = chain(coin.clone());
     let first = mine(&mut chain, coin.genesis_time_ms + T);
@@ -67,6 +68,74 @@ fn asert_halves_after_a_block_one_half_life_late_and_rises_after_a_fast_one() {
 
     let wrong = changed(build(&chain, after_fast.time_ms + T), |header| header.difficulty = rounded(after_fast.difficulty * 2));
     assert_eq!(chain.add_block(wrong), Err(ChainError::BadDifficulty));
+}
+
+#[test]
+fn asert_gives_a_late_block_the_floor_and_keeps_its_anchor() {
+    let coin = coin(DifficultyRule::Asert);
+    assert!(coin.rules.allow_min_difficulty_blocks, "OLC's rule");
+    let (ahead, half_life) = (coin.rules.max_ahead_ms, coin.rules.half_life_blocks * T);
+    let mut plain = coin.clone();
+    plain.rules.allow_min_difficulty_blocks = false;
+    let (mut chain, mut twin) = (chain(coin.clone()), chain(plain));
+    let floor = rounded(1);
+    let first = mine(&mut chain, coin.genesis_time_ms + T);
+    let on_time = mine(&mut chain, first.time_ms + T);
+    mine(&mut twin, first.time_ms);
+    mine(&mut twin, on_time.time_ms);
+    // Two block times and the clock limit after the newest time: a clock set ahead by the limit
+    // still waits two block times.
+    let late = on_time.time_ms + 2 * T + ahead;
+    assert_eq!(chain.floor_after(&chain.tip()), Some(late));
+    assert_eq!(twin.floor_after(&twin.tip()), None, "off, ASERT has no floor for late blocks");
+    assert_eq!(chain.next_difficulty_at(&chain.tip(), late), on_time.difficulty);
+    let too_soon = changed(build(&chain, late), |header| header.difficulty = floor);
+    assert_eq!(chain.add_block(too_soon), Err(ChainError::BadDifficulty));
+    let slow = mine(&mut chain, late + 1_000);
+    assert_eq!(slow.difficulty, floor);
+    assert_eq!(mine(&mut twin, late + 1_000).difficulty, on_time.difficulty);
+
+    // The floor block adds its little work and leaves ASERT where it was: the next block asks what
+    // it would have, had the late block carried the regular difficulty.
+    let after = mine(&mut chain, slow.time_ms + T);
+    assert_eq!(after.difficulty, mine(&mut twin, slow.time_ms + T).difficulty);
+    assert!(after.difficulty < on_time.difficulty, "the late time eased it");
+
+    // A parent stamped back to the median time past opens the floor no sooner.
+    let earliest = chain.earliest_time(&chain.tip());
+    let early = mine(&mut chain, earliest);
+    assert!(early.time_ms < after.time_ms);
+    assert_eq!(chain.floor_after(&chain.tip()), Some(after.time_ms + 2 * T + ahead));
+
+    // Over two floor blocks in a row, ASERT steps once from the block before them.
+    let floor_after = |chain: &Chain| chain.floor_after(&chain.tip()).unwrap();
+    let at = floor_after(&chain) + 1_000;
+    let one = mine(&mut chain, at);
+    let at = floor_after(&chain) + 5_000;
+    let two = mine(&mut chain, at);
+    assert_eq!((one.difficulty, two.difficulty), (floor, floor));
+    let next = chain.next_difficulty(&chain.tip());
+    let late_by = (two.time_ms - after.time_ms) as f64 - 3.0 * T as f64;
+    let ratio = next as f64 / early.difficulty as f64;
+    assert!((ratio - 2f64.powf(-late_by / half_life as f64)).abs() < 0.001, "{ratio}");
+}
+
+/// A first block that comes late takes the floor too, and the genesis anchors: the block after it
+/// asks what it would have, had the first block carried the starting difficulty.
+#[test]
+fn a_late_first_block_keeps_the_start_as_the_anchor() {
+    let coin = coin(DifficultyRule::Asert);
+    let mut plain = coin.clone();
+    plain.rules.allow_min_difficulty_blocks = false;
+    let (mut chain, mut twin) = (chain(coin.clone()), chain(plain));
+    let (start, late) = (chain.tip_header().difficulty, chain.floor_after(&chain.tip()).unwrap());
+    assert_eq!(late, chain.tip_header().time_ms + 2 * T + coin.rules.max_ahead_ms);
+    let first = mine(&mut chain, late + 1_000);
+    assert_eq!(first.difficulty, rounded(1));
+    assert_eq!(mine(&mut twin, late + 1_000).difficulty, start);
+    let second = mine(&mut chain, first.time_ms + T);
+    assert_eq!(second.difficulty, mine(&mut twin, first.time_ms + T).difficulty);
+    assert!(second.difficulty > START / 2, "the start is not lost to the floor");
 }
 
 #[test]

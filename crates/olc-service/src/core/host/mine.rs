@@ -19,7 +19,14 @@ const IDLE: Duration = Duration::from_millis(5);
 struct Job {
     round: u64,
     header: BlockHeader,
+    /// What the header must reach: its own difficulty for a block, less for a pool's share.
+    difficulty: u64,
+    /// Work from outside wants every header that reaches the difficulty, not only the first.
+    every: bool,
 }
+
+/// Shares kept until the node's thread takes them; past this a stuck reader loses the oldest.
+const MOST_FOUND: usize = 256;
 
 /// What a block was built from. Any change means building it again.
 #[derive(PartialEq, Eq)]
@@ -44,7 +51,7 @@ impl Basis {
 struct Shared {
     job: Mutex<Option<Job>>,
     round: AtomicU64,
-    found: Mutex<Option<Job>>,
+    found: Mutex<Vec<Job>>,
     counted: AtomicU64,
     cap: AtomicU64,
     /// The start of this second and the hashes granted in it.
@@ -87,6 +94,8 @@ pub(super) struct Crew {
     block: Option<Block>,
     basis: Option<Basis>,
     built: Instant,
+    /// The header from outside being ground, and its difficulty.
+    outside: Option<(BlockHeader, u64)>,
 }
 
 impl Default for Crew {
@@ -95,7 +104,7 @@ impl Default for Crew {
             shared: Arc::new(Shared {
                 job: Mutex::new(None),
                 round: AtomicU64::new(0),
-                found: Mutex::new(None),
+                found: Mutex::new(Vec::new()),
                 counted: AtomicU64::new(0),
                 cap: AtomicU64::new(0),
                 window: Mutex::new((Instant::now(), 0)),
@@ -104,6 +113,7 @@ impl Default for Crew {
             block: None,
             basis: None,
             built: Instant::now(),
+            outside: None,
         }
     }
 }
@@ -134,9 +144,9 @@ impl Crew {
 
     /// Adds a block the threads sealed, and keeps them on the newest block to seal.
     pub(super) fn lead(&mut self, engine: &mut Engine, now_ms: u64) {
-        let found = self.shared.found.lock().ok().and_then(|mut found| found.take());
+        let found = self.take_found();
         let round = self.shared.round.load(Ordering::Relaxed);
-        if let Some(job) = found.filter(|job| job.round == round) {
+        if let Some(job) = found.into_iter().find(|job| job.round == round && !job.every) {
             if let Some(mut block) = self.block.take() {
                 block.header = job.header;
                 self.basis = None;
@@ -146,19 +156,24 @@ impl Crew {
         let basis = Basis::of(engine);
         let time_ms = now_ms.max(engine.chain().tip_header().time_ms + 1);
         if self.basis.as_ref() == Some(&basis) {
-            // Only the time is out of date: building again would copy the unspent set.
-            if let Some(block) = self.block.as_mut().filter(|_| self.built.elapsed() >= BUILD_EVERY) {
-                block.header.time_ms = time_ms.max(block.header.time_ms);
-                let header = block.header;
-                self.publish(Some(header));
+            // Only the time is out of date: building again would copy the unspent set. The engine
+            // gives the time as the coin carries it and the difficulty that time asks, at once
+            // when a late block's floor comes.
+            let due = |block: &Block| self.built.elapsed() >= BUILD_EVERY || engine.floor_came(&block.header, now_ms);
+            if let Some(block) = self.block.as_mut().filter(|block| due(block)) {
+                let header = engine.retimed(&block.header, now_ms);
                 self.built = Instant::now();
+                if header != block.header {
+                    block.header = header;
+                    self.publish(Some((header, header.difficulty, false)));
+                }
             }
             if self.block.is_some() {
                 return;
             }
         }
         let block = engine.work_template(&basis.miner, time_ms, &basis.note);
-        self.publish(Some(block.header));
+        self.publish(Some((block.header, block.header.difficulty, false)));
         self.block = Some(block);
         self.basis = Some(basis);
         self.built = Instant::now();
@@ -166,16 +181,34 @@ impl Crew {
 
     /// Stops the threads from trying, as when mining is off or the node catches up.
     pub(super) fn rest(&mut self) {
-        if self.block.take().is_some() {
+        if self.block.take().is_some() || self.outside.take().is_some() {
             self.basis = None;
             self.publish(None);
         }
     }
 
-    fn publish(&self, header: Option<BlockHeader>) {
+    /// Grinds a header from outside, a pool's, to its share difficulty on every thread, in place
+    /// of mining. Returns the headers that reached it since the last call.
+    pub(super) fn follow(&mut self, header: BlockHeader, difficulty: u64) -> Vec<BlockHeader> {
+        if self.outside != Some((header, difficulty)) {
+            self.block = None;
+            self.basis = None;
+            self.outside = Some((header, difficulty));
+            self.publish(Some((header, difficulty, true)));
+        }
+        // A share of the job before still goes: the pool says whether it came in time.
+        let found = self.take_found().into_iter().filter(|job| job.every);
+        found.map(|job| job.header).collect()
+    }
+
+    fn take_found(&self) -> Vec<Job> {
+        self.shared.found.lock().map(|mut found| std::mem::take(&mut *found)).unwrap_or_default()
+    }
+
+    fn publish(&self, work: Option<(BlockHeader, u64, bool)>) {
         if let Ok(mut job) = self.shared.job.lock() {
             let round = self.shared.round.load(Ordering::Relaxed) + 1;
-            *job = header.map(|header| Job { round, header });
+            *job = work.map(|(header, difficulty, every)| Job { round, header, difficulty, every });
             self.shared.round.store(round, Ordering::Release);
         }
     }
@@ -217,13 +250,18 @@ fn work(shared: &Shared, stop: &AtomicBool, start: u32) {
             thread::sleep(WAIT);
             continue;
         }
-        let difficulty = job.header.difficulty;
-        let sealed = ProofOfWork.try_meet(&mut job.header, difficulty, granted);
+        let sealed = ProofOfWork.try_meet(&mut job.header, job.difficulty, granted);
         shared.counted.fetch_add(u64::from(granted), Ordering::Relaxed);
         if sealed {
-            sealed_round = Some(job.round);
             if let Ok(mut found) = shared.found.lock() {
-                *found = Some(*job);
+                if found.len() >= MOST_FOUND {
+                    found.remove(0);
+                }
+                found.push(*job);
+            }
+            match job.every {
+                true => job.header.nonce = job.header.nonce.wrapping_add(1),
+                false => sealed_round = Some(job.round),
             }
         }
     }
@@ -250,7 +288,7 @@ mod tests {
         let mut crew = Crew::default();
         crew.set_cap(cap);
         crew.resize(threads);
-        crew.publish(Some(header(u64::MAX)));
+        crew.publish(Some((header(u64::MAX), u64::MAX, false)));
         thread::sleep(Duration::from_millis(100));
         crew.take_counted();
         thread::sleep(run);
@@ -270,10 +308,10 @@ mod tests {
     fn a_sealed_header_comes_back_from_a_thread() {
         let mut crew = Crew::default();
         crew.resize(3);
-        crew.publish(Some(header(2)));
+        crew.publish(Some((header(2), 2, false)));
         let started = Instant::now();
         let job = loop {
-            if let Some(job) = crew.shared.found.lock().unwrap().take() {
+            if let Some(job) = crew.shared.found.lock().unwrap().pop() {
                 break job;
             }
             assert!(started.elapsed() < Duration::from_secs(5), "no thread sealed an easy header");
@@ -309,5 +347,30 @@ mod tests {
         );
         assert!(all as f64 >= 0.8 * one as f64 * used as f64);
         assert!(all >= on_cores, "fewer threads would mine more");
+    }
+
+    /// A block's time moves on as the coin carries it, with the difficulty that time asks: whole
+    /// seconds on Bitcoin's header, and the floor the moment a late block may take it.
+    #[test]
+    fn a_moved_time_keeps_the_rules() {
+        let mut coin = olc_core::CoinConfig::olc();
+        coin.initial_difficulty = 1 << 40;
+        let plugins = olc_core::Plugins { consensus: Box::new(ProofOfWork), languages: Vec::new() };
+        let wallet = olc_wallet::Wallet::from_secret([3; 32]).unwrap();
+        let mut engine = Engine::new(coin.clone(), plugins, wallet);
+        let published = |crew: &Crew| crew.shared.job.lock().unwrap().unwrap().header;
+        let mut crew = Crew::default();
+        let start = coin.genesis_time_ms + 1_234;
+        crew.lead(&mut engine, start);
+        let first = published(&crew);
+        assert_eq!(first.time_ms, coin.genesis_time_ms + 1_000);
+        crew.built -= BUILD_EVERY;
+        crew.lead(&mut engine, start + 7_500);
+        let moved = published(&crew);
+        assert_eq!((moved.time_ms, moved.difficulty), (coin.genesis_time_ms + 8_000, first.difficulty));
+        let late = engine.chain().floor_after(&engine.chain().tip()).unwrap();
+        crew.lead(&mut engine, late + 1_400);
+        let floored = published(&crew);
+        assert_eq!((floored.time_ms, floored.difficulty), (late + 1_000, coin.rules.min_difficulty));
     }
 }

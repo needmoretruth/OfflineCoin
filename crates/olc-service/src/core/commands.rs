@@ -168,12 +168,7 @@ pub enum Command {
         id: u32,
         to: String,
     },
-    StartPool {
-        share_difficulty: u64,
-        nodes: Vec<u32>,
-        boards: Vec<BoardId>,
-    },
-    StopPool,
+    Pool(super::pool_plan::PoolOrder),
     NodePay {
         id: u32,
         to: String,
@@ -199,8 +194,7 @@ impl Command {
                 | Self::Fork { .. }
                 | Self::ForkBack
                 | Self::MoveBoard(_)
-                | Self::StartPool { .. }
-                | Self::StopPool
+                | Self::Pool(_)
                 | Self::Lock(_)
                 | Self::Channel(_)
                 | Self::Swap(_)

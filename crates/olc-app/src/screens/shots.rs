@@ -6,7 +6,7 @@ use super::{
     app, click, harness, node_program, port_of_scene, quiet_settings, scratch, staged_board, type_into, wait_until,
     Window, SETTLE_STEPS, SIZES,
 };
-use crate::core::{coin_folder, save_coin, Notice, PoolRow, Snapshot};
+use crate::core::{coin_folder, save_coin, Notice, Snapshot, WorkerRow};
 use crate::i18n::{self, Lang, Mode, Voice};
 use crate::local::{Preset, Supervisor};
 use crate::settings::{Device, Paths, Settings, Theme};
@@ -131,12 +131,22 @@ fn with_failure(live: &Snapshot) -> Option<Snapshot> {
 }
 
 fn with_pool(live: &Snapshot) -> Option<Snapshot> {
-    let row = |name: &str, shares, paid| PoolRow { name: name.into(), shares, rejected: 0, paid };
+    let row = |name: &str, accepted, paid| WorkerRow {
+        name: format!("olc1example.{name}"),
+        worker: name.into(),
+        speed: 40_000,
+        last_share_secs: Some(3),
+        accepted,
+        paid,
+        difficulty: 500,
+        online: true,
+        ..WorkerRow::default()
+    };
     let mut stage = with_boards(live)?;
     stage.pool.running = true;
-    stage.pool.share_difficulty = 500;
-    stage.pool.blocks = 12;
-    stage.pool.rows = vec![row("Kitchen", 1_204, 620_000_000), row("Hallway", 880, 410_000_000)];
+    stage.pool.port = 3333;
+    stage.pool.reach = vec!["127.0.0.1:3333".into()];
+    stage.pool.workers = vec![row("Kitchen", 1_204, 620_000_000), row("Hallway", 880, 410_000_000)];
     Some(stage)
 }
 

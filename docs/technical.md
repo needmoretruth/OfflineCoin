@@ -130,9 +130,11 @@ Each coin chooses one in its file as `rules.difficulty_rule`. A file from before
 |---|---|
 | `bitcoin` | Bitcoin Core's `pow.cpp`: every `retarget_interval` blocks the difficulty follows how long the last window took, at most four times either way, and never below the floor. OLC compares the window's N−1 gaps with N−1 block times. Bitcoin Core compares them with N, which is 0.05 % off at its 2,016 blocks and would be 10 % off at 10. |
 | `bip94` | Bitcoin Core's test network since BIP 94. Bitcoin's rule, and between retargets a block more than two block times after its parent must carry the floor; any other carries the last difficulty that is not such a block's. A retarget starts from the first block of the window it measures, which never takes the exception. The first block of a window may be at most one block time before its parent (BIP 94's 600 seconds, scaled to the block time). |
-| `asert` | Bitcoin Cash's aserti3-2d (spec `2020-11-15-asert.md`): at every block the difficulty halves for each `rules.half_life_blocks` block times the parent came late and doubles for each it came early. |
+| `asert` | Bitcoin Cash's aserti3-2d (spec `2020-11-15-asert.md`): at every block the difficulty halves for each `rules.half_life_blocks` block times the parent came late and doubles for each it came early. With `rules.allow_min_difficulty_blocks`, a block late enough must carry the floor, as below. |
 
-OLC uses `asert` with a half-life of six blocks, 3 minutes, as Bitcoin Cash's test networks use one hour of their 10 minute blocks for hash that comes and goes. A miner who drops to a twentieth of the hash rate waits one long block, and the next ones come about as fast as the rate allows. Counted in blocks, the half-life keeps its meaning when a coin chooses another block time.
+OLC uses `asert` with a half-life of six blocks, 3 minutes, as Bitcoin Cash's test networks use one hour of their 10 minute blocks for hash that comes and goes. Counted in blocks, the half-life keeps its meaning when a coin chooses another block time.
+
+ASERT alone sets a block's difficulty by when its parent came, so a miner who drops to a fiftieth of the hash rate waits about fifty block times for the next block. OLC also sets `allow_min_difficulty_blocks`, Bitcoin Core's `fPowAllowMinDifficultyBlocks` for its test networks: a block whose time is more than two block times and the clock limit after the newest time of the 11 blocks before it must carry the floor, 90 seconds on OLC. Such a block adds only the floor's work. ASERT anchors on the newest block before such blocks, as Bitcoin Cash's test networks keep their fixed anchor through them, so the regular difficulty goes on falling by the spec's formula over the time they took, and the first block in time carries it. A late block at the floor that ASERT itself brought there is stepped past the same way, which lands on the floor all the same, because every step past a late block only eases. ASERT looks back past at most 32 such blocks, inside the 64 headers a node that started from a peer's snapshot holds; past them the regular difficulty is the floor. When the first block itself comes late, the genesis anchors as if its parent were a block time before it, so the block after asks what it would have had the first block carried the starting difficulty.
 
 Measured on 2026-11-04 with three real nodes on 127.0.0.1, one per rule, at OLC's numbers: 30 second blocks, windows of 10, the floor of 30,000. Each mined at 20,000 hashes a second until its difficulty had followed, then dropped to 1,000, where the floor gives 30 second blocks. "Back" is the first block whose own rule, not BIP 94's exception, asks a difficulty the low rate finds within 37.5 seconds.
 
@@ -151,7 +153,8 @@ The spec's 12 published test vectors (`crates/olc-pow/vectors`) pass two ways. I
 From OLC's new genesis, and on every coin made since:
 
 - A block's time must be after the median of the 11 blocks before it (`rules.median_time_blocks`), as Bitcoin's median time past. With 30 second blocks that reaches back about 3 minutes: one miner with a wrong clock cannot hold the chain back, and a block's time stays near when it was found.
-- A computer takes no block more than 2 minutes ahead of its clock (`rules.max_ahead_ms`), and takes it when it comes again later, as Bitcoin Core does with 2 hours. Clocks set over the internet agree within seconds, and under ASERT a block 2 minutes ahead makes the next one at most about 1.6 times easier. A board has no clock of the date, so it runs at the chain's time and sets no limit.
+- A computer takes no block more than 30 seconds, one block time, ahead of its clock (`rules.max_ahead_ms`), and takes it when it comes again later, as Bitcoin Core does with 2 hours and Ethereum's miners did with 15 seconds at their 13. Clocks set over the internet agree within seconds, and under ASERT a block 30 seconds ahead makes the next one at most about 1.12 times easier. A board has no clock of the date, so it runs at the chain's time and sets no limit.
+- The floor for a late block waits for the clock limit as well as two block times, and counts from the newest time of the 11 blocks before it. A miner that sets its clock ahead by the limit still waits two real block times, and a parent stamped back to the median time past opens it no sooner. On two block times alone, a node lying by the limit would take the floor straight after every block. A board, with no limit, has no such bound, as for every time rule.
 - Under BIP 94, the first block of a window may be at most one block time before its parent.
 
 Times are whole seconds on a coin with Bitcoin's header. The rules' numbers stay in milliseconds in the file. A coin made before keeps a block after its parent and no limit.
@@ -195,7 +198,7 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 
 These come from the rules, and changing them means a fork.
 
-- A board takes a block of any time, because it has no clock of the date. A computer takes none more than 2 minutes ahead of its own.
+- A board takes a block of any time, because it has no clock of the date. A computer takes none more than 30 seconds ahead of its own.
 - A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 20, so stalling a board takes a mined block.
 - A version 1 transaction id covers its unlock data, as in Bitcoin before SegWit.
 - A 64-byte transaction could be mistaken for an inner node of the Merkle tree.

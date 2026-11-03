@@ -104,7 +104,7 @@ fn sample(word: &str, home: &Path) -> String {
     let file = |name: &str| home.join(name).display().to_string();
     let somebody = "olc409c2c2374917964bd7d010ddb77f90500eb3a41";
     match word {
-        "keys" | "scan" | "fork-back" | "boards" | "pool-stop" | "lab-stop" => word.to_string(),
+        "keys" | "scan" | "fork-back" | "boards" | "pool" | "pool-stop" | "lab-stop" => word.to_string(),
         "key" => "key new".into(),
         "backup" => format!("backup {}", file("backup.json")),
         "restore" => format!("restore {}", file("backup.json")),
@@ -134,7 +134,10 @@ fn sample(word: &str, home: &Path) -> String {
         "board" => "board x name y".into(),
         "update" | "move" | "cap-test" => format!("{word} x"),
         "install" => "install --port none --name x".into(),
-        "pool-start" => "pool-start 1 --nodes 1".into(),
+        // Port 0: the system picks a free one, and the pool listens on 127.0.0.1 alone.
+        "pool-start" => "pool-start --port 0".into(),
+        "pool-join" => format!("pool-join own 127.0.0.1:9 {somebody}.rig"),
+        "pool-leave" => "pool-leave own".into(),
         "node-start" | "node-stop" | "node-remove" => format!("{word} 1"),
         "node-cap" => "node-cap 1 1".into(),
         "node-mine" => "node-mine 1 on".into(),
@@ -161,7 +164,7 @@ fn sample(word: &str, home: &Path) -> String {
 
 /// Words about the app's boards and its own nodes, and words that change the coin a node runs.
 fn not_for_a_lone_node(word: &str) -> bool {
-    let app = ["boards", "board", "update", "move", "cap-test", "install", "pool-start", "pool-stop", "swap"];
+    let app = ["boards", "board", "update", "move", "cap-test", "install", "pool", "pool-start", "pool-stop", "pool-join", "pool-leave", "swap"];
     let own = ["lab-stop", "join", "fork", "fork-back"];
     app.contains(&word) || own.contains(&word) || word.starts_with("node-")
 }

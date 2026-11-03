@@ -243,17 +243,20 @@ impl Log {
         at + (HEADER + length).next_multiple_of(WORD) as u64
     }
 
-    /// Finds the records by reading every sector. Only for when no saved state says where they
-    /// start.
+    /// Finds the records by reading every sector that may hold one: up to where writing ended
+    /// when the medium knows it, else its whole capacity. Only for when no saved state says where
+    /// they start.
     pub(crate) fn survey(&self) -> Option<Survey> {
         let capacity = self.medium.capacity();
-        let unbounded = capacity == u64::MAX;
+        let written_end = self.medium.written_end();
+        let unbounded = capacity == u64::MAX && written_end.is_none();
+        let end = written_end.unwrap_or(capacity);
         let mut found: Option<Survey> = None;
         let mut sector = self.medium.lowest();
         let mut quiet = 0;
         // A record's start can reach past the end of a sector.
         let mut bytes = vec![0u8; SECTOR as usize + HEADER];
-        while (sector < capacity) && !(unbounded && quiet >= 8) {
+        while (sector < end) && !(unbounded && quiet >= 8) {
             let read = self.medium.read(sector, &mut bytes);
             let blank = !read || bytes[..SECTOR as usize].iter().all(|byte| *byte == 0xFF);
             quiet = if blank { quiet + 1 } else { 0 };
@@ -310,4 +313,69 @@ impl Log {
         self.medium.forget(self.tail);
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::medium::MemoryMedium;
+
+    /// Positions never folded, as a computer's files: a limit, old bytes given back, and an end
+    /// past which nothing was written.
+    struct Files {
+        inner: MemoryMedium,
+        limit: u64,
+        lowest: u64,
+        end: u64,
+    }
+
+    impl Medium for Files {
+        fn capacity(&self) -> u64 {
+            self.limit
+        }
+
+        fn read(&self, at: u64, bytes: &mut [u8]) -> bool {
+            at >= self.lowest && self.inner.read(at, bytes)
+        }
+
+        fn write(&mut self, at: u64, bytes: &[u8]) -> bool {
+            self.end = self.end.max((at + bytes.len() as u64).next_multiple_of(SECTOR));
+            self.inner.write(at, bytes)
+        }
+
+        fn erase(&mut self, at: u64) -> bool {
+            self.end = self.end.max(at + SECTOR);
+            self.inner.erase(at)
+        }
+
+        fn lowest(&self) -> u64 {
+            self.lowest
+        }
+
+        fn written_end(&self) -> Option<u64> {
+            Some(self.end)
+        }
+
+        fn forget(&mut self, below: u64) {
+            self.lowest = self.lowest.max(sector_floor(below));
+        }
+    }
+
+    /// Without a saved state the records are found again even where they lie past the limit, as
+    /// once a computer's oldest files were given back.
+    #[test]
+    fn a_survey_finds_records_past_the_limit() {
+        let limit = 8 * SECTOR;
+        let files = Files { inner: MemoryMedium::growing(), limit, lowest: 0, end: 0 };
+        let mut log = Log::new(Box::new(files), [9; 32]);
+        let mut last = 0;
+        while log.head() < 5 * limit {
+            last = log.append(Kind::Tip, &[7; 3_000]).unwrap();
+            log.forget(log.tail());
+        }
+        let survey = log.survey().unwrap();
+        assert_eq!(survey.end, log.head());
+        assert!(survey.lowest >= log.tail() && survey.lowest <= last);
+        assert!(survey.lowest > limit);
+    }
 }

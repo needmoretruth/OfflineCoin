@@ -4,7 +4,7 @@
 //! bar came up between press and release. A person pays the same way.
 use super::shots::with_boards;
 use super::{app, harness, quiet_settings, scratch, wait_until, Window, SETTLE_STEPS, SIZES};
-use crate::core::{Activity, ActivityKind, BlockRow, KeyView, NoteRow, Notice, PoolRow, Snapshot};
+use crate::core::{Activity, ActivityKind, BlockRow, KeyView, NoteRow, Notice, Snapshot, WorkerRow};
 use crate::i18n::{self, Mode, Voice};
 use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2};
@@ -87,7 +87,7 @@ fn busy(quiet: &Snapshot) -> Snapshot {
     stage.experiment.running = true;
     stage.experiment.lines = vec!["line".into()];
     stage.pool.running = true;
-    stage.pool.rows = vec![PoolRow { name: "Kitchen".into(), shares: 1, rejected: 0, paid: 0 }];
+    stage.pool.workers = vec![WorkerRow { worker: "Kitchen".into(), accepted: 1, online: true, ..WorkerRow::default() }];
     stage
 }
 

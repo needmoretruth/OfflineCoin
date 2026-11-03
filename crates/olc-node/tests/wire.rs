@@ -188,6 +188,7 @@ fn a_coin_comes_whole_through_a_hello() {
     let mut later = coin.rules.clone();
     later.difficulty_rule = DifficultyRule::Asert;
     later.half_life_blocks = 20;
+    later.allow_min_difficulty_blocks = false;
     coin.forks.push(Fork { from_height: 50, rules: later });
     let bytes = Message::Hello(hello_of(&coin).into()).encode();
     assert_eq!(Message::decode(&bytes), Some(Message::Hello(hello_of(&coin).into())));
