@@ -182,7 +182,7 @@ fn header_value(text: &str, key: &str) -> String {
 }
 
 fn runs() -> Vec<Run> {
-    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/asert");
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("vectors");
     (1..=12)
         .map(|number| {
             let name = format!("run{number:02}");

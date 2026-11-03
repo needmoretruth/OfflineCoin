@@ -63,7 +63,7 @@ fn asked(
             parent_difficulty: parent.difficulty,
             gap_ms: i64::try_from(gap).unwrap_or(if gap < 0 { i64::MIN } else { i64::MAX }),
             block_time_ms: rules.block_time_ms,
-            half_life_ms: rules.half_life_ms,
+            half_life_ms: rules.half_life_blocks.saturating_mul(rules.block_time_ms),
             min_difficulty: floor,
         });
     }

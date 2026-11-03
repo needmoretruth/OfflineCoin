@@ -49,7 +49,7 @@ fn changed(mut block: Block, change: impl Fn(&mut BlockHeader)) -> Block {
 #[test]
 fn asert_halves_after_a_block_one_half_life_late_and_rises_after_a_fast_one() {
     let coin = coin(DifficultyRule::Asert);
-    let half_life = coin.rules.half_life_ms;
+    let half_life = coin.rules.half_life_blocks * T;
     let mut chain = chain(coin.clone());
     let first = mine(&mut chain, coin.genesis_time_ms + T);
     assert_eq!(first.difficulty, rounded(START));

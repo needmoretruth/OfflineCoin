@@ -28,7 +28,7 @@ mod tree;
 mod tx_form;
 pub mod types;
 
-pub use chain::template::{ancestors, by_package, coinbase_split, pays_more, Waiting, EXTRANONCE_BYTES};
+pub use chain::template::{ancestors, by_package, coinbase_split, is_extranonce, pays_more, Waiting, EXTRANONCE_BYTES};
 pub use chain::{AddOutcome, Chain, ChainError, Held, FEWEST_RECENT};
 pub use coin::{CoinConfig, Rules};
 pub use timing::DifficultyRule;

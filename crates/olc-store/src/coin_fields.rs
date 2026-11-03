@@ -359,8 +359,6 @@ pub fn new_coin(choices: &NewCoin) -> Result<CoinConfig, Bad> {
     if !choices.given("initial_difficulty") {
         coin.initial_difficulty = coin.rules.min_difficulty;
     }
-    // Six blocks, as OLC's three minutes are six of its 30 seconds.
-    coin.rules.half_life_ms = coin.rules.block_time_ms.saturating_mul(6);
     fits_a_board(&coin)?;
     Ok(coin)
 }
@@ -451,7 +449,7 @@ mod tests {
         // A new coin takes the upgrade from genesis, so nobody chooses its height.
         // The difficulty rule, its half-life, the time rules and the header have no word on the
         // new coin page yet; a coin file sets them.
-        let later = ["rules.difficulty_rule", "rules.half_life_ms", "rules.median_time_blocks", "rules.max_ahead_ms", "bitcoin_header"];
+        let later = ["rules.difficulty_rule", "rules.half_life_blocks", "rules.median_time_blocks", "rules.max_ahead_ms", "bitcoin_header"];
         keys.retain(|key| key != "forks" && key != "upgrade_from" && !later.contains(&key.as_str()));
         assert_eq!(keys.len(), COIN_FIELDS.len(), "{keys:?}");
         let samples = samples();

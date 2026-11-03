@@ -2,7 +2,8 @@
 mod common;
 mod store;
 
-use common::{engine_of, mine, silence, test_coin};
+use common::{engine_of, legacy_coin, mine, silence, test_coin};
+use olc_core::types::{BITCOIN_VERSION, MARK_BITS};
 use olc_core::Chain;
 use olc_wallet::Wallet;
 use store::{flash, keep_on, plugins};
@@ -35,7 +36,10 @@ fn mine_to(node: &mut Engine, height: u64) -> Vec<Block> {
 }
 
 fn both(change: impl Fn(&mut Rules)) -> (Engine, Engine) {
-    let coin = test_coin();
+    both_on(test_coin(), change)
+}
+
+fn both_on(coin: CoinConfig, change: impl Fn(&mut Rules)) -> (Engine, Engine) {
     let new = forked(&coin, change);
     (engine_of(1, coin), engine_of(2, new))
 }
@@ -86,9 +90,10 @@ fn a_fork_with_a_new_reward_pays_it_from_its_height_and_old_blocks_stay_valid() 
     assert_eq!(late.chain().tip(), new.chain().tip());
 }
 
+/// On a coin from before Bitcoin's header the mark is added to the difficulty.
 #[test]
 fn the_mark_is_never_what_the_old_rules_ask() {
-    let (mut old, mut new) = both(|rules| rules.halving_interval += 1);
+    let (mut old, mut new) = both_on(legacy_coin(), |rules| rules.halving_interval += 1);
     mine_to(&mut old, FORK_AT - 1);
     mine_to(&mut new, FORK_AT - 1);
     let tip = old.chain().tip();
@@ -100,37 +105,61 @@ fn the_mark_is_never_what_the_old_rules_ask() {
     assert_eq!(asked, at_tip.max(new.chain().rules().floor_at(FORK_AT)) + mark);
 }
 
+/// On a coin with Bitcoin's header the mark sits in version bits no miner rolls, and the target
+/// is the rule's.
+#[test]
+fn the_mark_goes_in_the_version_and_leaves_the_target() {
+    let (mut old, mut new) = both(|rules| rules.halving_interval += 1);
+    mine_to(&mut old, FORK_AT - 1);
+    let blocks = mine_to(&mut new, FORK_AT);
+    let mark = new.chain().config().forks[0].mark();
+    let first = blocks[FORK_AT as usize - 1].header;
+    assert_eq!(u64::from(first.version & MARK_BITS), mark);
+    assert_eq!(first.version & !MARK_BITS, BITCOIN_VERSION);
+    let floor = new.chain().rules().floor_at(FORK_AT);
+    let asked = old.chain().next_difficulty(&old.chain().tip()).max(floor);
+    assert_eq!(first.difficulty, olc_core::bits::rounded(asked), "the old rule's, raised to the floor");
+    assert_eq!(new.chain().tip_header().difficulty, first.difficulty);
+    assert_eq!(new.chain().header_version_at(FORK_AT + 1), BITCOIN_VERSION, "only the first block");
+}
+
 #[test]
 fn a_raised_floor_starts_at_the_fork() {
-    let (_, mut new) = both(|rules| {
+    let (_, mut new) = both_on(legacy_coin(), |rules| {
         rules.min_difficulty = 40;
         rules.floor_from_height = 0;
     });
     let blocks = mine_to(&mut new, FORK_AT);
     let mark = new.chain().config().forks[0].mark();
     assert_eq!(blocks[FORK_AT as usize - 1].header.difficulty, 40 + mark);
+
+    let (_, mut new) = both(|rules| rules.min_difficulty = 40_000);
+    let blocks = mine_to(&mut new, FORK_AT);
+    assert_eq!(blocks[FORK_AT as usize - 1].header.difficulty, olc_core::bits::rounded(40_000));
 }
 
 #[test]
 fn a_coin_without_forks_keeps_its_exact_bytes() {
     let ended = |coin: &CoinConfig| {
         let mut bytes = postcard::to_allocvec(coin).unwrap();
-        let end = (coin.rules.min_difficulty, false, coin.rules.floor_from_height);
+        let end = (coin.rules.min_difficulty, coin.message_in_block, coin.rules.floor_from_height);
         bytes.extend(postcard::to_allocvec(&end).unwrap());
         bytes
     };
-    let mut old = test_coin();
+    let mut old = legacy_coin();
     old.upgrade_from = NEVER;
     assert_eq!(old.to_bytes(), ended(&old), "not a byte more than before forks");
     assert_eq!(CoinConfig::from_bytes(&ended(&old)), Some(old));
-    // OLC's bytes from before its upgrade still read as OLC, which takes the upgrade at its height.
+    // OLC's difficulty rule, time rules and header come after what older builds read.
     let olc = CoinConfig::olc();
-    assert_eq!(CoinConfig::from_bytes(&ended(&olc)), Some(olc));
+    let bytes = olc.to_bytes();
+    assert!(bytes.len() > ended(&olc).len());
+    assert_eq!(CoinConfig::from_bytes(&bytes), Some(olc));
 }
 
 #[test]
 fn a_fork_travels_past_where_older_builds_stop_reading() {
-    let coin = forked(&test_coin(), |rules| {
+    let coin = forked(&legacy_coin(), |rules| {
         rules.reward = 3;
         rules.min_difficulty = 77;
         rules.floor_from_height = 9;
@@ -140,6 +169,12 @@ fn a_fork_travels_past_where_older_builds_stop_reading() {
     let (seen_by_old, _) = postcard::take_from_bytes::<CoinConfig>(&bytes).unwrap();
     assert_eq!(seen_by_old.genesis().id(), coin.genesis().id());
     assert_eq!(seen_by_old.rules.reward, coin.rules.reward, "the old side sees the rules it has");
+
+    // An older build reads a coin with Bitcoin's header as another coin, so it never follows it.
+    let new = forked(&test_coin(), |rules| rules.reward = 3);
+    let (seen_by_old, _) = postcard::take_from_bytes::<CoinConfig>(&new.to_bytes()).unwrap();
+    assert_ne!(seen_by_old.genesis().id(), new.genesis().id());
+    assert_eq!(CoinConfig::from_bytes(&new.to_bytes()), Some(new));
 }
 
 /// A board moved between sides finds blocks of the side it left. They go, or it would stand on

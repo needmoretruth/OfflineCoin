@@ -2,7 +2,7 @@
 mod common;
 mod store;
 
-use common::{deliver, engine_of, mine, silence, test_coin};
+use common::{deliver, engine_of, first_olc, mine, silence, test_coin};
 use olc_core::coin::COIN;
 use olc_core::proof::{merkle_branch, root_of_branch};
 use olc_core::types::merkle_root;
@@ -62,7 +62,7 @@ fn mine_on(node: &mut Engine, count: usize, clock: &mut u64) {
 
 #[test]
 fn every_real_header_passes_as_it_did_for_a_full_node() {
-    let coin = CoinConfig::olc();
+    let coin = first_olc();
     let mut full = engine_of(1, coin.clone());
     for block in real_blocks() {
         // The file holds branches that lost too.
@@ -87,7 +87,7 @@ fn every_real_header_passes_as_it_did_for_a_full_node() {
 #[test]
 fn a_header_that_breaks_a_rule_is_refused() {
     let blocks = real_blocks();
-    let coin = CoinConfig::olc();
+    let coin = first_olc();
     let full = engine_of(1, coin.clone());
     let chain = full.chain();
     let consensus = chain.plugins().consensus.as_ref();

@@ -52,8 +52,12 @@ fn folder(name: &str) -> PathBuf {
 }
 
 fn host(root: &Path) -> Host {
+    host_on(root, CoinConfig::olc())
+}
+
+fn host_on(root: &Path, coin: CoinConfig) -> Host {
     let plan = Plan {
-        coin: CoinConfig::olc(),
+        coin,
         folder: root.join("chain"),
         wallet_folder: root.join("wallet"),
         bind_host: "127.0.0.1".into(),
@@ -394,9 +398,12 @@ fn shutting_others_out_closes_the_door_at_once() {
 #[test]
 fn a_shared_wallet_too_early_names_the_block() {
     let root = folder("shared-too-early");
-    let host = host(&root);
+    // OLC takes them from its genesis, as the first OLC did from block 6,240.
+    let mut coin = CoinConfig::olc();
+    coin.upgrade_from = 6_240;
+    let host = host_on(&root, coin);
     let words = "olcshared1.2.02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5".to_string();
     let (key, detail, good) = host.carry_lock(LockOrder::Pay { words, amount: "1".into() });
     assert_eq!((key, good), ("notice.shared_not_yet", false));
-    assert_eq!(detail, CoinConfig::olc().upgrade_from.to_string());
+    assert_eq!(detail, "6240");
 }

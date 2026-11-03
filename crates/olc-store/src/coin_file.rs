@@ -141,7 +141,7 @@ mod tests {
     fn a_file_from_before_the_choice_keeps_bitcoins_rule_and_header() {
         let mut file: serde_json::Value = serde_json::from_str(&to_json(&CoinConfig::olc()).unwrap()).unwrap();
         let rules = file["rules"].as_object_mut().unwrap();
-        for key in ["difficulty_rule", "half_life_ms", "median_time_blocks", "max_ahead_ms"] {
+        for key in ["difficulty_rule", "half_life_blocks", "median_time_blocks", "max_ahead_ms"] {
             assert!(rules.remove(key).is_some(), "{key}");
         }
         assert!(file.as_object_mut().unwrap().remove("bitcoin_header").is_some());

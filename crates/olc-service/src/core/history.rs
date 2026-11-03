@@ -65,7 +65,7 @@ impl History {
         self.next_height = self.next_height.max(chain.oldest_held());
         let blocks = chain.blocks_from(self.next_height, STEP);
         for block in &blocks {
-            self.read(block, me);
+            self.read(block, me, chain.config().bitcoin_header);
             self.last = block.id();
         }
         if self.next_height > chain.height() {
@@ -73,7 +73,8 @@ impl History {
         }
     }
 
-    fn read(&mut self, block: &Block, me: &[Address]) {
+    /// On a coin with Bitcoin's header the coinbase's extranonce is a miner's counter, not a note.
+    fn read(&mut self, block: &Block, me: &[Address], bitcoin_header: bool) {
         let height = self.next_height;
         self.next_height += 1;
         for tx in &block.txs {
@@ -86,6 +87,9 @@ impl History {
                 > 0;
             let (mut to_me, mut to_others) = (0, 0);
             for (index, output) in tx.outputs.iter().enumerate() {
+                if output.is_data() && bitcoin_header && olc_core::is_extranonce(tx, index) {
+                    continue;
+                }
                 if output.is_data() {
                     if self.notes.len() >= NOTES_SHOWN {
                         self.notes.pop_front();
@@ -150,5 +154,21 @@ mod tests {
         assert_eq!(kind_of((false, false), (50, 0), 5), Some((ActivityKind::Received, 50)));
         assert_eq!(kind_of((true, false), (50, 0), 5), Some((ActivityKind::Mined, 50)));
         assert_eq!(kind_of((false, false), (0, 50), 5), None);
+    }
+
+    /// A block's notes come to the list; the miner's counter in its coinbase does not.
+    #[test]
+    fn the_extranonce_is_no_note() {
+        let plugins = olc_core::Plugins { consensus: Box::new(olc_pow::ProofOfWork), languages: olc_lang::all() };
+        let chain = Chain::new(olc_core::CoinConfig::olc(), plugins);
+        let time_ms = chain.tip_header().time_ms + 1_000;
+        let block = chain.block_template_with(&[3; 20], &[], time_ms, b"hello");
+        assert!(olc_core::is_extranonce(&block.txs[0], block.txs[0].outputs.len() - 1));
+        let mut history = History::default();
+        history.read(&block, &[], true);
+        let notes: Vec<&str> = history.notes().map(|note| note.text.as_str()).collect();
+        assert_eq!(notes, ["hello"]);
+        assert_eq!(text_of(&[0; 8]), "0000000000000000");
+        assert_eq!(text_of(b"two\nlines"), "two\nlines");
     }
 }

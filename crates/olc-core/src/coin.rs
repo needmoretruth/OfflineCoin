@@ -4,7 +4,7 @@
 //! As in Bitcoin they are separate: edit the rules on some nodes and those nodes fork away from
 //! the others on the same chain history, and no new coin is needed.
 pub use crate::added::{CoinAdded, SpokenAdded};
-use crate::timing::{chosen, DifficultyRule, Timing, HALF_LIFE_MS, MAX_AHEAD_MS, MEDIAN_TIME_BLOCKS};
+use crate::timing::{chosen, DifficultyRule, Timing, HALF_LIFE_BLOCKS, MAX_AHEAD_MS, MEDIAN_TIME_BLOCKS};
 use crate::types::{merkle_root, Block, BlockHeader, Tx, TxOut, BITCOIN_VERSION, MARK_BITS};
 use alloc::string::String;
 use alloc::vec;
@@ -60,10 +60,10 @@ pub struct Rules {
     /// what older builds read, see [`CoinAdded`].
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub difficulty_rule: DifficultyRule,
-    /// Under per-block adjustment, how far a block may come late or early for the difficulty
-    /// after it to halve or double.
+    /// Under per-block adjustment, how many block times a block may come late or early for the
+    /// difficulty after it to halve or double.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
-    pub half_life_ms: u64,
+    pub half_life_blocks: u64,
     /// A block's time must pass the middle time of this many blocks before it, as Bitcoin's
     /// median time past. 0 asks only that it come after its parent's, as every coin did before.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
@@ -107,7 +107,7 @@ impl Default for Rules {
             min_difficulty: MIN_DIFFICULTY,
             floor_from_height: 0,
             difficulty_rule: DifficultyRule::Asert,
-            half_life_ms: HALF_LIFE_MS,
+            half_life_blocks: HALF_LIFE_BLOCKS,
             median_time_blocks: MEDIAN_TIME_BLOCKS,
             max_ahead_ms: MAX_AHEAD_MS,
         }
@@ -135,13 +135,13 @@ impl Rules {
 
     /// What these rules say about difficulty and time, as the binary form carries it.
     pub fn timing(&self) -> Timing {
-        (self.difficulty_rule, self.half_life_ms, self.median_time_blocks, self.max_ahead_ms)
+        (self.difficulty_rule, self.half_life_blocks, self.median_time_blocks, self.max_ahead_ms)
     }
 
     fn set_timing(&mut self, timing: Timing) {
-        let (rule, half_life_ms, median_time_blocks, max_ahead_ms) = timing;
+        let (rule, half_life_blocks, median_time_blocks, max_ahead_ms) = timing;
         self.difficulty_rule = rule;
-        self.half_life_ms = half_life_ms;
+        self.half_life_blocks = half_life_blocks;
         self.median_time_blocks = median_time_blocks;
         self.max_ahead_ms = max_ahead_ms;
     }
@@ -480,11 +480,11 @@ impl CoinConfig {
                 lock: address.to_vec(),
             })
             .collect();
-        if self.bitcoin_header {
-            outputs.push(TxOut::data(self.name.as_bytes().to_vec()));
-        }
         if self.message_in_block || self.bitcoin_header {
             outputs.push(TxOut::data(self.message.as_bytes().to_vec()));
+        }
+        if self.bitcoin_header {
+            outputs.push(TxOut::data(self.name.as_bytes().to_vec()));
         }
         let tx = Tx {
             version: 1,

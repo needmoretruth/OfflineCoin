@@ -3,7 +3,8 @@
 mod common;
 
 use common::{engine_of, mine, silence, test_coin};
-use olc_core::{Address, Block, CoinConfig, Hash, Tx};
+use olc_core::coin::Fork;
+use olc_core::{Address, Block, CoinConfig, DifficultyRule, Hash, Tx};
 use olc_node::{Card, Hello, Keeps, Message, Outgoing};
 use serde::{Deserialize, Serialize};
 
@@ -181,20 +182,33 @@ fn a_coin_comes_whole_through_a_hello() {
     coin.message_in_block = true;
     let bytes = Message::Hello(hello_of(&coin).into()).encode();
     assert_eq!(Message::decode(&bytes), Some(Message::Hello(hello_of(&coin).into())));
+
+    // Its difficulty rule, time rules and header, of the base rules and of a fork, come too.
+    coin.rules.difficulty_rule = DifficultyRule::Bip94;
+    let mut later = coin.rules.clone();
+    later.difficulty_rule = DifficultyRule::Asert;
+    later.half_life_blocks = 20;
+    coin.forks.push(Fork { from_height: 50, rules: later });
+    let bytes = Message::Hello(hello_of(&coin).into()).encode();
+    assert_eq!(Message::decode(&bytes), Some(Message::Hello(hello_of(&coin).into())));
+    let read: OlderHello = postcard::from_bytes(&bytes[1..]).unwrap();
+    assert_eq!(read, older_hello(&coin), "older builds still read the start");
 }
 
 #[test]
 fn a_hello_from_an_older_build_settles_its_floor() {
-    let olc = CoinConfig::olc();
+    // An older build knows only coins from before OLC's new genesis: Bitcoin's retarget, a block
+    // after its parent, the first header, and no floor unless it said one.
     let mut other = CoinConfig::olc();
     other.name = "Older".into();
-    for (coin, floor) in [(&olc, olc.rules.min_difficulty), (&other, 1)] {
-        let mut bytes = vec![hello_tag(coin)];
-        bytes.extend(postcard::to_allocvec(&older_hello(coin)).unwrap());
-        let Some(Message::Hello(hello)) = Message::decode(&bytes) else {
-            panic!("an older hello reads");
-        };
-        assert_eq!(hello.coin.rules.min_difficulty, floor);
-        assert_eq!(hello.genesis(), coin.genesis().id());
-    }
+    other.bitcoin_header = false;
+    other.message_in_block = false;
+    other.set_timings(&[olc_core::timing::LEGACY]);
+    let mut bytes = vec![hello_tag(&other)];
+    bytes.extend(postcard::to_allocvec(&older_hello(&other)).unwrap());
+    let Some(Message::Hello(hello)) = Message::decode(&bytes) else {
+        panic!("an older hello reads");
+    };
+    assert_eq!(hello.coin.rules.min_difficulty, 1);
+    assert_eq!(hello.genesis(), other.genesis().id());
 }

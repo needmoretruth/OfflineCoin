@@ -45,6 +45,8 @@ fn text(bytes: &[u8]) -> String {
 
 /// A name from the code, such as `NotEnoughCoins` or `BlockDetail`, or a structure printed whole.
 fn reads_as_code(answer: &str) -> bool {
+    // The first block carries the coin's own name, which is not code.
+    let answer = answer.replace(&olc_core::CoinConfig::olc().name, "");
     let camel = answer.split(|c: char| !c.is_ascii_alphabetic()).any(|word| {
         let mut letters = word.chars();
         letters.next().is_some_and(|first| first.is_ascii_uppercase())

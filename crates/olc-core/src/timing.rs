@@ -28,9 +28,10 @@ pub type Timing = (DifficultyRule, u64, u64, u64);
 /// clock limit.
 pub const LEGACY: Timing = (DifficultyRule::Bitcoin, 0, 0, 0);
 
-/// OfflineCoin's half-life: six blocks of 30 seconds, as Bitcoin Cash's test networks, whose hash
-/// comes and goes, use six of their blocks.
-pub const HALF_LIFE_MS: u64 = 180_000;
+/// OfflineCoin's half-life in blocks: six, as Bitcoin Cash's test networks, whose hash comes and
+/// goes, use one hour of their 10 minute blocks. At 30 seconds a block that is three minutes late
+/// halves the difficulty. Counted in blocks, it keeps its meaning when a coin's block time changes.
+pub const HALF_LIFE_BLOCKS: u64 = 6;
 
 /// Blocks whose middle time a new block must pass, as in Bitcoin. With 30 second blocks the
 /// middle one is about three minutes back.
