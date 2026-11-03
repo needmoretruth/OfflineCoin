@@ -1,9 +1,11 @@
 //! The look of the app: tokens, theme, fonts and the widgets every page shares.
+pub mod explain;
 pub mod floating;
 pub mod fonts;
 pub mod format;
 pub mod icons;
 pub mod logo;
+pub mod chain;
 pub mod paint;
 pub mod picker;
 pub mod register;

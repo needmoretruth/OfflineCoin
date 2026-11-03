@@ -525,4 +525,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.shared_waiting", "Your signature is in. Pass the text to the other signers."),
     ("notice.shared_refused", "The shared wallet could not send this."),
     ("send.to_shared", "Shared wallet, {} of {} sign"),
+    ("explain.details", "Details"),
+    ("explain.hide", "Hide details"),
 ];

@@ -75,6 +75,8 @@ pub(super) struct State {
     /// A spend waiting for another signer, and who that is.
     half_spend: Mutex<Option<(String, Vec<String>)>>,
     pub(super) channels: Mutex<super::host_channels::ChannelDesk>,
+    /// Tips other miners hold, where the node looks for a branch racing its own.
+    other_tips: Mutex<Vec<Hash>>,
 }
 
 pub struct Host {
@@ -146,6 +148,7 @@ impl Host {
             explored: Mutex::default(),
             half_spend: Mutex::default(),
             channels: Mutex::default(),
+            other_tips: Mutex::default(),
         });
         let worker = Worker {
             runner: runner.clone(),
@@ -160,6 +163,7 @@ impl Host {
             saved_tip: [0; 32],
             saved_at: Instant::now(),
             blocks: Vec::new(),
+            watch: super::chain_view::ChainWatch::default(),
             radios: Running::default(),
             wants_bluetooth: false,
             held,
@@ -230,6 +234,13 @@ impl Host {
             .lock()
             .map(|mut shares| shares.drain(..).collect())
             .unwrap_or_default()
+    }
+
+    /// The tips other miners say they hold, for the node to look for a race at its top.
+    pub fn watch_tips(&self, tips: Vec<Hash>) {
+        if let Ok(mut slot) = self.state.other_tips.lock() {
+            *slot = tips;
+        }
     }
 
     pub fn view(&self) -> NodeView {
@@ -318,6 +329,7 @@ struct Worker {
     saved_tip: Hash,
     saved_at: Instant,
     blocks: Vec<BlockRow>,
+    watch: super::chain_view::ChainWatch,
     radios: Running,
     wants_bluetooth: bool,
     held: Option<FolderHold>,
@@ -468,6 +480,7 @@ impl Worker {
         }
         self.history = History::default();
         self.last_tip = [0; 32];
+        self.watch = super::chain_view::ChainWatch::default();
         self.tcp.drop_peers();
         if let (Ok(mut runner), Some(rank)) = (self.runner.lock(), Rank::parse(&settings.links)) {
             runner.set_rank(rank);
