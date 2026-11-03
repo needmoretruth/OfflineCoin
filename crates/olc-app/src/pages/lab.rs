@@ -17,7 +17,6 @@ const REDRAW: Duration = Duration::from_millis(300);
 pub struct Lab {
     run: Option<LabRun>,
     choice: LabChoice,
-    open: bool,
     boards: BoardLab,
 }
 
@@ -30,8 +29,7 @@ impl Lab {
             ui.ctx().request_repaint_after(REDRAW);
         }
         let seen = Seen { state: state.as_ref(), running, kept: has_kept() };
-        section(ui, cx.say("lab2.title"));
-        match lab_view::draw(ui, t, cx.voice(), &mut self.choice, &mut self.open, &seen) {
+        match lab_view::draw(ui, t, cx.voice(), &mut self.choice, &seen) {
             Some(Act::Start) if !running => self.run = Some(LabRun::start(self.choice.clone())),
             Some(Act::Stop) => {
                 if let Some(run) = &self.run {

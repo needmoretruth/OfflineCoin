@@ -279,8 +279,10 @@ impl Race<'_> {
         let before = self.victim.status()?.balance;
         let payment = self.pay_victim(&victim.address, &before)?;
         self.go_dark()?;
-        let confirmed = self.confirm(&payment)?;
+        // The hidden chain grows from the moment the attacker is out of sight, while the victim
+        // waits for its confirmations, as a real double spend does.
         let spend = self.spend_again(&attacker.address)?;
+        let confirmed = self.confirm(&payment)?;
         if !self.outrun(&spend)? {
             return self.come_back_behind(&payment);
         }
@@ -427,7 +429,7 @@ impl Race<'_> {
 
     /// Returns the victim's balance once the payment is deep enough.
     fn confirm(&mut self, payment: &str) -> Result<String, String> {
-        say!(self, "\n4. The victim mines the payment");
+        say!(self, "\n5. The victim mines the payment");
         let mut seen = 0;
         loop {
             let status = self.victim.status()?;
@@ -458,7 +460,7 @@ impl Race<'_> {
     fn spend_again(&mut self, own_address: &str) -> Result<String, String> {
         say!(
             self,
-            "\n5. The attacker spends the same coins on itself, out of sight"
+            "\n4. The attacker spends the same coins on itself, out of sight"
         );
         let id = self.attacker_pays(own_address)?;
         say!(self, "   private spend {}", short(&id));

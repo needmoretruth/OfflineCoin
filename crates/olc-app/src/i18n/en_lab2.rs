@@ -1,6 +1,5 @@
 //! The Lab on this computer, in plain words.
 pub const WORDS: &[(&str, &str)] = &[
-    ("lab2.title", "Lab"),
     ("lab2.kind_attack", "51% attack"),
     ("lab2.kind_split", "Network split"),
     ("lab2.about_attack", "Whoever mines with more than half of all the power can take back money they already paid. Miners on this computer try it on blocks of their own, away from your wallet."),
@@ -19,8 +18,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lab2.remove_kept", "Remove kept miners"),
     ("lab2.kept", "Miners from the last run are still running. The next run uses them."),
     ("lab2.idle_line", "Pressing it starts {} miners on this computer."),
-    ("lab2.details", "Details"),
-    ("lab2.hide_details", "Hide details"),
     ("lab2.analogy_attack", "Like two people keeping a ledger where the longer ledger always counts. One writes a second ledger in secret, faster. When it is shown, its pages win, and a payment written only in the first ledger is gone."),
     ("lab2.analogy_split", "Like a village cut in two by a flood. Each half keeps its own ledger. When the road opens, both keep the longer ledger and the shorter one's pages are torn out."),
     ("lab2.public", "Blocks everyone sees"),

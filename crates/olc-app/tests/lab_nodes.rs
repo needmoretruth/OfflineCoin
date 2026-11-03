@@ -80,3 +80,22 @@ fn a_split_ends_on_the_heavier_branch() {
     let (_, blocks) = settled.expect("the split did not settle");
     assert!(blocks > 0);
 }
+
+/// Under half the attacker usually falls behind and gives up, but chance can still let it win,
+/// so this run is read by hand from the lines it prints. It checks only that the outcome and the
+/// last step agree.
+#[test]
+#[ignore = "mines for a minute or two; its outcome is chance, so it is read by hand"]
+fn an_attacker_under_half_is_read_by_hand() {
+    place("lab_under_half");
+    let run = LabRun::start(LabChoice { share: 40, ..LabChoice::default() });
+    let state = finish(&run);
+    assert_eq!(state.phase, Phase::Done, "{:?}", state.error);
+    let last = steps(&state).last().copied();
+    match state.outcome {
+        Some(Outcome::Stays) => assert_eq!(last, Some(&Step::Stays)),
+        Some(Outcome::Gone) => assert_eq!(last, Some(&Step::Gone)),
+        None => panic!("no outcome"),
+    }
+    println!("outcome at 40%: {:?}", state.outcome);
+}

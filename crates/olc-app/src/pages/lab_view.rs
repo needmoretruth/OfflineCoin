@@ -8,8 +8,10 @@ use crate::i18n::{fill, text, Voice};
 use crate::local::lab::{LabChoice, LabKind, LabState, Mark, Phase, Side};
 use crate::settings::Mode;
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::widgets::{button, button_on, card, meta, number_field, section, segments, switch_row, Kind};
+use crate::ui::explain::{self, Choice};
+use crate::ui::widgets::{button, button_on, card, number_field, section, segments, switch_row, Kind};
 use egui::{RichText, Ui};
+use olc_lab::Outcome;
 
 /// What a press on the Lab asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,7 +55,7 @@ fn choose(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, running
         ui.horizontal(|ui| {
             let name = ui.label(RichText::new(text(voice, label)).color(t.text));
             ui.spacing_mut().slider_width = 220.0;
-            ui.add(egui::Slider::new(&mut choice.share, 10..=90).suffix("%").show_value(false)).labelled_by(name.id);
+            ui.add(egui::Slider::new(&mut choice.share, 10..=90).suffix("%").show_value(false).trailing_fill(true)).labelled_by(name.id);
             let (mine, theirs) = (choice.share.to_string(), (100 - choice.share).to_string());
             ui.label(RichText::new(fill(text(voice, line), &[&mine, &theirs])).strong().color(t.text));
         });
@@ -102,15 +104,15 @@ fn now(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &LabChoice, seen: &Seen) {
         LabKind::Attack => "lab2.about_attack",
         LabKind::Split => "lab2.about_split",
     };
-    meta(ui, text(voice, about), t);
+    explain::short(ui, t, text(voice, about));
     let words = match seen.state {
         Some(state) => now_words(voice, state),
         None if seen.kept => text(voice, "lab2.kept").to_string(),
         None => fill(text(voice, "lab2.idle_line"), &[&miners(choice).to_string()]),
     };
-    let colour = match seen.state.map(|state| state.phase) {
-        Some(Phase::Failed) => t.bad,
-        Some(Phase::Done) => t.good,
+    let colour = match seen.state.map(|state| (state.phase, state.outcome)) {
+        Some((Phase::Failed, _) | (Phase::Done, Some(Outcome::Gone))) => t.bad,
+        Some((Phase::Done, _)) => t.good,
         _ => t.text,
     };
     ui.label(RichText::new(words).strong().color(colour).size(tokens::SECTION));
@@ -153,45 +155,39 @@ fn timeline(ui: &mut Ui, t: &Tokens, voice: Voice, state: &LabState) {
 }
 
 /// The two experiments on the same four questions.
-fn compare(ui: &mut Ui, t: &Tokens, voice: Voice) {
+fn compare(ui: &mut Ui, voice: Voice, t: &Tokens) {
     section(ui, text(voice, "lab2.compare_title"));
-    egui::Grid::new("lab2-compare").num_columns(3).spacing([18.0, 8.0]).striped(true).show(ui, |ui| {
-        ui.label("");
-        ui.label(RichText::new(text(voice, "lab2.kind_attack")).strong().color(t.bad));
-        ui.label(RichText::new(text(voice, "lab2.kind_split")).strong().color(t.warn));
-        ui.end_row();
-        for (question, attack, split) in [
-            ("lab2.compare_need", "lab2.need_attack", "lab2.need_split"),
-            ("lab2.compare_loss", "lab2.loss_attack", "lab2.loss_split"),
-            ("lab2.compare_time", "lab2.time_attack", "lab2.time_split"),
-            ("lab2.compare_defend", "lab2.defend_attack", "lab2.defend_split"),
-        ] {
-            ui.label(RichText::new(text(voice, question)).strong().color(t.soft));
-            ui.label(RichText::new(text(voice, attack)).color(t.text));
-            ui.label(RichText::new(text(voice, split)).color(t.text));
-            ui.end_row();
-        }
-    });
+    let say = |key| text(voice, key);
+    let criteria = [say("lab2.compare_need"), say("lab2.compare_loss"), say("lab2.compare_time"), say("lab2.compare_defend")];
+    let attack = [say("lab2.need_attack"), say("lab2.loss_attack"), say("lab2.time_attack"), say("lab2.defend_attack")];
+    let split = [say("lab2.need_split"), say("lab2.loss_split"), say("lab2.time_split"), say("lab2.defend_split")];
+    let choices = [
+        Choice { name: say("lab2.kind_attack"), values: &attack },
+        Choice { name: say("lab2.kind_split"), values: &split },
+    ];
+    explain::compare(ui, t, "lab2", &criteria, &choices);
 }
 
+/// Behind Details: the picture's legend first, then the analogy, each step with its chains, and
+/// the two experiments on the same criteria.
 fn details(ui: &mut Ui, t: &Tokens, voice: Voice, kind: LabKind, state: Option<&LabState>) {
     let analogy = match kind {
         LabKind::Attack => "lab2.analogy_attack",
         LabKind::Split => "lab2.analogy_split",
     };
-    ui.label(RichText::new(text(voice, analogy)).color(t.text).italics());
-    ui.add_space(tokens::GAP);
     legend(ui, t, voice, kind);
+    ui.add_space(tokens::GAP);
+    explain::analogy(ui, t, text(voice, analogy));
     if let Some(state) = state.filter(|state| !state.frames.is_empty()) {
         ui.add_space(tokens::GAP_WIDE);
         timeline(ui, t, voice, state);
     }
     ui.add_space(tokens::GAP_WIDE);
-    compare(ui, t, voice);
+    compare(ui, voice, t);
 }
 
 /// The Lab card. Returns what was pressed.
-pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, open: &mut bool, seen: &Seen) -> Option<Act> {
+pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, seen: &Seen) -> Option<Act> {
     card(ui, t, |ui| {
         choose(ui, t, voice, choice, seen.running);
         ui.add_space(tokens::GAP);
@@ -205,14 +201,8 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, choice: &mut LabChoice, open:
             lab_strip::picture(ui, t, voice, kind, &state.live, LIVE);
         }
         ui.add_space(tokens::GAP);
-        let toggle = if *open { "lab2.hide_details" } else { "lab2.details" };
-        if button(ui, t, text(voice, toggle), Kind::Plain).clicked() {
-            *open = !*open;
-        }
-        if *open {
-            ui.add_space(tokens::GAP);
-            details(ui, t, voice, choice.kind, shown.state);
-        }
+        let labels = (text(voice, "explain.details"), text(voice, "explain.hide"));
+        explain::details(ui, t, "lab2", labels, |ui| details(ui, t, voice, choice.kind, shown.state));
         act
     })
 }

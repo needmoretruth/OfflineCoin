@@ -561,7 +561,8 @@ fn experiment(
         LabKind::Split => {
             let mut links = links;
             let right = links.pop().ok_or("The right group needs a miner.")?;
-            let options = SplitOptions { apart_blocks: 3, apart_limit: Duration::from_secs(90), timeout: Duration::from_secs(600) };
+            // Five blocks a side: with three, chance alone often let the weaker side win.
+            let options = SplitOptions { apart_blocks: 5, apart_limit: Duration::from_secs(90), timeout: Duration::from_secs(600) };
             olc_lab::split_with(links, right, options, say, watch, stop.clone()).map(|()| None)
         }
     };
