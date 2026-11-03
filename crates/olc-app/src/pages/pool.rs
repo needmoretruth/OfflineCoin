@@ -104,7 +104,10 @@ impl PoolTab {
                 if number_field(ui, &mut port, cx.say("pool.port"), NUMBER) {
                     form.port = u16::try_from(port).unwrap_or(POOL_PORT);
                 }
-                meta(ui, &cx.fill("pool.port_about", &[&POOL_PORT.to_string()]), t);
+                // Said only when the port is not the usual one: beside 3333 it would repeat it.
+                if form.port != POOL_PORT {
+                    meta(ui, &cx.fill("pool.port_about", &[&POOL_PORT.to_string()]), t);
+                }
             });
             if cx.expert() {
                 expert_choices(ui, cx, form, &mut self.fee);

@@ -177,12 +177,14 @@ pub fn lan_address() -> Option<IpAddr> {
 }
 
 /// What others type to join a pool on `port`: this computer's network address when the pool is
-/// open, this computer alone when it is not.
-pub fn reach(port: u16, open: bool) -> Vec<String> {
+/// open, this computer alone when it is not. The network is looked up only for an open pool, and
+/// not at all when a scene stands an address in.
+pub fn reach(port: u16, open: bool, stand_in: Option<IpAddr>) -> Vec<String> {
     let local = format!("127.0.0.1:{port}");
-    match (open, lan_address()) {
-        (true, Some(address)) => vec![format!("{address}:{port}"), local],
-        _ => vec![local],
+    let network = if open { stand_in.or_else(lan_address) } else { None };
+    match network {
+        Some(address) => vec![format!("{address}:{port}"), local],
+        None => vec![local],
     }
 }
 
@@ -250,5 +252,27 @@ mod tests {
         assert_eq!(build_number("i17"), Some(17));
         assert_eq!(build_number("i9-dirty"), Some(9));
         assert_eq!(build_number("dev"), None);
+    }
+
+    /// Board zero has no cable and no control link: the app hears it only as a node, passed on by
+    /// board one over the radio. It is still listed, with what it is heard through and the one
+    /// line saying why it cannot take pool work, as a stopped miner here is.
+    #[test]
+    fn a_board_heard_only_through_another_is_listed_with_why_it_cannot_work() {
+        use olc_core::coin::CoinConfig;
+        use olc_node::hello::{Card, Via};
+        let card = Card { name: "보드제로".into(), hashrate: 9_000, via: Via("bluetooth".into()), ..Card::default() };
+        let zero = Hello { coin: CoinConfig::olc(), tip: [0; 32], height: 3, work: 0, address: [7; 20], card };
+        let locals = [(1, "worker-1".to_string(), Some(500)), (2, "worker-2".to_string(), None)];
+        let all = choices(&locals, &[], &[&zero], 1_000);
+        let names: Vec<&str> = all.iter().map(|choice| choice.label.as_str()).collect();
+        assert_eq!(names, ["", "worker-1", "worker-2", "보드제로"], "this computer, both miners and board zero");
+        assert_eq!(all[0].who, Some(Who::Own));
+        assert_eq!(all[2].why_not, Some("pool.why_not_running"));
+        let board = &all[3];
+        assert_eq!(board.who, None, "nothing here can hand it work");
+        assert_eq!(board.why_not, Some("pool.why_heard_only"));
+        assert_eq!(board.through.as_deref(), Some("bluetooth"));
+        assert_eq!(board.speed, 9_000);
     }
 }

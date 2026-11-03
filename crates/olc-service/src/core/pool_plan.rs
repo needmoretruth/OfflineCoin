@@ -42,10 +42,11 @@ pub struct PoolSettings {
     pub joins: Vec<Join>,
     /// The pool ran when the app closed, so it runs again when the app opens.
     pub run_on_start: bool,
-    /// Listens on 127.0.0.1 even when open, for tests that play both computers on one. Never
-    /// saved, so no person's pool is ever held to this computer by it.
+    /// For scenes that play two computers on one: the pool listens on 127.0.0.1 alone, even when
+    /// open, and shows this as its network address without looking the network up. Never saved,
+    /// so no person's pool is held to this computer by it.
     #[serde(skip)]
-    pub bind_loopback: bool,
+    pub stand_in: Option<std::net::IpAddr>,
 }
 
 impl Default for PoolSettings {
@@ -60,7 +61,7 @@ impl Default for PoolSettings {
             workers: vec![Who::Own],
             joins: Vec::new(),
             run_on_start: false,
-            bind_loopback: false,
+            stand_in: None,
         }
     }
 }

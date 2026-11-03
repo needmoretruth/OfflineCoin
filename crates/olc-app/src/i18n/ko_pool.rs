@@ -12,7 +12,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.open", "다른 컴퓨터도 들어오게 하기"),
     ("pool.open_about", "같은 네트워크의 다른 컴퓨터가 이 컴퓨터 주소로 들어옵니다. 방화벽이 먼저 물어볼 수 있습니다."),
     ("pool.port", "포트"),
-    ("pool.port_about", "바꾸지 않으면 {}입니다."),
+    ("pool.port_about", "보통 풀은 {}번을 씁니다."),
     ("pool.start", "풀 시작"),
     ("pool.stop", "풀 멈추기"),
     ("pool.choose_one", "기기를 고르거나 다른 컴퓨터가 들어오게 하세요."),

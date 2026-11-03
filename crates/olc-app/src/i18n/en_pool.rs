@@ -12,7 +12,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.open", "Let other computers join"),
     ("pool.open_about", "Other computers on your network join with this computer's address. Your firewall may ask you first."),
     ("pool.port", "Port"),
-    ("pool.port_about", "{} unless you change it."),
+    ("pool.port_about", "Pools usually use {}."),
     ("pool.start", "Start the pool"),
     ("pool.stop", "Stop the pool"),
     ("pool.choose_one", "Pick a miner, or let other computers join."),

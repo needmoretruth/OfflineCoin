@@ -13,6 +13,7 @@ use egui::{Key, Modifiers};
 use egui_kittest::kittest::{By, Queryable};
 use olc_core::coin::CoinConfig;
 use olc_store::coin_file::{new_coin, NewCoin};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 
 const SIZE: (u32, u32) = (1280, 800);
@@ -93,8 +94,32 @@ fn report(window: &Window, who: &str) {
     tell(&format!("  {who}: running {}, workers {workers:?}, links {links:?}, found {}", pool.running, pool.found.len()));
 }
 
+/// The addresses the kernel says listen on `port`, from its own table: what a test opened.
+fn listening_on(port: u16) -> Vec<Ipv4Addr> {
+    const LISTEN: &str = "0A";
+    let table = std::fs::read_to_string("/proc/net/tcp").expect("the kernel's table");
+    let mut found = Vec::new();
+    for line in table.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let Some((address, at)) = fields.get(1).and_then(|local| local.split_once(':')) else {
+            continue;
+        };
+        if fields.get(3) != Some(&LISTEN) || u16::from_str_radix(at, 16).ok() != Some(port) {
+            continue;
+        }
+        if let Ok(word) = u32::from_str_radix(address, 16) {
+            found.push(Ipv4Addr::from(word.swap_bytes()));
+        }
+    }
+    let six = std::fs::read_to_string("/proc/net/tcp6").unwrap_or_default();
+    let hex_port = format!(":{port:04X} ");
+    assert!(!six.lines().any(|line| line.contains(&hex_port) && line.contains(" 0A ")), "nothing listens on IPv6");
+    found
+}
+
 fn shared_out(snap: &Snapshot) -> bool {
-    snap.pool.found.iter().any(|row| row.state == BlockState::Paid && row.parts.len() >= 2)
+    // The newest block shared out is the one the page opens, so it is the one that shows both.
+    snap.pool.found.iter().find(|row| row.state == BlockState::Paid).is_some_and(|row| row.parts.len() >= 2)
 }
 
 #[test]
@@ -104,8 +129,10 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     let coin = coin();
     let a_port = port_of_scene(46);
     let pool_port = port_of_scene(48);
-    // The pool's computer lets others join; on one test computer it still listens on 127.0.0.1.
-    let pool = PoolSettings { port: pool_port, open: true, bind_loopback: true, ..PoolSettings::default() };
+    // The pool's computer lets others join, as the picture shows; on this one test computer it
+    // still listens on 127.0.0.1 alone and shows a stand-in network address, looked up nowhere.
+    let stand_in = Some(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 5)));
+    let pool = PoolSettings { port: pool_port, open: true, stand_in, ..PoolSettings::default() };
     let mut a = window(&a_root, a_port, &[], pool, &coin);
     let mut b = window(&b_root, port_of_scene(47), &[format!("127.0.0.1:{a_port}")], PoolSettings::default(), &coin);
 
@@ -114,6 +141,10 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     assert!(a.query_all(By::new().label_contains("이 컴퓨터")).next().is_some(), "this computer is not listed");
     press_till(&mut a, "풀 시작", |window| window.state().snapshot().pool.running);
     report(&a, "a after start");
+    let bound = listening_on(pool_port);
+    tell(&format!("  the pool listens on {bound:?}"));
+    assert_eq!(bound, vec![Ipv4Addr::LOCALHOST], "the pool's port is open to this computer alone");
+    wait_in(&mut a, "the stand-in address", 1, |snap| snap.pool.reach.first().is_some_and(|at| at.starts_with("192.168.0.5:")));
 
     // B types the pool's address and its own name, and joins.
     press(&mut b, "풀에 들어가기");
@@ -149,9 +180,10 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     save(&mut a, "pool-02-payout-en-expert");
     speak(&mut a, Mode::Basic, Lang::Ko);
     let snap = a.state().snapshot();
-    let paid = snap.pool.found.iter().find(|row| row.state == BlockState::Paid).unwrap();
-    let laptop = paid.parts.iter().find(|(name, _)| name.ends_with(".laptop"));
-    assert!(laptop.is_some_and(|(_, amount)| *amount > 0), "the other computer is paid: {paid:?}");
+    // A round only one computer worked in pays it alone; over the blocks shared out, both are paid.
+    let paid: Vec<_> = snap.pool.found.iter().filter(|row| row.state == BlockState::Paid).collect();
+    let laptop = paid.iter().flat_map(|row| &row.parts).filter(|(name, _)| name.ends_with(".laptop"));
+    assert!(laptop.map(|(_, amount)| *amount).sum::<u64>() > 0, "the other computer is paid: {paid:?}");
     // The pool's own miner sends what it found before the pool takes a new block, so few of its
     // shares are refused as old work: 5 of 21 were before it did.
     let own = snap.pool.workers.iter().find(|row| row.here == Some(Who::Own)).expect("this computer works");

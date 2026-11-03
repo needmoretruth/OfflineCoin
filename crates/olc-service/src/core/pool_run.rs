@@ -175,7 +175,7 @@ impl PoolSeat {
 
     fn start(&mut self, settings: PoolSettings, cx: &mut PoolCx) -> bool {
         self.stop(cx);
-        let everywhere = settings.open && !settings.bind_loopback;
+        let everywhere = settings.open && settings.stand_in.is_none();
         let host = if everywhere { IpAddr::V4(Ipv4Addr::UNSPECIFIED) } else { IpAddr::V4(Ipv4Addr::LOCALHOST) };
         let pool: Shared = Arc::new(Mutex::new(Pool::new(cx.host.address(), settings.plan())));
         if let (Ok(runner), Ok(mut pool)) = (cx.host.ready(), pool.lock()) {
@@ -358,7 +358,7 @@ impl PoolSeat {
             running: self.running.is_some(),
             port: self.running.as_ref().map_or(settings.port, |running| running.port),
             open: settings.open,
-            reach: reach(self.running.as_ref().map_or(settings.port, |running| running.port), settings.open),
+            reach: reach(self.running.as_ref().map_or(settings.port, |running| running.port), settings.open, settings.stand_in),
             method: settings.method,
             last_shares: settings.last_shares,
             fee_bps: settings.fee_bps,
