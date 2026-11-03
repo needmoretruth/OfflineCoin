@@ -4,9 +4,10 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Far longer than printing takes (a few milliseconds), far shorter than a node that started would
-/// run. Twenty seconds failed on a loaded machine whose other tests mine on every core.
-const PRINTS_WITHIN: Duration = Duration::from_secs(120);
+/// A last guard only: a node that started is caught at once by the data folder it makes. Printing
+/// takes milliseconds, but twenty and then a hundred and twenty seconds both ran out while the
+/// machine's build jobs sat at their memory limit.
+const PRINTS_WITHIN: Duration = Duration::from_secs(600);
 
 #[test]
 fn help_after_any_command_prints_help_and_starts_nothing() {
@@ -33,20 +34,28 @@ fn help_after_any_command_prints_help_and_starts_nothing() {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
+        // Read while it runs, so a run that hangs still tells whether it printed first.
+        let mut stdout = olc.stdout.take().unwrap();
+        let reader = std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = std::io::Read::read_to_string(&mut stdout, &mut text);
+            text
+        });
         let started = Instant::now();
         let ended = loop {
             if olc.try_wait().unwrap().is_some() {
                 break true;
             }
-            if started.elapsed() > PRINTS_WITHIN {
+            if started.elapsed() > PRINTS_WITHIN || home.join("data").exists() {
                 let _ = olc.kill();
                 break false;
             }
             std::thread::sleep(Duration::from_millis(50));
         };
-        let out = olc.wait_with_output().unwrap();
-        assert!(ended, "olc {} kept running instead of printing help", words.join(" "));
-        let said = String::from_utf8_lossy(&out.stdout);
+        let _ = olc.wait();
+        let said = reader.join().unwrap();
+        let took = started.elapsed();
+        assert!(ended, "olc {} kept running for {took:?}; it printed {} bytes first", words.join(" "), said.len());
         assert!(said.contains("olc node"), "olc {} printed no help: {said}", words.join(" "));
         assert!(!home.join("data").exists(), "olc {} made a data folder", words.join(" "));
     }
