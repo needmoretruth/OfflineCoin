@@ -72,6 +72,27 @@ From height 6,240 on OLC, and from the genesis of a coin made since, a version 2
 
 Version 1 transactions stay valid beside them in the same blocks, as legacy transactions do in Bitcoin. Wallets write version 2. Expert mode's "Sign the old way" and `olc version1 on` write version 1. A coin made with Change rules takes only version 2 from its fork height.
 
+## Wallet
+
+A wallet made by OLC Core 0.2.0 comes from 12 or 24 BIP 39 words, English or Korean, and derives its keys with BIP 32 on the path m/44'/5196867'/0'/0/i. A wallet made earlier keeps its keys and can add words; `words move` sends its older coins to the words in one payment. Wallets several people share hold 2 to 20 keys and spend with a set number of signatures, passed as text or a QR code. A waiting payment can be replaced with one paying a higher fee rate and a higher total fee, as full replace-by-fee works in Bitcoin Core 28, and block templates pick payments by the fee rate of a payment together with the waiting payments it spends. Signed messages work like Bitcoin's signmessage with an OLC prefix.
+
+```
+words [written|new [korean]|restore WORD...|move]
+sign-message [--address ADDRESS] TEXT
+verify-message ADDRESS SIGNATURE TEXT
+shared [new N KEY...|add TEXT|forget N|pay N ADDRESS AMOUNT]
+speed-up ID
+version1 on|off
+```
+
+## Swaps
+
+A swap trades two coins with hash time locked contracts, as atomic swaps do between Bitcoin and other chains. The offer names each coin by the hash of its coin file and carries the maker's address, and the taker's node fetches a coin it does not have from the maker and checks the hash. If the other side stops, each side takes its coins back after the wait it chose. The Swap page and `swap` do the same.
+
+```
+swap offer COIN GIVE TAKE [--wait MINUTES] | accept TEXT | answer TEXT | cancel ID | list
+```
+
 ## Changing the rules
 
 A coin's rules can change at a height with no new coin. Expert mode has Change rules on the Network page, and `olc` has the same word. Blocks before that height stay valid, so the chain keeps its history and splits from nodes on the old rules, as a fork does in Bitcoin. You can go back.

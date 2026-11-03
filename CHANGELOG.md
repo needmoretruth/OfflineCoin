@@ -2,6 +2,34 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
+## [0.2.0] - 2026-11-03
+
+### Added
+
+- Today's Bitcoin transaction rules beside the first ones, from block 6,240 on OLC and from the first block on new coins: lock times, relative locks, a choice of what a signature covers, transaction ids that signatures cannot change, and Bitcoin's script words with up to 20 keys in a multisig. Payments in the first format stay valid, and nodes and miners take both.
+- Signatures name their coin, so a payment made on one coin cannot be replayed on a fork of it. A fork made with Change rules takes only the new format from its fork height.
+- Seed words. OLC Core shows 12 words when it makes a wallet, and a wallet comes back from them on any computer, from the first screen on. English and Korean word lists. Settings shows the words again after a warning.
+- Coins a wallet received before it had words move to the words with one payment.
+- Shared wallets for 2 to 20 people, with a set number of signatures needed to spend. Signatures pass between people as text or a QR code.
+- Speed up. A payment still waiting goes out again with a higher fee. Miners also take a waiting payment together with a payment that spends it.
+- Swap. Trade one coin for another with someone, with nobody in the middle. If the other side stops, your coins come back after the time you chose. `olc swap` does the same.
+- Payment channels, after Lightning. Open a channel with another computer and pay at once, pay someone you share no channel with through computers in between, ask for money with a payment request as text or a QR code, and close together or alone. A side that closes with an old balance loses the channel's coins to the other side.
+- Signed messages, in expert mode and with `olc sign-message` and `olc verify-message`.
+- Sign the old way, in expert mode and with `olc version1 on`, for payments in the first format.
+
+### Changed
+
+- The balance counts change from your own waiting payments and leaves out coins a waiting payment already spends, so the balance and Send agree.
+- A refused payment says why in plain words.
+- QR codes are drawn large enough to scan from a screen.
+- Notices with an amount show the coin's unit.
+
+### Fixed
+
+- Korean lines put a particle right after a number, such as 초당 20,139번로.
+
+The first rules, close to Bitcoin in 2009 and 2010, stay on the [0.1.1 release](https://github.com/needmoretruth/OfflineCoin/releases/tag/v0.1.1).
+
 ## [0.1.1] - 2026-11-03
 
 ### Fixed

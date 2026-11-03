@@ -47,14 +47,19 @@ Anyone on the same Wi-Fi opens OLC Core, goes to **Coins** and presses **Join**.
 
 You can make your own coin too. On the **Coins** page, press **New coin**, then give it a name and your own rules.
 
+- **Swap** trades your coin for someone else's coin, with nobody in the middle.
+- **Channels** pay at once, even to people you share no channel with, as Lightning does for Bitcoin.
+- **Shared wallets** under **Settings** need signatures from several people before coins leave it.
+
 ## ESP32 boards
 
 There's a separate version of OfflineCoin for ESP32 boards. Once it's set up, a board needs no computer: it mines, keeps the chain and talks to other boards by radio. Plug one into your computer and press **Set up** in OLC Core.
 
 ## Keep your coins safe
 
-- Go to **Settings** and press **Back up**. If you lose your wallet with no backup, your coins are gone.
-- Anyone who gets your wallet file can spend your coins, so keep it to yourself.
+- OLC Core shows 12 words when it makes your wallet. Write them on paper. With those words your wallet comes back on any computer, and without them or a backup your coins are gone.
+- Anyone who sees your words or gets your wallet file can spend your coins, so keep them to yourself.
+- A wallet made before version 0.2.0 has no words yet. Go to **Settings**, **Seed words** to make them and move your coins to them.
 
 ## A word from the developer (more than a word)
 
@@ -88,12 +93,14 @@ If people take an interest in OfflineCoin later, I'd like to support it properly
 | Block reward | 50 OLC, halving every 210,000 blocks |
 | Total supply | About 21 million OLC |
 | Premine | None |
+| Like Bitcoin | Recovery words, multisig, time locks, speeding up a payment, coin swaps, payment channels |
 
 ## More
 
 - [Technical guide](docs/technical.md): the command line, boards, connections and how to build it.
 - [Measurements](docs/measurements.md): what it does on real hardware.
 - [Changelog](CHANGELOG.md): what changed in each version.
+- [Version 0.1.1](https://github.com/needmoretruth/OfflineCoin/releases/tag/v0.1.1): the first rules, close to Bitcoin in 2009 and 2010.
 
 ## License
 
