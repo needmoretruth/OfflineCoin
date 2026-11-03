@@ -299,6 +299,7 @@ impl Service {
             Command::Rescan => self.scanner.look_now(),
             Command::SetLinks(rank) => self.set_links(rank),
             Command::OpenDataFolder => drop(platform().open_folder(&self.paths.root)),
+            Command::OpenSettingsFile => drop(platform().open_folder(&self.paths.settings_file())),
             Command::Board { id, action } => self.board_action(id, action),
             Command::NewCoinFile { choices, path } => {
                 let made = new_coin(&choices).map_err(|bad| bad.to_string());

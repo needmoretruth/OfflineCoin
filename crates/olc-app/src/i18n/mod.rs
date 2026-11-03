@@ -13,6 +13,7 @@ mod en_lab2_expert;
 mod en_mining;
 mod en_more;
 mod en_place;
+mod en_settings;
 mod en_wallet;
 mod ko;
 mod ko_chain;
@@ -25,6 +26,7 @@ mod ko_lab2_expert;
 mod ko_mining;
 mod ko_more;
 mod ko_place;
+mod ko_settings;
 mod ko_wallet;
 mod lab;
 
@@ -47,6 +49,7 @@ const BASE_EN: &[Words] = &[
     en_wallet::WORDS,
     en_mining::WORDS,
     en_place::WORDS,
+    en_settings::WORDS,
 ];
 const BASE_KO: &[Words] = &[
     ko::WORDS,
@@ -57,6 +60,7 @@ const BASE_KO: &[Words] = &[
     ko_wallet::WORDS,
     ko_mining::WORDS,
     ko_place::WORDS,
+    ko_settings::WORDS,
 ];
 const EXPERT_EN: &[Words] = &[
     en_expert::WORDS,
@@ -67,6 +71,7 @@ const EXPERT_EN: &[Words] = &[
     en_wallet::EXPERT,
     en_mining::EXPERT,
     en_place::EXPERT,
+    en_settings::EXPERT,
 ];
 const EXPERT_KO: &[Words] = &[
     ko_expert::WORDS,
@@ -77,6 +82,7 @@ const EXPERT_KO: &[Words] = &[
     ko_wallet::EXPERT,
     ko_mining::EXPERT,
     ko_place::EXPERT,
+    ko_settings::EXPERT,
 ];
 
 fn joined(tables: &[Words]) -> Table {

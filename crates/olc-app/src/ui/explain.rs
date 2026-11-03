@@ -4,7 +4,7 @@
 //! are judged by one stated measure and none is favoured by the wording.
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{button, card, meta, Kind};
-use egui::{Grid, Label, RichText, Ui};
+use egui::{Grid, Id, Label, RichText, Ui};
 use std::hash::Hash;
 
 /// The widest text that still reads as three lines in place, in Latin characters. A Hangul
@@ -34,16 +34,27 @@ pub fn short(ui: &mut Ui, t: &Tokens, text: &str) {
 /// state lives with the id, so a page that redraws keeps it.
 pub fn details(ui: &mut Ui, t: &Tokens, id: impl Hash + std::fmt::Debug, labels: (&str, &str), body: impl FnOnce(&mut Ui)) {
     let id = ui.make_persistent_id(("details", id));
+    if toggle(ui, t, id, labels) {
+        opened(ui, t, body);
+    }
+}
+
+/// The Details control alone, for a place where what opens goes somewhere else, as under a whole
+/// setting's line. Returns true while it is open.
+pub fn toggle(ui: &mut Ui, t: &Tokens, id: Id, labels: (&str, &str)) -> bool {
     let mut open = ui.ctx().data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
     let label = if open { labels.1 } else { labels.0 };
     if button(ui, t, label, Kind::Quiet).clicked() {
         open = !open;
         ui.ctx().data_mut(|data| data.insert_temp(id, open));
     }
-    if open {
-        ui.add_space(tokens::GAP);
-        card(ui, t, body);
-    }
+    open
+}
+
+/// What a Details control opens, in its card.
+pub fn opened(ui: &mut Ui, t: &Tokens, body: impl FnOnce(&mut Ui)) {
+    ui.add_space(tokens::GAP);
+    card(ui, t, body);
 }
 
 /// One analogy, set apart from the facts around it.

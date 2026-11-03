@@ -26,7 +26,7 @@ const FILES: &[(&str, &[&str])] = &[
     (COINS, &["coins.rs", "coins_peers.rs", "coin_new.rs", "coin_rows.rs", "coin_fork.rs"]),
     (RECORDS, &["records.rs"]),
     (SWAP, &["swap.rs"]),
-    (SETTINGS, &["settings.rs", "settings_more.rs", "wallet_tools.rs", "seed_words.rs", "shared_wallets.rs", "message_sign.rs"]),
+    (SETTINGS, &["settings.rs", "settings_more.rs", "settings_compare.rs"]),
     (CHANNELS, &["channels.rs", "channels_parts.rs"]),
 ];
 /// What only an expert ever sees, so it cannot back a row that is for anyone.

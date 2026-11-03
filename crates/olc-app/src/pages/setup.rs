@@ -192,7 +192,11 @@ impl Setup {
         widgets::title(ui, cx.say("setup.mine"));
         mode_choice(ui, cx);
         ui.add_space(tokens::GAP_WIDE);
-        let about = cx.fill("setup.mine_about", &[&format::rate(cx.voice(), cx.settings.hash_cap)]);
+        // A cap of 0 holds nothing back: a computer's first run mines at what it measured.
+        let full = cx.snap.full_rate;
+        let cap = cx.settings.hash_cap;
+        let rate = if cap == 0 || (full > 0 && cap > full) { full } else { cap };
+        let about = cx.fill("setup.mine_about", &[&format::rate(cx.voice(), rate)]);
         if choice(ui, cx, cx.say("setup.mine_now"), &about) {
             cx.settings.mine_on_start = true;
             self.finish(cx);

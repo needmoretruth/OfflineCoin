@@ -33,6 +33,7 @@ mod records;
 mod records_detail;
 pub mod reach;
 mod settings;
+mod settings_compare;
 mod settings_more;
 mod swap;
 pub(crate) mod seed_words;

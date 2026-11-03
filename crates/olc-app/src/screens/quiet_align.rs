@@ -72,3 +72,32 @@ fn a_quiet_buttons_text_lines_up_with_its_column() {
     assert!(seen >= 10, "the walk found {seen} quiet buttons");
     assert!(wrong.is_empty(), "quiet buttons whose text stands off their column:\n{}", wrong.join("\n"));
 }
+
+/// Nothing a page draws runs past the right edge of the window, in either language or mode: a
+/// line wider than its column widens it and pushes the column beside it out of sight.
+#[test]
+fn nothing_runs_off_the_right_edge() {
+    let mut window = harness(app(scratch("right-edge"), quiet_settings(), None), SIZES[0]);
+    wait_until(&mut window, |app| !app.snapshot().node.address.is_empty());
+    let quiet = window.state().snapshot();
+    let stage = with_boards(&quiet).unwrap_or_else(|| (*quiet).clone());
+    window.state_mut().set_stage(Some(stage));
+    let edge = f64::from(window.ctx.content_rect().right()) + 0.5;
+    let mut wrong = Vec::new();
+    for language in [Lang::En, Lang::Ko] {
+        for mode in [Mode::Basic, Mode::Expert] {
+            window.state_mut().settings_mut().mode = mode;
+            window.state_mut().settings_mut().language = language;
+            for title in window.state().page_titles() {
+                window.state_mut().open(title);
+                window.run_steps(SETTLE_STEPS);
+                let past = window.query_all(By::new().predicate(move |node| node.bounding_box().is_some_and(|rect| rect.x1 > edge)));
+                for node in past {
+                    let label: String = node.accesskit_node().label().unwrap_or_default().chars().take(30).collect();
+                    wrong.push(format!("{title} {language:?} {mode:?}: \"{label}\" ends at {:.0}", node.rect().right()));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "past the right edge of the window:\n{}", wrong.join("\n"));
+}

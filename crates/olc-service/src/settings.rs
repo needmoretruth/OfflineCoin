@@ -347,6 +347,11 @@ pub struct Paths {
 
 impl Paths {
     /// The wallet stays where `olc app` kept it, so nobody loses coins by changing program.
+    /// The file the settings are kept in.
+    pub fn settings_file(&self) -> PathBuf {
+        self.root.join(FILE)
+    }
+
     pub fn wallet(&self) -> PathBuf {
         self.root.join("node")
     }

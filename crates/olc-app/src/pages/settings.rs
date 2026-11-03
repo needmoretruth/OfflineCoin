@@ -1,59 +1,56 @@
-//! The register: every choice with its value and what it means, in three columns.
+//! Settings: preferences only, in the four groups of Bitcoin Core's options window (General,
+//! Mining, Network, Display), and under every name whether it takes hold now or from the next
+//! start. The wallet's tools live on the Wallet page and the speed on Mining; at the bottom the
+//! settings file opens and everything here goes back to how it came.
+use super::settings_compare;
 use super::settings_more::{Extras, ExtraValues};
 use super::wallet_tools::{Tool, WalletTools};
 use super::{Cx, Page};
 use crate::core::Command;
 use crate::i18n::{Lang, Mode};
-use crate::settings::{cores, standard_threads, Device, Speed, Theme};
+use crate::settings::{cores, standard_threads, Settings, Theme};
 use crate::ui::format;
-use crate::ui::register::{group, row};
+use crate::ui::register::{group, row, setting, setting_details, When};
+use crate::ui::tokens;
 use crate::ui::widgets::{self, button, field, meta, segments, switch, Kind};
-use crate::ui::{Icon, Tokens};
+use crate::ui::Icon;
 use egui::Ui;
 
 const TEXT_SIZES: [u16; 3] = [100, 125, 150];
-/// Tall enough for all five devices at the largest text size, with no scroll bar.
-const DEVICE_LIST_HEIGHT: f32 = 420.0;
-
-pub fn device_name(device: Device) -> &'static str {
-    match device {
-        Device::Esp32 => "setup.esp32",
-        Device::RaspberryPi => "setup.pi",
-        Device::ThisComputer => "setup.this_computer",
-        Device::SeveralNodes => "setup.several_nodes",
-        Device::TwoComputers => "setup.two_computers",
-    }
-}
 
 #[derive(Default)]
 pub struct SettingsPage {
     tools: WalletTools,
     extras: ExtraValues,
+    /// Reset was pressed once; the second press resets.
+    resetting: bool,
+}
+
+/// The words under a setting's name that say when it takes hold.
+pub fn when(cx: &Cx, when: When) -> (When, &'static str) {
+    match when {
+        When::Now => (when, cx.say("settings.now")),
+        When::NextStart => (when, cx.say("settings.next_start")),
+    }
 }
 
 /// A row with a switch for one setting.
-pub fn switch_setting(ui: &mut Ui, cx: &mut Cx, keys: (&str, &str), read: fn(&mut crate::settings::Settings) -> &mut bool) {
+pub fn switch_setting(ui: &mut Ui, cx: &mut Cx, keys: (&str, &str), taken: When, read: fn(&mut Settings) -> &mut bool) {
     let t = cx.t;
     let name = cx.say(keys.0);
-    row(ui, t, name, cx.say(keys.1), |ui| {
+    setting(ui, t, name, when(cx, taken), cx.say(keys.1), |ui| {
         if switch(ui, t, read(cx.settings), name).clicked() {
             cx.save();
         }
     });
 }
 
-fn opening_row(ui: &mut Ui, t: &Tokens, cx: &Cx, keys: (&str, &str, &str)) -> bool {
-    let mut open = false;
-    row(ui, t, cx.say(keys.0), cx.say(keys.1), |ui| {
-        open = button(ui, t, cx.say(keys.2), Kind::Plain).clicked();
-    });
-    open
-}
-
-fn general(ui: &mut Ui, cx: &mut Cx) {
+/// Language, look, text size and motion: all of them change the window at once.
+fn display(ui: &mut Ui, cx: &mut Cx) {
     let t = cx.t;
-    group(ui, cx.say("settings.general"));
-    row(ui, t, cx.say("settings.language"), cx.say("settings.language_about"), |ui| {
+    let now = when(cx, When::Now);
+    group(ui, cx.say("settings.display"));
+    setting(ui, t, cx.say("settings.language"), now, cx.say("settings.language_about"), |ui| {
         let items = [(Lang::En, "English".to_string()), (Lang::Ko, "한국어".to_string())];
         if let Some(language) = segments(ui, t, &items, Some(cx.settings.language)) {
             cx.settings.language = language;
@@ -61,7 +58,7 @@ fn general(ui: &mut Ui, cx: &mut Cx) {
             cx.save();
         }
     });
-    row(ui, t, cx.say("settings.theme"), cx.say("settings.theme_about"), |ui| {
+    setting(ui, t, cx.say("settings.theme"), now, cx.say("settings.theme_about"), |ui| {
         let items = [
             (Theme::System, cx.say("settings.theme_system").to_string()),
             (Theme::Light, cx.say("settings.theme_light").to_string()),
@@ -72,63 +69,34 @@ fn general(ui: &mut Ui, cx: &mut Cx) {
             cx.save();
         }
     });
-    row(ui, t, cx.say("settings.text"), cx.say("settings.text_about"), |ui| {
+    setting(ui, t, cx.say("settings.text"), now, cx.say("settings.text_about"), |ui| {
         let items = TEXT_SIZES.map(|percent| (percent, format!("{percent}%")));
         if let Some(percent) = segments(ui, t, &items, Some(cx.settings.text_percent)) {
             cx.settings.text_percent = percent;
             cx.save();
         }
     });
-    row(ui, t, cx.say("settings.mode"), cx.say("settings.mode_about"), |ui| {
-        let items = [
-            (Mode::Basic, cx.say("settings.mode_basic").to_string()),
-            (Mode::Expert, cx.say("settings.mode_expert").to_string()),
-        ];
-        if let Some(mode) = segments(ui, t, &items, Some(cx.settings.mode)) {
-            cx.settings.mode = mode;
-            cx.save();
-        }
-    });
     let keys = ("settings.reduce_motion", "settings.reduce_motion_about");
-    switch_setting(ui, cx, keys, |settings| &mut settings.reduce_motion);
+    switch_setting(ui, cx, keys, When::Now, |settings| &mut settings.reduce_motion);
 }
 
-impl SettingsPage {
-    fn about(&mut self, ui: &mut Ui, cx: &Cx) {
-        group(ui, cx.say("settings.about"));
-        if opening_row(ui, cx.t, cx, ("settings.note", "settings.note_about", "settings.note_go")) {
-            self.tools.open(Tool::Note);
-        }
-    }
-
-    fn wallet(&mut self, ui: &mut Ui, cx: &Cx) {
-        let t = cx.t;
-        group(ui, cx.say("settings.wallet"));
-        let rows = [
-            (("settings.backup", "settings.backup_about", "settings.backup_go"), Tool::Backup),
-            (("settings.restore", "settings.restore_about", "settings.restore_go"), Tool::Restore),
-            (("settings.addresses", "settings.addresses_about", "common.open"), Tool::Addresses),
-            (("settings.watch", "settings.watch_about", "common.open"), Tool::Watch),
-            (("settings.offline", "settings.offline_about", "common.open"), Tool::Offline),
-            (("settings.words", "settings.words_about", "common.open"), Tool::Words),
-            (("settings.shared", "settings.shared_about", "common.open"), Tool::Shared),
-        ];
-        for (keys, tool) in rows {
-            if opening_row(ui, t, cx, keys) {
-                self.tools.open(tool);
-            }
-        }
-        if cx.expert() && opening_row(ui, t, cx, ("pro.sign_message", "pro.sign_message_about", "common.open")) {
-            self.tools.open(Tool::Message);
-        }
-    }
-}
-
-fn speed_name(speed: Speed) -> &'static str {
-    match speed {
-        Speed::Quarter => "settings.speed_quarter",
-        Speed::Half => "settings.speed_half",
-        Speed::Full => "settings.speed_full",
+/// The mode, with the two compared behind Details.
+fn mode_row(ui: &mut Ui, cx: &mut Cx) {
+    let t = cx.t;
+    let items = [
+        (Mode::Basic, cx.say("settings.mode_basic").to_string()),
+        (Mode::Expert, cx.say("settings.mode_expert").to_string()),
+    ];
+    let mut chosen = None;
+    let name = (cx.say("settings.mode"), when(cx, When::Now));
+    let labels = (cx.say("explain.details"), cx.say("explain.hide"));
+    let control = |ui: &mut Ui| chosen = segments(ui, t, &items, Some(cx.settings.mode));
+    setting_details(ui, t, name, (cx.say("settings.mode_about"), "modes", labels), control, |ui| {
+        settings_compare::modes(ui, cx);
+    });
+    if let Some(mode) = chosen {
+        cx.settings.mode = mode;
+        cx.save();
     }
 }
 
@@ -147,69 +115,106 @@ pub fn committed_number(ui: &mut Ui, shown: u64, name: &str, width: f32) -> Opti
     number.filter(|number| response.lost_focus() && *number != shown)
 }
 
-/// The node takes the cap at once, and the saved copy holds it too.
-fn set_cap(cx: &mut Cx, cap: u64) {
-    cx.send(Command::SetCap(cap));
-    cx.settings.hash_cap = cap;
-    cx.save();
-}
-
-/// Speed in steps that are parts of this computer's full rate; in expert mode also the exact
-/// cap and the threads. The cap shown is the one the node runs under.
-fn speed_row(ui: &mut Ui, cx: &mut Cx) {
+/// The speed is set where the mining is: this row says it and goes there. In expert mode the
+/// threads follow, since they set what full speed is.
+pub fn speed_rows(ui: &mut Ui, cx: &mut Cx) {
     let t = cx.t;
-    let cap = cx.snap.node.cap;
     let voice = cx.voice();
-    let full = cx.snap.full_rate;
-    let threads = cx.settings.threads(standard_threads());
-    let about = cx.fill("settings.speed_about", &[&format::rate(voice, full), &threads.to_string()]);
-    row(ui, t, cx.say("settings.speed"), &about, |ui| {
-        let items = Speed::ALL.map(|speed| (speed, cx.say(speed_name(speed)).to_string()));
-        if let Some(speed) = segments(ui, t, &items, Speed::of(cap, full)) {
-            set_cap(cx, speed.cap(full));
+    let (cap, full) = (cx.snap.node.cap, cx.snap.full_rate);
+    // A cap of 0, or one above what this computer can do, holds nothing back.
+    let now = match cap == 0 || (full > 0 && cap >= full) {
+        true => cx.fill("rate.max", &[&format::rate(voice, full)]),
+        false => cx.fill("rate.of", &[&format::rate(voice, cap), &format::rate(voice, full)]),
+    };
+    setting(ui, t, cx.say("settings.speed"), when(cx, When::Now), &now, |ui| {
+        if button(ui, t, cx.say("settings.speed_go"), Kind::Plain).clicked() {
+            *cx.go = Some("page.mining");
         }
     });
-    if cx.expert() {
-        row(ui, t, cx.say("pro.cap"), cx.say("pro.cap_about"), |ui| {
-            if let Some(typed) = committed_number(ui, cap, cx.say("pro.cap"), 120.0) {
-                set_cap(cx, typed);
-            }
-        });
-        let about = cx.fill("pro.threads_about", &[&cores().to_string()]);
-        row(ui, t, cx.say("pro.threads"), &about, |ui| {
-            if let Some(typed) = committed_number(ui, threads as u64, cx.say("pro.threads"), 60.0) {
-                cx.settings.mining_threads = typed.clamp(1, cores() as u64) as u32;
-                cx.save();
-            }
-        });
+    if !cx.expert() {
+        return;
     }
-}
-
-fn this_computer(ui: &mut Ui, cx: &mut Cx) {
-    let t = cx.t;
-    group(ui, cx.say("settings.computer"));
-    let about = cx.say("settings.device_about");
-    row(ui, t, cx.say("settings.device"), about, |ui| {
-        // Five names do not fit this column as a row of segments at any text size.
-        let mut chosen = cx.settings.device;
-        egui::ComboBox::from_id_salt("device")
-            .selected_text(cx.say(device_name(chosen)))
-            .height(DEVICE_LIST_HEIGHT)
-            .show_ui(ui, |ui| {
-                for device in Device::ALL {
-                    ui.selectable_value(&mut chosen, device, cx.say(device_name(device)));
-                }
-            });
-        if chosen != cx.settings.device {
-            cx.settings.apply_device(chosen);
+    let threads = cx.settings.threads(standard_threads());
+    let about = cx.fill("pro.threads_about", &[&cores().to_string()]);
+    setting(ui, t, cx.say("pro.threads"), when(cx, When::Now), &about, |ui| {
+        if let Some(typed) = committed_number(ui, threads as u64, cx.say("pro.threads"), 60.0) {
+            cx.settings.mining_threads = typed.clamp(1, cores() as u64) as u32;
             cx.save();
         }
     });
-    row(ui, t, cx.say("settings.data"), &cx.snap.folder.clone(), |ui| {
-        if button(ui, t, cx.say("settings.open_data"), Kind::Plain).clicked() {
-            cx.send(Command::OpenDataFolder);
-        }
-    });
+}
+
+/// What this screen sets, as it came, with the rest of the file kept: the language a person
+/// picked, the coin, the miners, the boards and the peers are not preferences.
+fn reset(settings: &Settings) -> Settings {
+    let fresh = Settings::default();
+    Settings {
+        mode: fresh.mode,
+        theme: fresh.theme,
+        reduce_motion: fresh.reduce_motion,
+        text_percent: fresh.text_percent,
+        hash_cap: fresh.hash_cap,
+        mining_threads: fresh.mining_threads,
+        mine_on_start: fresh.mine_on_start,
+        port: fresh.port,
+        listen_lan: fresh.listen_lan,
+        scan_lan: fresh.scan_lan,
+        broadcast: fresh.broadcast,
+        scan_ports: fresh.scan_ports,
+        auto_update: fresh.auto_update,
+        ..settings.clone()
+    }
+}
+
+impl SettingsPage {
+    /// The data folder and the note sit with the general rows.
+    fn general(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        group(ui, cx.say("settings.general"));
+        mode_row(ui, cx);
+        Extras { values: &mut self.extras }.keeping(ui, cx);
+        let keys = ("settings.auto_update", "settings.auto_update_about");
+        switch_setting(ui, cx, keys, When::Now, |settings| &mut settings.auto_update);
+        row(ui, t, cx.say("settings.data"), &cx.snap.folder.clone(), |ui| {
+            if button(ui, t, cx.say("settings.open_data"), Kind::Plain).clicked() {
+                cx.send(Command::OpenDataFolder);
+            }
+        });
+        row(ui, t, cx.say("settings.note"), cx.say("settings.note_about"), |ui| {
+            if button(ui, t, cx.say("settings.note_go"), Kind::Plain).clicked() {
+                self.tools.open(Tool::Note);
+            }
+        });
+    }
+
+    /// Bitcoin Core's two buttons under its options: the file, and everything back as it came.
+    /// Going back takes a second press, since it undoes every row above at once.
+    fn file(&mut self, ui: &mut Ui, cx: &mut Cx) {
+        let t = cx.t;
+        ui.add_space(tokens::GAP_WIDE);
+        ui.horizontal(|ui| {
+            if button(ui, t, cx.say("settings.file"), Kind::Plain).clicked() {
+                cx.send(Command::OpenSettingsFile);
+            }
+            let (label, kind) = match self.resetting {
+                false => (cx.say("settings.reset"), Kind::Plain),
+                true => (cx.say("settings.reset_sure"), Kind::Danger),
+            };
+            if button(ui, t, label, kind).clicked() {
+                if self.resetting {
+                    *cx.settings = reset(cx.settings);
+                    cx.save();
+                }
+                self.resetting = !self.resetting;
+            }
+            if self.resetting && button(ui, t, cx.say("common.cancel"), Kind::Quiet).clicked() {
+                self.resetting = false;
+            }
+        });
+        ui.add_space(tokens::GAP);
+        let about = if self.resetting { "settings.reset_about" } else { "settings.file_about" };
+        meta(ui, cx.say(about), t);
+    }
 }
 
 impl Page for SettingsPage {
@@ -226,26 +231,22 @@ impl Page for SettingsPage {
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        let t = cx.t;
         widgets::title(ui, cx.say("page.settings"));
         ui.spacing_mut().item_spacing.y = 0.0;
-        if cx.expert() {
-            meta(ui, cx.say("pro.settings_note"), t);
-        }
-        general(ui, cx);
-        self.wallet(ui, cx);
-        group(ui, cx.say("settings.mining"));
-        speed_row(ui, cx);
-        Extras { values: &mut self.extras }.show(ui, cx);
-        this_computer(ui, cx);
-        self.about(ui, cx);
+        self.general(ui, cx);
+        Extras { values: &mut self.extras }.mining(ui, cx);
+        Extras { values: &mut self.extras }.network(ui, cx);
+        display(ui, cx);
+        self.file(ui, cx);
         self.tools.show(ui, cx);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::committed_number;
+    use super::{committed_number, reset};
+    use crate::i18n::{Lang, Mode};
+    use crate::settings::Settings;
     use egui::accesskit::Role;
     use egui::{Key, Modifiers};
     use egui_kittest::kittest::Queryable;
@@ -279,5 +280,27 @@ mod tests {
         harness.key_press(Key::Enter);
         harness.run();
         assert_eq!(harness.state().1, vec![50_000]);
+    }
+
+    /// Going back to defaults takes the preferences back and keeps the language, the coin and
+    /// the peers a person had.
+    #[test]
+    fn reset_keeps_what_is_not_a_preference() {
+        let mine = Settings {
+            mode: Mode::Expert,
+            hash_cap: 3_000,
+            listen_lan: false,
+            language: Lang::Ko,
+            language_chosen: true,
+            coin: Some("Race".into()),
+            peers: vec!["10.0.0.2:7690".into()],
+            setup_done: true,
+            ..Settings::default()
+        };
+        let back = reset(&mine);
+        let fresh = Settings::default();
+        assert_eq!((back.mode, back.hash_cap, back.listen_lan), (fresh.mode, fresh.hash_cap, fresh.listen_lan));
+        assert_eq!((back.language, back.language_chosen, back.setup_done), (Lang::Ko, true, true));
+        assert_eq!((back.coin, back.peers), (mine.coin, mine.peers));
     }
 }

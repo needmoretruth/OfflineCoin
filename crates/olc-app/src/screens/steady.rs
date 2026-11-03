@@ -180,7 +180,24 @@ fn on_its_own(quiet: &Snapshot) -> Snapshot {
     stage
 }
 
-/// The sheets the settings page opens, each with the wallet maturing under it both ways. A press on
+/// A sheet grows to its height over its first frames, and egui keeps it centred as it grows. What
+/// the core says is measured once it stands.
+fn opened(window: &mut Window) {
+    const MOST_FRAMES: usize = 30;
+    window.run_steps(SETTLE_STEPS);
+    let mut last = controls(window);
+    for _ in 0..MOST_FRAMES {
+        window.run_steps(1);
+        let now = controls(window);
+        if now == last {
+            return;
+        }
+        last = now;
+    }
+    panic!("the sheet still moves after {MOST_FRAMES} frames");
+}
+
+/// The sheets the Wallet page opens, each with the wallet maturing under it both ways. A press on
 /// the button that moves older coins to the words was lost on a slow runner as the last of them
 /// matured under the sheet.
 #[test]
@@ -192,19 +209,19 @@ fn what_the_core_says_leaves_every_control_in_a_sheet_where_it_is() {
     let ripe = wallet_moves(&base, true);
     let open = word(&window, "common.open");
     let mut wrong = Vec::new();
-    window.state_mut().open("page.settings");
+    window.state_mut().open("page.wallet");
     window.state_mut().set_stage(Some(waiting.clone()));
     window.run_steps(SETTLE_STEPS);
     let rows = window.query_all_by_label(&open).count();
-    assert!(rows > 0, "the settings page opens no sheet");
+    assert!(rows > 0, "the Wallet page opens no sheet");
     for row in 0..rows {
-        window.state_mut().open("page.settings");
+        window.state_mut().open("page.wallet");
         window.state_mut().set_stage(Some(waiting.clone()));
         window.run_steps(SETTLE_STEPS);
         if let Some(button) = window.query_all_by_label(&open).nth(row) {
             button.click_accesskit();
         }
-        window.run_steps(SETTLE_STEPS);
+        opened(&mut window);
         compare(&mut window, &waiting, &on_its_own(&ripe), &format!("sheet {row}, coins matured"), &mut wrong);
         compare(&mut window, &ripe, &on_its_own(&waiting), &format!("sheet {row}, a coin mined"), &mut wrong);
         window.key_press(egui::Key::Escape);

@@ -206,10 +206,11 @@ fn a_note_and_a_key_go_through_the_window() {
     let mut harness = harness(window, (1280, 1400));
     harness.state_mut().settings_mut().language = Lang::En;
 
-    harness.state_mut().open("page.settings");
+    harness.state_mut().open("page.wallet");
     wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 1);
     harness.run_steps(2);
-    harness.query_all_by_label("Open").next().expect("the addresses row").click();
+    // The Wallet page's tools: seed words first, then the addresses.
+    harness.query_all_by_label("Open").nth(1).expect("the addresses row").click();
     harness.run_steps(2);
     click(&mut harness, "New address");
     wait_until(&mut harness, |app| app.snapshot().node.keys.len() == 2);
@@ -446,19 +447,3 @@ fn the_developers_note_opens_in_both_languages() {
     }
 }
 
-/// The list of devices fits its column and changes the choice.
-#[test]
-fn the_device_is_chosen_from_a_list() {
-    let settings = Settings { port: port_of_scene(86), ..quiet_settings() };
-    let mut harness = harness(app(scratch("device-list"), settings, None), (1280, 2600));
-    harness.state_mut().open("page.settings");
-    harness.run_steps(SETTLE_STEPS);
-    harness.get_by_role(egui::accesskit::Role::ComboBox).click();
-    harness.run_steps(SETTLE_STEPS);
-    if let Ok(folder) = std::env::var("OLC_SHOTS") {
-        super::shots::shot(&mut harness, std::path::Path::new(&folder), "device-list");
-    }
-    click(&mut harness, "Two computers");
-    harness.run_steps(SETTLE_STEPS);
-    assert_eq!(harness.state_mut().settings_mut().device, Device::TwoComputers);
-}

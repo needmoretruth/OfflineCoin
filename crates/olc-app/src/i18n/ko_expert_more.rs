@@ -137,7 +137,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.same_coin_chain", "같은 코인"),
     ("pro.scan_ports", "스캔할 포트"),
     ("pro.scan_ports_about", "쉼표로 나눕니다."),
-    ("pro.settings_note", "다른 말이 없으면 다음 시작부터 적용됩니다."),
     ("pro.share_difficulty", "셰어 난이도"),
     ("pro.show_logo", "로고 보기"),
     ("pro.smooth", "화면 프레임"),
@@ -248,7 +247,5 @@ pub const WORDS: &[(&str, &str)] = &[
     ("swap.other_coin", "{} 체인도 받고 있습니다. 지금 {} {}번 블록입니다."),
     ("swap.other_coin_alone", "{} 체인의 피어를 찾고 있습니다. 지금 {} {}번 블록입니다."),
     ("pro.swap_id", "교환 {}"),
-    ("pro.sign_message", "메시지 서명"),
-    ("pro.sign_message_about", "비트코인 signmessage처럼 주소의 주인임을 증명합니다."),
     ("pro.speed_id", "거래"),
 ];

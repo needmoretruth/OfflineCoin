@@ -18,6 +18,7 @@ mod place_shots;
 mod pacing_card;
 mod places;
 mod quiet_align;
+mod settings_shots;
 mod home_words;
 mod swap_local;
 mod swap_page;
@@ -244,7 +245,8 @@ fn every_page_draws_in_both_languages_and_modes() {
 
 #[test]
 fn one_click_turns_every_word_korean() {
-    let mut harness = harness(app(scratch("toggle"), quiet_settings(), None), SIZES[0]);
+    // Tall enough for the Display group at the bottom, where the language is.
+    let mut harness = harness(app(scratch("toggle"), quiet_settings(), None), (1280, 2400));
     harness.state_mut().open("page.settings");
     harness.run_steps(2);
     assert!(harness.query_all_by_label("Coins").count() > 0);

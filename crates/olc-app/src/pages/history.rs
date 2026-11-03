@@ -173,7 +173,8 @@ impl HistoryList {
             super::history_detail::kinds_explained(ui, cx);
         });
         ui.add_space(tokens::GAP);
-        ui.horizontal(|ui| {
+        // Wrapped, so a long language moves the button down instead of widening the column.
+        ui.horizontal_wrapped(|ui| {
             let mut kinds = vec![(Filter::All, cx.say("history.all").to_string())];
             for kind in [ActivityKind::Received, ActivityKind::Sent, ActivityKind::Mined, ActivityKind::Joined, ActivityKind::ToSelf] {
                 kinds.push((Filter::Only(kind), cx.say(kind_key(kind)).to_string()));

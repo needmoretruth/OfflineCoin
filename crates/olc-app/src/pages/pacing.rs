@@ -10,7 +10,7 @@ use crate::ui::paint;
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{card, section};
 use egui::{pos2, vec2, Align, CornerRadius, Label, Layout, Rect, RichText, Sense, Ui};
-use olc_core::Rules;
+use olc_core::{DifficultyRule, Rules};
 
 const STAT_TRACK: f32 = 6.0;
 /// A figure in the pacing card needs this much room; fewer fit in a row on a narrow column.
@@ -35,11 +35,13 @@ pub enum Rule {
 
 impl Rule {
     /// The rule a coin's rules name. A window of one block changes it at every block.
+    /// An interval of 0 holds the difficulty under every rule, as the core does; per-block
+    /// adjustment moves it at every block whatever the interval says.
     pub fn of(rules: &Rules) -> Self {
-        match rules.retarget_interval {
-            0 => Rule::Fixed,
-            1 => Rule::EveryBlock,
-            every => Rule::Window(every),
+        match (rules.retarget_interval, rules.difficulty_rule) {
+            (0, _) => Rule::Fixed,
+            (_, DifficultyRule::Asert) | (1, _) => Rule::EveryBlock,
+            (every, _) => Rule::Window(every),
         }
     }
 }
@@ -250,8 +252,15 @@ mod tests {
         assert_eq!(Rule::of(&rules), Rule::Fixed);
         rules.retarget_interval = 1;
         assert_eq!(Rule::of(&rules), Rule::EveryBlock);
+        rules.difficulty_rule = DifficultyRule::Bitcoin;
         rules.retarget_interval = 20;
         assert_eq!(Rule::of(&rules), Rule::Window(20));
+        rules.difficulty_rule = DifficultyRule::Bip94;
+        assert_eq!(Rule::of(&rules), Rule::Window(20));
+        rules.difficulty_rule = DifficultyRule::Asert;
+        assert_eq!(Rule::of(&rules), Rule::EveryBlock, "the interval does not hold a per-block rule");
+        rules.retarget_interval = 0;
+        assert_eq!(Rule::of(&rules), Rule::Fixed);
     }
 
     #[test]

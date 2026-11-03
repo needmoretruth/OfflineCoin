@@ -137,7 +137,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.same_coin_chain", "Same coin"),
     ("pro.scan_ports", "Ports to scan"),
     ("pro.scan_ports_about", "Comma separated."),
-    ("pro.settings_note", "Numbers apply from the next start unless a row says otherwise."),
     ("pro.share_difficulty", "Share difficulty"),
     ("pro.show_logo", "Show logo"),
     ("pro.smooth", "Screen frame rate"),
@@ -248,7 +247,5 @@ pub const WORDS: &[(&str, &str)] = &[
     ("swap.other_coin", "Also following the {} chain. Now at {} block {}."),
     ("swap.other_coin_alone", "Looking for peers on the {} chain. Now at {} block {}."),
     ("pro.swap_id", "Swap {}"),
-    ("pro.sign_message", "Sign a message"),
-    ("pro.sign_message_about", "Prove you hold an address, the way Bitcoin's signmessage does."),
     ("pro.speed_id", "Payment"),
 ];

@@ -19,9 +19,10 @@ const OTHERS: [&str; 2] = [
     "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
 ];
 const SOMEBODY: &str = "olc409c2c2374917964bd7d010ddb77f90500eb3a41";
-/// The rows of the settings page with an Open button, in order.
-const WORDS_ROW: usize = 3;
-const SHARED_ROW: usize = 4;
+/// The Wallet page's tools with an Open button, in order: seed words, addresses, signing a
+/// message, shared wallets.
+const WORDS_ROW: usize = 0;
+const SHARED_ROW: usize = 3;
 
 fn open_nth(window: &mut Window, key: &str, index: usize) {
     let settings = window.state().settings();
@@ -65,8 +66,8 @@ fn shows_word(window: &Window, word: &str) -> bool {
     })
 }
 
-fn settings_row(window: &mut Window, row: usize) {
-    window.state_mut().open("page.settings");
+fn wallet_row(window: &mut Window, row: usize) {
+    window.state_mut().open("page.wallet");
     window.run_steps(SETTLE_STEPS);
     open_nth(window, "common.open", row);
 }
@@ -112,7 +113,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     close(&mut window);
 
     // The older wallet gets words, writes them down and types two back.
-    settings_row(&mut window, WORDS_ROW);
+    wallet_row(&mut window, WORDS_ROW);
     picture(&mut window, folder, "words-none");
     tap(&mut window, "words.make");
     wait_until(&mut window, |app| app.snapshot().node.wallet.words_to_write.is_some());
@@ -164,7 +165,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     wait_until(&mut window, |app| app.snapshot().node.spendable > 2_000_000_000);
     window.state().send(Command::Lock(LockOrder::Pay { words: text, amount: "12".into() }));
     wait_until(&mut window, |app| app.snapshot().node.wallet.shared.first().is_some_and(|shared| shared.balance > 0));
-    settings_row(&mut window, SHARED_ROW);
+    wallet_row(&mut window, SHARED_ROW);
     tap(&mut window, "shared.receive");
     tall(&mut window, folder, "shared-wallet");
     close(&mut window);
@@ -172,7 +173,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     window.state().send(Command::Lock(LockOrder::PayShared { wallet: 0, to, amount }));
     wait_until(&mut window, |app| app.snapshot().node.half_spend.is_some());
     // The spend that waits for a second signature comes first.
-    settings_row(&mut window, SHARED_ROW);
+    wallet_row(&mut window, SHARED_ROW);
     tall(&mut window, folder, "shared-signatures");
     assert!(shows(&window, "2번, 3번 서명자의 서명을 기다립니다."), "the signers still to sign, by their place");
     let second = window.state().snapshot().node.wallet.shared[0].signers[1].clone();

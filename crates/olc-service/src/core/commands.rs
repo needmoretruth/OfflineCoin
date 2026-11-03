@@ -115,6 +115,8 @@ pub enum Command {
     SetLinks(Rank),
     Rescan,
     OpenDataFolder,
+    /// Opens the file the settings live in, as Bitcoin Core's options open its configuration.
+    OpenSettingsFile,
     Board {
         id: BoardId,
         action: BoardAction,
