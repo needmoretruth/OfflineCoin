@@ -57,6 +57,9 @@ impl Platform for Os {
         app_folder()
     }
 
+    fn language(&self) -> Option<String> {
+        crate::language::preferred()
+    }
     fn host_name(&self) -> String {
         std::env::var("COMPUTERNAME").unwrap_or_default()
     }

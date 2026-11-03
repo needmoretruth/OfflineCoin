@@ -268,6 +268,21 @@ fn the_first_run_offers_every_device() {
     }
 }
 
+/// A Korean system opens the first run in Korean, with no settings file yet. A picture of it goes
+/// to the folder `OLC_FIRST_SHOT` names.
+#[test]
+fn a_korean_system_starts_in_korean() {
+    let folder = scratch("first-korean");
+    let loaded = Settings::load_for(&folder, Lang::Ko);
+    let settings = Settings { setup_done: false, language: loaded.language, ..quiet_settings() };
+    let mut harness = harness(app(folder, settings, None), SIZES[0]);
+    assert!(harness.query_by_label("무엇으로 채굴할까요?").is_some());
+    assert!(harness.query_by_label("What will you mine with?").is_none());
+    if let Some(pictures) = std::env::var_os("OLC_FIRST_SHOT") {
+        shots::shot(&mut harness, Path::new(&pictures), "first-run-korean-system");
+    }
+}
+
 /// Every page says the next step when it has nothing yet, with a way to take it.
 #[test]
 fn an_empty_home_says_what_to_do() {

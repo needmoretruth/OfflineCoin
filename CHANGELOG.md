@@ -7,6 +7,7 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 ### Added
 
 - Home tells a wallet that has no recovery words yet, such as one made before 0.2.0, that only the backup file brings it back, with a button that makes the words.
+- OLC Core opens in your computer's language: Korean on a Korean system and English on any other, until you pick one in Settings.
 
 ### Fixed
 

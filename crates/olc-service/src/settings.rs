@@ -28,6 +28,20 @@ impl Lang {
             Self::Ko => Self::En,
         }
     }
+
+    /// The app's language for a system language code: Korean for `ko`, English for any other.
+    pub fn for_system(code: Option<&str>) -> Self {
+        if code == Some("ko") {
+            Self::Ko
+        } else {
+            Self::En
+        }
+    }
+
+    /// The language this computer's system speaks.
+    pub fn of_system() -> Self {
+        Self::for_system(olc_platform::platform().language().as_deref())
+    }
 }
 
 const OLD_BOARD_CAP: u64 = 3_000;
@@ -108,6 +122,8 @@ impl Device {
 #[serde(default)]
 pub struct Settings {
     pub language: Lang,
+    /// The person picked `language` in Settings. Until then it follows the system's language.
+    pub language_chosen: bool,
     #[serde(default)]
     pub mode: Mode,
     pub theme: Theme,
@@ -151,6 +167,7 @@ impl Default for Settings {
         let defaults = Device::default().defaults();
         Self {
             language: Lang::En,
+            language_chosen: false,
             mode: Mode::Basic,
             theme: Theme::System,
             reduce_motion: false,
@@ -183,6 +200,7 @@ impl Settings {
         self.auto_update = from.auto_update;
         self.auto_boards.clone_from(&from.auto_boards);
         self.language = from.language;
+        self.language_chosen = from.language_chosen;
         self.mode = from.mode;
         self.theme = from.theme;
         self.reduce_motion = from.reduce_motion;
@@ -237,9 +255,34 @@ impl Settings {
     }
 
     pub fn load(root: &Path) -> Self {
+        Self::load_for(root, Lang::of_system())
+    }
+
+    /// What `load` gives on a system that speaks `system`.
+    pub fn load_for(root: &Path, system: Lang) -> Self {
         let text = fs::read_to_string(root.join(FILE)).ok();
-        let saved = text.and_then(|text| serde_json::from_str::<Self>(&text).ok());
-        saved.unwrap_or_default().moved_to_shared_cap()
+        let saved = text.as_deref().and_then(|text| {
+            let settings = serde_json::from_str::<Self>(text).ok()?;
+            Some(settings.with_old_pick(text.contains("\"language_chosen\"")))
+        });
+        saved.unwrap_or_default().moved_to_shared_cap().following(system)
+    }
+
+    /// A file from before the pick was kept held English as the default, so only Korean in it
+    /// was a person's pick.
+    fn with_old_pick(mut self, knows_picks: bool) -> Self {
+        if !knows_picks && self.language == Lang::Ko {
+            self.language_chosen = true;
+        }
+        self
+    }
+
+    /// The system's language, unless the person picked one.
+    fn following(mut self, system: Lang) -> Self {
+        if !self.language_chosen {
+            self.language = system;
+        }
+        self
     }
 
     /// `OLD_BOARD_CAP` was once the default, so a saved one was no choice.
@@ -336,5 +379,53 @@ mod tests {
         assert_eq!(saved.language, Lang::Ko);
         assert_eq!(saved.port, 7100);
         assert!(saved.scan_lan);
+    }
+
+    fn folder_with(name: &str, file: Option<&str>) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("olc-lang-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(&folder).unwrap();
+        if let Some(text) = file {
+            fs::write(folder.join(FILE), text).unwrap();
+        }
+        folder
+    }
+
+    #[test]
+    fn a_first_start_speaks_the_system_language() {
+        assert_eq!(Lang::for_system(Some("ko")), Lang::Ko);
+        assert_eq!(Lang::for_system(Some("en")), Lang::En);
+        assert_eq!(Lang::for_system(Some("de")), Lang::En);
+        assert_eq!(Lang::for_system(None), Lang::En);
+        let folder = folder_with("first", None);
+        assert_eq!(Settings::load_for(&folder, Lang::Ko).language, Lang::Ko);
+        assert_eq!(Settings::load_for(&folder, Lang::En).language, Lang::En);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_picked_language_stays_on_any_system() {
+        let folder = folder_with("picked", None);
+        let mut settings = Settings::load_for(&folder, Lang::Ko);
+        settings.language = Lang::En;
+        settings.language_chosen = true;
+        settings.save(&folder).unwrap();
+        assert_eq!(Settings::load_for(&folder, Lang::Ko).language, Lang::En);
+        let unpicked = Settings { language: Lang::Ko, ..Settings::default() };
+        unpicked.save(&folder).unwrap();
+        assert_eq!(Settings::load_for(&folder, Lang::En).language, Lang::En);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn an_old_file_follows_the_system_unless_it_held_a_pick() {
+        let default = folder_with("old-default", Some(r#"{"language":"En","setup_done":true}"#));
+        let settings = Settings::load_for(&default, Lang::Ko);
+        assert_eq!(settings.language, Lang::Ko);
+        assert!(settings.setup_done);
+        let picked = folder_with("old-picked", Some(r#"{"language":"Ko","setup_done":true}"#));
+        assert_eq!(Settings::load_for(&picked, Lang::En).language, Lang::Ko);
+        fs::remove_dir_all(&default).unwrap();
+        fs::remove_dir_all(&picked).unwrap();
     }
 }

@@ -55,6 +55,9 @@ impl Platform for Os {
         Some(unix::home()?.join(SUPPORT))
     }
 
+    fn language(&self) -> Option<String> {
+        crate::language::preferred()
+    }
     fn host_name(&self) -> String {
         let output = Command::new("hostname").arg("-s").output();
         let text = output.map(|output| output.stdout).unwrap_or_default();

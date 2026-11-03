@@ -25,6 +25,8 @@ serial2 = { version = "0.2", features = ["unix"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+# The person's preferred languages, through the call each system makes for it.
+sys-locale = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 win32job = "2"

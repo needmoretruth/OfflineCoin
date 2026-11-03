@@ -142,6 +142,9 @@ impl Platform for Os {
         Some(unix::home()?.join(".config/olc"))
     }
 
+    fn language(&self) -> Option<String> {
+        crate::language::posix(|name| std::env::var(name).ok())
+    }
     fn host_name(&self) -> String {
         let name = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
         name.trim().to_string()
