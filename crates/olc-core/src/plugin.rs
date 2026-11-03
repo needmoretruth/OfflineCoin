@@ -16,12 +16,15 @@ pub struct RetargetInput {
     pub min_difficulty: u64,
 }
 
-/// What per-block adjustment may look at.
+/// What per-block adjustment may look at, in the spec's terms: an anchor block, which is the
+/// parent unless late blocks at the floor came after it.
 pub struct PerBlockInput {
-    pub parent_difficulty: u64,
-    /// How long the parent came after its own parent. Below zero when its time is earlier, which
-    /// the median time past allows.
-    pub gap_ms: i64,
+    pub anchor_difficulty: u64,
+    /// From the anchor's parent's time to the parent's. Below zero when it is earlier, which the
+    /// median time past allows.
+    pub time_delta_ms: i64,
+    /// Blocks from the anchor to the parent: 0 when the parent is the anchor.
+    pub height_delta: u64,
     pub block_time_ms: u64,
     pub half_life_ms: u64,
     /// The answer may not go below this.
