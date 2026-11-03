@@ -1,6 +1,7 @@
 //! The blocks behind the difficulty picture: for each rule and each change of mining, when every
-//! block came after the change and whether it was an easy block at the floor. Real nodes wrote
-//! them (`crates/olc-app/data/difficulty-drop.json`, made by the difficulty measurement).
+//! block came after the change and whether it was an easy block at the floor. Nine real nodes wrote
+//! them, one a rule and change (`crates/olc-app/data/difficulty-drop.json`, made by the difficulty
+//! measurement and described in `docs/technical.md`). A block before the change has a time below 0.
 use serde_json::Value;
 use std::sync::LazyLock;
 
@@ -22,19 +23,24 @@ pub struct Run {
     pub case: String,
     pub target: f64,
     pub blocks: Vec<Block>,
-    /// Seconds after the change when blocks came at their pace again, if they did.
+    /// Seconds after the change when blocks came at their pace again, if they did while watched.
     pub back: Option<f64>,
+    /// How long after the change the run was watched, when the file says.
+    pub watched: Option<f64>,
+    /// Whether the run let a late block come easy, when the file says.
+    pub late_floor: Option<bool>,
 }
 
 impl Run {
+    /// The first block after the change.
     pub fn first(&self) -> Option<f64> {
-        self.blocks.first().map(|block| block.secs)
+        self.blocks.iter().map(|block| block.secs).find(|secs| *secs >= 0.0)
     }
 
     /// Blocks after the change up to and with the one where the pace was back.
     pub fn blocks_to_back(&self) -> Option<usize> {
         let back = self.back?;
-        Some(self.blocks.iter().filter(|block| block.secs <= back).count())
+        Some(self.blocks.iter().filter(|block| (0.0..=back).contains(&block.secs)).count())
     }
 }
 
@@ -53,6 +59,12 @@ pub fn cases() -> Vec<&'static str> {
 
 pub fn run(rule: &str, case: &str) -> Option<&'static Run> {
     RUNS.iter().find(|run| run.rule == rule && run.case == case)
+}
+
+/// The earliest block of a change, 0 when none came before it.
+pub fn earliest(case: &str) -> f64 {
+    let blocks = RUNS.iter().filter(|run| run.case == case).flat_map(|run| &run.blocks);
+    blocks.map(|block| block.secs).fold(0.0, f64::min)
 }
 
 /// What a case's name says: `drop20` is mining falling to a twentieth, `rise50` growing fifty
@@ -87,8 +99,15 @@ fn run_of(value: &Value) -> Option<Run> {
         })
         .collect();
     blocks.sort_by(|a, b| a.secs.total_cmp(&b.secs));
-    let back = value.get("back_secs").and_then(Value::as_f64).or_else(|| back_by_pace(&blocks, target));
-    Some(Run { rule: text("rule")?, case: text("case")?, target, blocks, back })
+    // The file's null is its answer: not back while watched. Only a file without the key leaves
+    // the pace to be read from the blocks.
+    let back = match value.get("back_secs") {
+        Some(back) => back.as_f64(),
+        None => back_by_pace(&blocks, target),
+    };
+    let watched = value.get("watched_secs").and_then(Value::as_f64);
+    let late_floor = value.get("allow_min_difficulty_blocks").and_then(Value::as_bool);
+    Some(Run { rule: text("rule")?, case: text("case")?, target, blocks, back, watched, late_floor })
 }
 
 /// The first regular block from which [`PACE_GAPS`] gaps average within [`PACE_SLACK`] of the
@@ -116,10 +135,32 @@ mod tests {
             assert!(case_words(case).is_some(), "{case} names a fall or a rise");
             for rule in DIFFICULTY_RULES {
                 let run = run(rule, case).unwrap_or_else(|| panic!("{rule} {case}"));
-                assert!(run.blocks.len() > 3, "{rule} {case} has blocks");
-                assert!(run.back.is_some(), "{rule} {case} came back to its pace");
+                assert!(run.first().is_some(), "{rule} {case} has a block after the change");
+                assert!(run.back.is_some() || run.watched.is_some(), "{rule} {case} came back, or says how long it was watched");
             }
         }
+    }
+
+    /// The numbers `docs/technical.md` tables for the same runs: Bitcoin's rule not back within
+    /// two hours after a drop, and the blocks until the others were back.
+    #[test]
+    fn the_runs_read_as_the_measurement_tables_them() {
+        let never = run("bitcoin", "drop20").expect("bitcoin drop20");
+        assert_eq!((never.back, never.watched), (None, Some(7_200.0)));
+        let backs = [("bitcoin", "rise50", 35), ("bip94", "drop20", 42), ("bip94", "drop50", 65), ("asert", "drop20", 25), ("asert", "drop50", 18)];
+        for (rule, case, blocks) in backs {
+            assert_eq!(run(rule, case).and_then(Run::blocks_to_back), Some(blocks), "{rule} {case}");
+        }
+        assert!(cases().iter().all(|case| earliest(case) <= 0.0));
+    }
+
+    #[test]
+    fn a_block_before_the_change_counts_neither_first_nor_toward_back() {
+        let block = |secs: f64| Block { secs, easy: secs < 0.0 };
+        let blocks = vec![block(-40.0), block(-5.0), block(12.0), block(50.0)];
+        let run = Run { rule: "asert".into(), case: "rise50".into(), target: 30.0, blocks, back: Some(50.0), watched: None, late_floor: Some(true) };
+        assert_eq!(run.first(), Some(12.0));
+        assert_eq!(run.blocks_to_back(), Some(2));
     }
 
     #[test]

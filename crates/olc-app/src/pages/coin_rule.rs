@@ -49,11 +49,32 @@ fn used_in(cx: &Cx, rule: &str) -> String {
     cx.say(key).to_string()
 }
 
-/// Seconds as a person reads them: seconds under a minute, else minutes to a tenth.
+/// Seconds as a person reads them: at once under a second, seconds under a minute, else minutes to
+/// a tenth.
 fn span(cx: &Cx, secs: f64) -> String {
-    match secs < 60.0 {
-        true => cx.fill("coin.v_seconds", &[&format!("{secs:.0}")]),
-        false => cx.fill("coin.v_minutes", &[&format!("{:.1}", secs / 60.0)]),
+    match secs {
+        _ if secs < 1.0 => cx.say("coin.v_at_once").to_string(),
+        _ if secs < 60.0 => cx.fill("coin.v_seconds", &[&format!("{secs:.0}")]),
+        _ => cx.fill("coin.v_minutes", &[&format!("{:.1}", secs / 60.0)]),
+    }
+}
+
+/// How long a run was watched, in whole hours when it was.
+fn watched(cx: &Cx, secs: f64) -> String {
+    let hours = secs / 3_600.0;
+    match hours >= 1.0 && hours.fract() == 0.0 {
+        true => cx.fill("coin.v_hours", &[&format!("{hours:.0}")]),
+        false => span(cx, secs),
+    }
+}
+
+/// Whether a rule lets a late block come easy: Bitcoin's never, BIP 94's always, the per-block
+/// rule as the coin says.
+fn lets_late_block_come_easy(rule: &str, late_floor: bool) -> bool {
+    match rule {
+        "bitcoin" => false,
+        "bip94" => true,
+        _ => late_floor,
     }
 }
 
@@ -102,9 +123,10 @@ fn case_choice(ui: &mut Ui, cx: &Cx) -> Option<&'static str> {
     cases.get(shown).copied()
 }
 
-/// One row a rule on one time axis, 0 the moment mining changed: a tall bar for each block when it
-/// came, a short one for an easy block at the floor, and a wash from where blocks came at their
-/// pace again. The rule picked above is named in full white.
+/// One row a rule on one time axis, a line at the moment mining changed: a tall bar for each block
+/// when it came, a short one for an easy block at the floor, and a wash from where blocks came at
+/// their pace again. A rule not back while watched says so on its row. Blocks from before the
+/// change sit left of the line. The rule picked above is named in full white.
 fn picture(ui: &mut Ui, cx: &Cx, current: Option<&str>, case: &str, window: u64) {
     let t = cx.t;
     let row = NAME_ROW + STRIP + ROW_GAP;
@@ -114,7 +136,8 @@ fn picture(ui: &mut Ui, cx: &Cx, current: Option<&str>, case: &str, window: u64)
     let font = FontId::proportional(tokens::META);
     let (left, right) = (rect.left(), rect.right() - END_ROOM);
     let horizon = AXIS_MINUTES * 60.0;
-    let x = |secs: f64| left + (right - left) * (secs / horizon).clamp(0.0, 1.0) as f32;
+    let from = (coin_rule_data::earliest(case) / 60.0).floor() * 60.0;
+    let x = |secs: f64| left + (right - left) * ((secs - from) / (horizon - from)).clamp(0.0, 1.0) as f32;
     let mut top = rect.top();
     let mut any_easy = false;
     for rule in DIFFICULTY_RULES {
@@ -122,24 +145,27 @@ fn picture(ui: &mut Ui, cx: &Cx, current: Option<&str>, case: &str, window: u64)
         painter.text(pos2(left, top), Align2::LEFT_TOP, rule_name(cx, rule, window), font.clone(), colour);
         let (strip_top, base) = (top + NAME_ROW, top + NAME_ROW + STRIP);
         if let Some(run) = coin_rule_data::run(rule, case) {
+            if run.back.is_none() {
+                painter.text(pos2(rect.right(), top), Align2::RIGHT_TOP, never(cx, run), font.clone(), t.warn);
+            }
             if let Some(back) = run.back.filter(|back| *back <= horizon) {
                 let wash = Rect::from_min_max(pos2(x(back), strip_top), pos2(right, base));
                 painter.rect_filled(wash, 2.0, t.good.gamma_multiply(PACE_WASH));
             }
             painter.line_segment([pos2(left, base), pos2(right, base)], Stroke::new(1.0, t.line_strong));
-            for block in run.blocks.iter().filter(|block| block.secs <= horizon) {
+            for block in run.blocks.iter().filter(|block| (from..=horizon).contains(&block.secs)) {
                 let (height, colour) = if block.easy { (EASY, t.muted) } else { (TALL, t.text) };
                 any_easy |= block.easy;
                 let middle = x(block.secs);
                 painter.rect_filled(Rect::from_min_max(pos2(middle - TICK / 2.0, base - height), pos2(middle + TICK / 2.0, base)), 0.0, colour);
             }
         }
-        painter.line_segment([pos2(left, strip_top - 2.0), pos2(left, base)], Stroke::new(1.0, t.muted));
+        painter.line_segment([pos2(x(0.0), strip_top - 2.0), pos2(x(0.0), base)], Stroke::new(1.0, t.muted));
         top += row;
     }
     let axis = top - ROW_GAP / 2.0 + AXIS_ROOM / 2.0;
     for step in AXIS_STEPS {
-        let place = if step == 0.0 { Align2::LEFT_CENTER } else { Align2::CENTER_CENTER };
+        let place = if step == 0.0 && from == 0.0 { Align2::LEFT_CENTER } else { Align2::CENTER_CENTER };
         let said = cx.fill("coin.v_minutes", &[&format!("{step:.0}")]);
         painter.text(pos2(x(step * 60.0), axis), place, said, font.clone(), t.muted);
     }
@@ -183,13 +209,7 @@ fn table(ui: &mut Ui, cx: &Cx, case: &str, (window, late_floor): (u64, bool)) {
                     _ => cx.say("coin.v_each").to_string(),
                 });
             }
-            // Bitcoin's rule never lets a late block come easy and BIP 94 always does; the
-            // per-block rule does as the coin says.
-            let easy = match *rule {
-                "bitcoin" => false,
-                "bip94" => true,
-                _ => late_floor,
-            };
+            let easy = lets_late_block_come_easy(rule, late_floor);
             row.push(cx.say(if easy { "coin.v_yes" } else { "coin.v_no" }).to_string());
             row.push(run.and_then(Run::first).map(|secs| span(cx, secs)).unwrap_or_default());
             row.push(run.map(|run| back(cx, run)).unwrap_or_default());
@@ -210,6 +230,33 @@ fn table(ui: &mut Ui, cx: &Cx, case: &str, (window, late_floor): (u64, bool)) {
 fn back(cx: &Cx, run: &Run) -> String {
     match (run.back, run.blocks_to_back()) {
         (Some(secs), Some(blocks)) => cx.fill("coin.v_back", &[&span(cx, secs), &blocks.to_string()]),
-        _ => cx.fill("coin.v_never", &[&format!("{AXIS_MINUTES:.0}")]),
+        _ => never(cx, run),
+    }
+}
+
+/// Not back while the run was watched, the picture's two hours when the file does not say.
+fn never(cx: &Cx, run: &Run) -> String {
+    cx.fill("coin.v_never", &[&watched(cx, run.watched.unwrap_or(AXIS_MINUTES * 60.0))])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use olc_core::coin::CoinConfig;
+
+    /// The table's late-block row says what each measured run did, OLC's own floor for the
+    /// per-block rule included.
+    #[test]
+    fn the_late_block_row_matches_the_runs() {
+        let olc = CoinConfig::olc().rules.allow_min_difficulty_blocks;
+        for case in coin_rule_data::cases() {
+            for rule in DIFFICULTY_RULES {
+                let run = coin_rule_data::run(rule, case).unwrap_or_else(|| panic!("{rule} {case}"));
+                assert_eq!(run.late_floor, Some(lets_late_block_come_easy(rule, olc)), "{rule} {case}");
+                if !lets_late_block_come_easy(rule, olc) {
+                    assert!(run.blocks.iter().all(|block| !block.easy), "{rule} {case} has no easy block");
+                }
+            }
+        }
     }
 }

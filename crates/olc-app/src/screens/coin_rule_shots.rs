@@ -49,6 +49,12 @@ fn a_new_coin_picks_how_it_keeps_its_pace_on_stated_criteria() {
     }
     // Bitcoin's rule has no easy block; the test network's has, and so has OLC's per-block rule.
     assert_eq!((window.query_all_by_label("없음").count(), window.query_all_by_label("있음").count()), (1, 2));
+    // Three changes were measured; after mining fell to a twentieth, Bitcoin's rule was not back
+    // in the two hours watched.
+    for case in [DROP20, DROP50, RISE50] {
+        assert!(window.query_all_by_label(case).count() > 0, "{case} is a change to look at");
+    }
+    assert!(window.query_by_label("2시간 안에 못 돌아옴").is_some(), "a rule not back says so");
     picture(&mut window, "coin-rule-basic-ko-dark");
     press(&mut window, "10블록마다 맞추고 늦으면 쉬운 블록");
     picture(&mut window, "coin-rule-picked-basic-ko-dark");
@@ -71,8 +77,19 @@ fn a_new_coin_picks_how_it_keeps_its_pace_on_stated_criteria() {
     press(&mut window, "BIP 94");
     assert!(window.query_all_by_label(late).next().is_none(), "the switch stands only under ASERT");
 
-    // A taller window holds the whole comparison and the line under it.
+    // A taller window holds the whole comparison and the line under it, for each change.
     let mut window = opened(Lang::Ko, Mode::Basic, (1280, 1400));
     press(&mut window, "자세히");
     picture(&mut window, "coin-rule-whole-basic-ko-dark");
+    for (case, name) in [(DROP50, "drop50"), (RISE50, "rise50")] {
+        press(&mut window, case);
+        picture(&mut window, &format!("coin-rule-whole-{name}-basic-ko-dark"));
+    }
+    let mut window = opened(Lang::En, Mode::Expert, (1280, 1400));
+    press(&mut window, "Details");
+    picture(&mut window, "coin-rule-whole-expert-en-dark");
 }
+
+const DROP20: &str = "채굴이 20분의 1로 줄 때";
+const DROP50: &str = "채굴이 50분의 1로 줄 때";
+const RISE50: &str = "채굴이 50배로 늘 때";
