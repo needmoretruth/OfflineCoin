@@ -138,13 +138,21 @@ OLC uses `asert` with a half-life of six blocks, 3 minutes, as Bitcoin Cash's te
 
 ASERT alone sets a block's difficulty by when its parent came, so a miner who drops to a fiftieth of the hash rate waits about fifty block times for the next block. OLC also sets `allow_min_difficulty_blocks`, Bitcoin Core's `fPowAllowMinDifficultyBlocks` for its test networks: a block whose time is more than two block times and the clock limit after the newest time of the 11 blocks before it must carry the floor, 90 seconds on OLC. Such a block adds only the floor's work. ASERT anchors on the newest block before such blocks, as Bitcoin Cash's test networks keep their fixed anchor through them, so the regular difficulty goes on falling by the spec's formula over the time they took, and the first block in time carries it. A late block at the floor that ASERT itself brought there is stepped past the same way, which lands on the floor all the same, because every step past a late block only eases. ASERT looks back past at most 32 such blocks, inside the 64 headers a node that started from a peer's snapshot holds; past them the regular difficulty is the floor. When the first block itself comes late, the genesis anchors as if its parent were a block time before it, so the block after asks what it would have had the first block carried the starting difficulty.
 
-Measured on 2026-11-04 with three real nodes on 127.0.0.1, one per rule, at OLC's numbers: 30 second blocks, windows of 10, the floor of 30,000. Each mined at 20,000 hashes a second until its difficulty had followed, then dropped to 1,000, where the floor gives 30 second blocks. "Back" is the first block whose own rule, not BIP 94's exception, asks a difficulty the low rate finds within 37.5 seconds.
+Measured on 2026-11-04 with nine real nodes on 127.0.0.1, one per rule and change, at OLC's numbers: 30 second blocks, windows of 10, the floor of 30,000, the 30 second clock limit, and for `asert` the floor for a late block, as OLC has it. A drop node mined at 20,000 or 50,000 hashes a second until its difficulty had followed, then dropped to 1,000, where the floor gives 30 second blocks; a rise node went from 1,000 to 50,000. Times run from the change to when the node first showed the block. "Back" is the first block whose own rule, not the floor for a late block, asks a difficulty the new rate finds within 37.5 seconds after a drop, or in no less than 24 seconds after a rise. A run stopped 30 blocks after that, or 120 minutes after the change. Every block of every run is in `crates/olc-app/data/difficulty-drop.json`. Before the floor for a late block, ASERT's first block after a 20 fold drop came 11.5 minutes after it.
 
-| Rule | Difficulty at the drop | First block after it | Back | Then |
-|---|---|---|---|---|
-| `bitcoin` | 900,007 | 30.8 min | 25 blocks, 110.5 min | 26.5 s on average over 12 blocks |
-| `bip94` | 708,202 | 1.0 min, then one every 75 s on average | 45 blocks, 56.3 min | 33.8 s over 103 blocks |
-| `asert` | 567,592 | 11.5 min | 8 blocks, 16.3 min | 38 s over 160 blocks: after a fast block it rises, after a slow one the floor holds it |
+| Rule | Change | Difficulty at the change | First block after it | Back | Then |
+|---|---|---|---|---|---|
+| `bitcoin` | 20 fold drop | 689,981 | 1.0 min, by luck: 11.5 min is the wait to expect | not in 120 min: 10 blocks, one retarget to 172,495 | |
+| `bitcoin` | 50 fold drop | 2,275,286 | 48.1 min | not in 120 min: 3 blocks | |
+| `bitcoin` | 50 fold rise | 30,000 | at once | 35 blocks, 3.7 min | 35.3 s on average over 30 blocks |
+| `bip94` | 20 fold drop | 689,361 | 1.5 min, at the floor | 42 blocks, 50.2 min, 19 at the floor | 28.8 s over 30 blocks, 4 at the floor |
+| `bip94` | 50 fold drop | 3,403,365 | 1.1 min, at the floor | 65 blocks, 96.9 min, 38 at the floor | 34.8 s over 30 blocks, 4 at the floor |
+| `bip94` | 50 fold rise | 45,505 | at once | 25 blocks, 2.1 min | 27.1 s over 30 blocks, 3 at the floor |
+| `asert` | 20 fold drop | 661,413 | 1.6 min, at the floor | 25 blocks, 25.6 min, 8 at the floor | 33.5 s over 31 blocks |
+| `asert` | 50 fold drop | 1,253,133 | 1.5 min, at the floor | 18 blocks, 24.1 min, 10 at the floor | 38.0 s over 31 blocks, 3 at the floor |
+| `asert` | 50 fold rise | 34,466 | at once | 47 blocks, 7.3 min | 29.1 s over 75 blocks, 5 at the floor |
+
+BIP 94 and ASERT both give the first block about a minute and a half after a drop; ASERT is back in under half an hour where BIP 94 takes one to two hours, because BIP 94 eases only at each window of 10 and by at most four times. After a rise ASERT climbs by at most 2^(1/6), about 12 percent, per block, so it takes longer than a retarget that may quadruple at once.
 
 ASERT here follows the spec in integer steps: the exponent `((Δt − T(Δh + 1)) × 2^16) / τ` divided toward zero, the split into whole shifts and a fraction, and the spec's cubic for 2 to the fraction. Bitcoin Cash moves a 256-bit target; OLC moves a difficulty, the target's inverse, so it runs the same steps with the exponent's sign turned, never below the floor. Each block anchors on its parent, which over blocks off the floor comes, up to rounding, to the spec's fixed anchor; a node needs only the grandparent, and a chain that sat at the floor through a quiet hour follows new hash power at its next block, where a fixed anchor would wait for the hour to be made up.
 
