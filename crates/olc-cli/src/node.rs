@@ -3,7 +3,9 @@
 use crate::coinfile;
 use olc_board::Args;
 use olc_link_serial::SerialLink;
-use olc_node::{Card, Medium, Rank};
+use olc_node::{Card, Rank};
+use olc_service::core::door::Door;
+use olc_service::core::host_peers::Carried;
 use olc_service::core::{
     device_kind, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
     Command, Desk, Host, NodeView, Notice, Personal, Plan,
@@ -28,6 +30,8 @@ const LOOKUP_SHOWS: Duration = Duration::from_millis(600);
 const APP_ONLY: &str = "olc node has no boards or nodes of its own. Type that word as olc WORD in another terminal.";
 const OWN_COIN: &str = "olc node runs the coin in its --coin file. Change the file, then start the node again.";
 const STILL_OPENING: &str = "The chain is still opening. Try again in a moment.";
+/// Swaps follow a second coin beside this one, which only OLC Core runs.
+const SWAPS_IN_CORE: &str = "Swaps run in OLC Core, which follows the other coin beside this one. Open OLC Core on this wallet, then type this again: olc swap words reach it from any terminal.";
 
 /// The order of links: this run's flag, saved if given. The host reads the saved choice.
 fn save_links(args: &Args, settings: &mut NodeSettings) -> Result<(), String> {
@@ -225,6 +229,7 @@ impl Desk for NodeDesk<'_> {
             Command::Join { .. } | Command::JoinCoinFile(_) | Command::Fork { .. } | Command::ForkBack => {
                 Err(OWN_COIN.to_string())
             }
+            Command::Swap(_) => Err(SWAPS_IN_CORE.to_string()),
             _ => Err(APP_ONLY.to_string()),
         }
     }
@@ -255,8 +260,9 @@ fn print_moves(host: &Host) {
         return;
     };
     while let Some(moved) = runner.take_move() {
+        // The network link is TCP whatever carries it, so it says so.
         let name = |link: Option<usize>| {
-            link.and_then(|link| runner.medium_of(link)).map_or("nothing", Medium::name)
+            link.and_then(|link| runner.medium_of(link)).map_or("nothing", |medium| Carried::of(medium).word())
         };
         println!("link {:x} {} -> {}", moved.peer, name(moved.from), name(moved.to));
     }
@@ -269,6 +275,11 @@ pub fn run(args: &Args) -> Result<(), String> {
     let name = args.value("name").map(|name| format!("{name} ")).unwrap_or_default();
     println!("{name}listening on port {}", host.port.unwrap_or(0));
     let lines = typed_lines();
+    // Words from `olc` in another terminal reach this node through its door.
+    let door = Door::open(&directory);
+    if door.is_none() {
+        eprintln!("Another node runs on this wallet, so olc words from other terminals go to it.");
+    }
     let mut shown = None;
     let mut typing_open = true;
     let mut heard = 0;
@@ -284,6 +295,7 @@ pub fn run(args: &Args) -> Result<(), String> {
             Ok(line) => {
                 let mut desk =
                     NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known };
+                let line = crate::joined_line(&line);
                 match run_line(&mut desk, &line) {
                     Ok(answer) => println!("{answer}"),
                     Err(error) => println!("{error}"),
@@ -292,6 +304,10 @@ pub fn run(args: &Args) -> Result<(), String> {
             Err(RecvTimeoutError::Timeout) => {}
             // A node with nobody at its input keeps running.
             Err(RecvTimeoutError::Disconnected) => typing_open = false,
+        }
+        if let Some(door) = &door {
+            let mut desk = NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known };
+            door.serve(&mut desk);
         }
         host.take_radio_notes().iter().for_each(|note| eprintln!("{note}"));
         print_moves(&host);

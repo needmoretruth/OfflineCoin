@@ -16,10 +16,11 @@ pub(super) fn channels(desk: &mut dyn Desk, _args: &Args) -> Result<String, Stri
 }
 
 pub(super) fn channel_open(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
-    let peer = word(args, 1, "Name the node, as olc channels lists it nearby.")?;
+    let peer = word(args, 1, "Give the other node's channel address, KEY@HOST:PORT, as it shows on its Channels page.")?;
     let amount = word(args, 2, "Say how much to put in the channel.")?;
     let delay = args.value("delay").unwrap_or_default().to_string();
-    order(desk, ChannelOrder::Open { peer, amount, delay })
+    let push = args.value("push").unwrap_or_default().to_string();
+    order(desk, ChannelOrder::Open { peer, amount, delay, push })
 }
 
 pub(super) fn channel_close(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {

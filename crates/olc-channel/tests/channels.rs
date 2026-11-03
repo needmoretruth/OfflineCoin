@@ -74,6 +74,46 @@ fn a_payment_crosses_a_node_in_the_middle_and_the_channels_close_together() {
     assert_eq!(channel(&parties[1], &ab).phase, Phase::Closed);
 }
 
+/// LND's `--push_amt`: the opener gives part of the channel to the other side from the start, so
+/// the other side can pay at once and the opener can be paid. A push that leaves the opener too
+/// little for the fee is refused before anything is asked.
+#[test]
+fn a_pushed_share_belongs_to_the_other_side_from_the_first_state() {
+    let mut world = World::new();
+    let mut parties = vec![world.party("push", "a", 1), world.party("push", "b", 2)];
+    let peer = parties[1].id();
+    let too_much = parties[0].with(&mut world, |node, ground| node.open_pushing(peer, CAPACITY, CAPACITY - 10, DELAY, ground));
+    assert!(too_much.is_err(), "a push that leaves nothing for the fee");
+    let id = parties[0].with(&mut world, |node, ground| node.open_pushing(peer, CAPACITY, 200_000, DELAY, ground)).unwrap();
+    seconds(&mut parties, &mut world, 2);
+    for _ in 0..4 {
+        block(&mut parties, &mut world);
+    }
+    assert_eq!(channel(&parties[0], &id).phase, Phase::Open);
+    assert_eq!(channel(&parties[0], &id).state.ours, CAPACITY - 200_000);
+    assert_eq!(channel(&parties[1], &id).state.ours, 200_000);
+    seconds(&mut parties, &mut world, 3);
+
+    // The side that put nothing in pays the opener at once.
+    let text = invoice(&mut parties, &mut world, 0, 30_000);
+    let hash = pay(&mut parties, &mut world, 1, &text);
+    seconds(&mut parties, &mut world, 6);
+    assert!(paid(&parties[1], &hash));
+    assert_eq!(channel(&parties[1], &id).state.ours, 170_000);
+    assert_eq!(channel(&parties[0], &id).state.ours, CAPACITY - 170_000);
+    // The side that did not open keeps no fee, so all of its share can go; the opener's share
+    // less the closing fee can come to it.
+    let fee = channel(&parties[0], &id).terms.fee;
+    let shown = parties[1].with(&mut world, |node, _| node.views(0)).into_iter().find(|view| view.id == id).unwrap();
+    assert_eq!((shown.can_send, shown.can_receive), (170_000, CAPACITY - 170_000 - fee));
+
+    let b_before = world.balance(&parties[1]);
+    parties[0].with(&mut world, |node, ground| node.close(&id, false, ground)).unwrap();
+    seconds(&mut parties, &mut world, 3);
+    block(&mut parties, &mut world);
+    assert_eq!(world.balance(&parties[1]) - b_before, 170_000, "the pushed share less what it paid");
+}
+
 #[test]
 fn closing_alone_waits_out_the_delay_before_the_coins_come_back() {
     let mut world = World::new();

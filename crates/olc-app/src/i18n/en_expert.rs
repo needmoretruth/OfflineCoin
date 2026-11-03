@@ -50,7 +50,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.reward", "Block reward"),
     ("coin.reward_about", "Whole coins per block before halving."),
     ("coins.split", "Fork: same genesis, other rules"),
-    ("coins.this_line", "Height {}. {} peers."),
+    ("coins.this_line", "Height {}. Peers: {}."),
     ("coins.none_body", "Coins found by LAN scan and broadcast appear here."),
     ("coins.found_about", "{}, nodes: {}"),
     ("coins.join_warning", "This node switches to that chain. You can switch back."),

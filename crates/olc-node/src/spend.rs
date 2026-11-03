@@ -104,6 +104,18 @@ impl Engine {
         Ok(id)
     }
 
+    /// Pays every `(address, amount)` in one payment at `rate` units a byte, never under the
+    /// coin's lowest fee, from the coins in `only` when it names any. Gives its id and fee.
+    pub fn pay_with(&mut self, payments: &[(Address, u64)], rate: u64, only: &[OutPoint]) -> Result<(Hash, u64), WalletError> {
+        let reserved = self.reserved();
+        let min_fee = self.rules().min_fee;
+        let (tx, fee) = self.wallet.pay_at_rate(&self.paying(), payments, (rate, min_fee), &reserved, only)?;
+        let amount = payments.iter().map(|(_, amount)| *amount).fold(0, u64::saturating_add);
+        let id = self.send_payment(tx)?;
+        self.push_event(Event::PaymentSent { amount });
+        Ok((id, fee))
+    }
+
     /// Writes `data` into the chain with a transaction of its own. The fee is the coin's lowest.
     pub fn write_note(&mut self, data: &[u8]) -> Result<Hash, WalletError> {
         let reserved = self.reserved();

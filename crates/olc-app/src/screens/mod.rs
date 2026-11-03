@@ -2,6 +2,7 @@
 //! real core. Node processes in the scenes are real. No test may open a serial port, so boards
 //! appear only in a staged view, which `shots` and `boards_show_what_they_do` build here.
 mod chain_shots;
+mod channel_meet;
 mod lab_shots;
 mod live;
 mod live_swap;
@@ -11,6 +12,7 @@ mod rule_shots;
 mod shots;
 mod steady;
 mod wallet_shots;
+mod history_shots;
 mod first_words;
 mod home_words;
 mod swap_local;

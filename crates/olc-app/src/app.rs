@@ -278,6 +278,16 @@ impl App {
         self.stage = stage.map(Arc::new);
     }
 
+    /// Puts `page` in the place of the page with its title and opens it, for tests of a part
+    /// that a page will hold.
+    #[cfg(test)]
+    pub fn put_page(&mut self, page: Box<dyn crate::pages::Page>) {
+        if let Some(index) = self.pages.iter().position(|old| old.title() == page.title()) {
+            self.pages[index] = page;
+            self.current = index;
+        }
+    }
+
     /// Where the file sheets start, for tests that may not touch a real home folder.
     #[cfg(test)]
     pub fn set_folder(&mut self, folder: PathBuf) {

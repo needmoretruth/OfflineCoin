@@ -29,6 +29,15 @@ pub enum WalletOrder {
     AddShared(String),
     ForgetShared(usize),
     ListShared,
+    /// Pays each `(address, amount)` in one payment at `rate` units a byte, from the coins in
+    /// `coins` (as `id:number`) when it names any. `label` names the payment.
+    Pay { to: Vec<(String, String)>, rate: u64, coins: Vec<String>, label: String },
+    /// A new address to receive with, which then receives.
+    NewAddress,
+    /// Names an address or a payment id. An empty name takes the name away.
+    Label { of: String, name: String },
+    /// Stops following an address watched without its key.
+    Unwatch(String),
 }
 
 pub const NO_WORDS: &str = "notice.no_words";
@@ -44,7 +53,11 @@ pub fn words_fault(error: &SeedError) -> (&'static str, String) {
 }
 
 /// Every failure here, so [`wallet_failure`] can read one back as a notice.
-const FAILURES: [&str; 10] = [
+const FAILURES: [&str; 14] = [
+    "notice.bad_amount",
+    "notice.not_enough",
+    "notice.pay_refused",
+    "notice.zero_amount",
     "notice.no_words",
     "notice.has_words",
     "notice.words_count",
@@ -196,7 +209,68 @@ pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Re
             Ok(("notice.saved", String::new()))
         }),
         WalletOrder::ListShared => Ok(("notice.keys", list_shared(book)?)),
+        WalletOrder::Pay { to, rate, coins, label } => pay(book, &to, rate, &coins, &label),
+        WalletOrder::NewAddress => book.wallet_change(|wallet| {
+            let index = match wallet.next_word_key() {
+                Some(made) => made.map_err(|_| "notice.no_such_key".to_string())?,
+                None => wallet.add_secret(olc_store::new_secret()?).map_err(|_| "notice.no_such_key".to_string())?,
+            };
+            wallet.set_receiving(index).map_err(|_| "notice.no_such_key".to_string())?;
+            Ok(("notice.new_address", format_address(&wallet.address())))
+        }),
+        WalletOrder::Label { of, name } => book.wallet_change(|wallet| {
+            let (of, name) = (of.trim().to_string(), name.trim().chars().take(MOST_LABEL).collect::<String>());
+            match name.is_empty() {
+                true => wallet.labels.remove(&of),
+                false => wallet.labels.insert(of, name),
+            };
+            Ok(("notice.saved", String::new()))
+        }),
+        WalletOrder::Unwatch(text) => {
+            let address = parse_address(text.trim()).ok_or("notice.bad_address")?;
+            book.live(|runner| runner.engine.unwatch(&address))?;
+            book.change_settings(|settings| settings.watched.retain(|known| parse_address(known) != Some(address)))?;
+            Ok(("notice.saved", String::new()))
+        }
     }
+}
+
+/// A name is a few words, as Bitcoin Core's label field is.
+const MOST_LABEL: usize = 60;
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn coin_named(text: &str) -> Option<olc_core::OutPoint> {
+    let (id, index) = text.trim().split_once(':')?;
+    Some(olc_core::OutPoint { txid: super::explorer::parse_hash(id)?, index: index.parse().ok()? })
+}
+
+/// Pays several people in one payment from the running node, and names it.
+fn pay<B: Book + ?Sized>(book: &B, to: &[(String, String)], rate: u64, coins: &[String], label: &str) -> Result<(&'static str, String), String> {
+    let mut payments = Vec::with_capacity(to.len());
+    for (address, amount) in to {
+        let address = parse_address(address.trim()).ok_or("notice.bad_address")?;
+        let units = olc_core::amount::parse_coins(amount.trim()).filter(|units| *units > 0).ok_or("notice.bad_amount")?;
+        payments.push((address, units));
+    }
+    let only: Vec<olc_core::OutPoint> = coins.iter().filter_map(|coin| coin_named(coin)).collect();
+    let total = payments.iter().map(|(_, units)| *units).fold(0, u64::saturating_add);
+    let sent = book.live(|runner| {
+        let paid = runner.engine.pay_with(&payments, rate, &only);
+        // The fee it paid shows on its waiting row in the history.
+        paid.map(|(id, _)| (id, super::host_wallet::amount_of(&runner.engine, total)))
+    })?;
+    let (id, amount) = sent.ok_or("notice.not_enough")?.map_err(|error| super::host_locks::wallet_key(&error).to_string())?;
+    if !label.trim().is_empty() {
+        let (of, name) = (hex(&id), label.trim().chars().take(MOST_LABEL).collect::<String>());
+        book.wallet_change(|wallet| {
+            wallet.labels.insert(of, name);
+            Ok(())
+        })?;
+    }
+    Ok(("notice.sent", amount))
 }
 
 fn add_shared<B: Book + ?Sized>(book: &B, shared: Shared) -> Result<(&'static str, String), String> {

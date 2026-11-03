@@ -1,6 +1,7 @@
 //! Everything written down: blocks, payments, addresses and the notes people left.
 use super::{Cx, Page, Slipping};
-use crate::core::{short_hex, unix_ms, Command, Explored, Personal, TxRow};
+use super::records_detail;
+use crate::core::{short_hex, unix_ms, Command, Explored, Personal};
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{
@@ -21,68 +22,6 @@ pub struct Records {
 
 fn look_up(cx: &Cx, text: String) {
     cx.send(Command::Own(Personal::Explore(text)));
-}
-
-fn full_hex(id: &[u8]) -> String {
-    id.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn show_tx(ui: &mut Ui, cx: &Cx, tx: &TxRow, ticker: &str) {
-    let t = cx.t;
-    let kind = match tx.is_coinbase {
-        true => cx.say("records.mining_reward").to_string(),
-        false => cx.fill("records.inputs", &[&tx.inputs.to_string()]),
-    };
-    ui.label(mono(full_hex(&tx.id)));
-    meta(ui, &kind, t);
-    for output in &tx.outputs {
-        match (&output.note, &output.lock) {
-            (Some(note), _) => {
-                ui.label(cx.fill("records.note_line", &[note]));
-            }
-            (None, Some(words)) => {
-                ui.label(mono(format!("{}  {words}", format::coins(output.value, ticker))));
-            }
-            (None, None) => {
-                let text = format!("{}  {}", format::coins(output.value, ticker), output.to);
-                ui.label(mono(text));
-            }
-        }
-    }
-    ui.add_space(4.0);
-}
-
-fn result(ui: &mut Ui, cx: &Cx, ticker: &str) {
-    let t = cx.t;
-    ui.add_space(tokens::GAP);
-    match &cx.snap.node.explored {
-        Explored::Nothing => {
-            meta(ui, cx.say("records.nothing"), t);
-        }
-        Explored::Pruned { height, oldest } => {
-            let words = [format::number((*height).into()), format::number((*oldest).into())];
-            meta(ui, &cx.fill("records.pruned", &[&words[0], &words[1]]), t);
-        }
-        Explored::Block(block) => {
-            let height = format::number(block.row.height.into());
-            section(ui, &cx.fill("records.block", &[&height]));
-            ui.label(mono(full_hex(&block.row.id)));
-            meta(ui, &cx.fill("records.previous", &[&short_hex(&block.previous)]), t);
-            for tx in &block.txs {
-                show_tx(ui, cx, tx, ticker);
-            }
-        }
-        Explored::Tx { height, tx } => {
-            let height = format::number((*height).into());
-            section(ui, &cx.fill("records.block", &[&height]));
-            show_tx(ui, cx, tx, ticker);
-        }
-        Explored::Address { address, balance, coins } => {
-            ui.label(mono(address.clone()));
-            let value = format::coins(*balance, ticker);
-            meta(ui, &cx.fill("records.address_line", &[&value, &coins.to_string()]), t);
-        }
-    }
 }
 
 impl Records {
@@ -149,7 +88,7 @@ impl Records {
         for block in &cx.snap.node.blocks {
             columns.row(ui, |ui, index| match index {
                 0 => cell(ui, format::number(block.height.into())),
-                1 => cell(ui, format::ago(cx.voice(), now, block.time_ms)),
+                1 => cell(ui, format::when(cx.voice(), now, block.time_ms)),
                 2 if cx.expert() => cell(ui, mono(short_hex(&block.id))),
                 2 => cell(ui, block.payments.to_string()),
                 _ => {
@@ -196,9 +135,19 @@ impl Page for Records {
             return;
         }
         self.search(ui, cx);
-        if self.asked {
+        // A block or payment opened from the history shows here too.
+        let opened = !matches!(cx.snap.node.explored, Explored::Nothing);
+        if self.asked || opened {
             let ticker = cx.ticker().to_string();
-            result(ui, cx, &ticker);
+            if let Some(next) = records_detail::result(ui, cx, &ticker) {
+                self.search = next.clone();
+                look_up(cx, next);
+                self.asked = true;
+            }
+        }
+        if cx.expert() {
+            ui.add_space(tokens::GAP_WIDE);
+            records_detail::waiting(ui, cx);
         }
         ui.add_space(tokens::GAP_WIDE);
         self.write(ui, cx);

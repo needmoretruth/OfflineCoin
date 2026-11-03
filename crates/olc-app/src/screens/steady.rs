@@ -61,6 +61,10 @@ fn busy(quiet: &Snapshot) -> Snapshot {
         amount: 2_500_000_000,
         time_ms: 1,
         id: [index; 32],
+        fee: None,
+        size: 0,
+        coins_in: 0,
+        ripe_at: None,
     };
     stage.node.activity = (1..4).map(row).collect();
     stage.node.spendable = 2_500_000_000;

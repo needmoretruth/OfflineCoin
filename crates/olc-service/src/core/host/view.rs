@@ -1,7 +1,7 @@
 //! What the window sees of the node, built a few times a second from the engine and the state the
 //! node's thread keeps.
 use super::super::explorer::{recent_blocks, text_of};
-use super::super::history::{Activity, ActivityKind};
+use super::super::history::{Activity, ActivityKind, RECENT};
 use super::super::host_parts::{stored_bytes, watched_view};
 use super::super::radios;
 use super::super::snapshot::{KeyView, NodeView};
@@ -42,19 +42,22 @@ impl Worker {
             receiving: index == receiving,
         });
         let held = chain.held();
-        let mut activity = Vec::new();
+        let pool = self.history.pool(chain, engine.pool(), &own, super::super::host_parts::unix_ms());
+        let mut activity = pool.mine;
+        // A payment this app sent from coins under a lock spends none of the wallet's own coins,
+        // so the pool's shapes miss it; the list kept when it was sent still names it.
         if let Ok(mut waiting) = self.state.waiting.lock() {
             waiting.retain(|item| engine.in_pool(&item.id));
-            activity.extend(waiting.iter().rev().map(|item| Activity {
-                kind: ActivityKind::Sent,
-                height: None,
-                amount: item.amount,
-                time_ms: item.time_ms,
-                id: item.id,
-            }));
+            let missed: Vec<Activity> = waiting
+                .iter()
+                .rev()
+                .filter(|item| !activity.iter().any(|seen| seen.id == item.id))
+                .map(|item| Activity { amount: item.amount, time_ms: item.time_ms, ..Activity::waiting(ActivityKind::Sent, item.id) })
+                .collect();
+            activity.extend(missed);
         }
-        activity.extend(self.history.items().cloned());
-        let wallet_part = super::super::host_wallet::wallet_view(engine, &activity);
+        activity.extend(self.history.items().take(RECENT).cloned());
+        let wallet_part = super::super::host_wallet::wallet_view(engine, &activity, &self.history, pool.all);
         let view = NodeView {
             coin: Some(chain.config().clone()),
             genesis: chain.genesis_id(),
@@ -102,7 +105,7 @@ impl Worker {
             blocks: self.blocks.clone(),
             chain: self.watch.view(),
             notes: self.history.notes().cloned().collect(),
-            explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
+            explored: self.history.enrich(self.state.explored.lock().map(|x| x.clone()).unwrap_or_default()),
             locks: engine.locked_coins(),
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
             wallet: wallet_part,

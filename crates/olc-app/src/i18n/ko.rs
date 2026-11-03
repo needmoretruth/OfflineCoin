@@ -228,7 +228,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("records.nothing", "찾지 못했습니다. 오래된 결제는 그 블록에서 찾을 수 있습니다."),
     ("records.pruned", "블록 {}: 이 컴퓨터에는 없습니다. 블록 {}부터 있습니다."),
     ("records.block", "블록 {}"),
-    ("records.previous", "이전 블록 {}"),
     ("records.mining_reward", "채굴 보상"),
     ("records.inputs", "코인 {}개로 결제"),
     ("records.note_line", "메모: {}"),

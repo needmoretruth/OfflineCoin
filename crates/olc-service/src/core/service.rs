@@ -55,8 +55,16 @@ impl Core {
     pub fn start(launch: CoreLaunch, settings: Settings) -> Result<Self, String> {
         let (commands, receiver) = channel();
         let snapshot = Arc::new(Mutex::new(Arc::new(Snapshot::default())));
+        let wallet = launch.paths.wallet();
         let service = Service::new(launch, settings, snapshot.clone())?;
         thread::spawn(move || service.run(&receiver));
+        // The `olc` program's words reach this core while anyone holds it: the service's own
+        // thread holds one share of the snapshot and a word being answered another.
+        let (held, sender) = (Arc::downgrade(&snapshot), commands.clone());
+        super::door::serve_core(wallet, move || {
+            let snapshot = held.upgrade().filter(|strong| Arc::strong_count(strong) > 2)?;
+            Some(Self { snapshot, commands: sender.clone() })
+        });
         Ok(Self { snapshot, commands })
     }
 
@@ -233,6 +241,7 @@ impl Service {
             self.let_go();
             self.listen();
             self.step_swaps();
+            self.follow_payment();
             self.publish();
         }
     }

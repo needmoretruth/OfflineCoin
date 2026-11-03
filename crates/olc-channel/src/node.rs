@@ -253,7 +253,10 @@ impl ChannelNode {
                 }
             }
             Wire::Open { id, capacity, delay, fee, dust, coin, side } => {
-                self.on_open(from, id, Ask { capacity, delay, fee, dust, coin }, side, ground);
+                self.on_open(from, id, Ask { capacity, push: 0, delay, fee, dust, coin }, side, ground);
+            }
+            Wire::OpenPush { id, capacity, push, delay, fee, dust, coin, side } => {
+                self.on_open(from, id, Ask { capacity, push, delay, fee, dust, coin }, side, ground);
             }
             Wire::Announce(_) | Wire::Terms(_) | Wire::Node(_) => self.on_gossip(from, wire, ground),
             other => self.on_channel_wire(from, other, ground),

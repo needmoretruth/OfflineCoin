@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -11,6 +12,7 @@ use olc_core::{Address, Coins, OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL};
 use olc_crypto::{address_of, public_key, sign, Hash, PublicKey};
 use olc_lang::{alpha, ALPHA, BETA};
 
+pub mod choose;
 pub mod locks;
 #[cfg(feature = "seed")]
 pub mod message;
@@ -80,6 +82,9 @@ pub struct Wallet {
     pub earlier: Vec<SeedRecord>,
     /// Wallets shared with other people, which this one may sign for.
     pub shared: Vec<shared::Shared>,
+    /// Names a person gave to addresses and payments, by the address or the payment's id as
+    /// text. Kept in the wallet file, which older builds read past.
+    pub labels: BTreeMap<String, String>,
 }
 
 impl Wallet {
@@ -90,6 +95,7 @@ impl Wallet {
             seed: None,
             earlier: Vec::new(),
             shared: Vec::new(),
+            labels: BTreeMap::new(),
         })
     }
 
@@ -102,7 +108,7 @@ impl Wallet {
         if receiving >= keys.len() {
             return Err(WalletError::NoSuchKey);
         }
-        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new() })
+        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new(), labels: BTreeMap::new() })
     }
 
     /// Adds a key and returns its number.
@@ -339,6 +345,17 @@ pub fn prepare(
     order: &Order,
     reserved: &[OutPoint],
 ) -> Result<Unsigned, WalletError> {
+    prepare_from(chain, owners, order, reserved, &[])
+}
+
+/// As [`prepare`], spending only the coins in `only` when it names any: a person chose them.
+pub fn prepare_from(
+    chain: &dyn Coins,
+    owners: &[Address],
+    order: &Order,
+    reserved: &[OutPoint],
+    only: &[OutPoint],
+) -> Result<Unsigned, WalletError> {
     let next = chain.height() + 1;
     let mut amounts = order.payments.iter();
     let locked = order.locked.as_ref().map_or(0, |output| output.value);
@@ -352,7 +369,8 @@ pub fn prepare(
             if !chosen.is_empty() && gathered >= needed {
                 break 'owners;
             }
-            if chain.is_mature(&entry, next) && !reserved.contains(&point) {
+            let picked = only.is_empty() || only.contains(&point);
+            if picked && chain.is_mature(&entry, next) && !reserved.contains(&point) {
                 gathered += entry.output.value;
                 chosen.push((*owner, point));
             }
