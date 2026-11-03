@@ -93,6 +93,18 @@ A swap trades two coins with hash time locked contracts, as atomic swaps do betw
 swap offer COIN GIVE TAKE [--wait MINUTES] | accept TEXT | answer TEXT | cancel ID | list
 ```
 
+## Payment channels
+
+Channels follow Lightning's design (BOLT 2, 3, 7 and 11) on OLC's own messages, so they do not talk to Bitcoin's Lightning nodes. Two computers lock coins in a 2-of-2 output of a version 2 transaction and pay each other by signing new balances. Each side's own share waits 144 blocks by default (2 to 2,016) when it closes alone, and a side that closes with a balance it has revoked loses the channel's coins to the other side. A payment to someone with no shared channel goes hop by hop with hash time locked contracts and shorter timeouts at each hop. The route travels in the clear, without onion routing. Channels are announced with both computers' keys and both funding keys, and a channel leaves the map when its funding output is spent. The node watches every block for revoked balances before it prunes anything. Desktop nodes run channels; boards check the chain.
+
+```
+channels
+channel-open NODE AMOUNT [--delay BLOCKS]
+channel-close CHANNEL [--force]
+invoice AMOUNT [NOTE]
+channel-pay REQUEST
+```
+
 ## Changing the rules
 
 A coin's rules can change at a height with no new coin. Expert mode has Change rules on the Network page, and `olc` has the same word. Blocks before that height stay valid, so the chain keeps its history and splits from nodes on the old rules, as a fork does in Bitcoin. You can go back.
