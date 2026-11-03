@@ -29,7 +29,7 @@ pub struct SettingsPage {
 /// The words under a setting's name that say when it takes hold.
 pub fn when(cx: &Cx, when: When) -> (When, &'static str) {
     match when {
-        When::Now => (when, cx.say("settings.now")),
+        When::Now => (when, ""),
         When::NextStart => (when, cx.say("settings.next_start")),
     }
 }
@@ -173,8 +173,6 @@ impl SettingsPage {
         group(ui, cx.say("settings.general"));
         mode_row(ui, cx);
         Extras { values: &mut self.extras }.keeping(ui, cx);
-        let keys = ("settings.auto_update", "settings.auto_update_about");
-        switch_setting(ui, cx, keys, When::Now, |settings| &mut settings.auto_update);
         row(ui, t, cx.say("settings.data"), &cx.snap.folder.clone(), |ui| {
             if button(ui, t, cx.say("settings.open_data"), Kind::Plain).clicked() {
                 cx.send(Command::OpenDataFolder);
@@ -232,6 +230,7 @@ impl Page for SettingsPage {
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         widgets::title(ui, cx.say("page.settings"));
+        meta(ui, cx.say("settings.applies"), cx.t);
         ui.spacing_mut().item_spacing.y = 0.0;
         self.general(ui, cx);
         Extras { values: &mut self.extras }.mining(ui, cx);

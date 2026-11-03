@@ -3,7 +3,11 @@
 pub const WORDS: &[(&str, &str)] = &[
     ("settings.display", "화면"),
     ("settings.network", "네트워크"),
-    ("settings.now", "바로 적용"),
+    ("settings.applies", "따로 적힌 줄이 아니면 바꾸는 즉시 적용됩니다."),
+    ("settings.bt_build", "이 빌드에 없음"),
+    ("settings.bt_adapter", "어댑터 없음"),
+    ("settings.bt_system", "이 시스템에서 못 씀"),
+    ("wallet_page.paying", "보낼 때"),
     ("settings.next_start", "다음 시작부터"),
     ("settings.speed_go", "채굴에서 바꾸기"),
     ("settings.up", "위로"),

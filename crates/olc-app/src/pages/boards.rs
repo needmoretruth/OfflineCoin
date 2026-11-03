@@ -6,8 +6,8 @@ use super::money::balance_of;
 use super::{Cx, Page};
 use crate::core::{BoardView, Command};
 use crate::ui::tokens::{self, Tokens};
-use crate::ui::explain;
-use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, Kind};
+use crate::ui::{explain, register};
+use crate::ui::widgets::{self, button_on, card, dot, field, meta, pick_row, switch, Kind};
 use crate::ui::{format, Icon};
 use egui::{vec2, Align, Frame, Label, Layout, Margin, RichText, Ui};
 use olc_control::BoardId;
@@ -238,6 +238,19 @@ impl Page for Boards {
         widgets::title(ui, cx.say("page.boards"));
         explain::short(ui, t, cx.say("devices.about"));
         ui.add_space(tokens::GAP_WIDE);
+        // Which boards update on their own is a choice about boards, so it stands over their list,
+        // once there is a list; each board's details then says whether it is one of them.
+        if !cx.snap.boards.is_empty() {
+            let mut auto = cx.settings.auto_update;
+            register::row(ui, t, cx.say("settings.auto_update"), cx.say("settings.auto_update_about"), |ui| {
+                switch(ui, t, &mut auto, cx.say("settings.auto_update"));
+            });
+            if auto != cx.settings.auto_update {
+                cx.settings.auto_update = auto;
+                cx.save();
+            }
+            ui.add_space(tokens::GAP_WIDE);
+        }
         self.board_list(ui, cx);
     }
 }

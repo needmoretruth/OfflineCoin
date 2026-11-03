@@ -58,18 +58,19 @@ fn links_row(ui: &mut Ui, cx: &Cx) {
 fn bluetooth_row(ui: &mut Ui, cx: &Cx) {
     let t = cx.t;
     let bluetooth = cx.snap.node.bluetooth;
-    let about = cx.say(match cx.snap.node.no_bluetooth {
-        None => "settings.bluetooth_note",
-        Some(NoBluetooth::Adapter) => "settings.no_bluetooth",
-        Some(NoBluetooth::Build) => "settings.no_bluetooth_build",
-        Some(NoBluetooth::System) => "settings.no_bluetooth_system",
-    });
-    // With nothing to switch, there is nothing to take hold, so the line only says why.
+    // With nothing to switch, the control column says why, as other rows show their value there.
     let Some(mut on) = bluetooth else {
-        row(ui, t, cx.say("boards.bluetooth"), about, |_| {});
+        let state = cx.say(match cx.snap.node.no_bluetooth {
+            Some(NoBluetooth::Build) => "settings.bt_build",
+            Some(NoBluetooth::System) => "settings.bt_system",
+            Some(NoBluetooth::Adapter) | None => "settings.bt_adapter",
+        });
+        row(ui, t, cx.say("boards.bluetooth"), cx.say("settings.bluetooth_about"), |ui| {
+            ui.add(Label::new(egui::RichText::new(state).color(t.muted)).selectable(false));
+        });
         return;
     };
-    setting(ui, t, cx.say("boards.bluetooth"), when(cx, When::Now), about, |ui| {
+    setting(ui, t, cx.say("boards.bluetooth"), when(cx, When::Now), cx.say("settings.bluetooth_note"), |ui| {
         if switch(ui, t, &mut on, cx.say("boards.bluetooth")).clicked() {
             cx.send(Command::Own(Personal::SetBluetooth(on)));
         }
@@ -161,20 +162,6 @@ impl Extras<'_> {
                 number_field(ui, &mut self.values.recent, cx.say("storage.blocks"), 120.0);
                 if button(ui, t, cx.say("common.save"), Kind::Plain).clicked() {
                     cx.send(Command::Own(Personal::SetRecent(Some(self.values.recent))));
-                }
-            });
-        }
-        setting(ui, t, cx.say("storage.merge"), now, cx.say("storage.merge_about"), |ui| {
-            let mut merging = node.merging;
-            if switch(ui, t, &mut merging, cx.say("storage.merge")).clicked() {
-                cx.send(Command::Own(Personal::SetMerging(merging)));
-            }
-        });
-        if cx.expert() {
-            setting(ui, t, cx.say("pro.version_one"), now, cx.say("pro.version_one_about"), |ui| {
-                let mut on = node.version_one;
-                if switch(ui, t, &mut on, cx.say("pro.version_one")).clicked() {
-                    cx.send(Command::Own(Personal::SetVersionOne(on)));
                 }
             });
         }

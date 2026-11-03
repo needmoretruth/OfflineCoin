@@ -8,6 +8,7 @@ use super::locks::Locks;
 use super::money::{ReceiveSheet, SendSheet};
 use super::wallet_tools::{Tool, WalletTools};
 use super::{Cx, Page};
+use crate::core::{Command, Personal};
 use crate::ui::explain;
 use crate::ui::floating::sheet;
 use crate::ui::format;
@@ -19,6 +20,10 @@ use egui::{vec2, Align, Label, Layout, RichText, Ui};
 
 /// The tools' column beside the rows.
 const TOOLS_WIDTH: f32 = 400.0;
+/// What a switch at the end of a row takes, with its edge.
+const SWITCH_ROOM: f32 = 48.0;
+/// A switch is shorter than a button: this lowers its middle to a button's in the rows around it.
+const SWITCH_DROP: f32 = 5.0;
 
 /// What a row of the tools opens.
 #[derive(Clone, Copy)]
@@ -102,10 +107,58 @@ fn tool_row(ui: &mut Ui, cx: &Cx, keys: (&str, &str, &str)) -> bool {
     pressed
 }
 
+/// A behaviour's name and line on the left, its switch on the right. The new value when flipped.
+fn switch_row(ui: &mut Ui, cx: &Cx, keys: (&str, &str), on: bool) -> Option<bool> {
+    let t = cx.t;
+    let mut now = on;
+    let room = ui.available_width() - SWITCH_ROOM - tokens::GAP;
+    let flipped = ui
+        .horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(room);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.add(Label::new(RichText::new(cx.say(keys.0)).color(t.text)).wrap());
+                explain::short(ui, t, cx.say(keys.1));
+            });
+            let name = cx.say(keys.0);
+            let switch = |ui: &mut Ui| {
+                ui.add_space(SWITCH_DROP);
+                widgets::switch(ui, t, &mut now, name).clicked()
+            };
+            ui.with_layout(Layout::top_down(Align::Max), switch).inner
+        })
+        .inner;
+    ui.add_space(tokens::GAP);
+    flipped.then_some(now)
+}
+
+/// How this wallet pays: merging small coins, and in expert mode signing the old way. They sit
+/// beside the history, where a merge shows as its own row.
+fn paying(ui: &mut Ui, cx: &Cx) {
+    let t = cx.t;
+    let node = &cx.snap.node;
+    card(ui, t, |ui| {
+        section(ui, cx.say("wallet_page.paying"));
+        ui.add_space(tokens::GAP);
+        if let Some(on) = switch_row(ui, cx, ("storage.merge", "storage.merge_about"), node.merging) {
+            cx.send(Command::Own(Personal::SetMerging(on)));
+        }
+        if cx.expert() {
+            if let Some(on) = switch_row(ui, cx, ("pro.version_one", "pro.version_one_about"), node.version_one) {
+                cx.send(Command::Own(Personal::SetVersionOne(on)));
+            }
+        }
+    });
+    ui.add_space(tokens::GAP);
+}
+
 impl WalletPage {
     fn tools_column(&mut self, ui: &mut Ui, cx: &Cx) {
         let t = cx.t;
         for (heading, rows) in groups(cx.expert()) {
+            if heading == "wallet_page.more" {
+                paying(ui, cx);
+            }
             card(ui, t, |ui| {
                 section(ui, cx.say(heading));
                 ui.add_space(tokens::GAP);

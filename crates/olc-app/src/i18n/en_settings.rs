@@ -3,7 +3,11 @@
 pub const WORDS: &[(&str, &str)] = &[
     ("settings.display", "Display"),
     ("settings.network", "Network"),
-    ("settings.now", "Applies now"),
+    ("settings.applies", "Changes apply at once unless a row says otherwise."),
+    ("settings.bt_build", "Not in this build"),
+    ("settings.bt_adapter", "No adapter"),
+    ("settings.bt_system", "Not on this system"),
+    ("wallet_page.paying", "When you pay"),
     ("settings.next_start", "From the next start"),
     ("settings.speed_go", "Change in Mining"),
     ("settings.up", "Move up"),

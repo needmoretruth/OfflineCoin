@@ -30,11 +30,15 @@ pub fn row(ui: &mut Ui, t: &Tokens, name: &str, meaning: &str, control: impl FnO
     row_with(ui, t, (name, None), |ui| meaning_line(ui, t, meaning), control);
 }
 
-/// A setting's line: under its name it says when it takes hold, in `words`. One that waits for
-/// the next start says so in the colour of a warning, since nothing on the screen moves yet.
+/// A setting's line. One that waits for the next start says so under its name, in `words` and in
+/// the colour of a warning, since nothing on the screen moves yet; the page says once that the
+/// rest apply at once.
 pub fn setting(ui: &mut Ui, t: &Tokens, name: &str, (when, words): (When, &str), meaning: &str, control: impl FnOnce(&mut Ui)) {
-    let colour = if when == When::NextStart { t.warn } else { t.muted };
-    row_with(ui, t, (name, Some((words, colour))), |ui| meaning_line(ui, t, meaning), control);
+    row_with(ui, t, (name, tag(t, when, words)), |ui| meaning_line(ui, t, meaning), control);
+}
+
+fn tag<'a>(t: &Tokens, when: When, words: &'a str) -> Option<(&'a str, Color32)> {
+    (when == When::NextStart).then_some((words, t.warn))
 }
 
 /// A setting whose comparison waits behind Details. The control stands under what the setting
@@ -47,7 +51,6 @@ pub fn setting_details(
     control: impl FnOnce(&mut Ui),
     body: impl FnOnce(&mut Ui),
 ) {
-    let colour = if when == When::NextStart { t.warn } else { t.muted };
     let id = Id::unique(("setting-details", key));
     let mut open = false;
     let meaning_and_more = |ui: &mut Ui| {
@@ -56,7 +59,7 @@ pub fn setting_details(
             open = explain::toggle(ui, t, id, labels);
         });
     };
-    row_with(ui, t, (name, Some((words, colour))), meaning_and_more, control);
+    row_with(ui, t, (name, tag(t, when, words)), meaning_and_more, control);
     if open {
         explain::opened(ui, t, body);
         ui.add_space(tokens::GAP_WIDE);
