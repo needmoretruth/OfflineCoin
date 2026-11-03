@@ -17,11 +17,12 @@ use olc_wallet::WalletError;
 use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod mine;
 mod view;
 
 const MINING_BATCH: u32 = 5_000;
@@ -53,6 +54,8 @@ pub(super) struct Waiting {
 pub(super) struct State {
     mining: AtomicBool,
     cap: AtomicU64,
+    /// Threads that mine. One is the node's own thread.
+    threads: AtomicUsize,
     hashrate: AtomicU64,
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
@@ -125,6 +128,7 @@ impl Host {
         let state = Arc::new(State {
             mining: AtomicBool::new(plan.mining),
             cap: AtomicU64::new(plan.cap),
+            threads: AtomicUsize::new(1),
             hashrate: AtomicU64::new(0),
             stop: AtomicBool::new(false),
             opening: AtomicBool::new(true),
@@ -164,6 +168,7 @@ impl Host {
             wants_bluetooth: false,
             held,
             _wallet_held: wallet_held,
+            crew: mine::Crew::default(),
         };
         let done = thread::spawn(move || worker.run());
         Ok(Self {
@@ -264,6 +269,11 @@ impl Host {
         self.state.cap.store(cap, Ordering::Relaxed);
     }
 
+    /// Mines on this many threads, under the same cap.
+    pub fn set_threads(&self, threads: usize) {
+        self.state.threads.store(threads.max(1), Ordering::Relaxed);
+    }
+
     /// Moves this node to another coin, which keeps the same links.
     pub fn switch(&self, coin: CoinConfig, folder: PathBuf, peers: Vec<String>, keep_from: Option<PathBuf>) {
         if let Ok(mut switch) = self.state.switch.lock() {
@@ -322,6 +332,7 @@ struct Worker {
     wants_bluetooth: bool,
     held: Option<FolderHold>,
     _wallet_held: Option<WalletHold>,
+    crew: mine::Crew,
 }
 
 impl Worker {
@@ -336,13 +347,18 @@ impl Worker {
         while !self.state.stop.load(Ordering::Relaxed) {
             self.take_switch();
             let cap = self.state.cap.load(Ordering::Relaxed);
+            let threads = self.state.threads.load(Ordering::Relaxed);
+            self.crew.resize(if threads > 1 { threads } else { 0 });
+            self.crew.set_cap(cap);
+            let crew = self.crew.size() > 0;
             // A batch bigger than the cap allows in a window would overrun it.
             let batch = u32::try_from(cap / 100)
                 .map_or(MINING_BATCH, |share| share.clamp(1, MINING_BATCH));
             let batch = if cap == 0 { MINING_BATCH } else { batch };
             let elapsed_ms = window.elapsed().as_millis() as u64;
             let allowed = cap == 0 || hashes < cap * elapsed_ms / 1_000;
-            let mining = self.state.mining.load(Ordering::Relaxed) && allowed;
+            let wanted = self.state.mining.load(Ordering::Relaxed);
+            let mining = wanted && allowed && !crew;
             let shared = self.runner.clone();
             if let Ok(mut runner) = shared.lock() {
                 let now = unix_ms();
@@ -351,11 +367,18 @@ impl Worker {
                 super::host_channels::pump(&self.state, &mut runner);
                 runner.step(now);
                 // A node catching up does not mine, so it counts nothing either.
-                if self.ground(&runner, batch) {
+                let grinding = self.ground(&runner, batch);
+                let free = !grinding && runner.engine.syncing_to().is_none() && runner.engine.light().is_none();
+                if grinding {
                     hashes += u64::from(batch);
-                } else if mining && runner.engine.syncing_to().is_none() {
+                } else if mining && free {
                     runner.engine.mine(batch, now);
                     hashes += u64::from(batch);
+                }
+                if crew && wanted && free {
+                    self.crew.lead(&mut runner.engine, now);
+                } else {
+                    self.crew.rest();
                 }
                 if let Some(fleet) = &self.fleet {
                     fleet.pump(&mut runner);
@@ -366,6 +389,7 @@ impl Worker {
                     self.publish(&mut runner);
                 }
             }
+            hashes += self.crew.take_counted();
             if elapsed_ms >= 1_000 {
                 let rate = hashes * 1_000 / elapsed_ms;
                 self.state.hashrate.store(rate, Ordering::Relaxed);

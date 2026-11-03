@@ -48,6 +48,7 @@ fn app(paths: &Paths, port: u16) -> Core {
         hash_cap: 10_000,
         mine_on_start: true,
         coin: Some(coin_folder(&coin())),
+        listen_lan: false,
         ..Settings::default()
     };
     let launch =

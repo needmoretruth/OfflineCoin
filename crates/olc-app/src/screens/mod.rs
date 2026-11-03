@@ -48,6 +48,10 @@ pub(super) fn quiet_settings() -> Settings {
         scan_lan: false,
         broadcast: false,
         port: port_of_scene(0),
+        listen_lan: false,
+        // The scenes were timed on one gentle thread, and many run at once.
+        hash_cap: 20_000,
+        mining_threads: 1,
         ..Settings::default()
     }
 }

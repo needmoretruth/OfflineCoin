@@ -14,8 +14,10 @@ const ESP32_RATE: u64 = 15_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Preset {
-    /// N16R8: 16 MB flash, 8 MB PSRAM.
+    /// A miner of this computer: no hash cap, a core of its own, room for a whole chain.
     #[default]
+    Computer,
+    /// N16R8: 16 MB flash, 8 MB PSRAM.
     Esp32S3,
     /// Raspberry Pi 4 Model B 4 GB, four cores. No hash figure: the CPU share decides the rate.
     RaspberryPi4,
@@ -23,17 +25,22 @@ pub enum Preset {
 }
 
 impl Preset {
-    pub const ALL: [Self; 3] = [Self::Esp32S3, Self::RaspberryPi4, Self::Custom];
+    pub const ALL: [Self; 4] = [Self::Computer, Self::Esp32S3, Self::RaspberryPi4, Self::Custom];
+
+    /// True for the presets that copy a board's numbers.
+    pub fn is_board(self) -> bool {
+        matches!(self, Self::Esp32S3 | Self::RaspberryPi4)
+    }
 
     pub fn spec(self, id: u32) -> NodeSpec {
-        let base = NodeSpec {
+        let computer = NodeSpec {
             id,
             name: format!("node-{id}"),
             preset: self,
-            hash_cap: ESP32_RATE,
-            memory_mib: 8,
+            hash_cap: 0,
+            memory_mib: 1_024,
             cpu_percent: 0,
-            disk_mib: 16,
+            disk_mib: 8_192,
             wallet: WalletChoice::Own,
             joined: true,
             listen_lan: false,
@@ -42,17 +49,31 @@ impl Preset {
             recent: DEFAULT_RECENT,
         };
         match self {
-            Self::Esp32S3 => base,
-            // Mining is off by default on a computer, as in Bitcoin Core.
-            Self::Custom => NodeSpec { mining: false, ..base },
+            Self::Computer => computer,
+            Self::Esp32S3 => NodeSpec { hash_cap: ESP32_RATE, memory_mib: 8, disk_mib: 16, ..computer },
+            // A form to fill in. It does not mine until someone says so, as in Bitcoin Core.
+            Self::Custom => NodeSpec { mining: false, ..computer },
             Self::RaspberryPi4 => NodeSpec {
                 mining: false,
-                hash_cap: 0,
                 memory_mib: 4_096,
                 cpu_percent: 400,
                 disk_mib: 32_768,
-                ..base
+                ..computer
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_miner_is_sized_for_a_computer() {
+        let spec = Preset::default().spec(0);
+        assert_eq!(spec.hash_cap, 0, "a computer's miner starts at a board's speed");
+        assert!(spec.memory_mib >= 256);
+        assert!(spec.mining);
+        assert_eq!(Preset::Esp32S3.spec(0).hash_cap, 15_000);
     }
 }

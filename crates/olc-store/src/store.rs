@@ -23,9 +23,13 @@ pub struct NodeSettings {
     /// Text every mined block carries.
     #[serde(default)]
     pub note: String,
-    /// Leaves small coins as they are when set.
+    /// Leaves small coins as they are when set. Older builds read only this.
     #[serde(default)]
     pub no_merge: bool,
+    /// Merges small coins by itself. Off on a computer until a person turns it on, as Bitcoin's
+    /// wallet never merges by itself; a board merges from its own settings.
+    #[serde(default)]
+    pub merge: bool,
     /// Signs payments as version 1, as Bitcoin did in 2009.
     #[serde(default)]
     pub version_one: bool,

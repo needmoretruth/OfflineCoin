@@ -134,7 +134,7 @@ fn core_on(root: &Path) -> (Core, Gate, PathBuf) {
     let paths = Paths { root: root.to_path_buf() };
     let chain = paths.coin(&coin_folder(&CoinConfig::olc()));
     let gate = Gate::close(&chain);
-    let settings = Settings { port: 7500, setup_done: false, ..Settings::default() };
+    let settings = Settings { port: 7500, setup_done: false, listen_lan: false, ..Settings::default() };
     let launch = CoreLaunch { paths, fleet: None, usb: false, node_program: Some("/bin/true".into()) };
     (Core::start(launch, settings).unwrap(), gate, chain)
 }
