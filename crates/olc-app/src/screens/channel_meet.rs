@@ -65,7 +65,7 @@ fn report(window: &Window, who: &str) {
     tell(&format!(
         "  {who}: notice {notice:?}, reaching {:?}, events {events:?}, connections {}, heard {}",
         channels.reaching,
-        channels.network.rows.len(),
+        snap.node.connections.rows.len(),
         channels.peers.len()
     ));
 }
@@ -169,7 +169,7 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
 
     a.state_mut().open("page.coins");
     // The other computer goes by the name its hello carried, not by where it connects from.
-    wait_in(&mut a, "b's name on its connection", 1, |snap| snap.node.channels.network.rows.iter().any(|row| !row.name.is_empty()));
+    wait_in(&mut a, "b's name on its connection", 1, |snap| snap.node.connections.rows.iter().any(|row| !row.name.is_empty()));
     a.run_steps(3);
     scroll_to(&mut a, "연결된 컴퓨터");
     save(&mut a, "ch-07-peers-ko-basic");

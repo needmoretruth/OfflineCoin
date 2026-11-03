@@ -107,24 +107,6 @@ pub(super) fn is_banned(shared: &Shared, ip: IpAddr) -> bool {
     banned.iter().any(|(kept_out, _)| *kept_out == ip)
 }
 
-/// Links listening now, by port, so the parts of a node that do not hold the link can still list
-/// and drop its peers.
-static LISTENING: Mutex<Vec<(u16, TcpControl)>> = Mutex::new(Vec::new());
-
-pub(super) fn register(port: u16, control: TcpControl) {
-    if let Ok(mut all) = LISTENING.lock() {
-        all.retain(|(at, kept)| *at != port && !kept.is_closed());
-        all.push((port, control));
-    }
-}
-
-/// The link listening on `port` in this process.
-pub fn control_on(port: u16) -> Option<TcpControl> {
-    let mut all = LISTENING.lock().ok()?;
-    all.retain(|(_, kept)| !kept.is_closed());
-    all.iter().find(|(at, _)| *at == port).map(|(_, control)| control.clone())
-}
-
 impl TcpControl {
     /// Every connection now, oldest first.
     pub fn peers(&self) -> Vec<PeerInfo> {
@@ -192,10 +174,6 @@ impl TcpControl {
     /// Where this link takes connections, if it does.
     pub fn listening_on(&self) -> Option<SocketAddr> {
         *self.0.bound.lock().ok()?
-    }
-
-    fn is_closed(&self) -> bool {
-        self.0.closed.load(Ordering::Relaxed)
     }
 }
 
@@ -265,15 +243,5 @@ mod tests {
         control.unban(ip);
         let _fourth = TcpStream::connect(address).unwrap();
         wait_for("it connects once unbanned", || control.count() == 1);
-    }
-
-    #[test]
-    fn the_parts_of_a_node_find_its_link_by_port() {
-        let link = TcpLink::new();
-        let address = link.listen("127.0.0.1:0").unwrap();
-        let found = control_on(address.port()).unwrap();
-        assert_eq!(found.listening_on(), Some(address));
-        link.control().close();
-        assert!(control_on(address.port()).is_none());
     }
 }

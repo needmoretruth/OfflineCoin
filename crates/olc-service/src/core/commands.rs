@@ -244,6 +244,8 @@ pub enum ChannelOrder {
     Pay { text: String },
     /// Reads a request and finds who it pays and the fee, before anyone presses pay. Says nothing.
     Quote { text: String },
+    /// Every connection of the node, as text, each with the number that drops it.
+    Peers,
     /// Ends one connection on the network link, by its number there.
     Disconnect(u32),
     /// Keeps an address off the network link for `hours`, and ends its connections now.
