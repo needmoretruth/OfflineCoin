@@ -34,6 +34,7 @@ mod wallet_orders;
 mod ops;
 #[cfg(test)]
 mod ops_tests;
+mod pool_lend;
 mod pool_plan;
 mod pool_run;
 mod pool_view;

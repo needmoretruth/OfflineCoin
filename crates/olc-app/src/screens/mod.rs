@@ -4,6 +4,7 @@
 mod chain_shots;
 mod channel_meet;
 mod pool_meet;
+mod pool_relay;
 mod lab_shots;
 mod live;
 mod live_swap;

@@ -11,6 +11,7 @@ mod commands;
 mod control;
 mod flash;
 mod hangul;
+mod lend;
 mod links;
 mod node;
 mod pages;

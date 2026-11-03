@@ -4,8 +4,9 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Far longer than printing takes, far shorter than a node that started would run.
-const PRINTS_WITHIN: Duration = Duration::from_secs(20);
+/// Far longer than printing takes (a few milliseconds), far shorter than a node that started would
+/// run. Twenty seconds failed on a loaded machine whose other tests mine on every core.
+const PRINTS_WITHIN: Duration = Duration::from_secs(120);
 
 #[test]
 fn help_after_any_command_prints_help_and_starts_nothing() {

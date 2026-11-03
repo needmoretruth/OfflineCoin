@@ -9,7 +9,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.refused", "Rejected"),
     ("pool.working", "Online"),
     ("pool.why_old", "Firmware before i17 has no Bitcoin header work. Update the board."),
-    ("pool.why_heard_only", "Heard only by its node beacon through another board, with no control link. Update its firmware over USB once."),
+    ("pool.why_heard_only", "Heard only by its node beacon through another board. Relayed pool work needs i19 or later on this board and on its relay."),
     ("pool.through", "via {}"),
     ("pool.state_waiting", "Maturing"),
     ("pool.state_lost", "Orphaned"),

@@ -37,6 +37,10 @@ fn first_user(cx: &Cx, who: Who) -> String {
             let address = board.map(|board| format_address(&board.seen.beacon.address));
             (address.unwrap_or_default(), board.map(|board| board.seen.beacon.name.clone()).unwrap_or_default())
         }
+        Who::Lent(address) => {
+            let choice = snap.pool.choices.iter().find(|choice| choice.who == Some(who));
+            (format_address(&address), choice.map(|choice| choice.label.clone()).unwrap_or_default())
+        }
     };
     format!("{address}.{}", worker_part(&name))
 }

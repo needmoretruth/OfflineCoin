@@ -98,8 +98,8 @@ pub struct Host {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeardFrom {
     Network(IpAddr),
-    /// A link this app opened itself.
-    Board,
+    /// A link this app opened itself, by its number.
+    Board(usize),
 }
 
 struct Asked {
@@ -433,7 +433,7 @@ impl Worker {
                 let number = Runner::number_on_link(peer);
                 let from = match Runner::link_of(peer) {
                     TCP_LINK => self.tcp.ip_of(number).map(HeardFrom::Network),
-                    _ => Some(HeardFrom::Board),
+                    link => Some(HeardFrom::Board(link)),
                 };
                 if let Some(from) = from {
                     heard.push_back((from, hello));

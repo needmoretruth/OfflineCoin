@@ -48,7 +48,7 @@ impl Service {
                     self.take_answer(&format!("{ip}:{}", hello.card.port), hello);
                 }
                 HeardFrom::Network(_) => {}
-                HeardFrom::Board => self.found.board_said(hello),
+                HeardFrom::Board(link) => self.found.board_said_on(hello, link),
             }
         }
         for (from, hello) in self.shout.take_heard() {
@@ -81,7 +81,7 @@ impl Service {
         }
         self.ask_boards();
         self.local.reap();
-        let hellos: Vec<&Hello> = self.found.boards().collect();
+        let hellos = self.found.boards_on_links();
         let mut cx = PoolCx {
             host: &self.host,
             local: &mut self.local,
@@ -95,7 +95,7 @@ impl Service {
 
     /// What a person asked of the pool. The choices it leaves are kept for the next start.
     pub(super) fn pool_order(&mut self, order: PoolOrder) {
-        let hellos: Vec<&Hello> = self.found.boards().collect();
+        let hellos = self.found.boards_on_links();
         let mut cx = PoolCx {
             host: &self.host,
             local: &mut self.local,

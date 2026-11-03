@@ -5,6 +5,7 @@
 //! reach on this computer's loopback. Each link hands its miner a header in the generic work line
 //! and sends back the shares the miner found.
 use super::host::Host;
+use super::pool_lend::{lend, lent_name, take_lent};
 use super::pool_plan::{pool_address, worker_part, Join, PoolOrder, PoolSettings, Who};
 use super::pool_view::{choices, link_trouble, reach, short_address, FoundRow, LinkRow, PoolView, WorkerRow};
 use crate::fleet::{BoardRow, FleetPort};
@@ -41,8 +42,8 @@ pub struct PoolCx<'a> {
     pub local: &'a mut Supervisor,
     pub fleet: Fleet<'a>,
     pub specs: &'a [NodeSpec],
-    /// Boards heard only as nodes, through another board's link.
-    pub hellos: &'a [&'a Hello],
+    /// Boards heard as nodes, with the link of this app each was heard on.
+    pub hellos: &'a [(&'a Hello, Option<usize>)],
     pub settings: &'a mut PoolSettings,
 }
 
@@ -123,6 +124,10 @@ fn user_for(who: Who, cx: &mut PoolCx) -> Option<String> {
             let name = worker_part(&row.seen.beacon.name);
             Some(format!("{}.{name}", format_address(&row.seen.beacon.address)))
         }
+        Who::Lent(worker) => {
+            cx.hellos.iter().find(|(hello, _)| hello.address == worker)?;
+            Some(format!("{}.{}", format_address(&worker), worker_part(&lent_name(&worker, cx.hellos))))
+        }
     }
 }
 
@@ -137,6 +142,7 @@ fn stop_work(who: Who, cx: &mut PoolCx) {
             });
         }
         (Who::Board(_), None) => {}
+        (Who::Lent(worker), _) => drop(lend(worker, None, cx)),
     }
 }
 
@@ -280,6 +286,7 @@ impl PoolSeat {
                 Who::Own => cx.host.take_shares(),
                 Who::Node(id) => node_shares.iter().filter(|(from, _)| from == id).map(|(_, header)| *header).collect(),
                 Who::Board(id) => link.ask_board(*id, cx.fleet),
+                Who::Lent(worker) => take_lent(worker, cx),
             };
             for header in &found {
                 link.client.submit(header);
@@ -382,6 +389,7 @@ impl PoolSeat {
             Who::Own => String::new(),
             Who::Node(id) => locals.iter().find(|(known, ..)| *known == id).map(|(_, name, _)| name.clone()).unwrap_or_default(),
             Who::Board(id) => rows.iter().find(|row| row.seen.id == id).map(|row| row.seen.beacon.name.clone()).unwrap_or_default(),
+            Who::Lent(worker) => lent_name(&worker, cx.hellos),
         };
         view.links = self
             .links
@@ -468,6 +476,10 @@ impl WorkLink {
                 });
             }
             (Who::Board(_), None) => {}
+            (Who::Lent(worker), _) => {
+                let sent = lend(worker, Some((&work.header, work.difficulty)), cx);
+                self.set_trouble((!sent).then_some("pool.why_heard_only"));
+            }
         }
     }
 

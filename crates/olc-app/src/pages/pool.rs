@@ -273,8 +273,8 @@ fn totals(ui: &mut Ui, cx: &Cx, view: &PoolView) {
         ("pool.working", format::number(working as u128)),
         ("pool.speed", format::rate(cx.voice(), speed)),
         ("pool.blocks", format::number(blocks as u128)),
-        ("pool.coins_found", format::coins(coins, cx.ticker())),
-        ("pool.paid_out", format::coins(paid, cx.ticker())),
+        ("pool.coins_found", format::payout(cx.voice(), coins, cx.ticker())),
+        ("pool.paid_out", format::payout(cx.voice(), paid, cx.ticker())),
     ];
     ui.horizontal_wrapped(|ui| {
         for (key, value) in items {

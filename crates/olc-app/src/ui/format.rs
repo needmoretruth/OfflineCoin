@@ -1,6 +1,7 @@
 //! Numbers as people read them.
 use crate::core::{format_coins, group_thousands};
 use crate::i18n::{self, Voice};
+use olc_core::coin::COIN;
 use olc_core::Hash;
 
 pub fn number(value: u128) -> String {
@@ -85,6 +86,25 @@ pub fn coins(units: u64, ticker: &str) -> String {
     format!("{} {ticker}", amount(units))
 }
 
+/// What a pool paid, to two decimals at most for a reader who wants to know about how much, and
+/// to the last unit for an expert. A payout too small to show says so rather than reading as 0.
+pub fn payout(voice: Voice, units: u64, ticker: &str) -> String {
+    format!("{} {ticker}", payout_amount(voice, units))
+}
+
+/// A payout as `payout` says it, with no coin's name beside it.
+pub fn payout_amount(voice: Voice, units: u64) -> String {
+    if voice.mode == i18n::Mode::Expert {
+        return amount(units);
+    }
+    let cent = COIN / 100;
+    let near = units.saturating_add(cent / 2) / cent * cent;
+    if units > 0 && near == 0 {
+        return format!("< {}", amount(cent));
+    }
+    amount(near)
+}
+
 /// An amount with no coin's name beside it. No page draws an amount any other way.
 pub fn amount(units: u64) -> String {
     format_coins(units)
@@ -138,6 +158,20 @@ mod tests {
         assert_eq!(number(20_000), "20,000");
         assert_eq!(number(1_234_567), "1,234,567");
         assert_eq!(short_address("olc0123456789abcdef0123456789"), "olc0123456...23456789");
+    }
+
+    /// The owner asked for a pool's payouts to at most two decimals in basic mode.
+    #[test]
+    fn a_payout_reads_to_two_decimals_and_in_full_for_an_expert() {
+        let basic = Voice::default();
+        let expert = Voice { mode: crate::i18n::Mode::Expert, ..basic };
+        assert_eq!(payout(basic, 22_138_709_561, "OLC"), "221.39 OLC");
+        assert_eq!(payout(expert, 22_138_709_561, "OLC"), "221.38709561 OLC");
+        assert_eq!(payout(basic, 123_456_000_000, "OLC"), "1,234.56 OLC");
+        assert_eq!(payout(basic, 5_000_000_000, "OLC"), "50 OLC");
+        assert_eq!(payout(basic, 99_600_000, "OLC"), "1 OLC");
+        assert_eq!(payout(basic, 10_000, "OLC"), "< 0.01 OLC");
+        assert_eq!(payout(basic, 0, "OLC"), "0 OLC");
     }
 
     /// The owner saw "Just now" on every row while blocks came every few seconds.

@@ -9,7 +9,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.refused", "거부"),
     ("pool.working", "온라인"),
     ("pool.why_old", "i17 이전 펌웨어는 비트코인 헤더 작업을 받지 못합니다. 보드를 업데이트하세요."),
-    ("pool.why_heard_only", "다른 보드를 거친 노드 비컨만 들리고 제어 링크가 없습니다. USB로 펌웨어를 한 번 업데이트하세요."),
+    ("pool.why_heard_only", "다른 보드를 거친 노드 비컨만 들립니다. 중계 풀 작업은 이 보드와 중계 보드 모두 i19 이상이어야 합니다."),
     ("pool.through", "{} 경유"),
     ("pool.state_waiting", "성숙 대기"),
     ("pool.state_lost", "고아 블록"),

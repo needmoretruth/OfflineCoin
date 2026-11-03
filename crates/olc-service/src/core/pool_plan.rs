@@ -11,6 +11,9 @@ pub enum Who {
     Own,
     Node(u32),
     Board(BoardId),
+    /// A board heard only through the board on a cable here, by the address it mines to. It gets
+    /// signed work through that board.
+    Lent([u8; 20]),
 }
 
 /// How a block's coins are shared out, as a person picks it.

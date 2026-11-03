@@ -94,27 +94,9 @@ fn report(window: &Window, who: &str) {
     tell(&format!("  {who}: running {}, workers {workers:?}, links {links:?}, found {}", pool.running, pool.found.len()));
 }
 
-/// The addresses the kernel says listen on `port`, from its own table: what a test opened.
-fn listening_on(port: u16) -> Vec<Ipv4Addr> {
-    const LISTEN: &str = "0A";
-    let table = std::fs::read_to_string("/proc/net/tcp").expect("the kernel's table");
-    let mut found = Vec::new();
-    for line in table.lines().skip(1) {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let Some((address, at)) = fields.get(1).and_then(|local| local.split_once(':')) else {
-            continue;
-        };
-        if fields.get(3) != Some(&LISTEN) || u16::from_str_radix(at, 16).ok() != Some(port) {
-            continue;
-        }
-        if let Ok(word) = u32::from_str_radix(address, 16) {
-            found.push(Ipv4Addr::from(word.swap_bytes()));
-        }
-    }
-    let six = std::fs::read_to_string("/proc/net/tcp6").unwrap_or_default();
-    let hex_port = format!(":{port:04X} ");
-    assert!(!six.lines().any(|line| line.contains(&hex_port) && line.contains(" 0A ")), "nothing listens on IPv6");
-    found
+/// The addresses the system says listen on `port`: what a test opened.
+fn listening_on(port: u16) -> Vec<IpAddr> {
+    olc_service::platform().listening_on(port).expect("the system's table of listening sockets")
 }
 
 fn shared_out(snap: &Snapshot) -> bool {
@@ -143,7 +125,7 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     report(&a, "a after start");
     let bound = listening_on(pool_port);
     tell(&format!("  the pool listens on {bound:?}"));
-    assert_eq!(bound, vec![Ipv4Addr::LOCALHOST], "the pool's port is open to this computer alone");
+    assert_eq!(bound, [IpAddr::V4(Ipv4Addr::LOCALHOST)], "the pool's port is open to this computer alone, and not on IPv6");
     wait_in(&mut a, "the stand-in address", 1, |snap| snap.pool.reach.first().is_some_and(|at| at.starts_with("192.168.0.5:")));
 
     // B types the pool's address and its own name, and joins.

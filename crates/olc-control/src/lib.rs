@@ -8,6 +8,7 @@ pub mod bootlog;
 pub mod defaults;
 pub mod gate;
 pub mod heat;
+pub mod lend;
 pub mod line;
 pub mod packet;
 pub mod panel;

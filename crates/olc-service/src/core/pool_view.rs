@@ -2,7 +2,7 @@
 //! every miner that could work, each board with the one reason it cannot when it cannot.
 use super::coins::format_coins;
 use super::pool_plan::{Join, Method, Who};
-use crate::fleet::BoardRow;
+use crate::fleet::{BoardRow, Connection};
 use olc_node::Hello;
 use olc_pool::{BlockState, ClientView, Link};
 use olc_wallet::format_address;
@@ -10,6 +10,8 @@ use std::net::{IpAddr, UdpSocket};
 
 /// The first build whose blocks carry Bitcoin's header, the only work a pool hands out.
 pub const FIRST_POOL_BUILD: u32 = 17;
+/// The first build that passes pool work on to a board it hears, and takes work passed on to it.
+pub const FIRST_LEND_BUILD: u32 = 19;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkerRow {
@@ -119,9 +121,10 @@ pub fn board_reason(row: &BoardRow) -> Option<&'static str> {
 }
 
 /// Every miner here that could work: the app first, then the miners on this computer, the boards
-/// the fleet reaches, cable or radio, and the boards heard only as nodes.
+/// the fleet reaches, cable or radio, and the boards heard only as nodes, each with the link of
+/// this app it was heard on.
 /// A miner on this computer is given as its id, name and speed, with no speed when it is not running.
-pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos: &[&Hello], own_speed: u64) -> Vec<Choice> {
+pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos: &[(&Hello, Option<usize>)], own_speed: u64) -> Vec<Choice> {
     let mut all = vec![Choice { who: Some(Who::Own), label: String::new(), through: None, why_not: None, speed: own_speed }];
     all.extend(locals.iter().map(|(id, name, speed)| Choice {
         who: Some(Who::Node(*id)),
@@ -138,17 +141,40 @@ pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos:
         speed: u64::from(row.seen.beacon.hashrate),
     }));
     let reached: Vec<[u8; 20]> = rows.iter().map(|row| row.seen.beacon.address).collect();
-    // A board heard only as a node, through another board's link: it sends no control signal this
-    // app can reach, so nothing can hand it work until its firmware does.
-    let heard_only = hellos.iter().filter(|hello| !reached.contains(&hello.address));
-    all.extend(heard_only.map(|hello| Choice {
-        who: None,
-        label: if hello.card.name.is_empty() { short_address(&format_address(&hello.address)) } else { hello.card.name.clone() },
-        through: (!hello.card.via.0.is_empty()).then(|| hello.card.via.0.clone()),
-        why_not: Some("pool.why_heard_only"),
-        speed: hello.card.hashrate,
+    // A board heard only as a node, passed on by the board on one of this app's cables. That board
+    // passes work on to it when both run a build that can.
+    let heard_only = hellos.iter().filter(|(hello, _)| !reached.contains(&hello.address));
+    all.extend(heard_only.map(|(hello, link)| {
+        let label = if hello.card.name.is_empty() { short_address(&format_address(&hello.address)) } else { hello.card.name.clone() };
+        let speed = hello.card.hashrate;
+        match (relay_of(rows, *link), lends(&hello.card.build)) {
+            (Some(relay), true) => {
+                Choice { who: Some(Who::Lent(hello.address)), label, through: Some(relay.seen.beacon.name.clone()), why_not: None, speed }
+            }
+            _ => {
+                let medium = (!hello.card.via.0.is_empty()).then(|| hello.card.via.0.clone());
+                let through = on_cable(rows, *link).map(|row| row.seen.beacon.name.clone()).or(medium);
+                Choice { who: None, label, through, why_not: Some("pool.why_heard_only"), speed }
+            }
+        }
     }));
     all
+}
+
+fn lends(build: &str) -> bool {
+    build_number(build).is_some_and(|build| build >= FIRST_LEND_BUILD)
+}
+
+/// The board on this app's `link` that passes pool work on, when it runs a build that can.
+pub fn relay_of(rows: &[BoardRow], link: Option<usize>) -> Option<&BoardRow> {
+    let relay = on_cable(rows, link)?;
+    (relay.seen.online && lends(&relay.seen.beacon.build)).then_some(relay)
+}
+
+/// The board on the cable that is this app's `link`.
+fn on_cable(rows: &[BoardRow], link: Option<usize>) -> Option<&BoardRow> {
+    let link = link?;
+    rows.iter().find(|row| row.seen.connection == Connection::Direct { link })
 }
 
 pub fn short_address(address: &str) -> String {
@@ -254,17 +280,29 @@ mod tests {
         assert_eq!(build_number("dev"), None);
     }
 
-    /// Board zero has no cable and no control link: the app hears it only as a node, passed on by
-    /// board one over the radio. It is still listed, with what it is heard through and the one
-    /// line saying why it cannot take pool work, as a stopped miner here is.
-    #[test]
-    fn a_board_heard_only_through_another_is_listed_with_why_it_cannot_work() {
+    fn board_zero(build: &str) -> Hello {
         use olc_core::coin::CoinConfig;
         use olc_node::hello::{Card, Via};
-        let card = Card { name: "보드제로".into(), hashrate: 9_000, via: Via("bluetooth".into()), ..Card::default() };
-        let zero = Hello { coin: CoinConfig::olc(), tip: [0; 32], height: 3, work: 0, address: [7; 20], card };
+        let card = Card { name: "보드제로".into(), build: build.into(), hashrate: 9_000, via: Via("espnow".into()), ..Card::default() };
+        Hello { coin: CoinConfig::olc(), tip: [0; 32], height: 3, work: 0, address: [7; 20], card }
+    }
+
+    /// Board one, on this app's cable on link 2.
+    fn board_one(build: &str) -> BoardRow {
+        use crate::fleet::Seen;
+        let beacon = olc_control::Beacon { name: "보드원".into(), address: [1; 20], build: build.into(), ..Default::default() };
+        let seen = Seen { id: [1; 6], beacon, connection: Connection::Direct { link: 2 }, online: true, silent_for: std::time::Duration::ZERO, old_format: false };
+        BoardRow { seen, on_cable: true, through: None, job: None }
+    }
+
+    /// Board zero has no cable and no control link: the app hears it only as a node, passed on by
+    /// board one over the radio. On an old build it is still listed, with what it is heard through
+    /// and the one line saying why it cannot take pool work, as a stopped miner here is.
+    #[test]
+    fn a_board_heard_only_through_another_is_listed_with_why_it_cannot_work() {
+        let zero = board_zero("i17");
         let locals = [(1, "worker-1".to_string(), Some(500)), (2, "worker-2".to_string(), None)];
-        let all = choices(&locals, &[], &[&zero], 1_000);
+        let all = choices(&locals, &[], &[(&zero, Some(2))], 1_000);
         let names: Vec<&str> = all.iter().map(|choice| choice.label.as_str()).collect();
         assert_eq!(names, ["", "worker-1", "worker-2", "보드제로"], "this computer, both miners and board zero");
         assert_eq!(all[0].who, Some(Who::Own));
@@ -272,7 +310,31 @@ mod tests {
         let board = &all[3];
         assert_eq!(board.who, None, "nothing here can hand it work");
         assert_eq!(board.why_not, Some("pool.why_heard_only"));
-        assert_eq!(board.through.as_deref(), Some("bluetooth"));
+        assert_eq!(board.through.as_deref(), Some("espnow"));
         assert_eq!(board.speed, 9_000);
+    }
+
+    /// With the new build on board zero and on board one, the board on the cable it was heard
+    /// through, board zero is a worker reached through board one.
+    #[test]
+    fn a_board_heard_through_a_board_that_passes_work_on_is_a_worker() {
+        let new = format!("i{FIRST_LEND_BUILD}");
+        let zero = board_zero(&new);
+        let all = choices(&[], &[board_one(&new)], &[(&zero, Some(2))], 1_000);
+        let board = all.iter().find(|choice| choice.label == "보드제로").unwrap();
+        assert_eq!(board.who, Some(Who::Lent([7; 20])));
+        assert_eq!(board.why_not, None);
+        assert_eq!(board.through.as_deref(), Some("보드원"));
+        // Either board on an older build, or a hello from a link no board of this app is on, keeps
+        // the reason, and names the board it is heard through when that board is on a cable here.
+        let old = format!("i{}", FIRST_LEND_BUILD - 1);
+        let cases = [(old.as_str(), new.as_str(), Some(2), "보드원"), (new.as_str(), old.as_str(), Some(2), "보드원"), (new.as_str(), new.as_str(), Some(5), "espnow")];
+        for (zero_build, one_build, link, through) in cases {
+            let zero = board_zero(zero_build);
+            let all = choices(&[], &[board_one(one_build)], &[(&zero, link)], 1_000);
+            let board = all.iter().find(|choice| choice.label == "보드제로").unwrap();
+            assert_eq!((board.who, board.why_not), (None, Some("pool.why_heard_only")), "{zero_build} {one_build} {link:?}");
+            assert_eq!(board.through.as_deref(), Some(through));
+        }
     }
 }
