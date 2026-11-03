@@ -93,6 +93,7 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
         }
         LockFailure::Refused(ChainError::MissingInput) => ("lock.spent", String::new()),
         LockFailure::Refused(ChainError::ImmatureCoinbase) => ("lock.immature", String::new()),
+        LockFailure::Refused(ChainError::NotFinal) => ("lock.not_yet", String::new()),
         LockFailure::Refused(_) => ("lock.not_taken", String::new()),
     }
 }

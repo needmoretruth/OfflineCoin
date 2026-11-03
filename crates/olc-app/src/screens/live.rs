@@ -115,7 +115,11 @@ fn hex(bytes: &[u8]) -> String {
 /// The block a payment is in, once it is in one.
 fn block_of(core: &Core, id: &str) -> Option<u64> {
     let lines = explore(core, id);
-    let line = lines.lines().find(|line| line.starts_with("in block") || line.starts_with("block"))?;
+    // The last thing looked up stays on show when this one is not found, so it must name `id`.
+    if !lines.contains(id) {
+        return None;
+    }
+    let line = lines.lines().find(|line| line.starts_with("in block"))?;
     line.split_whitespace().find_map(|word| word.replace(',', "").parse().ok())
 }
 
@@ -186,7 +190,7 @@ fn live_versions_and_a_fork() {
         blocks.iter().all(Option::is_some)
     });
     for id in ids.iter().take(2) {
-        tell(&format!("  {}", explore(&v, id).lines().take(3).collect::<Vec<_>>().join(" | ")));
+        tell(&format!("  {}", explore(&v, id).lines().filter(|line| line.starts_with("payment") || line.starts_with("in block")).collect::<Vec<_>>().join(" | ")));
     }
     tell(&format!("  blocks {blocks:?}, tip {}", height(&v)));
 
@@ -201,9 +205,9 @@ fn live_versions_and_a_fork() {
     tell("3. A lock time holds a payment until its block");
     let hold = height(&v) + 3;
     let (_, file) = signed_file(&v, &v_root, "lock-time", &f_address, |value| {
-        value["unsigned"]["tx"]["lock_time"] = serde_json::json!(hold);
+        value["unsigned"][0]["lock_time"] = serde_json::json!(hold);
         // As in Bitcoin, a lock time binds only a payment with an input that is not final.
-        if let Some(inputs) = value["unsigned"]["tx"]["inputs"].as_array_mut() {
+        if let Some(inputs) = value["unsigned"][0]["inputs"].as_array_mut() {
             inputs.iter_mut().for_each(|input| input["sequence"] = serde_json::json!(u32::MAX - 1));
         }
     });
@@ -244,8 +248,11 @@ fn live_versions_and_a_fork() {
     let fork_at: u64 = forked.detail.parse().unwrap_or_default();
     tell(&format!("  the fork starts at block {fork_at}, F at {}", height(&f)));
     let (_, old_file) = signed_file(&v, &v_root, "version-one", &v_address, |value| {
-        value["unsigned"]["tx"]["version"] = serde_json::json!(1);
-        value["unsigned"]["coin"] = serde_json::Value::Null;
+        value["unsigned"][0]["version"] = serde_json::json!(1);
+        // A payment that names no coin is the pair older builds wrote: payment and owners.
+        if let Some(parts) = value["unsigned"].as_array_mut() {
+            parts.truncate(2);
+        }
     });
     let on_fork = broadcast(&f, &old_file);
     tell(&format!("  OLC version 1 payment on the fork: {}", on_fork.detail));

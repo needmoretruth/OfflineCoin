@@ -159,6 +159,7 @@ const SENTENCES: &[(&str, &str)] = &[
     ("lock.no_words", "Write the lock first."),
     ("lock.not_open", "These unlock words do not open the lock. A time lock opens only from its height."),
     ("lock.not_taken", "Nodes would not take this spend."),
+    ("lock.not_yet", "This lock opens only after more blocks. Try again then."),
     ("lock.open_branch", "IF, ELSE and ENDIF do not match."),
     ("lock.open_quote", "A quote is not closed."),
     ("lock.paid", "Coins are under the lock: {}"),

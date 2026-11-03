@@ -233,6 +233,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.needs_blocks", "A node with headers only cannot read locks. Keep blocks in Settings."),
     ("lock.immature", "Mined coins can move only after more blocks."),
     ("lock.not_taken", "Nodes would not take this spend."),
+    ("lock.not_yet", "This lock opens only after more blocks. Try again then."),
     ("lock.not_open", "These unlock words do not open the lock. A time lock opens only from its height."),
     ("lock.spent", "This coin is already spent."),
     ("pro.version_one", "Sign the old way"),
