@@ -31,8 +31,13 @@ impl ChannelNode {
         Some(Announcement::digest(&channel.funding(), channel.terms.capacity, &nodes, &keys))
     }
 
-    pub(crate) fn announcement_signed_by_them(&self, channel: &Channel, signature: &Bytes<64>) -> bool {
-        self.announcement_digest(channel).is_some_and(|digest| verify(&channel.peer.0, &digest, &signature.0))
+    pub(crate) fn announcement_signed_by_them(&self, channel: &Channel, signature: &Bytes<64>, funding: &Bytes<64>) -> bool {
+        let Some(their_key) = channel.theirs.as_ref().map(|side| side.keys.funding) else {
+            return false;
+        };
+        self.announcement_digest(channel).is_some_and(|digest| {
+            verify(&channel.peer.0, &digest, &signature.0) && verify(&their_key.0, &digest, &funding.0)
+        })
     }
 
     /// Our signature on a channel's announcement, for the other end.
@@ -43,23 +48,27 @@ impl ChannelNode {
         let Some(digest) = self.announcement_digest(channel) else {
             return;
         };
-        let Some(signature) = sign(&self.secret, &digest) else {
+        let (Some(signature), Some(funding)) = (sign(&self.secret, &digest), sign(&channel.secrets().funding, &digest)) else {
             return;
         };
         let peer = channel.peer;
-        self.send(peer, &Wire::AnnounceSigned { id, signature: Bytes(signature) });
+        self.send(peer, &Wire::AnnounceSigned { id, signature: Bytes(signature), funding_signature: Bytes(funding) });
     }
 
     fn announcement_of(&self, channel: &Channel) -> Option<Announcement> {
         let theirs = channel.their_announce?;
+        let their_funding = channel.their_funding_announce?;
         let digest = self.announcement_digest(channel)?;
         let ours = Bytes(sign(&self.secret, &digest)?);
+        let our_funding = Bytes(sign(&channel.secrets().funding, &digest)?);
         let (nodes, funding_keys) = ends(channel, self.id)?;
-        let signatures = match self.id < channel.peer {
-            true => [ours, theirs],
-            false => [theirs, ours],
+        let (signatures, funding_signatures) = match self.id < channel.peer {
+            true => ([ours, theirs], [our_funding, their_funding]),
+            false => ([theirs, ours], [their_funding, our_funding]),
         };
-        let announcement = Announcement { funding: channel.funding(), capacity: channel.terms.capacity, nodes, funding_keys, signatures };
+        let funding = channel.funding();
+        let announcement =
+            Announcement { funding, capacity: channel.terms.capacity, nodes, funding_keys, signatures, funding_signatures };
         announcement.signed().then_some(announcement)
     }
 
@@ -137,7 +146,6 @@ impl ChannelNode {
     /// Now and then: our channels' terms again, signatures the other end may have missed, and
     /// channels whose funding output is gone forgotten.
     pub(crate) fn gossip_own(&mut self, ground: &mut dyn Ground) {
-        self.graph.prune(|point| ground.coin(point).is_some());
         let now_s = ground.now_s();
         let open: Vec<ChannelId> =
             self.channels.values().filter(|channel| channel.phase == Phase::Open).map(|channel| channel.id).collect();
@@ -145,7 +153,7 @@ impl ChannelNode {
             let Some(channel) = self.channels.get(&id) else {
                 continue;
             };
-            if channel.their_announce.is_none() {
+            if channel.their_announce.is_none() || channel.their_funding_announce.is_none() {
                 let funding = channel.funding();
                 self.sign_announcement(id, funding);
                 continue;

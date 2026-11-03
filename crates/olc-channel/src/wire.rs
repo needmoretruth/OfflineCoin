@@ -64,8 +64,9 @@ pub enum Wire {
     /// closing_signed: a signature on the cooperative close of the channel as it stands.
     Close { id: ChannelId, number: u64, signature: Signature },
     CloseSigned { id: ChannelId, signature: Signature },
-    /// A side's signature on the channel's announcement (announcement_signatures).
-    AnnounceSigned { id: ChannelId, signature: Signature },
+    /// A side's signatures on the channel's announcement (announcement_signatures): its node key
+    /// and its funding key, so nobody can name a channel whose coins they do not hold.
+    AnnounceSigned { id: ChannelId, signature: Signature, funding_signature: Signature },
     Announce(Announcement),
     Terms(ChannelTerms),
 }
@@ -79,6 +80,8 @@ pub struct Announcement {
     pub nodes: [NodeId; 2],
     pub funding_keys: [Key; 2],
     pub signatures: [Signature; 2],
+    /// By the funding keys, in the same order.
+    pub funding_signatures: [Signature; 2],
 }
 
 impl Announcement {
@@ -95,6 +98,7 @@ impl Announcement {
         let digest = Self::digest(&self.funding, self.capacity, &self.nodes, &self.funding_keys);
         self.nodes[0] < self.nodes[1]
             && self.nodes.iter().zip(&self.signatures).all(|(node, signature)| verify(&node.0, &digest, &signature.0))
+            && self.funding_keys.iter().zip(&self.funding_signatures).all(|(key, signature)| verify(&key.0, &digest, &signature.0))
     }
 }
 

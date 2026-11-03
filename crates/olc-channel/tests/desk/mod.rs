@@ -53,6 +53,8 @@ pub struct Party {
 struct Desk<'a> {
     world: &'a mut World,
     wallet: &'a Wallet,
+    /// The coins this node's channels hold, which its other payments leave alone.
+    held: Vec<OutPoint>,
 }
 
 impl Ground for Desk<'_> {
@@ -61,8 +63,8 @@ impl Ground for Desk<'_> {
     }
 
     fn block_at(&self, height: u64) -> Option<(Hash, Vec<Tx>)> {
-        let id = self.world.chain.id_at(height)?;
-        Some((id, self.world.chain.block(&id)?.txs))
+        let block = self.world.chain.blocks_from(height, 1).pop()?;
+        Some((block.id(), block.txs))
     }
 
     fn coin(&self, point: &OutPoint) -> Option<(TxOut, u64)> {
@@ -85,8 +87,17 @@ impl Ground for Desk<'_> {
         self.wallet.address()
     }
 
-    fn fund(&mut self, lock: &[u8], amount: u64) -> Result<Tx, String> {
-        let reserved: Vec<OutPoint> = self.world.pool.iter().flat_map(|tx| tx.inputs.iter().map(|input| input.previous)).collect();
+    fn pick_funding(&mut self, amount: u64) -> Result<Vec<OutPoint>, String> {
+        let mut reserved: Vec<OutPoint> = self.world.pool.iter().flat_map(|tx| tx.inputs.iter().map(|input| input.previous)).collect();
+        reserved.extend_from_slice(&self.held);
+        let tx = self.wallet.pay_lock_in(&self.world.chain, olc_lang::GAMMA, &[0; 71], amount, FEE, &reserved);
+        Ok(tx.map_err(|error| format!("{error:?}"))?.inputs.iter().map(|input| input.previous).collect())
+    }
+
+    fn fund(&mut self, lock: &[u8], amount: u64, from: &[OutPoint]) -> Result<Tx, String> {
+        // Every coin of the wallet but the held ones is set aside, so only those can pay.
+        let all = self.world.chain.unspent_of(&self.wallet.address());
+        let reserved: Vec<OutPoint> = all.into_iter().map(|(point, _)| point).filter(|point| !from.contains(point)).collect();
         self.wallet.pay_lock_in(&self.world.chain, olc_lang::GAMMA, lock, amount, FEE, &reserved).map_err(|error| format!("{error:?}"))
     }
 
@@ -179,7 +190,8 @@ impl Party {
 
     /// Runs an order against the chain.
     pub fn with<T>(&mut self, world: &mut World, order: impl FnOnce(&mut ChannelNode, &mut dyn Ground) -> T) -> T {
-        let mut desk = Desk { world, wallet: &self.wallet };
+        let held = self.node.held_coins();
+        let mut desk = Desk { world, wallet: &self.wallet, held };
         order(&mut self.node, &mut desk)
     }
 
@@ -213,7 +225,8 @@ pub fn deliver(parties: &mut [Party], world: &mut World) {
                     Out::All { bytes, except } if *except != Some(party.node.id) => bytes,
                     _ => continue,
                 };
-                let mut desk = Desk { world, wallet: &party.wallet };
+                let held = party.node.held_coins();
+                let mut desk = Desk { world, wallet: &party.wallet, held };
                 party.node.receive(bytes, &mut desk);
             }
         }
@@ -221,11 +234,20 @@ pub fn deliver(parties: &mut [Party], world: &mut World) {
     panic!("messages never stopped");
 }
 
+/// Every node here shares one chain, so it keeps the blocks the furthest behind still has to read,
+/// as each node's own chain would for it, cut or not.
+fn hold(parties: &[Party], world: &mut World) {
+    let from = parties.iter().filter_map(|party| party.node.keep_blocks_from()).min();
+    world.chain.set_hold(from);
+}
+
 /// A second passes: every node not cut ticks, and messages move.
 pub fn second(parties: &mut [Party], world: &mut World) {
     world.now_ms += 1_000;
+    hold(parties, world);
     for party in parties.iter_mut().filter(|party| !party.cut) {
-        let mut desk = Desk { world, wallet: &party.wallet };
+        let held = party.node.held_coins();
+        let mut desk = Desk { world, wallet: &party.wallet, held };
         let now = desk.world.now_ms;
         party.node.tick(now, &mut desk);
     }
@@ -240,6 +262,7 @@ pub fn seconds(parties: &mut [Party], world: &mut World, count: usize) {
 
 /// A block is mined, then a few seconds pass.
 pub fn block(parties: &mut [Party], world: &mut World) -> Vec<Hash> {
+    hold(parties, world);
     let mined = world.mine();
     seconds(parties, world, 2);
     mined
@@ -247,8 +270,13 @@ pub fn block(parties: &mut [Party], world: &mut World) -> Vec<Hash> {
 
 /// Opens a channel from `parties[from]` to `parties[to]` and mines until both see it open.
 pub fn open(parties: &mut [Party], world: &mut World, from: usize, to: usize, amount: u64) -> Hash {
+    open_with(parties, world, (from, to), amount, DELAY)
+}
+
+/// The same with the wait before coins come back after closing alone set to `delay`.
+pub fn open_with(parties: &mut [Party], world: &mut World, (from, to): (usize, usize), amount: u64, delay: u16) -> Hash {
     let peer = parties[to].id();
-    let id = parties[from].with(world, |node, ground| node.open_channel(peer, amount, DELAY, ground)).unwrap();
+    let id = parties[from].with(world, |node, ground| node.open_channel(peer, amount, delay, ground)).unwrap();
     seconds(parties, world, 2);
     for _ in 0..4 {
         block(parties, world);

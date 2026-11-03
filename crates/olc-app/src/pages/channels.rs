@@ -8,7 +8,7 @@ use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, field, meta, mono, pick_row, section, Kind};
 use crate::ui::Icon;
-use egui::{Label, Ui};
+use egui::{CollapsingHeader, Label, Ui};
 use olc_service::qr::{qr_grid, QrGrid};
 
 const WIDE: f32 = 560.0;
@@ -21,7 +21,10 @@ fn hex(bytes: &[u8]) -> String {
 #[derive(Default)]
 pub struct Channels {
     request: String,
-    request_fault: Option<&'static str>,
+    request_fault: Option<String>,
+    /// The request being read for whom it pays and the fee, and the number of the answer seen
+    /// before it was sent, so an older answer is not taken for this one.
+    quoting: Option<(String, u64)>,
     ask_amount: String,
     ask_note: String,
     open_with: Option<String>,
@@ -63,11 +66,22 @@ fn state_line(cx: &Cx, channel: &ChannelView) -> String {
 
 impl Channels {
     fn summary(ui: &mut Ui, cx: &Cx, view: &ChannelsView) {
-        let held = |channel: &&ChannelView| matches!(channel.phase, Phase::Open | Phase::Closing);
-        let ours: u64 = view.channels.iter().filter(held).map(|channel| channel.ours).sum();
+        let open = |channel: &&ChannelView| channel.phase == Phase::Open;
+        let ours: u64 = view.channels.iter().filter(open).map(|channel| channel.ours).sum();
+        // A channel being closed still has coins on the way to the wallet; they are not gone.
+        let coming: u64 = view.channels.iter().map(|channel| channel.coming).sum();
         card(ui, cx.t, |ui| {
+            // With nothing open, the coins on their way back are the number, not a 0 above them.
+            if ours == 0 && coming > 0 {
+                meta(ui, cx.say("ch.coming_mine"), cx.t);
+                ui.label(widgets::strong_text(format::coins(coming, cx.ticker())).size(tokens::SLIP_AMOUNT));
+                return;
+            }
             meta(ui, cx.say("ch.in_channels"), cx.t);
             ui.label(widgets::strong_text(format::coins(ours, cx.ticker())).size(tokens::SLIP_AMOUNT));
+            if coming > 0 {
+                ui.label(widgets::strong_text(cx.fill("ch.coming", &[&format::coins(coming, cx.ticker())])));
+            }
         });
     }
 
@@ -75,12 +89,12 @@ impl Channels {
         let t = cx.t;
         section(ui, cx.say("ch.channels"));
         ui.add_space(4.0);
-        if view.channels.is_empty() {
+        let ended = |channel: &&ChannelView| matches!(channel.phase, Phase::Closed | Phase::Failed);
+        let (done, mut rows): (Vec<&ChannelView>, Vec<&ChannelView>) = view.channels.iter().partition(ended);
+        if rows.is_empty() {
             meta(ui, cx.say("ch.none"), t);
-            return;
         }
-        // Open ones first, then the newest of the rest.
-        let mut rows: Vec<&ChannelView> = view.channels.iter().collect();
+        // Open ones first, then the rest.
         rows.sort_by_key(|channel| !matches!(channel.phase, Phase::Open | Phase::Closing | Phase::Confirming));
         for channel in rows {
             let peer = hex(&channel.peer.0);
@@ -113,7 +127,7 @@ impl Channels {
                     true => ("ch.alone_warning", "ch.close_alone", "ch.alone_what"),
                     false => ("ch.close_warning", "ch.close", "ch.close_what"),
                 };
-                *cx.slip = Some(cx.slip_for(Slipping {
+                let mut slip = cx.slip_for(Slipping {
                     what: cx.say(what),
                     rows: vec![
                         (cx.say("ch.other"), name),
@@ -123,9 +137,34 @@ impl Channels {
                     sign: cx.say(sign),
                     danger: force,
                     order: vec![Command::Channel(ChannelOrder::Close { channel: hex(&channel.id), force })],
-                }));
+                });
+                if force {
+                    slip.warning = Some(cx.fill(warning, &[&channel.delay.to_string()]));
+                }
+                *cx.slip = Some(slip);
             }
         }
+        Self::closed_rows(ui, cx, &done);
+    }
+
+    /// Channels that are over, folded away: who with, and what came back on the chain.
+    fn closed_rows(ui: &mut Ui, cx: &Cx, done: &[&ChannelView]) {
+        if done.is_empty() {
+            return;
+        }
+        let t = cx.t;
+        ui.add_space(tokens::GAP);
+        let header = CollapsingHeader::new(widgets::strong_text(cx.say("ch.closed_list")));
+        header.id_salt("closed-channels").default_open(false).show(ui, |ui| {
+            for channel in done {
+                ui.label(widgets::strong_text(name_of(cx, &channel.peer_name, &hex(&channel.peer.0))));
+                meta(ui, &state_line(cx, channel), t);
+                if channel.phase == Phase::Closed {
+                    ui.label(cx.fill("ch.back", &[&format::coins(channel.back, cx.ticker())]));
+                }
+                ui.add_space(tokens::GAP);
+            }
+        });
     }
 
     fn open(&mut self, ui: &mut Ui, cx: &mut Cx, view: &ChannelsView) {
@@ -183,39 +222,73 @@ impl Channels {
         });
     }
 
-    fn pay(&mut self, ui: &mut Ui, cx: &mut Cx) {
+    fn pay(&mut self, ui: &mut Ui, cx: &mut Cx, view: &ChannelsView) {
         let t = cx.t;
         section(ui, cx.say("ch.pay"));
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             if field(ui, &mut self.request, cx.say("ch.pay_hint"), WIDE - 100.0).changed() {
                 self.request_fault = None;
+                self.quoting = None;
             }
-            let ready = !self.request.trim().is_empty();
+            let ready = !self.request.trim().is_empty() && self.quoting.is_none();
             if button_on(ui, t, cx.say("ch.pay_go"), Kind::Main, ready).clicked() && ready {
+                // Read here first, so a wrong paste is said at once; the node then finds the payee
+                // and the route's fee for the slip.
                 match read_request(&self.request, &cx.snap.node.genesis) {
-                    Ok((amount, note)) => {
-                        let mut rows = vec![(cx.say("ch.amount"), format::coins(amount, cx.ticker()))];
-                        if !note.is_empty() {
-                            rows.push((cx.say("ch.note"), note));
-                        }
-                        *cx.slip = Some(cx.slip_for(Slipping {
-                            what: cx.say("ch.pay"),
-                            rows,
-                            warning: cx.say("ch.pay_warning"),
-                            sign: cx.say("ch.pay_go"),
-                            danger: false,
-                            order: vec![Command::Channel(ChannelOrder::Pay { text: self.request.trim().to_string() })],
-                        }));
-                        self.request.clear();
+                    Ok(_) => {
+                        let text = self.request.trim().to_string();
+                        let seen = view.quote.as_ref().map_or(0, |(number, _, _)| *number);
+                        cx.send(Command::Channel(ChannelOrder::Quote { text: text.clone() }));
+                        self.quoting = Some((text, seen));
                     }
-                    Err(key) => self.request_fault = Some(key),
+                    Err(key) => self.request_fault = Some(cx.say(key).to_string()),
                 }
             }
         });
-        if let Some(key) = self.request_fault {
-            meta(ui, cx.say(key), t);
+        self.quoted(cx, view);
+        if let Some(fault) = &self.request_fault {
+            meta(ui, fault, t);
         }
+    }
+
+    /// The node said whom the request pays and what the route costs: the slip shows both before
+    /// anything moves, as a wallet does.
+    fn quoted(&mut self, cx: &mut Cx, view: &ChannelsView) {
+        let Some((text, seen)) = self.quoting.clone() else {
+            return;
+        };
+        let Some((number, asked, said)) = view.quote.as_ref() else {
+            return;
+        };
+        if *number <= seen || *asked != text {
+            return;
+        }
+        self.quoting = None;
+        let quote = match said {
+            Ok(quote) => quote,
+            Err((key, detail)) => {
+                self.request_fault = Some(cx.fill(key, &[detail]));
+                return;
+            }
+        };
+        let mut rows = vec![
+            (cx.say("ch.to"), name_of(cx, &quote.name, &hex(&quote.payee.0))),
+            (cx.say("ch.amount"), format::coins(quote.amount, cx.ticker())),
+            (cx.say("ch.fee"), format::coins(quote.fee, cx.ticker())),
+        ];
+        if !quote.note.is_empty() {
+            rows.push((cx.say("ch.note"), quote.note.clone()));
+        }
+        *cx.slip = Some(cx.slip_for(Slipping {
+            what: cx.say("ch.pay"),
+            rows,
+            warning: cx.say("ch.pay_warning"),
+            sign: cx.say("ch.pay_go"),
+            danger: false,
+            order: vec![Command::Channel(ChannelOrder::Pay { text })],
+        }));
+        self.request.clear();
     }
 
     fn ask(&mut self, ui: &mut Ui, cx: &mut Cx, view: &ChannelsView) {
@@ -320,7 +393,7 @@ impl Page for Channels {
         ui.add_space(tokens::GAP_PAGE);
         self.open(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
-        self.pay(ui, cx);
+        self.pay(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);
         self.ask(ui, cx, &view);
         ui.add_space(tokens::GAP_PAGE);

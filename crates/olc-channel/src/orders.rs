@@ -2,7 +2,7 @@
 use crate::bytes::{hex, Bytes, Key};
 use crate::channel::{Channel, Phase};
 use crate::flow::FINAL_DELTA;
-use crate::graph::Own;
+use crate::graph::{Graph, Own, Route};
 use crate::invoice::{coin_tag, Invoice, InvoiceError, MOST_NOTE};
 use crate::node::{ChannelNode, Ground, Made, PayState, Payment, Seen, DUST, HELLO_EVERY_MS};
 use crate::opening::Ask;
@@ -35,6 +35,7 @@ pub enum Refusal {
     OwnRequest,
     AlreadyPaid,
     NoRoute,
+    NoCoins,
 }
 
 impl Refusal {
@@ -54,6 +55,7 @@ impl Refusal {
             Self::OwnRequest => "That request is your own.",
             Self::AlreadyPaid => "That request is paid or being paid.",
             Self::NoRoute => "No channel path reaches the payee with enough coins.",
+            Self::NoCoins => "There are not enough coins in the wallet for that.",
         }
     }
 }
@@ -86,6 +88,30 @@ pub struct ChannelView {
     /// Who took the channel to the chain alone: `Some(true)` for us.
     pub forced_by_us: Option<bool>,
     pub cheated: bool,
+    /// What has come back to our own address on the chain since the channel closed.
+    pub back: u64,
+    /// What is on its way back while the close waits for its blocks.
+    pub coming: u64,
+    /// Blocks our share waits after we close alone.
+    pub delay: u16,
+}
+
+/// What paying a request would take, said before anyone presses pay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Quote {
+    pub payee: NodeId,
+    /// The payee's own name when this node has heard it, else empty.
+    pub name: String,
+    pub amount: u64,
+    /// What the nodes on the way ask on top.
+    pub fee: u64,
+    pub note: String,
+}
+
+/// What came back to our address in the transactions the chain shows for a channel.
+fn came_back(channel: &Channel) -> u64 {
+    let outputs = channel.chain.seen.iter().flat_map(|(_, tx)| tx.outputs.iter());
+    outputs.filter(|out| out.pays(&channel.ours.pay_to)).map(|out| out.value).fold(0, u64::saturating_add)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,7 +148,9 @@ impl ChannelNode {
         let coin = ground.coin_id().ok_or(Refusal::NoV2Yet)?;
         let ask = Ask { capacity: amount, delay, fee: ground.fee(), dust: DUST, coin };
         let seed = fresh_secret().map_err(|_| Refusal::NotSaved)?;
-        let (channel, wire) = Channel::start(peer, ask, seed, ground.pay_to(), self.now_ms).map_err(|_| Refusal::TooLittle)?;
+        let (mut channel, wire) = Channel::start(peer, ask, seed, ground.pay_to(), self.now_ms).map_err(|_| Refusal::TooLittle)?;
+        // The coins are chosen now and written with the channel, so no other payment takes them.
+        channel.held = ground.pick_funding(amount).map_err(|_| Refusal::NoCoins)?;
         let id = channel.id;
         match self.keep(None, channel, Some(wire)) {
             true => Ok(id),
@@ -204,8 +232,16 @@ impl ChannelNode {
         })
     }
 
-    /// Pays a request through the channels, directly or by way of others.
-    pub fn pay(&mut self, text: &str, ground: &mut dyn Ground) -> Result<Hash, Refusal> {
+    /// What paying a request would take: who gets it, and the fee of the route found now.
+    pub fn quote(&self, text: &str, ground: &dyn Ground) -> Result<Quote, Refusal> {
+        let (invoice, route) = self.route_for(text, ground)?;
+        let name = self.peers.get(&invoice.payee).map(|seen| seen.name.clone()).unwrap_or_default();
+        let fee = route.amount.saturating_sub(invoice.amount);
+        Ok(Quote { payee: invoice.payee, name, amount: invoice.amount, fee, note: invoice.note })
+    }
+
+    /// The request read and checked, and the route that pays it now.
+    fn route_for(&self, text: &str, ground: &dyn Ground) -> Result<(Invoice, Route), Refusal> {
         let invoice = self.read_invoice(text, ground)?;
         if invoice.payee == self.id {
             return Err(Refusal::OwnRequest);
@@ -223,6 +259,12 @@ impl ChannelNode {
             .map(|channel| Own { funding: channel.funding(), peer: channel.peer, balance: spendable(channel) })
             .collect();
         let route = self.graph.route(&self.id, &invoice.payee, invoice.amount, final_expiry, &own, &BTreeSet::new()).ok_or(Refusal::NoRoute)?;
+        Ok((invoice, route))
+    }
+
+    /// Pays a request through the channels, directly or by way of others.
+    pub fn pay(&mut self, text: &str, ground: &mut dyn Ground) -> Result<Hash, Refusal> {
+        let (invoice, route) = self.route_for(text, ground)?;
         let mut channel = self.channels.values().find(|channel| channel.funding() == route.first).cloned().ok_or(Refusal::NoRoute)?;
         let before = channel.clone();
         let htlc = channel.next_id;
@@ -309,6 +351,19 @@ impl ChannelNode {
         first.filter(|_| found.next().is_none() && text.len() >= 4)
     }
 
+    /// Wallet coins held for channels being opened, from the ask until each opens or fails.
+    pub fn held_coins(&self) -> Vec<OutPoint> {
+        let opening = |channel: &&Channel| {
+            channel.we_opened && matches!(channel.phase, Phase::Asked | Phase::Accepted | Phase::FundingSent | Phase::Confirming)
+        };
+        self.channels.values().filter(opening).flat_map(|channel| channel.held.iter().copied()).collect()
+    }
+
+    /// The channels this node knows of, its own and those it heard of.
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+
     pub fn views(&self, height: u64) -> Vec<ChannelView> {
         self.channels.values().map(|channel| self.view_of(channel, height)).collect()
     }
@@ -322,6 +377,11 @@ impl ChannelNode {
         let (ours, theirs) = match chain.cheated() {
             true => (channel.state.ours.saturating_add(channel.state.theirs).saturating_add(waiting), 0),
             false => (channel.state.ours, channel.state.theirs),
+        };
+        let back = came_back(channel);
+        let coming = match channel.phase {
+            Phase::Closing | Phase::ForceClosing => ours.saturating_sub(back),
+            _ => 0,
         };
         ChannelView {
             id: channel.id,
@@ -340,6 +400,9 @@ impl ChannelNode {
             claims: chain.claims.clone(),
             forced_by_us: chain.forced_by_us(),
             cheated: chain.cheated(),
+            back,
+            coming,
+            delay: channel.terms.delay,
         }
     }
 

@@ -26,5 +26,5 @@ pub use bytes::{Bytes, Key};
 pub use channel::{Channel, Phase};
 pub use invoice::Invoice;
 pub use node::{ChannelNode, Ground, Out, PayState, Said};
-pub use orders::{ChannelView, InvoiceView, PaymentView, Refusal};
+pub use orders::{ChannelView, InvoiceView, PaymentView, Quote, Refusal};
 pub use wire::{ChannelId, NodeId};

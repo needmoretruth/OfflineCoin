@@ -113,6 +113,12 @@ pub struct Channel {
     /// The height the funding output reached its depth at.
     pub open_height: Option<u64>,
     pub their_announce: Option<Signature>,
+    /// Their funding key's signature on the announcement, as BOLT 7 asks beside the node's.
+    #[serde(default)]
+    pub their_funding_announce: Option<Signature>,
+    /// The wallet's coins this channel is funded from, held from the ask until it opens or fails.
+    #[serde(default)]
+    pub held: Vec<OutPoint>,
     pub made_ms: u64,
     #[serde(default)]
     pub origins: Vec<Origin>,

@@ -150,3 +150,41 @@ fn unwind(source: &NodeId, target: &NodeId, came: &BTreeMap<NodeId, (OutPoint, N
 pub fn gossip_id(bytes: &[u8]) -> Hash {
     olc_crypto::hash(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytes::Bytes;
+    use olc_crypto::{public_key, sign};
+
+    fn key(seed: u8) -> ([u8; 32], Bytes<33>) {
+        let secret = [seed; 32];
+        (secret, Bytes(public_key(&secret).unwrap()))
+    }
+
+    /// Two nodes that hold neither funding key name a channel that stands on the chain as theirs.
+    #[test]
+    fn a_channel_counts_only_when_both_funding_keys_signed_it() {
+        let (one, two) = (key(1), key(2));
+        let (m, n) = (key(7), key(8));
+        let (m, n) = if m.1 < n.1 { (m, n) } else { (n, m) };
+        let funding = OutPoint { txid: [9; 32], index: 0 };
+        let capacity = 1_000_000;
+        let (nodes, funding_keys) = ([m.1, n.1], [one.1, two.1]);
+        let digest = Announcement::digest(&funding, capacity, &nodes, &funding_keys);
+        let signed = |secret: &[u8; 32]| Bytes(sign(secret, &digest).unwrap());
+        // They sign where the funding keys should, with the only keys they have.
+        let (signatures, funding_signatures) = ([signed(&m.0), signed(&n.0)], [signed(&m.0), signed(&n.0)]);
+        let fake = Announcement { funding, capacity, nodes, funding_keys, signatures, funding_signatures };
+        let out = TxOut { value: capacity, language: GAMMA, lock: script::funding(&one.1 .0, &two.1 .0) };
+        let mut graph = Graph::default();
+        assert!(!graph.take(fake.clone(), |_| Some(out.clone())), "nobody who holds the funding keys signed");
+        assert!(graph.is_empty());
+        // With both funding keys signed as well, the same channel counts.
+        let real = Announcement { funding_signatures: [signed(&one.0), signed(&two.0)], ..fake };
+        assert!(graph.take(real, |_| Some(out.clone())));
+        // And it goes once its funding output is spent.
+        graph.prune(|_| false);
+        assert!(graph.is_empty());
+    }
+}

@@ -9,7 +9,7 @@ use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use olc_core::{
-    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, Plugins, Tx,
+    AddOutcome, Address, Block, Chain, ChainError, CoinConfig, Hash, OutPoint, Plugins, Tx,
     ADDRESS_LANGUAGE,
 };
 use olc_wallet::Wallet;
@@ -56,6 +56,8 @@ pub struct Engine {
     /// Signs payments as version 1, the way Satoshi's Bitcoin did, where the coin still takes them.
     pub(crate) version_one: bool,
     pub(crate) signing: Option<Signing>,
+    /// Coins a payment channel being opened will spend. No other payment touches them.
+    pub(crate) held: Vec<OutPoint>,
     /// Who asked for blocks last, from where and when.
     pub(crate) answered: Option<(PeerId, Option<Hash>, u64)>,
     pub(crate) history: History,
@@ -100,6 +102,7 @@ impl Engine {
             merging: true,
             version_one: false,
             signing: None,
+            held: Vec::new(),
             answered: None,
             history: History::default(),
             fetching: None,

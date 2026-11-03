@@ -292,6 +292,10 @@ fn sign_claims(channel: &Channel, claims: Vec<Claim>, fee: u64) -> Vec<Tx> {
     signed
 }
 
+fn watched(channel: &Channel) -> bool {
+    matches!(channel.phase, Phase::Confirming | Phase::Open | Phase::Closing | Phase::ForceClosing)
+}
+
 impl ChannelNode {
     /// Reads new blocks, then acts on every channel whose funding output is spent.
     pub(crate) fn watch(&mut self, ground: &mut dyn Ground) {
@@ -305,6 +309,15 @@ impl ChannelNode {
         for id in closed {
             self.act(&id, ground);
         }
+    }
+
+    /// The first block the watcher may still have to read, while a channel needs watching. The
+    /// node keeps it and every block after it, pruned or not, so a cheat in one is never missed.
+    pub fn keep_blocks_from(&self) -> Option<u64> {
+        let (height, _) = self.book.scanned?;
+        let watching = self.channels.values().any(watched);
+        // A branch that changes takes the watcher back this far, so those blocks stay too.
+        watching.then(|| (height + 1).saturating_sub(REREAD))
     }
 
     fn read_blocks(&mut self, ground: &mut dyn Ground) {
@@ -324,11 +337,15 @@ impl ChannelNode {
             }
             None => tip.saturating_sub(FIRST_LOOK),
         };
-        let watched = |channel: &Channel| matches!(channel.phase, Phase::Confirming | Phase::Open | Phase::Closing | Phase::ForceClosing);
         let last = tip.min(next + MOST_PER_TICK);
         let mut changed: Vec<ChannelId> = Vec::new();
         while next <= last {
             let Some((block, txs)) = ground.block_at(next) else {
+                // The first look starts where blocks are kept; after that every block was held.
+                if read_before.is_none() && next < tip {
+                    next += 1;
+                    continue;
+                }
                 break;
             };
             for tx in &txs {

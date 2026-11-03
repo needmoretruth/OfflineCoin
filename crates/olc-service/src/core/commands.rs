@@ -224,4 +224,6 @@ pub enum ChannelOrder {
     Invoice { amount: String, note: String },
     /// Pays a request through the channels.
     Pay { text: String },
+    /// Reads a request and finds who it pays and the fee, before anyone presses pay. Says nothing.
+    Quote { text: String },
 }

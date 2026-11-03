@@ -21,6 +21,9 @@ pub const DELAY: u16 = 144;
 pub const DUST: u64 = 546;
 pub(crate) const HELLO_EVERY_MS: u64 = 5_000;
 const RESEND_EVERY_MS: u64 = 3_000;
+/// An open the other side has not agreed to by then fails, and the coins held for it go back to
+/// the wallet. Nothing was on the chain yet, and the other side never had the funding signed.
+pub const GIVE_UP_MS: u64 = 10 * 60 * 1_000;
 const GOSSIP_EVERY_MS: u64 = 30_000;
 const PUBLISH_EVERY_MS: u64 = 10_000;
 const MOST_SAID: usize = 64;
@@ -40,8 +43,10 @@ pub trait Ground {
     fn fee(&self) -> u64;
     /// Where this node's coins go.
     fn pay_to(&self) -> Address;
-    /// A signed payment of `amount` from the wallet to `lock` in gamma, not sent.
-    fn fund(&mut self, lock: &[u8], amount: u64) -> Result<Tx, String>;
+    /// The wallet's coins a funding payment of `amount` would spend now, none already held.
+    fn pick_funding(&mut self, amount: u64) -> Result<Vec<OutPoint>, String>;
+    /// A signed payment of `amount` to `lock` in gamma from exactly the coins `from`, not sent.
+    fn fund(&mut self, lock: &[u8], amount: u64, from: &[OutPoint]) -> Result<Tx, String>;
     /// Checks a transaction as every node would and sends it.
     fn publish(&mut self, tx: &Tx) -> Result<(), String>;
     fn waiting(&self, id: &Hash) -> bool;
@@ -288,7 +293,7 @@ impl ChannelNode {
                 return;
             }
         };
-        let funded = ground.fund(&lock, channel.terms.capacity).map_err(|_| "not enough coins").and_then(|tx| channel.funded(tx));
+        let funded = ground.fund(&lock, channel.terms.capacity, &channel.held).map_err(|_| "not enough coins").and_then(|tx| channel.funded(tx));
         match funded {
             Ok(wire) => {
                 self.keep(Some(before), channel, Some(wire));
@@ -378,9 +383,10 @@ impl ChannelNode {
                 }
                 other => other.map(|_| None),
             },
-            Wire::AnnounceSigned { signature, .. } => {
-                if self.announcement_signed_by_them(&channel, &signature) {
+            Wire::AnnounceSigned { signature, funding_signature, .. } => {
+                if self.announcement_signed_by_them(&channel, &signature, &funding_signature) {
                     channel.their_announce = Some(signature);
+                    channel.their_funding_announce = Some(funding_signature);
                 }
                 Ok(None)
             }
@@ -436,12 +442,34 @@ impl ChannelNode {
             self.sent_ms.insert(id, now_ms);
             self.send(peer, &wire);
         }
+        self.give_up(now_ms);
         self.watch(ground);
+        // A channel whose funding output is spent leaves the map at once, not at the next gossip.
+        self.graph.prune(|point| ground.coin(point).is_some());
         self.confirm(ground);
         self.settle(ground);
         if now_ms.saturating_sub(self.gossip_ms) >= GOSSIP_EVERY_MS {
             self.gossip_ms = now_ms;
             self.gossip_own(ground);
+        }
+    }
+
+    /// Opens we asked for that the other side left unanswered too long.
+    fn give_up(&mut self, now_ms: u64) {
+        let silent = |channel: &&Channel| {
+            channel.we_opened
+                && matches!(channel.phase, Phase::Asked | Phase::FundingSent)
+                && now_ms.saturating_sub(channel.made_ms) >= GIVE_UP_MS
+        };
+        let silent: Vec<ChannelId> = self.channels.values().filter(silent).map(|channel| channel.id).collect();
+        for id in silent {
+            let Some(before) = self.channels.get(&id).cloned() else {
+                continue;
+            };
+            let mut channel = before.clone();
+            channel.phase = Phase::Failed;
+            self.say(Said::Refused("no answer".to_string()));
+            self.keep(Some(before), channel, None);
         }
     }
 

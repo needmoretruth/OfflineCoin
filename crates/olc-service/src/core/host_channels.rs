@@ -8,7 +8,7 @@ use super::host_parts::unix_ms;
 use olc_channel::node::DELAY;
 use olc_channel::invoice::{coin_tag, Invoice, InvoiceError};
 use olc_channel::opening::{FEWEST_DELAY, MOST_DELAY};
-use olc_channel::{ChannelNode, Ground, NodeId, Out, Refusal, Said};
+use olc_channel::{ChannelNode, Ground, NodeId, Out, Quote, Refusal, Said};
 use olc_core::{Address, Hash, OutPoint, Tx, TxOut};
 use olc_node::{Engine, PeerId, Runner};
 use std::collections::{BTreeMap, VecDeque};
@@ -22,6 +22,10 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 pub use olc_channel::{ChannelView, InvoiceView, PaymentView};
 pub use olc_channel::{PayState, Phase};
+
+/// The last request read before paying it, numbered so a page tells a new answer from an old one:
+/// who it pays and at what fee, or the words and detail of why it cannot be paid.
+pub type Quoted = (u64, String, Result<Quote, (&'static str, String)>);
 
 /// The network link, the only one channel messages travel on.
 const TCP_LINK: usize = 0;
@@ -53,6 +57,7 @@ pub struct ChannelsView {
     pub peers: Vec<(String, String)>,
     /// Newest first.
     pub events: Vec<ChannelEvent>,
+    pub quote: Option<Quoted>,
 }
 
 #[derive(Default)]
@@ -65,6 +70,7 @@ pub struct ChannelDesk {
     view: ChannelsView,
     events: VecDeque<ChannelEvent>,
     number: u64,
+    quote: Option<Quoted>,
 }
 
 /// The chain, wallet and pool of the running node, as the channel node asks for them.
@@ -81,10 +87,10 @@ impl Ground for NodeGround<'_> {
         self.engine.chain().height()
     }
 
+    /// Read from the log, so a watcher that fell behind the recent window still finds it.
     fn block_at(&self, height: u64) -> Option<(Hash, Vec<Tx>)> {
-        let chain = self.engine.chain();
-        let id = chain.id_at(height)?;
-        Some((id, chain.block(&id)?.txs))
+        let block = self.engine.chain().blocks_from(height, 1).pop()?;
+        Some((block.id(), block.txs))
     }
 
     fn coin(&self, point: &OutPoint) -> Option<(TxOut, u64)> {
@@ -108,9 +114,14 @@ impl Ground for NodeGround<'_> {
         self.engine.address()
     }
 
-    fn fund(&mut self, lock: &[u8], amount: u64) -> Result<Tx, String> {
+    fn pick_funding(&mut self, amount: u64) -> Result<Vec<OutPoint>, String> {
         let fee = fee_of(self.engine);
-        self.engine.sign_funding(lock, amount, fee).map_err(|error| format!("{error:?}"))
+        self.engine.pick_funding(amount, fee).map_err(|error| format!("{error:?}"))
+    }
+
+    fn fund(&mut self, lock: &[u8], amount: u64, from: &[OutPoint]) -> Result<Tx, String> {
+        let fee = fee_of(self.engine);
+        self.engine.sign_funding(lock, amount, fee, from).map_err(|error| format!("{error:?}"))
     }
 
     fn publish(&mut self, tx: &Tx) -> Result<(), String> {
@@ -152,7 +163,16 @@ pub fn refusal_key(refusal: Refusal) -> &'static str {
         Refusal::OwnRequest => "ch.no_own",
         Refusal::AlreadyPaid => "ch.no_paid",
         Refusal::NoRoute => "ch.no_route",
+        Refusal::NoCoins => "notice.not_enough",
     }
+}
+
+/// The height from which the coin takes version 2 transactions, and so channels.
+fn channels_from(runner: &Runner) -> Option<u64> {
+    let config = runner.engine.chain().config();
+    let forked = config.forks.iter().map(|fork| fork.from_height).min();
+    let from = forked.map_or(config.upgrade_from, |height| height.min(config.upgrade_from));
+    (from != u64::MAX).then_some(from)
 }
 
 fn event_of(said: Said, ticker: &str) -> (&'static str, String) {
@@ -208,6 +228,10 @@ impl ChannelDesk {
             while runner.take_channel().is_some() {}
             return;
         };
+        // Before any block can connect this turn: the blocks the watcher has yet to read stay,
+        // and coins a channel will be funded from stay out of every other payment.
+        runner.engine.chain_mut().set_hold(node.keep_blocks_from());
+        runner.engine.hold_coins(node.held_coins());
         while let Some((link, peer, bytes)) = runner.take_channel() {
             if link != TCP_LINK {
                 continue;
@@ -224,6 +248,8 @@ impl ChannelDesk {
         if now.saturating_sub(self.ticked_ms) >= TICK_EVERY_MS {
             self.ticked_ms = now;
             node.tick(now, &mut NodeGround { engine: &mut runner.engine });
+            runner.engine.chain_mut().set_hold(node.keep_blocks_from());
+            runner.engine.hold_coins(node.held_coins());
             self.refresh(runner);
         }
         self.send(runner);
@@ -264,6 +290,7 @@ impl ChannelDesk {
             invoices: node.invoices(unix_ms() / 1_000),
             peers: node.peers().into_iter().map(|(node, name)| (hex(&node.0), name)).collect(),
             events: self.events.iter().cloned().collect(),
+            quote: self.quote.clone(),
         };
     }
 
@@ -271,9 +298,25 @@ impl ChannelDesk {
         let Some(node) = self.node.as_mut() else {
             return ("ch.no_running", String::new(), false);
         };
+        let v2_from = channels_from(runner);
         let mut ground = NodeGround { engine: &mut runner.engine };
-        let refused = |refusal: Refusal| (refusal_key(refusal), String::new(), false);
+        let refused = |refusal: Refusal| match refusal {
+            Refusal::NoV2Yet => match v2_from {
+                Some(height) => ("ch.no_v2", height.to_string(), false),
+                None => ("ch.no_v2_never", String::new(), false),
+            },
+            other => (refusal_key(other), String::new(), false),
+        };
         match order {
+            ChannelOrder::Quote { text } => {
+                let said = node.quote(text.trim(), &ground).map_err(|refusal| {
+                    let (key, detail, _) = refused(refusal);
+                    (key, detail)
+                });
+                self.number += 1;
+                self.quote = Some((self.number, text, said));
+                ("", String::new(), true)
+            }
             ChannelOrder::Show => ("ch.list", listing(&self.view), true),
             ChannelOrder::Open { peer, amount, delay } => {
                 let Some(to) = node.find_peer(&peer) else {

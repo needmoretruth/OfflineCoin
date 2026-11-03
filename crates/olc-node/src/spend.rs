@@ -92,6 +92,13 @@ impl Engine {
     }
 
     pub(crate) fn reserved(&self) -> Vec<OutPoint> {
+        let mut reserved = self.in_flight();
+        reserved.extend_from_slice(&self.held);
+        reserved
+    }
+
+    /// Coins spent by payments waiting in the pool or for their signatures.
+    pub(crate) fn in_flight(&self) -> Vec<OutPoint> {
         let signing = self.signing.iter().map(|signing| &signing.tx);
         let inputs = self.pool.iter().chain(signing).flat_map(|tx| &tx.inputs);
         inputs.map(|input| input.previous).collect()
