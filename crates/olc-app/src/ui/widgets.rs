@@ -124,10 +124,13 @@ pub fn button_on(ui: &mut Ui, t: &Tokens, text: &str, kind: Kind, enabled: bool)
 }
 
 /// A short state word in a small box.
+/// The room a [`tag`] adds around its words.
+pub const TAG_PAD: f32 = 12.0;
+
 pub fn tag(ui: &mut Ui, text: &str, colour: Color32, t: &Tokens) -> Response {
     let font = FontId::new(tokens::META, FontFamily::Proportional);
     let galley = layout(ui, text, font, colour);
-    let size = vec2(galley.size().x + 12.0, 22.0);
+    let size = vec2(galley.size().x + TAG_PAD, 22.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_stroke(
         rect,
@@ -387,6 +390,11 @@ impl Columns {
             widths: weights.iter().map(|weight| weight / total * space).collect(),
             least: 0.0,
         }
+    }
+
+    /// Columns of widths already worked out, so a header lines up with rows drawn another way.
+    pub fn sized(widths: &[f32]) -> Self {
+        Self { widths: widths.to_vec(), least: 0.0 }
     }
 
     /// Rows that hold buttons: each row is as tall as a button, so every cell centres on one line.

@@ -9,6 +9,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.to_self", "내 다른 주소로"),
     ("history.joined", "코인 합치기"),
     ("history.joined_line", "코인 {}개({})를 하나로 합침, 수수료 {}"),
+    ("history.joined_short", "코인 {}개를 하나로 합침"),
     ("history.to_self_line", "내 다른 주소로 {}"),
     ("history.waiting", "대기 중"),
     ("history.ripe_in", "{}블록 뒤 사용 가능"),

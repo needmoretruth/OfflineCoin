@@ -15,6 +15,7 @@ mod shots;
 mod steady;
 mod wallet_shots;
 mod history_shots;
+mod history_columns;
 mod first_words;
 mod place_shots;
 mod pacing_card;

@@ -7,6 +7,7 @@
 use super::history_detail::Detail;
 use super::Cx;
 use crate::core::{unix_ms, Activity, ActivityKind, Command, NodeView, Personal, KEPT};
+use crate::i18n::{self, Voice};
 use crate::ui::explain;
 use crate::ui::floating::sheet;
 use crate::ui::picker::{Picked, Picker};
@@ -14,12 +15,22 @@ use crate::ui::theme::desktop_reduces_motion;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, header_cell, meta, pick_row, segments, Kind};
 use crate::ui::{format, Tokens};
-use egui::{vec2, Align, CornerRadius, Label, Layout, Rect, RichText, Sense, Ui};
+use egui::{vec2, Align, Color32, CornerRadius, Label, Layout, Rect, RichText, Sense, TextStyle, TextWrapMode, Ui, WidgetText};
 use olc_core::Hash;
 
 /// Blocks on top of a payment before a basic row calls it settled, as Bitcoin wallets count six.
 pub const SETTLED: u64 = 6;
+/// The columns' shares when the window is too narrow for every text whole.
 const WEIGHTS: [f32; 4] = [1.25, 1.9, 1.1, 1.0];
+/// What happened keeps at least this share of a row, room for a kind's name such as "Received";
+/// the rest go to whole texts first.
+const LEAST_WHAT: f32 = 0.14;
+/// The clock keeps at least this share before the weights take over.
+const LEAST_WHEN: f32 = 0.12;
+/// Column widths step by this much, so a growing seconds count does not shift them.
+const WIDTH_STEP: f32 = 8.0;
+/// How wide the bar to settled is.
+const SETTLE_BAR: f32 = 36.0;
 /// Rows drawn at once on the full list; the rest one press away, so a long history stays quick.
 const PAGE_ROWS: usize = 200;
 
@@ -99,25 +110,46 @@ pub fn label_of<'a>(cx: &'a Cx, id: &Hash) -> Option<&'a str> {
 
 /// The words of the "what" cell: the kind, a join's count and fee, and a name if it has one.
 pub fn what_line(cx: &Cx, item: &Activity) -> String {
-    let what = match item.kind {
-        // The amount column is the change to the balance, so the words say what moved.
-        ActivityKind::Joined => {
-            let fee = item.fee.unwrap_or(0);
-            let total = format::coins(item.amount + fee, cx.ticker());
-            cx.fill("history.joined_line", &[&item.coins_in.to_string(), &total, &format::coins(fee, cx.ticker())])
-        }
-        ActivityKind::ToSelf => cx.fill("history.to_self_line", &[&format::coins(item.amount, cx.ticker())]),
-        kind => cx.say(kind_key(kind)).to_string(),
-    };
+    labelled(cx, item, what_words(cx.voice(), cx.ticker(), item, false))
+}
+
+/// What happened, whole where `width` holds it. Narrower, the amounts are left to the detail, so
+/// the cut, if any, never falls inside a number.
+fn what_fitting(ui: &Ui, cx: &Cx, item: &Activity, width: f32) -> String {
+    let whole = what_line(cx, item);
+    if natural(ui, whole.as_str()) <= width {
+        return whole;
+    }
+    labelled(cx, item, what_words(cx.voice(), cx.ticker(), item, true))
+}
+
+fn labelled(cx: &Cx, item: &Activity, what: String) -> String {
     match label_of(cx, &item.id) {
         Some(label) => format!("{what} · {label}"),
         None => what,
     }
 }
 
+/// What happened in words, its amounts written as every amount is. `short` leaves them out.
+fn what_words(voice: Voice, ticker: &str, item: &Activity, short: bool) -> String {
+    let say = |key| i18n::text(voice, key);
+    let count = format::number(u128::try_from(item.coins_in).unwrap_or(u128::MAX));
+    match item.kind {
+        ActivityKind::Joined if short => i18n::fill(say("history.joined_short"), &[&count]),
+        // The amount column is the change to the balance, so the words say what moved.
+        ActivityKind::Joined => {
+            let fee = item.fee.unwrap_or(0);
+            let total = format::coins(item.amount.saturating_add(fee), ticker);
+            i18n::fill(say("history.joined_line"), &[&count, &total, &format::coins(fee, ticker)])
+        }
+        ActivityKind::ToSelf if !short => i18n::fill(say("history.to_self_line"), &[&format::coins(item.amount, ticker)]),
+        kind => say(kind_key(kind)).to_string(),
+    }
+}
+
 /// A small bar that fills as blocks pile on, to "settled" at [`SETTLED`].
 fn settle_bar(ui: &mut Ui, t: &Tokens, filled: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(36.0, 6.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(SETTLE_BAR, 6.0), Sense::hover());
     let round = CornerRadius::same(3);
     ui.painter().rect_filled(rect, round, t.line_strong);
     let part = Rect::from_min_size(rect.min, vec2(rect.width() * filled.clamp(0.0, 1.0), rect.height()));
@@ -125,28 +157,95 @@ fn settle_bar(ui: &mut Ui, t: &Tokens, filled: f32) {
     ui.painter().rect_filled(part, round, colour);
 }
 
-/// How sure a row is now: waiting, blocks until mined coins ripen, or confirmations.
-pub fn status_cell(ui: &mut Ui, cx: &Cx, item: &Activity) {
+/// How sure a row is now, as its status cell says it.
+enum Status {
+    /// Waiting for a block, in a small tag.
+    Waiting(String),
+    /// Words in a colour: blocks until mined coins ripen, or confirmations.
+    Words(String, Color32),
+    /// A bar filling to settled, with its word.
+    Settling(f32, String),
+}
+
+fn status(cx: &Cx, item: &Activity) -> Status {
     let t = cx.t;
     let tip = cx.snap.node.height;
     if item.height.is_none() {
-        widgets::tag(ui, cx.say("history.waiting"), t.warn, t);
-        return;
+        return Status::Waiting(cx.say("history.waiting").to_string());
     }
     if let Some(left) = blocks_to_ripe(item, tip) {
-        let text = cx.fill("history.ripe_in", &[&format::number(left.into())]);
-        ui.add(Label::new(RichText::new(text).color(t.warn)).truncate());
-        return;
+        return Status::Words(cx.fill("history.ripe_in", &[&format::number(left.into())]), t.warn);
     }
     let count = confirmations(item, tip).unwrap_or(0);
     if cx.expert() {
-        let text = cx.fill("history.confirmations", &[&format::number(count.into())]);
-        ui.add(Label::new(RichText::new(text).color(t.soft)).truncate());
-        return;
+        return Status::Words(cx.fill("history.confirmations", &[&format::number(count.into())]), t.soft);
     }
-    settle_bar(ui, t, count as f32 / SETTLED as f32);
     let key = if count >= SETTLED { "history.settled" } else { "history.confirming" };
-    ui.add(Label::new(RichText::new(cx.say(key)).color(t.soft)).truncate());
+    // A fraction of a bar: six blocks at most, nothing lost in the float.
+    Status::Settling(count as f32 / SETTLED as f32, cx.say(key).to_string())
+}
+
+/// How sure a row is now: waiting, blocks until mined coins ripen, or confirmations.
+pub fn status_cell(ui: &mut Ui, cx: &Cx, item: &Activity) {
+    let t = cx.t;
+    match status(cx, item) {
+        Status::Waiting(word) => {
+            widgets::tag(ui, &word, t.warn, t);
+        }
+        Status::Words(words, colour) => {
+            ui.add(Label::new(RichText::new(words).color(colour)).truncate());
+        }
+        Status::Settling(filled, word) => {
+            settle_bar(ui, t, filled);
+            ui.add(Label::new(RichText::new(word).color(t.soft)).truncate());
+        }
+    }
+}
+
+/// How wide a text stands on one line, as a label draws it.
+fn natural(ui: &Ui, text: impl Into<WidgetText>) -> f32 {
+    text.into().into_galley(ui, Some(TextWrapMode::Extend), f32::INFINITY, TextStyle::Body).size().x
+}
+
+/// How wide [`status_cell`] draws a row's status whole.
+fn status_width(ui: &Ui, cx: &Cx, item: &Activity) -> f32 {
+    match status(cx, item) {
+        Status::Waiting(word) => natural(ui, RichText::new(word).size(tokens::META)) + widgets::TAG_PAD,
+        Status::Words(words, _) => natural(ui, words),
+        Status::Settling(_, word) => SETTLE_BAR + ui.spacing().item_spacing.x + natural(ui, word),
+    }
+}
+
+/// The columns' widths for these rows in `width`, and whether the time column holds the clock
+/// alone. When, status and amount are as wide as their widest text, so none is cut; what happened
+/// takes the rest and is cut first, since its whole line is in the detail. Too narrow for that,
+/// the time drops how long ago and keeps its clock whole; narrower still, the weights share.
+fn widths(ui: &Ui, cx: &Cx, items: &[&Activity], width: f32) -> ([f32; 4], bool) {
+    let gap = ui.spacing().item_spacing.x;
+    let room = (width - gap * 3.0).max(1.0);
+    let now = unix_ms();
+    let ticker = cx.ticker();
+    let heading = |key: &str| natural(ui, RichText::new(cx.say(key)).size(tokens::META));
+    let widest = |key: &str, each: &dyn Fn(&Activity) -> f32| {
+        // Stepped up, so a seconds count that grows a digit does not shift the columns.
+        let most = items.iter().map(|item| each(item)).fold(heading(key), f32::max);
+        (most / WIDTH_STEP).ceil() * WIDTH_STEP
+    };
+    let status = widest("history.status", &|item| status_width(ui, cx, item));
+    let amount = widest("history.amount", &|item| natural(ui, widgets::medium_text(signed_amount(item, ticker))));
+    let left = room - room * LEAST_WHAT - status - amount;
+    let when = widest("history.when", &|item| natural(ui, format::when(cx.voice(), now, item.time_ms)));
+    let clock = widest("history.when", &|item| natural(ui, format::clock(now, item.time_ms)));
+    let (when, clock_only) = match () {
+        () if when <= left => (when, false),
+        () if clock <= left => (clock, true),
+        () if left >= room * LEAST_WHEN => (left, true),
+        () => {
+            let total: f32 = WEIGHTS.iter().sum();
+            return (WEIGHTS.map(|weight| weight / total * room), false);
+        }
+    };
+    ([when, room - when - status - amount, status, amount], clock_only)
 }
 
 impl HistoryList {
@@ -169,10 +268,6 @@ impl HistoryList {
     /// Every row kept, with a kind filter and a CSV export, for the Wallet page.
     pub fn full(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let t = cx.t;
-        explain::details(ui, t, "history-kinds", (cx.say("explain.details"), cx.say("explain.hide")), |ui| {
-            super::history_detail::kinds_explained(ui, cx);
-        });
-        ui.add_space(tokens::GAP);
         // Wrapped, so a long language moves the button down instead of widening the column.
         ui.horizontal_wrapped(|ui| {
             let mut kinds = vec![(Filter::All, cx.say("history.all").to_string())];
@@ -190,6 +285,11 @@ impl HistoryList {
         if let Some(saved) = &self.saved {
             meta(ui, saved, t);
         }
+        // What each kind means stands under the kinds it explains, above the rows, so a new row
+        // never moves it.
+        explain::details(ui, t, "history-kinds", (cx.say("explain.details"), cx.say("explain.hide")), |ui| {
+            super::history_detail::kinds_explained(ui, cx);
+        });
         ui.add_space(tokens::GAP);
         let shown = self.shown.max(PAGE_ROWS);
         let snap = cx.snap;
@@ -219,7 +319,8 @@ impl HistoryList {
             self.newest = first;
         }
         let arrived = ((now_time - self.arrived_at) as f32 / tokens::STAMP_SECONDS).clamp(0.0, 1.0);
-        let columns = widgets::Columns::new(ui, &WEIGHTS);
+        let (cells, clock_only) = widths(ui, cx, items, ui.available_width());
+        let columns = widgets::Columns::sized(&cells);
         columns.row(ui, |ui, index| {
             let key = ["history.when", "history.what", "history.status", "history.amount"][index];
             match index {
@@ -239,20 +340,20 @@ impl HistoryList {
             let name = format!("{} {}", what_line(cx, item), signed_amount(item, &ticker));
             let row = pick_row(ui, t, tokens::ROW, false, &name, |ui| {
                 ui.add_space(shift);
-                let width = ui.available_width() - shift;
-                let total: f32 = WEIGHTS.iter().sum();
-                let gap = ui.spacing().item_spacing.x;
-                let cells = WEIGHTS.map(|weight| weight / total * (width - gap * 3.0));
+                // A row sliding in gives its shift from what happened, so the rest stay whole.
+                let mut cells = cells;
+                cells[1] = (cells[1] - shift).max(0.0);
                 let size = |at: usize| vec2(cells[at], tokens::ROW);
                 // Each cell keeps its column's width whatever it holds, so the columns line up.
                 ui.allocate_ui_with_layout(size(0), Layout::left_to_right(Align::Center), |ui| {
                     ui.set_width(cells[0]);
-                    let text = RichText::new(format::when(voice, now, item.time_ms)).color(t.soft);
+                    let when = if clock_only { format::clock(now, item.time_ms) } else { format::when(voice, now, item.time_ms) };
+                    let text = RichText::new(when).color(t.soft);
                     ui.add(Label::new(text).truncate().selectable(false));
                 });
                 ui.allocate_ui_with_layout(size(1), Layout::left_to_right(Align::Center), |ui| {
                     ui.set_width(cells[1]);
-                    ui.add(Label::new(what_line(cx, item)).truncate().selectable(false));
+                    ui.add(Label::new(what_fitting(ui, cx, item, cells[1])).truncate().selectable(false));
                 });
                 ui.allocate_ui_with_layout(size(2), Layout::left_to_right(Align::Center), |ui| {
                     ui.set_width(cells[2]);
@@ -350,6 +451,7 @@ pub fn csv(cx: &Cx, rows: &[&Activity]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{Lang, Mode};
 
     fn row(kind: ActivityKind, height: Option<u64>, ripe_at: Option<u64>) -> Activity {
         Activity { kind, height, amount: 400, time_ms: 0, id: [1; 32], fee: Some(1), size: 900, coins_in: 8, ripe_at }
@@ -363,6 +465,18 @@ mod tests {
         assert_eq!(blocks_to_ripe(&mined, 10), Some(2), "spendable in the block at 13, two blocks after the next");
         assert_eq!(blocks_to_ripe(&mined, 12), None);
         assert_eq!(confirmations(&row(ActivityKind::Sent, None, None), 10), None);
+    }
+
+    /// A join's words carry its amounts as every amount is written, and its short form none.
+    #[test]
+    fn a_join_says_its_amounts_as_amounts_are_written() {
+        let mut joined = row(ActivityKind::Joined, Some(1), None);
+        (joined.coins_in, joined.amount, joined.fee) = (1_600, 1_999_999_000, Some(1_000));
+        let ko = Voice { lang: Lang::Ko, mode: Mode::Basic };
+        assert_eq!(what_words(ko, "OLC", &joined, false), "코인 1,600개(20 OLC)를 하나로 합침, 수수료 0.00001 OLC");
+        assert_eq!(what_words(ko, "OLC", &joined, true), "코인 1,600개를 하나로 합침");
+        let en = Voice { lang: Lang::En, mode: Mode::Expert };
+        assert_eq!(what_words(en, "OLC", &joined, true), "1,600 coins joined into one");
     }
 
     #[test]
