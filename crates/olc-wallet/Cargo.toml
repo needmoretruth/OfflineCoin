@@ -11,6 +11,17 @@ olc-core.workspace = true
 olc-crypto.workspace = true
 olc-lang.workspace = true
 postcard.workspace = true
+serde.workspace = true
+k256.workspace = true
+# Seed words and signed messages, for computers. A board's wallet does without them.
+bip32 = { version = "0.5", default-features = false, features = ["secp256k1", "alloc"], optional = true }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"], optional = true }
+sha2 = { workspace = true, optional = true }
+unicode-normalization = { version = "0.1", default-features = false, optional = true }
+base64ct = { version = "1", default-features = false, features = ["alloc"], optional = true }
+
+[features]
+seed = ["dep:bip32", "dep:pbkdf2", "dep:sha2", "dep:unicode-normalization", "dep:base64ct"]
 
 [dev-dependencies]
 olc-pow.workspace = true

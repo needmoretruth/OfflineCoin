@@ -4,6 +4,7 @@ use super::board_action::BoardAction;
 use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
+use super::words_wallet;
 use olc_board::Args;
 use olc_control::line::split;
 use olc_control::BoardId;
@@ -36,6 +37,7 @@ pub const WORDS: &[Word] = &[
     Word { name: "miner", usage: "miner ADDRESS|off    where mined coins go", run: miner },
     Word { name: "keep", usage: "keep BLOCKS|all      recent blocks to hold", run: keep },
     Word { name: "merge", usage: "merge on|off         merge small coins by itself", run: merge },
+    Word { name: "version1", usage: "version1 on|off      sign payments as the first Bitcoin did", run: version_one },
     Word { name: "bluetooth", usage: "bluetooth on|off     reach neighbours by Bluetooth too", run: bluetooth },
     Word { name: "espnow", usage: "espnow CARD|off      a Wi-Fi card in monitor mode for ESP-NOW", run: esp_now },
     Word { name: "light", usage: "light on|off         hold headers only, trusting peers on unspent coins", run: light },
@@ -71,10 +73,15 @@ pub const WORDS: &[Word] = &[
     },
     Word { name: "fork-back", usage: "fork-back            go back to the rules before the last fork", run: fork_back },
     Word { name: "lock-preset", usage: "lock-preset hash SECRET|two-of-two KEY KEY|time HEIGHT ADDRESS", run: lock_preset },
-    Word { name: "lock-check", usage: "lock-check WORDS     check a beta lock and say what it costs", run: lock_check },
-    Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a beta lock", run: lock_pay },
+    Word { name: "lock-check", usage: "lock-check WORDS     check a lock and say what it costs", run: lock_check },
+    Word { name: "lock-pay", usage: "lock-pay AMOUNT WORDS  put coins under a lock", run: lock_pay },
     Word { name: "lock-spend", usage: "lock-spend COIN [--to ADDRESS] WORDS  spend a locked coin", run: lock_spend },
     Word { name: "lock-sign", usage: "lock-sign TEXT       add your signature to a spend", run: lock_sign },
+    Word { name: "words", usage: "words [written|new [korean]|restore WORD...|move]  seed words to write down, restore from, or move older coins to", run: words_wallet::words },
+    Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },
+    Word { name: "verify-message", usage: "verify-message ADDRESS SIGNATURE TEXT  check a signed message", run: words_wallet::verify_message },
+    Word { name: "shared", usage: "shared [new N KEY...|add TEXT|forget N|pay N ADDRESS AMOUNT]  wallets several people share", run: words_wallet::shared },
+    Word { name: "speed-up", usage: "speed-up ID          a waiting payment, with a higher fee", run: words_wallet::speed_up },
     Word { name: "join", usage: "join FILE            join the coin in a file", run: join },
     Word { name: "save-coin", usage: "save-coin FILE       write this coin to a file", run: save_coin },
     Word { name: "boards", usage: "boards               list boards", run: boards },
@@ -228,6 +235,11 @@ fn esp_now(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
 fn merge(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
     let on = switch(args)?;
     own(desk, Personal::SetMerging(on))
+}
+
+fn version_one(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {
+    let on = switch(args)?;
+    own(desk, Personal::SetVersionOne(on))
 }
 
 fn note(desk: &mut dyn Desk, args: &Args) -> Result<String, String> {

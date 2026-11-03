@@ -11,17 +11,19 @@ use crate::medium::{Keep, Medium, SECTOR};
 use crate::orphans::Orphans;
 use crate::headers::difficulty_after;
 use crate::plugin::Plugins;
-use crate::rules;
+use crate::rules::{self, AtHeight};
 use crate::shelf::Shelf;
 use crate::state::{Opened, Saving};
 use crate::tree::{window, Entries, Entry, Mark};
-use crate::types::{merkle_root, Block, BlockHeader, OutPoint, Tx, TxOut};
+use crate::types::{Block, BlockHeader, OutPoint, Tx};
 use alloc::boxed::Box;
-use alloc::vec;
 use alloc::vec::Vec;
 use olc_crypto::{Address, Hash};
 
 /// A node keeps at least this many recent blocks, as Bitcoin Core's `-prune` does.
+#[path = "template.rs"]
+pub mod template;
+
 pub const FEWEST_RECENT: u64 = 288;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +47,12 @@ pub enum ChainError {
     ReorgTooDeep,
     /// The block could not be written, so the node did not take it.
     StoreFailed,
+    /// A transaction version the coin takes only from its upgrade height.
+    NotYetAllowed,
+    /// A transaction whose lock time or relative lock has not come yet.
+    NotFinal,
+    /// A version 1 transaction on a fork from its height, where every payment names its coin.
+    NeedsNewVersion,
 }
 
 /// What a block spends on its header and mining reward, set aside when it is filled.
@@ -441,7 +449,12 @@ impl Chain {
     /// Checks a transaction against the unspent set, as if mined at `height`. Returns its fee.
     pub fn check_tx(&self, tx: &Tx, height: u64) -> Result<u64, ChainError> {
         let view = Overlay::new(&self.unspent);
-        rules::check_tx(tx, height, &view, self.config.rules_at(height), &self.plugins)
+        rules::check_tx(tx, &AtHeight::of(&self.config, height), &view, &self.plugins)
+    }
+
+    /// What a signature in a block at `height` names. A wallet signs with this.
+    pub fn signing_id(&self, height: u64) -> Option<Hash> {
+        self.config.signing_id_at(height)
     }
 
     /// The most signature checks `tx` can cost, read from its scripts without running them. An
@@ -486,11 +499,11 @@ impl Chain {
     /// Returns the ones that stay valid, then the rest with the reason each failed.
     pub fn recheck(&self, txs: Vec<Tx>) -> (Vec<Tx>, Vec<(Tx, ChainError)>) {
         let height = self.height() + 1;
-        let rules = self.config.rules_at(height);
+        let at = AtHeight::of(&self.config, height);
         let mut view = Overlay::new(&self.unspent);
         let (mut kept, mut refused) = (Vec::new(), Vec::new());
         for tx in txs {
-            match rules::check_tx(&tx, height, &view, rules, &self.plugins) {
+            match rules::check_tx(&tx, &at, &view, &self.plugins) {
                 Ok(_) => {
                     view.apply(&tx, height, None);
                     kept.push(tx);
@@ -515,64 +528,5 @@ impl Chain {
     /// The height of a recent transaction on the best chain.
     pub fn find_tx(&self, id: &Hash) -> Option<u64> {
         self.found.height_of(id)
-    }
-
-    /// Selects transactions and builds an unsealed block on the tip.
-    pub fn block_template(&self, miner: &Address, pool: &[Tx], time_ms: u64) -> Block {
-        self.block_template_with(miner, pool, time_ms, &[])
-    }
-
-    /// As [`Chain::block_template`], with `note` in a data output of the coinbase when it is not
-    /// empty.
-    pub fn block_template_with(
-        &self,
-        miner: &Address,
-        pool: &[Tx],
-        time_ms: u64,
-        note: &[u8],
-    ) -> Block {
-        let height = self.height() + 1;
-        let rules = self.config.rules_at(height);
-        let mut view = Overlay::new(&self.unspent);
-        let mut chosen = Vec::new();
-        let mut fees = 0u64;
-        let mut bytes = BLOCK_OVERHEAD + note.len() as u64;
-        for tx in pool {
-            let size = tx.encode().len() as u64;
-            if bytes + size > rules.max_block_bytes {
-                continue;
-            }
-            if let Ok(fee) = rules::check_tx(tx, height, &view, rules, &self.plugins) {
-                view.apply(tx, height, None);
-                fees = fees.saturating_add(fee);
-                bytes += size;
-                chosen.push(tx.clone());
-            }
-        }
-        let mut outputs = vec![TxOut {
-            value: rules.reward_at(height).saturating_add(fees),
-            language: 0,
-            lock: miner.to_vec(),
-        }];
-        if !note.is_empty() {
-            outputs.push(TxOut::data(note.to_vec()));
-        }
-        let coinbase = Tx {
-            version: 1,
-            inputs: Vec::new(),
-            outputs,
-            coinbase_height: Some(height),
-        };
-        let mut txs = vec![coinbase];
-        txs.append(&mut chosen);
-        let header = BlockHeader {
-            version: 1,
-            previous: self.tip,
-            merkle_root: merkle_root(&txs),
-            time_ms: time_ms.max(self.tip_header().time_ms + 1),
-            difficulty: self.next_difficulty(&self.tip),
-            nonce: 0,
-        };
-        Block { header, txs }
     }
 }

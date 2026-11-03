@@ -116,3 +116,38 @@ fn a_coin_crosses_between_builds_in_both_directions() {
     let bytes = postcard::to_allocvec(&old::CoinConfig::olc()).unwrap();
     assert_eq!(CoinConfig::from_bytes(&bytes), Some(CoinConfig::olc()));
 }
+
+#[test]
+fn past_the_upgrade_an_old_build_follows_version_one_and_parts_at_the_first_version_two() {
+    const UPGRADE_AT: u64 = 100;
+    let mut upgraded = coin();
+    upgraded.upgrade_from = UPGRADE_AT;
+    let mut node = Engine::new(upgraded, plugins(), Wallet::from_secret([5; 32]).unwrap());
+    node.set_version_one(true);
+    let friend = Wallet::from_secret([6; 32]).unwrap().address();
+    let mut chain = old::Chain::new(old_coin(), old_plugins());
+    let mut next = |node: &mut Engine| {
+        let now = node.chain().tip_header().time_ms + node.chain().rules().block_time_ms;
+        while !node.mine(100_000, now) {}
+        while node.take_outgoing().is_some() {}
+        let block = node.chain().blocks_from(node.chain().height(), 1).remove(0);
+        let bytes = postcard::to_allocvec(&block).unwrap();
+        (block, postcard::from_bytes::<old::Block>(&bytes).map_err(drop).and_then(|read| chain.add_block(read).map_err(drop)))
+    };
+    let mut paid_past = 0;
+    while node.chain().height() < 2 * UPGRADE_AT {
+        let height = node.chain().height();
+        if height > 2 && height.is_multiple_of(PAY_EVERY) {
+            let _ = node.pay(friend, 1_000, 0);
+        }
+        let (block, took) = next(&mut node);
+        assert!(took.is_ok(), "the old build follows at {}", node.chain().height());
+        paid_past += usize::from(height >= UPGRADE_AT && block.txs.len() > 1);
+    }
+    assert!(paid_past > 0, "version 1 payments past the upgrade");
+    node.set_version_one(false);
+    node.pay(friend, 1_000, 0).unwrap();
+    let (block, took) = next(&mut node);
+    assert_eq!(block.txs[1].version, 2);
+    assert!(took.is_err(), "an old build stops at the first version 2 payment");
+}

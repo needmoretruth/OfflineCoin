@@ -534,6 +534,7 @@ impl Worker {
             }));
         }
         activity.extend(self.history.items().cloned());
+        let wallet_part = super::host_wallet::wallet_view(engine, &activity);
         let view = NodeView {
             coin: Some(chain.config().clone()),
             genesis: chain.genesis_id(),
@@ -566,6 +567,7 @@ impl Worker {
             miner_is_chosen: engine.miner_is_chosen(),
             mine_note: text_of(engine.note()),
             merging: engine.merging(),
+            version_one: engine.version_one(),
             links: runner.rank(),
             bluetooth: radios::bluetooth_here().then_some(self.wants_bluetooth),
             no_bluetooth: radios::no_bluetooth(),
@@ -582,6 +584,7 @@ impl Worker {
             explored: self.state.explored.lock().map(|x| x.clone()).unwrap_or_default(),
             locks: engine.locked_coins(),
             half_spend: self.state.half_spend.lock().map(|x| x.clone()).unwrap_or_default(),
+            wallet: wallet_part,
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

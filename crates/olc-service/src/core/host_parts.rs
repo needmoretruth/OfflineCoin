@@ -39,6 +39,7 @@ pub fn engine_with(mut engine: Engine, settings: &NodeSettings, folder: &Path) -
     engine.set_miner(settings.miner.as_deref().and_then(parse_address));
     engine.set_note(settings.note.as_bytes());
     engine.set_merging(!settings.no_merge);
+    engine.set_version_one(settings.version_one);
     for address in settings.watched.iter().filter_map(|text| parse_address(text)) {
         engine.watch(address);
     }

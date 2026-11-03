@@ -1,5 +1,5 @@
 //! Coin files: the JSON form of a coin, with addresses written as text.
-use olc_core::coin::Fork;
+use olc_core::coin::{Fork, UNSAID};
 use olc_core::{CoinConfig, Rules};
 use olc_wallet::{format_address, parse_address};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,9 @@ struct CoinFile {
     /// Left out when there are none, so a coin file stays what it was.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     forks: Vec<Fork>,
+    /// The upgrade height, left out for a coin from before it. See [`olc_core::coin::OLC_UPGRADE_FROM`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    upgrade_from: Option<u64>,
 }
 
 impl From<&CoinConfig> for CoinFile {
@@ -48,6 +51,7 @@ impl From<&CoinConfig> for CoinFile {
             rules: coin.rules.clone(),
             message_in_block: coin.message_in_block,
             forks: coin.forks.clone(),
+            upgrade_from: coin.upgrade_said(),
         }
     }
 }
@@ -85,6 +89,7 @@ pub fn from_json(text: &str) -> Result<CoinConfig, String> {
         rules: file.rules,
         message_in_block: file.message_in_block,
         forks: file.forks,
+        upgrade_from: file.upgrade_from.unwrap_or(UNSAID),
     };
     coin.settle_floor();
     Ok(coin)

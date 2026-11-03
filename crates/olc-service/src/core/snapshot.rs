@@ -49,6 +49,8 @@ pub struct NodeView {
     pub miner_is_chosen: bool,
     pub mine_note: String,
     pub merging: bool,
+    /// Payments are signed as version 1.
+    pub version_one: bool,
     pub links: Rank,
     /// Whether this node uses Bluetooth. `None` where it cannot.
     pub bluetooth: Option<bool>,
@@ -68,10 +70,12 @@ pub struct NodeView {
     pub blocks: Vec<BlockRow>,
     pub notes: Vec<NoteRow>,
     pub explored: Explored,
-    /// Coins under a beta lock.
+    /// Coins under a beta or gamma lock.
     pub locks: Vec<LockedCoin>,
     /// A spend waiting for another signer, and whose signatures it needs.
     pub half_spend: Option<(String, Vec<String>)>,
+    /// Seed words to write down and wallets shared with others.
+    pub wallet: super::host_wallet::WalletView,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

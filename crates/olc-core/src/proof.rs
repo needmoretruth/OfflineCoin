@@ -15,7 +15,7 @@ const INNER_NODE_BYTES: usize = 64;
 
 /// The hashes beside `position` on its way up to the root.
 pub fn merkle_branch(txs: &[Tx], position: usize) -> Vec<Hash> {
-    let mut level: Vec<Hash> = txs.iter().map(Tx::id).collect();
+    let mut level: Vec<Hash> = txs.iter().map(Tx::whole_id).collect();
     let mut at = position;
     let mut branch = Vec::new();
     while level.len() > 1 {
@@ -78,7 +78,7 @@ impl CoinProof {
         if u64::from(self.position) >> self.branch.len() != 0 {
             return None;
         }
-        let leaf = self.tx.id();
+        let leaf = self.tx.whole_id();
         if root_of_branch(leaf, self.position, &self.branch) != header.merkle_root {
             return None;
         }
@@ -101,6 +101,8 @@ pub trait Coins {
     fn height(&self) -> u64;
     fn unspent_of(&self, address: &Address) -> Vec<(OutPoint, Unspent)>;
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool;
+    /// What a signature in a block at `height` names. See [`crate::CoinConfig::signing_id_at`].
+    fn signing_id(&self, height: u64) -> Option<Hash>;
 
     fn balance(&self, address: &Address) -> u64 {
         let coins = self.unspent_of(address);
@@ -119,6 +121,10 @@ impl Coins for Chain {
 
     fn is_mature(&self, entry: &Unspent, spend_height: u64) -> bool {
         Chain::is_mature(self, entry, spend_height)
+    }
+
+    fn signing_id(&self, height: u64) -> Option<Hash> {
+        Chain::signing_id(self, height)
     }
 
     fn balance(&self, address: &Address) -> u64 {

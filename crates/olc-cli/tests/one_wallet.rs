@@ -108,7 +108,7 @@ fn sample(word: &str, home: &Path) -> String {
         "restore" => format!("restore {}", file("backup.json")),
         "miner" => "miner off".into(),
         "keep" => "keep 100".into(),
-        "merge" | "bluetooth" | "light" | "mining" | "mine" => format!("{word} off"),
+        "merge" | "version1" | "bluetooth" | "light" | "mining" | "mine" => format!("{word} off"),
         "espnow" => "espnow off".into(),
         "watch" => format!("watch {somebody}"),
         "prepare" => format!("prepare {somebody} 5"),
@@ -137,6 +137,12 @@ fn sample(word: &str, home: &Path) -> String {
         "node-mine" => "node-mine 1 on".into(),
         "node-miner" => "node-miner 1 own".into(),
         "node-pay" => format!("node-pay 1 {somebody} 1"),
+        "words" | "shared" => word.to_string(),
+        // A signature is base64, which reads like code to this test, so the line asks for a key
+        // this wallet does not hold.
+        "sign-message" => format!("sign-message --address {somebody} hello"),
+        "verify-message" => format!("verify-message {somebody} AAAA hello"),
+        "speed-up" => format!("speed-up {}", "aa".repeat(32)),
         other => panic!("no line tries {other}"),
     }
 }

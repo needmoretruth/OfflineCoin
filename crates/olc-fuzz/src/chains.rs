@@ -201,7 +201,7 @@ fn start_proof() -> Parse {
 /// A lock, then the unlock, cut where the first two bytes say, in the language the third names.
 fn start_script() -> Parse {
     let languages = plugins().languages;
-    let context = SpendContext { signature_hash: [4; 32], height: 9 };
+    let context = SpendContext { signature_hash: [4; 32], height: 9, spending: None };
     Box::new(move |bytes| {
         let Some(([first, second, third], rest)) = bytes.split_first_chunk() else {
             return;

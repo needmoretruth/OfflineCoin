@@ -9,3 +9,4 @@ repository.workspace = true
 [dependencies]
 k256.workspace = true
 sha2.workspace = true
+ripemd.workspace = true

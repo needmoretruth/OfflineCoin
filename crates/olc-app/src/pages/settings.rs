@@ -109,11 +109,16 @@ impl SettingsPage {
             (("settings.addresses", "settings.addresses_about", "common.open"), Tool::Addresses),
             (("settings.watch", "settings.watch_about", "common.open"), Tool::Watch),
             (("settings.offline", "settings.offline_about", "common.open"), Tool::Offline),
+            (("settings.words", "settings.words_about", "common.open"), Tool::Words),
+            (("settings.shared", "settings.shared_about", "common.open"), Tool::Shared),
         ];
         for (keys, tool) in rows {
             if opening_row(ui, t, cx, keys) {
                 self.tools.open(tool);
             }
+        }
+        if cx.expert() && opening_row(ui, t, cx, ("pro.sign_message", "pro.sign_message_about", "common.open")) {
+            self.tools.open(Tool::Message);
         }
     }
 }

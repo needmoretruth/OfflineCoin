@@ -30,7 +30,8 @@ fn spend(coin: &str, value: &str, lock: &str, unlock: &str) -> Result<olc_core::
     let value: u64 = value.parse().map_err(|_| "bad value")?;
     let coin = TxOut { value, language: olc_lang::BETA, lock };
     let fee = olc_core::coin::COIN / 100;
-    let spend = LockSpend::new(previous, &coin, [0; 20], fee, unlock).map_err(|error| format!("{error:?}"))?;
+    // The words are wrong on purpose and carry no signature, so no coin is named.
+    let spend = LockSpend::new(previous, &coin, [0; 20], fee, unlock, None).map_err(|error| format!("{error:?}"))?;
     spend.finish().map_err(|error| format!("{error:?}"))
 }
 

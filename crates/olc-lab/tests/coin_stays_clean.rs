@@ -94,6 +94,11 @@ fn no_coin_crate_depends_on_the_lab() {
 fn no_coin_source_speaks_of_it() {
     let mut found = Vec::new();
     for path in sources() {
+        // The BIP 39 word lists are fixed by the standard, one dictionary word per line, and
+        // "attack" is one of them.
+        if path.parent().is_some_and(|folder| folder.ends_with("wordlists")) {
+            continue;
+        }
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };

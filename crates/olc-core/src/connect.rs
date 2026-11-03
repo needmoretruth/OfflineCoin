@@ -3,7 +3,7 @@
 use crate::chain::{AddOutcome, Chain, ChainError};
 use crate::ledger::{apply_block, spent_by, undo_block, Unspent};
 use crate::log::{block_record, read_block_record, Kind, Meta, Read, NOWHERE};
-use crate::rules::check_block_body;
+use crate::rules::{check_block_body, AtHeight};
 use crate::tree::{trim, Entry, Mark, MARK_EVERY, NEAR_MARKS_FOR, NEAR_MARK_EVERY};
 use crate::types::{merkle_tree, Block};
 use alloc::collections::BTreeSet;
@@ -64,8 +64,8 @@ impl Chain {
             validated: false,
         };
         if previous == self.tip {
-            let rules = self.config.rules_at(entry.height);
-            let spent = check_block_body(&block, entry.height, &self.unspent, rules, &self.plugins)?;
+            let at = AtHeight::of(&self.config, entry.height);
+            let spent = check_block_body(&block, &at, &self.unspent, &self.plugins)?;
             let record = block_record(&meta_of(&entry), &block.txs, Some(&spent));
             entry.at = self.log.append(Kind::Tip, &record).ok_or(ChainError::StoreFailed)?;
             entry.validated = true;
@@ -185,8 +185,8 @@ impl Chain {
             let spent = if entry.validated {
                 Ok(spent_by(&block, entry.height, &self.unspent))
             } else {
-                let rules = self.config.rules_at(entry.height);
-                check_block_body(&block, entry.height, &self.unspent, rules, &self.plugins)
+                let at = AtHeight::of(&self.config, entry.height);
+                check_block_body(&block, &at, &self.unspent, &self.plugins)
             };
             match spent {
                 Ok(spent) => {

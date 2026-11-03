@@ -102,13 +102,29 @@ struct Spoken {
     card: Card,
     added: SpokenAdded,
     keeps: Keeps,
+    upgrade: Upgrade,
+}
+
+/// The coin's upgrade height, after everything else, so older builds stop before it. A hello from
+/// one of them leaves it unsaid, and the coin then settles as a file from before it does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+struct Upgrade(Option<u64>);
+
+impl<'de> Deserialize<'de> for Upgrade {
+    fn deserialize<D: Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        Ok(Self(Option::<u64>::deserialize(reader).unwrap_or_default()))
+    }
 }
 
 impl From<Spoken> for Hello {
     fn from(spoken: Spoken) -> Self {
-        let Spoken { coin, tip, height, work, address, mut card, added, keeps } = spoken;
+        let Spoken { coin, tip, height, work, address, mut card, added, keeps, upgrade } = spoken;
         card.keeps = keeps;
-        Self { coin: coin.with_added(added.0), tip, height, work, address, card }
+        let mut coin = coin.with_added(added.0);
+        if let Some(from) = upgrade.0 {
+            coin.upgrade_from = from;
+        }
+        Self { coin, tip, height, work, address, card }
     }
 }
 
@@ -117,7 +133,8 @@ impl From<Hello> for Spoken {
         let Hello { coin, tip, height, work, address, card } = hello;
         let added = SpokenAdded(coin.added());
         let keeps = card.keeps;
-        Self { coin, tip, height, work, address, card, added, keeps }
+        let upgrade = Upgrade(coin.upgrade_said());
+        Self { coin, tip, height, work, address, card, added, keeps, upgrade }
     }
 }
 

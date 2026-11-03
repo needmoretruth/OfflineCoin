@@ -64,7 +64,13 @@ A computer on OLC-XXXX joins with `olc node --connect 192.168.4.1:7000`.
 
 ## Contracts
 
-OLCL alpha pays an address. OLCL beta is a stack language at the level of early Bitcoin Script, written as words such as `HASH 0x... EQUAL`. Expert mode has a Locks page with worked examples of a hash lock, a two-of-two signature and a time lock, and `olc` has the same words. OLCL omega is reserved for later.
+OLCL alpha pays an address. OLCL beta is a stack language at the level of early Bitcoin Script, written as words such as `HASH 0x... EQUAL`. OLCL gamma is Bitcoin Script as it runs today without Taproot, with Bitcoin's word names and numbers: CHECKSEQUENCEVERIFY, CHECKMULTISIGVERIFY with up to 20 keys, SHA256, HASH160, the stack and number words. `HASH` stays OLC's address hash and `CHECKHEIGHT` compares with the block height. Expert mode has a Locks page with worked examples of a hash lock, a two-of-two signature and a time lock, and `olc` has the same words. OLCL omega is reserved for later.
+
+## Transaction versions
+
+From height 6,240 on OLC, and from the genesis of a coin made since, a version 2 transaction carries what Bitcoin added after 2009. Its signatures name the coin, so a fork or another coin can't replay it. A signature may carry Bitcoin's kinds: ALL, NONE, SINGLE and ANYONECANPAY. Its id leaves out the unlock data, as SegWit's does, and the block's Merkle root still covers every byte. It has a lock time by height and sequences (BIP 68), and only it can spend gamma.
+
+Version 1 transactions stay valid beside them in the same blocks, as legacy transactions do in Bitcoin. Wallets write version 2. Expert mode's "Sign the old way" and `olc version1 on` write version 1. A coin made with Change rules takes only version 2 from its fork height.
 
 ## Changing the rules
 
@@ -88,7 +94,7 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 | `olc-core` | Blocks, transactions, rules, the chain | |
 | `olc-crypto` | SHA-256d and secp256k1 | Edit this one crate |
 | `olc-pow` | Proof of work | Implement `Consensus` |
-| `olc-lang` | OLCL alpha, beta, omega | Implement `LockLanguage` |
+| `olc-lang` | OLCL alpha, beta, gamma, omega | Implement `LockLanguage` |
 | `olc-wallet` | Keys and payments | |
 | `olc-node` | Mempool, gossip, mining | |
 | `olc-store` | A node's files on a computer | |
@@ -110,8 +116,8 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 These come from the rules, and changing them means a fork.
 
 - A block's time has no upper limit, because a board has no clock of its own.
-- A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 32, so stalling a board takes a mined block.
-- A transaction id covers its unlock data, as in Bitcoin before SegWit.
+- A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 20, so stalling a board takes a mined block.
+- A version 1 transaction id covers its unlock data, as in Bitcoin before SegWit.
 - A 64-byte transaction could be mistaken for an inner node of the Merkle tree.
 
 These come from radio and storage.

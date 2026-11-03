@@ -6,11 +6,20 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use olc_core::{Address, Coins, OutPoint, Tx, TxIn, TxOut};
-use olc_crypto::{address_of, public_key, sign, PublicKey};
+use olc_core::types::version_for;
+use olc_core::{Address, Coins, OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL};
+use olc_crypto::{address_of, public_key, sign, Hash, PublicKey};
 use olc_lang::{alpha, ALPHA, BETA};
 
 pub mod locks;
+#[cfg(feature = "seed")]
+pub mod message;
+#[cfg(feature = "seed")]
+pub mod seed;
+pub mod shared;
+mod unsigned;
+
+pub use unsigned::Unsigned;
 
 /// A key with this many coins ready gets them merged into one.
 pub const MERGE_FROM: usize = 16;
@@ -49,10 +58,28 @@ impl Key {
     }
 }
 
+/// The seed words a wallet's later keys come from, kept as the randomness behind them.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SeedRecord {
+    pub entropy: Vec<u8>,
+    /// Words from the Korean list, or else the English one.
+    pub korean: bool,
+    /// The number of the next key on the path.
+    pub next: u32,
+    /// Whether the person said they wrote the words down.
+    pub written: bool,
+}
+
 #[derive(Clone)]
 pub struct Wallet {
     keys: Vec<Key>,
     receiving: usize,
+    pub seed: Option<SeedRecord>,
+    /// Words this wallet had before others took their place. Their keys stay, and so do they,
+    /// so no words a person wrote down stop working here.
+    pub earlier: Vec<SeedRecord>,
+    /// Wallets shared with other people, which this one may sign for.
+    pub shared: Vec<shared::Shared>,
 }
 
 impl Wallet {
@@ -60,6 +87,9 @@ impl Wallet {
         Ok(Self {
             keys: vec![Key::new(secret)?],
             receiving: 0,
+            seed: None,
+            earlier: Vec::new(),
+            shared: Vec::new(),
         })
     }
 
@@ -72,7 +102,7 @@ impl Wallet {
         if receiving >= keys.len() {
             return Err(WalletError::NoSuchKey);
         }
-        Ok(Self { keys, receiving })
+        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new() })
     }
 
     /// Adds a key and returns its number.
@@ -164,11 +194,24 @@ impl Wallet {
         fee: u64,
         reserved: &[OutPoint],
     ) -> Result<Tx, WalletError> {
+        self.pay_lock_in(chain, BETA, lock, amount, fee, reserved)
+    }
+
+    /// Puts `amount` under a lock in `language`, beta or gamma.
+    pub fn pay_lock_in(
+        &self,
+        chain: &dyn Coins,
+        language: u8,
+        lock: &[u8],
+        amount: u64,
+        fee: u64,
+        reserved: &[OutPoint],
+    ) -> Result<Tx, WalletError> {
         if amount == 0 {
             return Err(WalletError::ZeroAmount);
         }
         let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
-        let locked = TxOut { value: amount, language: BETA, lock: lock.to_vec() };
+        let locked = TxOut { value: amount, language, lock: lock.to_vec() };
         let order = Order { payments: &[], data: &[], locked: Some(locked), fee, change: self.address() };
         self.sign(&prepare(chain, &owners, &order, reserved)?)
     }
@@ -195,6 +238,26 @@ impl Wallet {
         let owners: Vec<Address> = self.keys.iter().map(|key| key.address).collect();
         let order = Order { payments, data, locked: None, fee, change: self.address() };
         self.sign(&prepare(chain, &owners, &order, reserved)?)
+    }
+
+    /// Moves every mature coin of these addresses to `to` in one payment, at most `most` coins
+    /// at a time. `None` when they hold nothing that pays the fee.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sweep(&self, chain: &dyn Coins, from: &[Address], to: Address, fee: u64, reserved: &[OutPoint], most: usize, coin: Option<Hash>) -> Option<(Unsigned, u64)> {
+        let next = chain.height() + 1;
+        let mut chosen: Vec<(Address, OutPoint)> = Vec::new();
+        let mut total = 0u64;
+        for address in from {
+            for (point, entry) in chain.unspent_of(address) {
+                if chosen.len() < most && chain.is_mature(&entry, next) && !reserved.contains(&point) {
+                    total = total.saturating_add(entry.output.value);
+                    chosen.push((*address, point));
+                }
+            }
+        }
+        let value = total.checked_sub(fee).filter(|value| *value > 0)?;
+        let output = TxOut { value, language: ALPHA, lock: to.to_vec() };
+        Some((unsigned(&chosen, vec![output], coin), value))
     }
 
     /// Merges small coins of one key into a single coin, so a miner's many rewards do not stay in
@@ -225,41 +288,39 @@ impl Wallet {
                 language: ALPHA,
                 lock: key.address.to_vec(),
             };
-            return Some(unsigned(&chosen, vec![output]));
+            return Some(unsigned(&chosen, vec![output], chain.signing_id(next)));
         }
         None
     }
 
     /// Signs what [`prepare`] built. Needs no chain, so the keys can stay on a computer that
     /// is never connected to anything.
-    pub fn sign(&self, (tx, owners): &Unsigned) -> Result<Tx, WalletError> {
-        let mut tx = tx.clone();
-        for index in 0..owners.len() {
-            self.sign_input(&mut tx, owners, index)?;
+    pub fn sign(&self, unsigned: &Unsigned) -> Result<Tx, WalletError> {
+        let mut tx = unsigned.tx.clone();
+        for index in 0..unsigned.owners.len() {
+            self.sign_input(&mut tx, &unsigned.owners, index, unsigned.coin.as_ref())?;
         }
         Ok(tx)
     }
 
-    /// Signs one input of `tx`.
+    /// Signs one input of `tx` for `coin`, as [`olc_core::CoinConfig::signing_id_at`] names it.
     pub fn sign_input(
         &self,
         tx: &mut Tx,
         owners: &[Address],
         index: usize,
+        coin: Option<&Hash>,
     ) -> Result<(), WalletError> {
         let owner = owners.get(index).ok_or(WalletError::NoSuchKey)?;
         let key = self.keys.iter().find(|key| key.address == *owner);
         let key = key.ok_or(WalletError::NoSuchKey)?;
-        let digest = tx.signature_hash(index, &key.address);
+        let digest = tx.signature_hash(index, &key.address, coin);
         let signature = sign(&key.secret, &digest).ok_or(WalletError::BadKey)?;
         let input = tx.inputs.get_mut(index).ok_or(WalletError::NoSuchKey)?;
         input.unlock = alpha::unlock_data(&key.public, &signature);
         Ok(())
     }
 }
-
-/// A payment nobody signed yet, and the address each input spends from.
-pub type Unsigned = (Tx, Vec<Address>);
 
 /// What a payment should do.
 pub struct Order<'a> {
@@ -309,7 +370,7 @@ pub fn prepare(
     if change > 0 {
         outputs.push(plain(&(order.change, change)));
     }
-    Ok(unsigned(&chosen, outputs))
+    Ok(unsigned(&chosen, outputs, chain.signing_id(next)))
 }
 
 fn plain((to, value): &(Address, u64)) -> TxOut {
@@ -320,18 +381,21 @@ fn plain((to, value): &(Address, u64)) -> TxOut {
     }
 }
 
-fn unsigned(coins: &[(Address, OutPoint)], outputs: Vec<TxOut>) -> Unsigned {
+fn unsigned(coins: &[(Address, OutPoint)], outputs: Vec<TxOut>, coin: Option<Hash>) -> Unsigned {
     let unlocked = |(_, previous): &(Address, OutPoint)| TxIn {
         previous: *previous,
         unlock: Vec::new(),
+        sequence: SEQUENCE_FINAL,
     };
     let tx = Tx {
-        version: 1,
+        version: version_for(coin.as_ref()),
         inputs: coins.iter().map(unlocked).collect(),
         outputs,
         coinbase_height: None,
+        lock_time: 0,
     };
-    (tx, coins.iter().map(|(owner, _)| *owner).collect())
+    let owners = coins.iter().map(|(owner, _)| *owner).collect();
+    Unsigned { tx, owners, coin }
 }
 
 pub fn format_address(address: &Address) -> String {

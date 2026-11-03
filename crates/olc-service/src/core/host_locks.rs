@@ -1,15 +1,17 @@
-//! Coins under a beta lock, for a person or for a node's own command line.
+//! Coins under a lock, for a person or for a node's own command line.
 use super::commands::LockOrder;
 use super::host::{Host, PayError, Waiting};
 use super::host_parts::unix_ms;
-use super::{format_coins, parse_coins};
+use super::parse_coins;
 use olc_core::{ChainError, Hash, OutPoint};
 use olc_crypto::hash;
 use olc_lang::words::{
-    hash_lock, lock_from_text, public_key_from_text, time_lock, two_of_two, Cost, WordError,
+    hash_lock, lock_from_text, lock_from_text_in, public_key_from_text, time_lock, two_of_two, Cost, Dialect,
+    WordError,
 };
 use olc_node::locks::{LockFailure, LockedCoin};
 use olc_wallet::locks::{LockError, LockSpend};
+use olc_wallet::shared::{Shared, SHARED_SPEND_START, SHARED_START};
 use olc_wallet::{format_address, parse_address, WalletError};
 
 /// What a spend came to.
@@ -47,9 +49,11 @@ pub fn time_lock_for(height: &str, address: &str) -> Option<String> {
     Some(time_lock(height.trim().parse().ok()?, &parse_address(address.trim())?))
 }
 
-/// What the words of a lock cost, or what is wrong with them.
+/// What the words of a lock cost, or what is wrong with them. Words only today's Bitcoin knows
+/// read as gamma.
 pub fn check_lock(words: &str) -> Result<Cost, WordError> {
-    lock_from_text(words).map(|(_, cost)| cost)
+    let beta = lock_from_text(words);
+    beta.or_else(|error| lock_from_text_in(Dialect::Gamma, words).map_err(|_| error)).map(|(_, cost)| cost)
 }
 
 /// The words of a lock's fault, as the key of a sentence and what to put in it.
@@ -172,6 +176,9 @@ impl Host {
     /// A spend that waits for another signer stays where a person can copy it.
     pub fn carry_lock(&self, order: LockOrder) -> (&'static str, String, bool) {
         let done = match order {
+            LockOrder::Pay { words, .. } if words.trim().trim_matches('"').starts_with(SHARED_START) && !self.shared_ready() => {
+                return ("notice.shared_not_yet", self.shared_from().to_string(), false);
+            }
             LockOrder::Pay { words, amount } => {
                 return match self.pay_lock(&words, &amount) {
                     Ok((id, amount)) => {
@@ -181,6 +188,10 @@ impl Host {
                     Err(failure) => failed(&failure),
                 };
             }
+            LockOrder::PayShared { wallet, to, amount } => return self.pay_shared(wallet, &to, &amount),
+            LockOrder::SpeedUp { id } => return self.speed_up(&id),
+            LockOrder::MoveToWords => return self.move_to_words(),
+            LockOrder::Sign { text } if text.trim().starts_with(SHARED_SPEND_START) => return self.sign_shared(&text),
             LockOrder::Spend { coin, to, unlock } => self.spend_lock(&coin, &to, &unlock),
             LockOrder::Sign { text } => self.sign_lock(&text),
         };
@@ -218,9 +229,17 @@ impl Host {
     pub fn pay_lock(&self, words: &str, amount: &str) -> Result<(Hash, String), LockFailure> {
         let units = parse_coins(amount).filter(|units| *units > 0);
         let units = units.ok_or(LockFailure::Lock(LockError::TooSmall))?;
+        // A shared wallet's text stands for its lock, as an address stands for a key.
+        // The command line quotes a word that is not one of the lock language, as this text is.
+        let bare = words.trim().trim_matches('"');
+        let shared = bare.starts_with(SHARED_START).then(|| Shared::from_text(bare));
+        let words = match shared {
+            Some(shared) => shared.map_err(|_| LockFailure::Lock(LockError::BadText))?.words(),
+            None => words.to_string(),
+        };
         let mut runner = self.ready().map_err(|_| LockFailure::NoCoin)?;
-        let (id, _) = runner.engine.pay_to_lock(words, units)?;
-        Ok((id, format_coins(units)))
+        let (id, _) = runner.engine.pay_to_lock(&words, units)?;
+        Ok((id, super::host_wallet::amount_of(&runner.engine, units)))
     }
 
     /// Spends a locked coin to `to`, or to this wallet when `to` is empty.

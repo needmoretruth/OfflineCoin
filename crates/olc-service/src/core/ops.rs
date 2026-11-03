@@ -104,8 +104,18 @@ pub trait Book {
         self.send_signed(signed.trim())
     }
 
+    /// The next key of the seed words, so the words alone bring it back. A wallet without words
+    /// gets a random one.
     fn new_key(&self) -> Result<String, String> {
-        self.add_key(new_secret()?)
+        let from_words = self.wallet_change(|wallet| match wallet.next_word_key() {
+            None => Ok(None),
+            Some(Ok(index)) => Ok(wallet.keys().nth(index).map(|(address, _)| format_address(&address))),
+            Some(Err(_)) => Err(said(&WalletError::BadKey)),
+        })?;
+        match from_words {
+            Some(address) => Ok(address),
+            None => self.add_key(new_secret()?),
+        }
     }
 
     fn import_key(&self, text: &str) -> Result<String, String> {
@@ -155,7 +165,23 @@ pub trait Book {
         let backup = restore(path, password)?;
         self.wallet_change(|wallet| {
             let secrets = (0..backup.key_count()).filter_map(|index| backup.export_secret(index));
-            Ok(secrets.filter(|secret| wallet.add_secret(*secret).is_ok()).count())
+            let added = secrets.filter(|secret| wallet.add_secret(*secret).is_ok()).count();
+            // The backup's words come along. When this wallet has words of its own, those stay its
+            // words and the backup's are kept beside them, so none are lost.
+            for record in backup.seed.iter().chain(&backup.earlier) {
+                match &wallet.seed {
+                    None => wallet.seed = Some(record.clone()),
+                    Some(own) if own.entropy == record.entropy => {}
+                    Some(_) if wallet.earlier.iter().any(|old| old.entropy == record.entropy) => {}
+                    Some(_) => wallet.earlier.push(record.clone()),
+                }
+            }
+            for shared in &backup.shared {
+                if !wallet.shared.contains(shared) {
+                    wallet.shared.push(shared.clone());
+                }
+            }
+            Ok(added)
         })
     }
 
@@ -192,6 +218,11 @@ pub trait Book {
     fn set_merging(&self, on: bool) -> Result<(), String> {
         self.live(|runner| runner.engine.set_merging(on))?;
         self.change_settings(|settings| settings.no_merge = !on)
+    }
+
+    fn set_version_one(&self, on: bool) -> Result<(), String> {
+        self.live(|runner| runner.engine.set_version_one(on))?;
+        self.change_settings(|settings| settings.version_one = on)
     }
 
     /// Takes the unspent set of the peer that has what this node lacks. Only a person says so.
@@ -249,6 +280,9 @@ pub trait Book {
             Personal::SetMerging(on) => {
                 self.set_merging(on).map(|()| ("notice.saved", String::new()))
             }
+            Personal::SetVersionOne(on) => {
+                self.set_version_one(on).map(|()| ("notice.saved", String::new()))
+            }
             Personal::Watch(text) => self.watch(&text).map(|()| ("notice.saved", String::new())),
             Personal::SetLight(on) => self
                 .change_settings(|settings| settings.light = on)
@@ -270,6 +304,7 @@ pub trait Book {
                 self.accept_snapshot().map(|()| ("notice.snapshot_taking", String::new()))
             }
             Personal::Explore(text) => self.show_explored(&text).map(|()| ("", String::new())),
+            Personal::Wallet(order) => super::wallet_orders::carry_wallet(self, order),
         }
     }
 }
@@ -291,6 +326,9 @@ impl Host {
         match self.carry_out(order) {
             Ok((key, detail)) => (key, detail, true),
             Err(error) => {
+                if let Some((key, detail)) = super::wallet_orders::wallet_failure(&error) {
+                    return (key, detail, false);
+                }
                 let key = match error.as_str() {
                     WRONG_PASSWORD => "notice.wrong_password",
                     NEEDS_PASSWORD => "notice.needs_password",

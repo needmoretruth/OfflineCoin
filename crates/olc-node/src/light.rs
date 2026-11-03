@@ -77,6 +77,10 @@ impl Coins for Light {
         let rules = self.coin.rules_at(spend_height);
         !entry.coinbase || spend_height >= rules.matures_at(entry.height)
     }
+
+    fn signing_id(&self, height: u64) -> Option<olc_core::Hash> {
+        self.coin.signing_id_at(height)
+    }
 }
 
 impl Light {

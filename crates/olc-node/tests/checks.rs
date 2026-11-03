@@ -5,7 +5,7 @@ mod common;
 
 use common::{deliver, engine_of, mine, test_coin};
 use olc_core::coin::COIN;
-use olc_core::{Block, OutPoint, Tx, TxIn, TxOut};
+use olc_core::{Block, OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL};
 use olc_lang::beta::op;
 use olc_lang::words::{assemble, parse_words, WordError, MOST_SIGNATURE_CHECKS};
 use olc_lang::ALPHA;
@@ -43,8 +43,8 @@ fn spend_of(nodes: &mut [Engine], lock: &[u8]) -> Tx {
     deliver(nodes);
     let previous = OutPoint { txid, index: u32::try_from(index).unwrap() };
     let out = TxOut { value: 5 * COIN - fee, language: ALPHA, lock: nodes[1].address().to_vec() };
-    let input = TxIn { previous, unlock: Vec::new() };
-    Tx { version: 1, inputs: vec![input], outputs: vec![out], coinbase_height: None }
+    let input = TxIn { previous, unlock: Vec::new(), sequence: SEQUENCE_FINAL };
+    Tx { version: 1, inputs: vec![input], outputs: vec![out], coinbase_height: None, lock_time: 0 }
 }
 
 fn events(node: &mut Engine) -> Vec<Event> {

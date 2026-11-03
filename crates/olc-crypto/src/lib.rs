@@ -11,6 +11,16 @@ pub type Address = [u8; 20];
 pub type PublicKey = [u8; 33];
 pub type SignatureBytes = [u8; 64];
 
+/// SHA-256 once, as Bitcoin Script's SHA256 word.
+pub fn sha256(data: &[u8]) -> Hash {
+    Sha256::digest(data).into()
+}
+
+/// RIPEMD-160, as Bitcoin Script's RIPEMD160 word.
+pub fn ripemd160(data: &[u8]) -> [u8; 20] {
+    ripemd::Ripemd160::digest(data).into()
+}
+
 /// Bitcoin's hash: SHA-256 applied twice.
 pub fn hash(data: &[u8]) -> Hash {
     Sha256::digest(Sha256::digest(data)).into()

@@ -50,9 +50,11 @@ pub struct Engine {
     /// Who mines here gets paid here. `None` pays the key that receives.
     miner: Option<Address>,
     /// Bytes every mined block carries in its coinbase.
-    note: Vec<u8>,
+    pub(crate) note: Vec<u8>,
     /// Merges a key's small coins into one when set.
     pub(crate) merging: bool,
+    /// Signs payments as version 1, the way Satoshi's Bitcoin did, where the coin still takes them.
+    pub(crate) version_one: bool,
     pub(crate) signing: Option<Signing>,
     /// Who asked for blocks last, from where and when.
     pub(crate) answered: Option<(PeerId, Option<Hash>, u64)>,
@@ -96,6 +98,7 @@ impl Engine {
             miner: None,
             note: Vec::new(),
             merging: true,
+            version_one: false,
             signing: None,
             answered: None,
             history: History::default(),
@@ -158,6 +161,14 @@ impl Engine {
 
     pub fn merging(&self) -> bool {
         self.merging
+    }
+
+    pub fn set_version_one(&mut self, on: bool) {
+        self.version_one = on;
+    }
+
+    pub fn version_one(&self) -> bool {
+        self.version_one
     }
 
     pub fn peer_ids(&self) -> impl Iterator<Item = PeerId> + '_ {

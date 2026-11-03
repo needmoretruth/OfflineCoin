@@ -49,6 +49,7 @@ olc-platform = { path = "crates/olc-platform" }
 olc-service = { path = "crates/olc-service" }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "alloc"] }
 sha2 = { version = "0.10", default-features = false }
+ripemd = { version = "0.1", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 serde_json = "1"
