@@ -151,6 +151,8 @@ fn history_rows_detail_requests_two_people_and_the_explorer_as_a_person_meets_th
     settings.theme = Theme::Dark;
     settings.port = port_of_scene(74);
     let mut window = harness(app(root, settings, None), SIZES[0]);
+    // A computer merges small coins only after its person turns the switch in Settings on.
+    window.state().send(Command::Own(Personal::SetMerging(true)));
 
     // Sixteen ripe mined coins make the wallet join eight of them into one.
     wait_long(&mut window, 4, |app| has_row(app, ActivityKind::Joined));
