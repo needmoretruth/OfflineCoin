@@ -114,7 +114,7 @@ fn words_shared_signers_and_speed_up_as_a_person_meets_them() {
     wait_until(&mut window, |app| app.snapshot().node.wallet.outside_words > 0);
     window.run_steps(SETTLE_STEPS);
     picture(&mut window, folder, "home-outside");
-    assert!(shows(&window, "아직 단어로 되살릴 수 없습니다"), "the home page says some coins need more than the words");
+    assert!(shows(&window, "단어로 되살릴 수 없는 코인이"), "the home page says some coins need more than the words");
     tap(&mut window, "common.open");
     picture(&mut window, folder, "words-move");
     assert!(shows(&window, "백업 파일이 있어야 합니다"), "the sheet says those coins need the backup file");

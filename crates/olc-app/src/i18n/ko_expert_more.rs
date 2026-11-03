@@ -220,7 +220,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lock.waiting", "서명을 넣었습니다. 지출을 상대방에게 전달하세요."),
     ("lock.no_words", "잠금을 먼저 쓰세요."),
     ("lock.unknown_word", "{}라는 단어는 없습니다."),
-    ("lock.too_long_word", "{}는 한 단어로 쓰기에 너무 깁니다."),
+    ("lock.too_long_word", "한 단어로 쓰기에 너무 깁니다: {}"),
     ("lock.open_quote", "따옴표가 닫히지 않았습니다."),
     ("lock.open_branch", "IF, ELSE, ENDIF 짝이 맞지 않습니다."),
     ("lock.too_many_ops", "단어가 {}개입니다. 잠금 하나에 200개까지 됩니다."),
