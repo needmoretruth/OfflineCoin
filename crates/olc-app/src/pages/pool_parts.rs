@@ -75,6 +75,10 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
             switched_off(ui, cx, off, None);
         }
     }
+    // The pool sees shares, not hashes: an expert reads what the speed is made of.
+    if cx.expert() {
+        meta(ui, cx.say("pool.speed_note"), t);
+    }
 }
 
 /// Why the pool switched a board off and what to do, with its name when no row above names it.

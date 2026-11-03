@@ -87,6 +87,17 @@ fn mining_together_is_on_mining_in_both_modes() {
     window.run_steps(SETTLE_STEPS);
     assert!(shows(&window, "pool.running") && shows(&window, "pool.stop"), "a running pool shows itself and its stop");
     picture(&mut window, "mining-pool-running-basic-ko-dark");
+    // The pool sees shares, not hashes: an expert's speed column says it is an estimate, and how.
+    let settings = window.state_mut().settings_mut();
+    (settings.mode, settings.language) = (Mode::Expert, Lang::En);
+    window.run_steps(SETTLE_STEPS);
+    assert!(window.query_all_by_label("Est. hashrate").next().is_some(), "an expert reads the speed as estimated");
+    assert!(shows(&window, "pool.speed_note"), "and from what it is estimated");
+    if let Some(node) = window.query_all_by_label("Est. hashrate").next() {
+        node.scroll_to_me();
+    }
+    window.run_steps(SETTLE_STEPS);
+    picture(&mut window, "mining-pool-running-expert-en-dark");
     window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);
     assert!(shows(&window, "home.mining_pool"), "Home says this computer mines in a pool");
