@@ -2,7 +2,7 @@
 pub const WORDS: &[(&str, &str)] = &[
     ("lab2.kind_attack", "51% attack"),
     ("lab2.kind_split", "Network split"),
-    ("lab2.about_attack", "Whoever mines with more than half of all the power can take back money they already paid. Miners on this computer try it on blocks of their own, away from your wallet."),
+    ("lab2.about_attack", "Whoever mines with more than half of all the power can take back money they already paid. Miners on this computer try it on a test coin that never touches your wallet."),
     ("lab2.about_split", "When the miners lose touch, each side keeps adding blocks of its own. When they meet again, everyone keeps the longer side and the other side's blocks are thrown away."),
     ("lab2.share_attack", "Attacker's share"),
     ("lab2.share_split", "Left group's share"),
@@ -31,7 +31,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("lab2.legend_victim", "Victim's block"),
     ("lab2.legend_left", "Left group's block"),
     ("lab2.legend_right", "Right group's block"),
-    ("lab2.legend_shared", "Same block on both rows"),
+    ("lab2.legend_shared", "Block both rows share"),
     ("lab2.legend_payment", "Holds the payment"),
     ("lab2.legend_spend", "Holds the secret payment back"),
     ("lab2.starting", "Starting the miners."),
