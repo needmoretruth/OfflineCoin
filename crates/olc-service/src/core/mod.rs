@@ -50,7 +50,7 @@ pub use terminal::Terminal;
 pub use words::{run_line, run_words, usage, Desk, Word, WORDS};
 pub use ops::Book;
 pub use olc_store::coin_fields::{
-    first_fork_height, fork_coin, new_coin, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS,
+    first_fork_height, fork_coin, new_coin, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS, DIFFICULTY_RULES,
 };
 pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use address_index::AddressMove;

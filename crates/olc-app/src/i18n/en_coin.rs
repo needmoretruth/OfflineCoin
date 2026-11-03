@@ -1,0 +1,40 @@
+//! English words for a new coin's difficulty rule: the picker, its picture and the criteria it is
+//! compared on, and the expert rows for the half-life, the time rules and Bitcoin's header.
+pub const WORDS: &[(&str, &str)] = &[
+    ("coin.rule", "Keeping the pace"),
+    ("coin.rule_about", "How blocks get back to their pace when computers start or stop mining."),
+    ("coin.rule_bitcoin", "Bitcoin"),
+    ("coin.rule_bip94", "Bitcoin test network"),
+    ("coin.rule_asert", "Bitcoin Cash"),
+    ("coin.c_when", "When it adjusts"),
+    ("coin.c_first", "First block after miners leave"),
+    ("coin.c_back", "Back to its pace"),
+    ("coin.v_every", "Every {} blocks"),
+    ("coin.v_every_wait", "Every {} blocks, and at once after a long wait"),
+    ("coin.v_each", "Every block"),
+    ("coin.v_minutes", "{} min"),
+    ("coin.v_back", "{} min, {} blocks"),
+    ("coin.rule_measured", "Measured with 30 second blocks after mining fell to a twentieth."),
+    ("coin.rule_waiting", "Waiting for the first block"),
+    ("coin.rule_slow", "Slow blocks until the usual pace"),
+    ("coin.rule_picture", "How long each way took to get back to its pace"),
+    ("bad.not_one_of", "{} is one of {}."),
+];
+
+pub const EXPERT: &[(&str, &str)] = &[
+    ("coin.rule", "Difficulty algorithm"),
+    ("coin.rule_about", "How the difficulty follows the hash rate."),
+    ("coin.rule_bip94", "BIP 94"),
+    ("coin.rule_asert", "ASERT"),
+    ("coin.c_when", "Retarget"),
+    ("coin.v_every_wait", "Every {} blocks; minimum difficulty after 2 block times"),
+    ("coin.rule_measured", "Measured on three nodes with 30 second blocks, after the hash rate fell from 20,000 to 1,000 H/s."),
+    ("pro.half_life", "ASERT half-life (blocks)"),
+    ("pro.half_life_about", "A block this many block times late halves the difficulty after it."),
+    ("pro.median_time", "Median time past (blocks)"),
+    ("pro.median_time_about", "A block's time must pass the median of this many blocks before it. 0 asks only that it follow its parent."),
+    ("pro.max_ahead", "Max time ahead (ms)"),
+    ("pro.max_ahead_about", "A node takes no block this far ahead of its clock. 0 sets no limit."),
+    ("pro.bitcoin_header", "Bitcoin header"),
+    ("pro.bitcoin_header_about", "Blocks use Bitcoin's 80-byte header, so Bitcoin miners and pools can mine them."),
+];

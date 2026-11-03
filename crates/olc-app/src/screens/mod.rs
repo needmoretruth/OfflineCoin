@@ -19,6 +19,7 @@ mod pacing_card;
 mod places;
 mod quiet_align;
 mod settings_shots;
+mod coin_rule_shots;
 mod home_words;
 mod swap_local;
 mod swap_page;

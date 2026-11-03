@@ -30,6 +30,11 @@ fn sample(key: &str) -> String {
         "rules.min_fee" => "0.001".into(),
         "rules.min_difficulty" => "17".into(),
         "rules.floor_from_height" => "19".into(),
+        "rules.difficulty_rule" => "bip94".into(),
+        "rules.half_life_blocks" => "23".into(),
+        "rules.median_time_blocks" => "5".into(),
+        "rules.max_ahead_ms" => "60000".into(),
+        "bitcoin_header" => "off".into(),
         other => panic!("{other} has no sample, so nothing proves it reaches a coin"),
     }
 }

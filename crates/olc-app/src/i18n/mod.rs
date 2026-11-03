@@ -4,6 +4,7 @@
 //! an expert term: `plain_words_have_no_expert_terms` lists the banned ones.
 mod en;
 mod en_chain;
+mod en_coin;
 mod en_channels;
 mod en_channels_expert;
 mod en_expert;
@@ -17,6 +18,7 @@ mod en_settings;
 mod en_wallet;
 mod ko;
 mod ko_chain;
+mod ko_coin;
 mod ko_channels;
 mod ko_channels_expert;
 mod ko_expert;
@@ -50,6 +52,7 @@ const BASE_EN: &[Words] = &[
     en_mining::WORDS,
     en_place::WORDS,
     en_settings::WORDS,
+    en_coin::WORDS,
 ];
 const BASE_KO: &[Words] = &[
     ko::WORDS,
@@ -61,6 +64,7 @@ const BASE_KO: &[Words] = &[
     ko_mining::WORDS,
     ko_place::WORDS,
     ko_settings::WORDS,
+    ko_coin::WORDS,
 ];
 const EXPERT_EN: &[Words] = &[
     en_expert::WORDS,
@@ -72,6 +76,7 @@ const EXPERT_EN: &[Words] = &[
     en_mining::EXPERT,
     en_place::EXPERT,
     en_settings::EXPERT,
+    en_coin::EXPERT,
 ];
 const EXPERT_KO: &[Words] = &[
     ko_expert::WORDS,
@@ -83,6 +88,7 @@ const EXPERT_KO: &[Words] = &[
     ko_mining::EXPERT,
     ko_place::EXPERT,
     ko_settings::EXPERT,
+    ko_coin::EXPERT,
 ];
 
 fn joined(tables: &[Words]) -> Table {

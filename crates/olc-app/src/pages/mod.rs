@@ -8,6 +8,7 @@ mod channels;
 mod coin_fork;
 mod coin_new;
 mod coin_rows;
+mod coin_rule;
 mod coins;
 mod console;
 pub mod history;

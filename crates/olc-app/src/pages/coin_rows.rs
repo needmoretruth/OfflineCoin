@@ -2,7 +2,8 @@
 use super::Cx;
 use crate::core::{Bad, CoinField, FieldKind, Why};
 use crate::ui::register::row;
-use crate::ui::widgets::{field, meta, switch};
+use super::coin_rule::name_key;
+use crate::ui::widgets::{field, meta, segments, switch};
 use egui::Ui;
 use olc_core::CoinConfig;
 
@@ -29,6 +30,11 @@ pub fn words_of(key: &str) -> (&'static str, &'static str) {
         "rules.min_fee" => ("pro.min_fee", "pro.min_fee_about"),
         "rules.min_difficulty" => ("pro.floor", "pro.floor_about"),
         "rules.floor_from_height" => ("pro.floor_from_height", "pro.floor_from_height_about"),
+        "rules.difficulty_rule" => ("coin.rule", "coin.rule_about"),
+        "rules.half_life_blocks" => ("pro.half_life", "pro.half_life_about"),
+        "rules.median_time_blocks" => ("pro.median_time", "pro.median_time_about"),
+        "rules.max_ahead_ms" => ("pro.max_ahead", "pro.max_ahead_about"),
+        "bitcoin_header" => ("pro.bitcoin_header", "pro.bitcoin_header_about"),
         _ => ("pro.fork_from", "pro.fork_from_about"),
     }
 }
@@ -48,6 +54,16 @@ pub fn rule_row(ui: &mut Ui, cx: &Cx, setting: &CoinField, text: &mut String, hi
             let mut on = text.as_str() != "off" && hint != "off";
             if switch(ui, cx.t, &mut on, cx.say(name)).changed() {
                 *text = if on { "on" } else { "off" }.to_string();
+                changed = true;
+            }
+        }
+        FieldKind::Choice(names) => {
+            // The difficulty rule is the one choice a coin has; the picker names it as the form does.
+            let items: Vec<(&str, String)> = names.iter().map(|name| (*name, cx.say(name_key(name)).to_string())).collect();
+            let now = if text.trim().is_empty() { hint } else { text.trim() };
+            let current = names.iter().copied().find(|name| *name == now);
+            if let Some(chosen) = segments(ui, cx.t, &items, current) {
+                *text = chosen.to_string();
                 changed = true;
             }
         }
@@ -92,6 +108,7 @@ pub fn bad_text(cx: &Cx, bad: &Bad) -> String {
         Why::NotNumber => cx.fill("bad.not_number", &[name]),
         Why::NotAmount => cx.fill("bad.not_amount", &[name]),
         Why::NotSwitch => cx.fill("bad.not_switch", &[name]),
+        Why::NotOneOf(names) => cx.fill("bad.not_one_of", &[name, &names.join(", ")]),
         Why::AtLeast(least) if basic_block => cx.fill("bad.at_least", &[name, &ms_to_seconds(*least)]),
         Why::AtLeast(least) => cx.fill("bad.at_least", &[name, &least.to_string()]),
         Why::AtMost(most) => cx.fill("bad.at_most", &[name, &most.to_string()]),

@@ -63,14 +63,16 @@ pub const WORDS: &[Word] = &[
                 [--genesis-time-ms MS] [--difficulty N] [--premine \"ADDRESS AMOUNT; ...\"]\n              \
                 [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
                 [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
-                [--min-difficulty N] [--floor-from-height HEIGHT]",
+                [--min-difficulty N] [--floor-from-height HEIGHT] [--difficulty-rule bitcoin|bip94|asert]\n              \
+                [--half-life BLOCKS] [--median-time BLOCKS] [--max-ahead-ms MS] [--bitcoin-header on|off]",
         run: make_coin,
     },
     Word {
         name: "fork",
         usage: "fork [--at HEIGHT] [--block-time-ms MS] [--retarget BLOCKS] [--reward COINS] [--halving BLOCKS]\n              \
                 [--maturity BLOCKS] [--max-block-bytes BYTES] [--min-fee COINS]\n              \
-                [--min-difficulty N] [--floor-from-height HEIGHT]   new rules on this same chain",
+                [--min-difficulty N] [--floor-from-height HEIGHT] [--difficulty-rule bitcoin|bip94|asert]\n              \
+                [--half-life BLOCKS] [--median-time BLOCKS] [--max-ahead-ms MS]   new rules on this same chain",
         run: fork,
     },
     Word { name: "fork-back", usage: "fork-back            go back to the rules before the last fork", run: fork_back },

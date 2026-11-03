@@ -1,0 +1,40 @@
+//! 새 코인의 난이도 방식에 쓰는 한국어: 고르는 줄, 그림과 비교 기준, 그리고 전문가 모드의 반감
+//! 주기, 시간 규칙, 비트코인 헤더 줄.
+pub const WORDS: &[(&str, &str)] = &[
+    ("coin.rule", "블록 간격 맞추기"),
+    ("coin.rule_about", "채굴하는 컴퓨터가 늘거나 줄 때 블록 간격을 되돌리는 방식입니다."),
+    ("coin.rule_bitcoin", "비트코인"),
+    ("coin.rule_bip94", "비트코인 테스트넷"),
+    ("coin.rule_asert", "비트코인 캐시"),
+    ("coin.c_when", "맞추는 때"),
+    ("coin.c_first", "채굴이 줄고 첫 블록"),
+    ("coin.c_back", "제 간격으로 돌아오기"),
+    ("coin.v_every", "{}블록마다"),
+    ("coin.v_every_wait", "{}블록마다, 오래 기다리면 바로"),
+    ("coin.v_each", "블록마다"),
+    ("coin.v_minutes", "{}분"),
+    ("coin.v_back", "{}분, 블록 {}개"),
+    ("coin.rule_measured", "30초 블록에서 채굴 속도가 20분의 1로 줄었을 때 잰 값입니다."),
+    ("coin.rule_waiting", "첫 블록을 기다린 시간"),
+    ("coin.rule_slow", "제 간격이 될 때까지"),
+    ("coin.rule_picture", "방식마다 제 간격으로 돌아오기까지 걸린 시간"),
+    ("bad.not_one_of", "{} 칸은 {} 중 하나로 적어 주세요."),
+];
+
+pub const EXPERT: &[(&str, &str)] = &[
+    ("coin.rule", "난이도 조정 알고리즘"),
+    ("coin.rule_about", "해시레이트에 맞춰 난이도를 조정하는 방식입니다."),
+    ("coin.rule_bip94", "BIP 94"),
+    ("coin.rule_asert", "ASERT"),
+    ("coin.c_when", "조정 시점"),
+    ("coin.v_every_wait", "{}블록마다, 블록 시간 2배가 지나면 최저 난이도"),
+    ("coin.rule_measured", "30초 블록 노드 세 대에서 해시레이트가 20,000에서 1,000 H/s로 줄었을 때 잰 값입니다."),
+    ("pro.half_life", "ASERT 반감 주기 (블록)"),
+    ("pro.half_life_about", "블록이 블록 시간의 이 배수만큼 늦으면 다음 난이도가 절반이 됩니다."),
+    ("pro.median_time", "MTP 블록 수"),
+    ("pro.median_time_about", "블록 시간은 앞 블록들 시간의 중앙값보다 늦어야 합니다. 0이면 바로 앞 블록보다 늦기만 하면 됩니다."),
+    ("pro.max_ahead", "최대 미래 시간 (ms)"),
+    ("pro.max_ahead_about", "노드는 자기 시계보다 이만큼 앞선 블록을 받지 않습니다. 0이면 한도가 없습니다."),
+    ("pro.bitcoin_header", "비트코인 헤더"),
+    ("pro.bitcoin_header_about", "블록이 비트코인의 80바이트 헤더를 써서 비트코인 채굴기와 풀이 캘 수 있습니다."),
+];

@@ -3,7 +3,7 @@
 use crate::amount::{format_coins, parse_coins};
 use core::fmt;
 use olc_core::coin::Fork;
-use olc_core::{Address, CoinConfig, Rules};
+use olc_core::{Address, CoinConfig, DifficultyRule, Rules};
 use olc_wallet::{format_address, parse_address};
 
 /// What a board's flash keeps of a coin. Past this a coin can never move to a board.
@@ -20,6 +20,8 @@ pub enum FieldKind {
     Coins,
     Switch,
     Premine,
+    /// One of a few names, as the file writes them.
+    Choice(&'static [&'static str]),
 }
 
 /// Why a value cannot be used, for a person to fix.
@@ -29,6 +31,7 @@ pub enum Why {
     NotNumber,
     NotAmount,
     NotSwitch,
+    NotOneOf(&'static [&'static str]),
     AtLeast(u64),
     AtMost(u64),
     BadPremine(String),
@@ -58,6 +61,7 @@ impl fmt::Display for Bad {
             Why::NotNumber => write!(out, "{key} needs a whole number."),
             Why::NotAmount => write!(out, "{key} needs an amount, like 12.5."),
             Why::NotSwitch => write!(out, "{key} is on or off."),
+            Why::NotOneOf(names) => write!(out, "{key} is one of {}.", names.join(", ")),
             Why::AtLeast(least) => write!(out, "{key} must be at least {least}."),
             Why::AtMost(most) => write!(out, "{key} can be at most {most}."),
             Why::BadPremine(line) => write!(out, "\"{line}\" is not an address and an amount."),
@@ -113,6 +117,26 @@ fn switch(text: &str) -> Result<bool, Why> {
         "on" => Ok(true),
         "off" => Ok(false),
         _ => Err(Why::NotSwitch),
+    }
+}
+
+/// The difficulty rules by the names a coin file gives them, in the order the docs compare them.
+pub const DIFFICULTY_RULES: [&str; 3] = ["bitcoin", "bip94", "asert"];
+
+fn rule_name(rule: DifficultyRule) -> &'static str {
+    match rule {
+        DifficultyRule::Bitcoin => DIFFICULTY_RULES[0],
+        DifficultyRule::Bip94 => DIFFICULTY_RULES[1],
+        DifficultyRule::Asert => DIFFICULTY_RULES[2],
+    }
+}
+
+fn rule_from(text: &str) -> Result<DifficultyRule, Why> {
+    match text.trim() {
+        "bitcoin" => Ok(DifficultyRule::Bitcoin),
+        "bip94" => Ok(DifficultyRule::Bip94),
+        "asert" => Ok(DifficultyRule::Asert),
+        _ => Err(Why::NotOneOf(&DIFFICULTY_RULES)),
     }
 }
 
@@ -308,6 +332,56 @@ pub const COIN_FIELDS: &[CoinField] = &[
             Ok(())
         },
     },
+    CoinField {
+        key: "rules.difficulty_rule",
+        flag: "difficulty-rule",
+        kind: FieldKind::Choice(&DIFFICULTY_RULES),
+        get: |coin| rule_name(coin.rules.difficulty_rule).to_string(),
+        set: |coin, text| {
+            coin.rules.difficulty_rule = rule_from(text)?;
+            Ok(())
+        },
+    },
+    CoinField {
+        key: "rules.half_life_blocks",
+        flag: "half-life",
+        kind: FieldKind::Number,
+        get: |coin| plain(coin.rules.half_life_blocks),
+        set: |coin, text| {
+            coin.rules.half_life_blocks = at_least(text, 1)?;
+            Ok(())
+        },
+    },
+    CoinField {
+        key: "rules.median_time_blocks",
+        flag: "median-time",
+        kind: FieldKind::Number,
+        get: |coin| plain(coin.rules.median_time_blocks),
+        set: |coin, text| {
+            coin.rules.median_time_blocks = number(text)?;
+            Ok(())
+        },
+    },
+    CoinField {
+        key: "rules.max_ahead_ms",
+        flag: "max-ahead-ms",
+        kind: FieldKind::Number,
+        get: |coin| plain(coin.rules.max_ahead_ms),
+        set: |coin, text| {
+            coin.rules.max_ahead_ms = number(text)?;
+            Ok(())
+        },
+    },
+    CoinField {
+        key: "bitcoin_header",
+        flag: "bitcoin-header",
+        kind: FieldKind::Switch,
+        get: |coin| if coin.bitcoin_header { "on" } else { "off" }.to_string(),
+        set: |coin, text| {
+            coin.bitcoin_header = switch(text)?;
+            Ok(())
+        },
+    },
 ];
 
 pub fn coin_field(key: &str) -> Option<&'static CoinField> {
@@ -425,6 +499,11 @@ mod tests {
             ("rules.min_fee", "0.001".to_string()),
             ("rules.min_difficulty", "17".to_string()),
             ("rules.floor_from_height", "19".to_string()),
+            ("rules.difficulty_rule", "bip94".to_string()),
+            ("rules.half_life_blocks", "23".to_string()),
+            ("rules.median_time_blocks", "5".to_string()),
+            ("rules.max_ahead_ms", "60000".to_string()),
+            ("bitcoin_header", "off".to_string()),
         ]
     }
 
@@ -447,10 +526,7 @@ mod tests {
         keys_of(&file, "", &mut keys);
         // A fork starts from a running coin, so it has its own word and a test of real nodes.
         // A new coin takes the upgrade from genesis, so nobody chooses its height.
-        // The difficulty rule, its half-life, the time rules and the header have no word on the
-        // new coin page yet; a coin file sets them.
-        let later = ["rules.difficulty_rule", "rules.half_life_blocks", "rules.median_time_blocks", "rules.max_ahead_ms", "bitcoin_header"];
-        keys.retain(|key| key != "forks" && key != "upgrade_from" && !later.contains(&key.as_str()));
+        keys.retain(|key| key != "forks" && key != "upgrade_from");
         assert_eq!(keys.len(), COIN_FIELDS.len(), "{keys:?}");
         let samples = samples();
         for key in keys {

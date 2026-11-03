@@ -1,6 +1,7 @@
 //! The form for a new coin. The first run and the Coins place share it. A person can press go
 //! with what it starts with, and an expert has every setting a coin has.
 use super::coin_rows::{bad_line, ms_to_seconds, rule_row, seconds_to_ms, text_of};
+use super::coin_rule;
 use super::Cx;
 use crate::core::{new_coin, parse_coins, unix_ms, Bad, CoinField, FieldKind, NewCoin, Why, COIN_FIELDS};
 use crate::ui::register::row;
@@ -16,6 +17,7 @@ const TICKER_LETTERS: usize = 3;
 const NO_LETTERS: &str = "NEW";
 const BLOCK_TIME: &str = "rules.block_time_ms";
 const REWARD: &str = "rules.reward";
+const RULE: &str = "rules.difficulty_rule";
 const SMALL_FIELD: f32 = 90.0;
 
 pub struct CoinForm {
@@ -125,9 +127,23 @@ impl CoinForm {
         });
     }
 
-    /// Every setting of a coin but the name and reward above, in the order of the table.
+    /// How the coin keeps its pace, picked from the three rules with the picture and comparison
+    /// behind Details. Until a person picks, it shows what the coin would have.
+    fn rule_choice(&mut self, ui: &mut Ui, cx: &Cx, preview: &CoinConfig) {
+        let own = COIN_FIELDS.iter().find(|field| field.key == RULE).map(|field| text_of(field, preview));
+        let typed = self.typed.entry(RULE).or_default();
+        let now = match typed.trim().is_empty() {
+            true => own.unwrap_or_default(),
+            false => typed.clone(),
+        };
+        if let Some(rule) = coin_rule::rule_row(ui, cx, &now, preview.rules.retarget_interval) {
+            *typed = rule.to_string();
+        }
+    }
+
+    /// Every setting of a coin but the name, reward and rule above, in the order of the table.
     fn expert_rows(&mut self, ui: &mut Ui, cx: &Cx, preview: &CoinConfig) {
-        for field in COIN_FIELDS.iter().filter(|field| !matches!(field.key, "name" | "rules.reward")) {
+        for field in COIN_FIELDS.iter().filter(|field| !matches!(field.key, "name" | "rules.reward" | RULE)) {
             let text = self.typed.entry(field.key).or_default();
             let changed = rule_row(ui, cx, field, text, &hint_of(field, preview, cx));
             if changed && field.key == BLOCK_TIME {
@@ -148,6 +164,7 @@ impl CoinForm {
             self.seconds_row(ui, cx);
         }
         self.reward_row(ui, cx);
+        self.rule_choice(ui, cx, made.as_ref().unwrap_or(&olc));
         if cx.expert() {
             self.expert_rows(ui, cx, made.as_ref().unwrap_or(&olc));
         }
@@ -213,7 +230,7 @@ mod tests {
     /// Whatever the table holds, the form takes it and the made coin has it.
     #[test]
     fn every_box_of_the_form_reaches_the_coin() {
-        let samples: [(&str, String); 15] = [
+        let samples: [(&str, String); 20] = [
             ("ticker", "WLK".into()),
             ("message", "우리 코인 첫 블록".into()),
             ("message_in_block", "off".into()),
@@ -229,6 +246,11 @@ mod tests {
             ("rules.min_fee", "0.001".into()),
             ("rules.min_difficulty", "17".into()),
             ("rules.floor_from_height", "19".into()),
+            ("rules.difficulty_rule", "bip94".into()),
+            ("rules.half_life_blocks", "23".into()),
+            ("rules.median_time_blocks", "5".into()),
+            ("rules.max_ahead_ms", "60000".into()),
+            ("bitcoin_header", "off".into()),
         ];
         assert_eq!(samples.len() + 1, COIN_FIELDS.len(), "the name has its own box");
         let mut form = named();
