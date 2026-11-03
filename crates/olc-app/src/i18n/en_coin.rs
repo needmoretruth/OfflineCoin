@@ -58,7 +58,7 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("pro.half_life", "ASERT half-life (blocks)"),
     ("pro.half_life_about", "A block this many block times late halves the difficulty after it."),
     ("coin.c_easy", "Minimum-difficulty blocks"),
-    ("pro.late_floor", "Allow minimum-difficulty blocks"),
+    ("pro.late_floor", "Min-difficulty blocks"),
     ("pro.late_floor_about", "With no block for two block times plus the max time ahead, the next may be mined at minimum difficulty, as on testnet4."),
     ("pro.median_time", "Median time past (blocks)"),
     ("pro.median_time_about", "A block's time must pass the median of this many blocks before it. 0 asks only that it follow its parent."),

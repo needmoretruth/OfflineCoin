@@ -65,10 +65,14 @@ fn a_new_coin_picks_how_it_keeps_its_pace_on_stated_criteria() {
     for choice in ["Bitcoin", "BIP 94", "ASERT"] {
         assert!(window.query_all_by_label(choice).count() > 0, "{choice} is a choice");
     }
-    let late = "Allow minimum-difficulty blocks";
+    let late = "Min-difficulty blocks";
     for row in [late, "ASERT half-life (blocks)", "Median time past (blocks)", "Max time ahead (ms)", "Bitcoin header"] {
         assert!(window.query_all_by_label(row).count() > 0, "expert mode has {row}");
     }
+    // The switch's name stands in two lines at most in the column of names.
+    let height = |label: &str| window.query_all_by_label(label).next().map_or(0.0, |node| node.rect().height());
+    let (line, name) = (height("Ticker"), height(late));
+    assert!(line > 0.0 && name <= line * 2.0 + 1.0, "the late switch's name takes {name} for lines of {line}");
     picture(&mut window, "coin-rule-rows-expert-en-dark");
     press(&mut window, "Details");
     assert!(window.query_by_label("Every 10 blocks; minimum difficulty after 2 block times").is_some());
