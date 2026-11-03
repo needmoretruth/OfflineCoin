@@ -22,6 +22,9 @@ fn app_copy(port: u16) -> Settings {
         scan_lan: false,
         broadcast: false,
         port,
+        // Whether it mines is what these look at, not how fast; other tests share the computer.
+        hash_cap: 1_000,
+        mining_threads: 1,
         ..Settings::default()
     }
 }
