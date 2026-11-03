@@ -45,6 +45,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("peers.about", "블록과 결제를 주고받는 컴퓨터입니다. 연결을 끊거나 잠시 막을 수 있습니다."),
     ("peers.none", "아직 연결된 컴퓨터가 없습니다."),
     ("peers.at", "{}의 컴퓨터"),
+    ("peers.this_miner", "이 컴퓨터의 다른 채굴기"),
+    ("peers.this_other", "이 컴퓨터의 다른 OLC 프로그램"),
     ("peers.by_tcp", "네트워크"),
     ("peers.by_usb", "USB 선"),
     ("peers.by_radio", "무선"),

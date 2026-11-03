@@ -46,6 +46,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("peers.about", "Computers this one swaps blocks and payments with. You can disconnect one or block it for a while."),
     ("peers.none", "Not connected to any computer yet."),
     ("peers.at", "Computer at {}"),
+    ("peers.this_miner", "Another miner on this computer"),
+    ("peers.this_other", "Another OLC program on this computer"),
     ("peers.by_tcp", "Network"),
     ("peers.by_usb", "USB cable"),
     ("peers.by_radio", "Radio"),

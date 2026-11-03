@@ -9,7 +9,9 @@ use crate::ui::explain;
 use crate::ui::format;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, button_on, card, cell, divider, field, header_cell, meta, mono, section, Columns, Kind};
+use crate::discovery::{Reach, Work};
 use egui::{Align, Label, Layout, Ui};
+use std::net::SocketAddr;
 
 /// Address, type, direction, ping, sent, received, version, since, and the buttons.
 const WEIGHTS: [f32; 9] = [1.4, 0.5, 0.6, 0.7, 0.7, 0.7, 0.9, 0.9, 3.2];
@@ -25,13 +27,26 @@ fn carried_text(cx: &Cx, carried: Carried) -> &'static str {
 }
 
 /// Who it is: the name its channels go by, else where it connects from.
+/// A connection from this same computer is one of its own miners when one of them mines.
 fn who(cx: &Cx, row: &PeerRow) -> String {
-    match (row.name.is_empty(), row.key.is_empty(), row.address.is_empty()) {
-        (false, _, _) => row.name.clone(),
-        (true, false, _) => cx.fill("ch.unnamed", &[&row.key[..row.key.len().min(8)]]),
-        (true, true, false) => cx.fill("peers.at", &[&row.address]),
-        (true, true, true) => carried_text(cx, row.carried).to_string(),
+    let ip = row.address.parse::<SocketAddr>().map(|at| at.ip()).ok();
+    if !row.name.is_empty() {
+        return row.name.clone();
     }
+    if ip.is_some_and(|ip| ip.is_loopback()) {
+        return cx.say(if this_computer_mines(cx) { "peers.this_miner" } else { "peers.this_other" }).to_string();
+    }
+    match (row.key.is_empty(), ip) {
+        (false, _) => cx.fill("ch.unnamed", &[&row.key[..row.key.len().min(8)]]),
+        (true, Some(ip)) => cx.fill("peers.at", &[&ip.to_string()]),
+        (true, None) if !row.address.is_empty() => cx.fill("peers.at", &[&row.address]),
+        (true, None) => carried_text(cx, row.carried).to_string(),
+    }
+}
+
+fn this_computer_mines(cx: &Cx) -> bool {
+    let entries = cx.snap.groups.iter().flat_map(|group| &group.chains).flat_map(|chain| &chain.entries);
+    entries.filter(|entry| entry.reach == Reach::ThisComputer).any(|entry| matches!(entry.work, Work::Mining(_) | Work::Cooling(_)))
 }
 
 fn direction(cx: &Cx, row: &PeerRow) -> &'static str {

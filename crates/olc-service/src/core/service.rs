@@ -230,6 +230,7 @@ impl Service {
             self.let_go();
             self.listen();
             self.step_swaps();
+            self.follow_payment();
             self.publish();
         }
     }

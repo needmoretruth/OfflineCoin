@@ -26,6 +26,7 @@ pub use olc_channel::{PayState, Phase};
 /// who it pays and at what fee, or the words and detail of why it cannot be paid.
 pub type Quoted = (u64, String, Result<Quote, (&'static str, String)>);
 
+mod paying;
 mod reach;
 pub use reach::read_channel_address;
 use reach::Waiting;
@@ -80,6 +81,8 @@ pub struct ChannelDesk {
     number: u64,
     quote: Option<Quoted>,
     waiting: Vec<Waiting>,
+    /// The last event before the payment sent last, until its ending is told.
+    paying_from: Option<u64>,
 }
 
 /// The chain, wallet and pool of the running node, as the channel node asks for them.
@@ -305,14 +308,17 @@ impl ChannelDesk {
             return;
         };
         let height = runner.engine.chain().height();
-        // The channel node heard on each connection, by the connection's number.
+        // The channel node heard on each connection, by the connection's number. A route names a
+        // neighbour, which may be heard on several connections of the network link.
         let routes = &self.routes;
+        let neighbours = runner.neighbours();
         let names: BTreeMap<u32, (String, String)> = node
             .peers()
             .into_iter()
-            .filter_map(|(key, name)| {
-                let peer = routes.get(&key).filter(|peer| Runner::link_of(**peer) == TCP_LINK)?;
-                Some((Runner::number_on_link(*peer), (name, hex(&key.0))))
+            .filter_map(|(key, name)| Some((neighbours.iter().find(|one| Some(&one.peer) == routes.get(&key))?, name, key)))
+            .flat_map(|(one, name, key)| {
+                let numbers = one.paths.iter().filter(|path| path.link == TCP_LINK).map(|path| path.number);
+                numbers.map(move |number| (number, (name.clone(), hex(&key.0)))).collect::<Vec<_>>()
             })
             .collect();
         let network = peers_of(runner, &|number| names.get(&number).cloned());
@@ -392,10 +398,12 @@ impl ChannelDesk {
                     Err(refusal) => return refused(refusal),
                 };
                 let ticker = ground.engine.chain().config().ticker.clone();
-                match node.pay(&text, &mut ground) {
+                let said = match node.pay(&text, &mut ground) {
                     Ok(_) => ("ch.paying", format!("{} {ticker}", format_coins(amount)), true),
-                    Err(refusal) => refused(refusal),
-                }
+                    Err(refusal) => return refused(refusal),
+                };
+                self.paying_now();
+                said
             }
         }
     }

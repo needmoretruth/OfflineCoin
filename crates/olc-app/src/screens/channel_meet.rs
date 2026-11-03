@@ -148,6 +148,8 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
     wait_in(&mut a, "a's side moved", 1, |snap| {
         snap.node.channels.channels.iter().any(|channel| channel.phase == Phase::Open && channel.theirs >= 3 * COIN)
     });
+    // The notice that it is on its way gives way to the one saying it arrived.
+    wait_in(&mut a, "the sending notice ends", 1, |snap| snap.notice.as_ref().is_some_and(|notice| notice.key == "ch.said_paid"));
     // A second request stays waiting, so the list shows both states.
     scroll_to(&mut b, "요청 만들기");
     fill(&mut b, Role::TextInput, "금액", "1");
@@ -166,6 +168,8 @@ fn two_computers_that_never_met_open_a_channel_by_address_and_pay() {
     save(&mut b, "ch-06-request-list-en-expert");
 
     a.state_mut().open("page.coins");
+    // The other computer goes by the name its hello carried, not by where it connects from.
+    wait_in(&mut a, "b's name on its connection", 1, |snap| snap.node.channels.network.rows.iter().any(|row| !row.name.is_empty()));
     a.run_steps(3);
     scroll_to(&mut a, "연결된 컴퓨터");
     save(&mut a, "ch-07-peers-ko-basic");
