@@ -191,6 +191,11 @@ pub trait Platform: Sync {
         None
     }
     fn usage(&self, pid: u32) -> Option<Usage>;
+    /// Every local address a TCP socket of this computer listens on at `port`, IPv4 and IPv6, as
+    /// the system's own table says. `None` where the system keeps no table to read.
+    fn listening_on(&self, _port: u16) -> Option<Vec<std::net::IpAddr>> {
+        None
+    }
 
     /// Shows a folder in the system's file manager.
     /// Shows a folder in the file manager. Web addresses go the same way.

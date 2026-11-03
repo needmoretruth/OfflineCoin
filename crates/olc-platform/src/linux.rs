@@ -57,6 +57,31 @@ fn rss_bytes(pid: u32) -> Option<u64> {
     Some(kib * 1024)
 }
 
+/// An address as the kernel's socket table writes it: each 32-bit word in the machine's order.
+fn table_address(hex: &str) -> Option<std::net::IpAddr> {
+    let mut bytes = Vec::with_capacity(16);
+    for at in (0..hex.len()).step_by(8) {
+        let word = u32::from_str_radix(hex.get(at..at + 8)?, 16).ok()?;
+        bytes.extend(u32::from_ne_bytes(word.to_be_bytes()).to_be_bytes());
+    }
+    match bytes.len() {
+        4 => Some(std::net::Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).into()),
+        16 => <[u8; 16]>::try_from(bytes).ok().map(|octets| std::net::Ipv6Addr::from(octets).into()),
+        _ => None,
+    }
+}
+
+/// The local addresses in one of the kernel's TCP tables that listen on `port`.
+fn listening_in(table: &str, port: u16) -> Vec<std::net::IpAddr> {
+    const LISTEN: &str = "0A";
+    let rows = table.lines().skip(1).map(|line| line.split_whitespace().collect::<Vec<_>>());
+    rows.filter(|fields| fields.get(3) == Some(&LISTEN))
+        .filter_map(|fields| fields.get(1)?.split_once(':').map(|(address, at)| (address.to_string(), at.to_string())))
+        .filter(|(_, at)| u16::from_str_radix(at, 16).ok() == Some(port))
+        .filter_map(|(address, _)| table_address(&address))
+        .collect()
+}
+
 fn cpu_ms(pid: u32) -> Option<u64> {
     let text = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // The name in brackets may hold spaces, so count from its end.
@@ -233,6 +258,14 @@ impl Platform for Os {
         })
     }
 
+    fn listening_on(&self, port: u16) -> Option<Vec<std::net::IpAddr>> {
+        let four = fs::read_to_string("/proc/net/tcp").ok()?;
+        let six = fs::read_to_string("/proc/net/tcp6").unwrap_or_default();
+        let mut found = listening_in(&four, port);
+        found.extend(listening_in(&six, port));
+        Some(found)
+    }
+
     fn places(&self) -> Vec<Place> {
         let Some(home) = unix::home() else {
             return Vec::new();
@@ -285,5 +318,23 @@ mod tests {
         let limits = Limits { name: "1".into(), memory_bytes: 1000, cpu_percent: 0 };
         let command = in_address_space(&limits, "olc-core", &[]);
         assert!(command.get_args().any(|word| word == "--as=8000"));
+    }
+
+    #[test]
+    fn the_kernel_tables_read_as_addresses() {
+        let head = "  sl  local_address rem_address   st\n";
+        let four = format!("{head}   0: 0100007F:0D05 00000000:0000 0A\n   1: 00000000:0D06 00000000:0000 0A\n   2: 0100007F:0D05 0100007F:9999 01\n");
+        assert_eq!(listening_in(&four, 3333), ["127.0.0.1".parse::<std::net::IpAddr>().unwrap()]);
+        assert_eq!(listening_in(&four, 3334), ["0.0.0.0".parse::<std::net::IpAddr>().unwrap()]);
+        let six = format!("{head}   0: 00000000000000000000000001000000:0D05 00000000000000000000000000000000:0000 0A\n");
+        assert_eq!(listening_in(&six, 3333), ["::1".parse::<std::net::IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn a_socket_this_test_opens_is_listed() {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let found = Os.listening_on(port).unwrap();
+        assert_eq!(found, ["127.0.0.1".parse::<std::net::IpAddr>().unwrap()]);
     }
 }
