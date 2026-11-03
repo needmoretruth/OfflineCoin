@@ -76,7 +76,7 @@ pub fn rows(ui: &mut Ui, cx: &Cx, who: Who) {
         let id = ui.make_persistent_id(("pool-join", who));
         let mut draft: Draft = ui.data_mut(|data| data.get_temp(id)).unwrap_or_default();
         if !draft.open {
-            if button(ui, t, cx.say("pool.join_open"), Kind::Quiet).clicked() {
+            if button(ui, t, cx.say("pool.join_open"), Kind::Plain).clicked() {
                 draft.open = true;
                 draft.user = first_user(cx, who);
             }

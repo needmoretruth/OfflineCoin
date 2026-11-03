@@ -25,6 +25,10 @@ const REFRESH_WORK: Duration = Duration::from_secs(20);
 const ASK_BOARDS_EVERY: Duration = Duration::from_secs(2);
 const PAY_EVERY: Duration = Duration::from_secs(5);
 const VIEW_EVERY: Duration = Duration::from_millis(500);
+/// How long a turn waits for the pool here to answer the shares just sent.
+const ANSWER_WITHIN: Duration = Duration::from_millis(50);
+/// How long a turn waits for the pool here to hand out the job of a new block.
+const NEW_JOB_WITHIN: Duration = Duration::from_millis(150);
 /// The name the app's own miner signs in with, after its address.
 const OWN_WORKER: &str = "core";
 
@@ -70,6 +74,8 @@ pub struct PoolSeat {
     viewed: Option<Instant>,
     error: Option<(&'static str, String)>,
     view: PoolView,
+    /// The chain's tip at the pool's last turn.
+    tip: Option<olc_core::Hash>,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -266,11 +272,10 @@ impl PoolSeat {
             self.resumed = true;
             self.resume(cx);
         }
-        self.step_pool(cx.host);
-        let mining = !self.links.contains_key(&Who::Own) || cx.host.view().mining;
+        // What the miners found goes before the pool takes in a new block, which ends the jobs it
+        // was found on: sent after, every share of the last turn would be refused as old work.
         let node_shares = std::mem::take(&mut self.node_shares);
         for (who, link) in &mut self.links {
-            link.hand_work(*who, mining, cx);
             let found: Vec<BlockHeader> = match who {
                 Who::Own => cx.host.take_shares(),
                 Who::Node(id) => node_shares.iter().filter(|(from, _)| from == id).map(|(_, header)| *header).collect(),
@@ -279,6 +284,24 @@ impl PoolSeat {
             for header in &found {
                 link.client.submit(header);
             }
+            // The pool here answers within a moment; one elsewhere keeps its own order.
+            if link.here && !found.is_empty() {
+                link.client.settle(None, ANSWER_WITHIN);
+            }
+        }
+        let before: Vec<(Who, u64)> = self.links.iter().filter(|(_, link)| link.here).map(|(who, link)| (*who, link.client.generation())).collect();
+        if self.step_pool(cx.host) {
+            // A new block ended every job: the miners here wait for the new one rather than grind
+            // a turn more on work the pool no longer takes.
+            for (who, generation) in before {
+                if let Some(link) = self.links.get(&who) {
+                    link.client.settle(Some(generation), NEW_JOB_WITHIN);
+                }
+            }
+        }
+        let mining = !self.links.contains_key(&Who::Own) || cx.host.view().mining;
+        for (who, link) in &mut self.links {
+            link.hand_work(*who, mining, cx);
         }
         self.refresh_view(cx);
     }
@@ -296,15 +319,16 @@ impl PoolSeat {
         }
     }
 
-    fn step_pool(&mut self, host: &Host) {
+    /// The pool's turn with the chain. True when the chain moved, so every job before is over.
+    fn step_pool(&mut self, host: &Host) -> bool {
         let Some(running) = &self.running else {
-            return;
+            return false;
         };
         let Ok(mut pool) = running.pool.lock() else {
-            return;
+            return false;
         };
         let Ok(mut runner) = host.ready() else {
-            return;
+            return false;
         };
         let now = unix_ms();
         for block in pool.take_blocks() {
@@ -317,6 +341,10 @@ impl PoolSeat {
             self.paid_at = Some(Instant::now());
             pool.pay(&mut runner.engine);
         }
+        let tip = runner.engine.chain().tip();
+        let moved = self.tip.is_some_and(|before| before != tip);
+        self.tip = Some(tip);
+        moved
     }
 
     fn refresh_view(&mut self, cx: &mut PoolCx) {

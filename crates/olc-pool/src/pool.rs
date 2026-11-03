@@ -121,6 +121,8 @@ pub struct Pool {
     pub(crate) workers: BTreeMap<String, Stats>,
     pub(crate) found: Vec<Found>,
     pub(crate) outbox: Vec<Block>,
+    /// The parent of the last block the pool sealed: one more on it would only race the first.
+    pub(crate) sealed_on: Option<Hash>,
 }
 
 /// True when `header`'s hash meets `difficulty`, read as Bitcoin Core's `CheckProofOfWork` reads it.
@@ -154,6 +156,7 @@ impl Pool {
             workers: BTreeMap::new(),
             found: Vec::new(),
             outbox: Vec::new(),
+            sealed_on: None,
         }
     }
 
@@ -264,7 +267,9 @@ impl Pool {
             _ => return self.refuse(session, Some(worker), Refusal::Weak),
         };
         let number = job.number;
-        let sealed = meets(&header, header.difficulty);
+        // A share that would seal a second block on the parent of one already sent still counts as
+        // work, as it was; sending it too would only make the pool race itself.
+        let sealed = meets(&header, header.difficulty) && self.sealed_on != Some(header.previous);
         if let Some(job) = self.jobs.iter_mut().find(|job| job.number == number) {
             job.seen.insert(key);
         }
@@ -316,6 +321,7 @@ impl Pool {
             credits: self.ledger.close_round(),
             split: None,
         });
+        self.sealed_on = Some(block.header.previous);
         self.outbox.push(block);
         while self.found.len() > MOST_BLOCKS_KEPT {
             let at = self.found.iter().position(|found| matches!(found.state, BlockState::Paid | BlockState::Lost));

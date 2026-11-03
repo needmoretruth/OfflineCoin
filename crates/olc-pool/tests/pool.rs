@@ -135,3 +135,28 @@ fn a_pool_of_one_keeps_its_blocks() {
     assert_eq!(pool.workers(now)[0].paid, value);
     assert_eq!(pool.blocks()[0].state, BlockState::Paid);
 }
+
+/// Two shares on one job may both reach the block's difficulty. The pool sends one block on that
+/// parent and counts the other as the work it was, so it never races itself with its own block.
+#[test]
+fn a_second_share_that_seals_the_same_parent_counts_but_makes_no_second_block() {
+    let pool_node = node(1);
+    let mut pool = Pool::new(pool_node.address(), Plan { fixed_difficulty: Some(1), ..Plan::default() });
+    let now = start_ms();
+    pool.refresh(&pool_node, now);
+    let mut me = Miner::join(&mut pool, &user(2, "rig"), now);
+    let grinder = node(9);
+    let mut sealing = 0;
+    let mut accepted = 0;
+    while sealing < 2 {
+        let header = me.find(&grinder);
+        assert_eq!(me.submit(&mut pool, &header, now), Ok(()));
+        accepted += 1;
+        if olc_pool::meets(&header, header.difficulty) {
+            sealing += 1;
+        }
+    }
+    assert_eq!(pool.take_blocks().len(), 1, "one block on the parent");
+    assert_eq!(pool.blocks().len(), 1);
+    assert_eq!(pool.workers(now)[0].accepted, accepted, "every share counted");
+}

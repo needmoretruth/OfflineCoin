@@ -56,6 +56,12 @@ impl PoolTab {
         let view = cx.snap.pool.clone();
         if view.running {
             running(ui, cx, &view);
+        } else if view.links.iter().any(|link| !link.here) {
+            // A computer that works in a pool elsewhere sees that pool first, then how to open one.
+            super::pool_join::page_card(ui, cx, &view);
+            ui.add_space(tokens::GAP_WIDE);
+            self.form(ui, cx, &view);
+            return;
         } else {
             self.form(ui, cx, &view);
         }

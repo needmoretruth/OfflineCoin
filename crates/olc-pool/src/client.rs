@@ -13,6 +13,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 const TURN: Duration = Duration::from_millis(100);
+/// How often `settle` looks again.
+const SETTLE_TURN: Duration = Duration::from_millis(2);
 const DIAL_WITHIN: Duration = Duration::from_secs(5);
 const AGAIN_AFTER: Duration = Duration::from_secs(5);
 /// A pool that said nothing for this long is dialled again.
@@ -65,7 +67,22 @@ struct State {
     handed: BTreeMap<Hash, (String, Vec<u8>)>,
     order: VecDeque<Hash>,
     outbox: Vec<String>,
+    /// The connection's sending half while it is open: lines go out under this lock, whole.
+    writer: Option<TcpStream>,
+    /// Shares sent that the pool has not answered yet.
+    unanswered: u64,
     next_id: u64,
+}
+
+impl State {
+    /// Sends what waits, at once. False when the connection broke.
+    fn flush(&mut self) -> bool {
+        let Some(writer) = self.writer.as_mut() else {
+            return true;
+        };
+        let lines = std::mem::take(&mut self.outbox);
+        lines.iter().all(|line| writer.write_all(line.as_bytes()).is_ok())
+    }
 }
 
 pub struct Client {
@@ -134,6 +151,31 @@ impl Client {
         let id = state.next_id;
         state.next_id += 1;
         state.outbox.push(request(id, "mining.submit", params));
+        if state.writer.is_some() {
+            state.unanswered += 1;
+        }
+        // Sent now, not at the reader's next turn: a share only counts on the job it was found on.
+        // A broken connection is the reader's to notice.
+        let _ = state.flush();
+    }
+
+    /// Waits, at most `within`, until the pool answered every share sent, or work since `generation`
+    /// came. True when it did.
+    pub fn settle(&self, generation: Option<u64>, within: Duration) -> bool {
+        let started = Instant::now();
+        loop {
+            let done = self.state.lock().map_or(true, |state| match generation {
+                Some(before) => state.generation != before,
+                None => state.unanswered == 0 || state.writer.is_none(),
+            });
+            if done {
+                return true;
+            }
+            if started.elapsed() >= within {
+                return false;
+            }
+            thread::sleep(SETTLE_TURN);
+        }
     }
 }
 
@@ -153,6 +195,10 @@ fn keep_joined(address: &str, user: &str, password: &str, state: &Mutex<State>, 
             state.view.link = link;
             state.jobs.clear();
             state.generation += 1;
+            // Shares of the connection that ended are of jobs no pool holds any more.
+            state.writer = None;
+            state.outbox.clear();
+            state.unanswered = 0;
         }
         let wait = Instant::now();
         while wait.elapsed() < AGAIN_AFTER && !stop.load(Ordering::Relaxed) {
@@ -181,12 +227,17 @@ fn once(address: &str, user: &str, password: &str, state: &Mutex<State>, stop: &
     if hello.iter().any(|line| stream.write_all(line.as_bytes()).is_err()) {
         return Link::Unreachable;
     }
+    let Ok(writer) = stream.try_clone() else {
+        return Link::Unreachable;
+    };
+    if let Ok(mut state) = state.lock() {
+        state.writer = Some(writer);
+    }
     let mut buffer: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4_096];
     let mut heard = Instant::now();
     while !stop.load(Ordering::Relaxed) {
-        let outbox = state.lock().map(|mut state| std::mem::take(&mut state.outbox)).unwrap_or_default();
-        if outbox.iter().any(|line| stream.write_all(line.as_bytes()).is_err()) {
+        if !state.lock().is_ok_and(|mut state| state.flush()) {
             return Link::Unreachable;
         }
         match stream.read(&mut chunk) {
@@ -258,8 +309,12 @@ fn take(state: &mut State, message: &Value) -> Option<Link> {
         }
         2 if result.as_bool() != Some(true) => return Some(Link::NameRefused),
         2 => {}
-        _ if result.as_bool() == Some(true) => state.view.accepted += 1,
+        _ if result.as_bool() == Some(true) => {
+            state.unanswered = state.unanswered.saturating_sub(1);
+            state.view.accepted += 1;
+        }
         _ => {
+            state.unanswered = state.unanswered.saturating_sub(1);
             state.view.refused += 1;
             let reason = error.and_then(|error| error.get(1)?.as_str().map(str::to_string));
             state.view.last_refusal = reason;

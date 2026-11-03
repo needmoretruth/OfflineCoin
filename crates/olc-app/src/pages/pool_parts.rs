@@ -7,11 +7,13 @@ use crate::ui::explain::{self, Choice};
 use crate::ui::format;
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{cell, dot, header_cell, meta, right_cell, tag, Columns};
-use egui::{vec2, Color32, CornerRadius, Rect, RichText, Sense, Ui};
+use egui::{vec2, Align, Color32, CornerRadius, Layout, Rect, RichText, Sense, Ui};
 
 /// The blocks listed before older ones fold away.
 const BLOCKS_SHOWN: usize = 6;
 const BAR: f32 = 18.0;
+/// The first column of the workers table that holds a figure: accepted, refused, paid, difficulty.
+const FIRST_FIGURE: usize = 3;
 
 /// The part after the address in `address.worker`.
 fn worker_of(name: &str) -> &str {
@@ -39,7 +41,14 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
         weights.push(0.9);
     }
     let columns = Columns::new(ui, &weights);
-    columns.row(ui, |ui, index| header_cell(ui, t, cx.say(keys[index])));
+    // Figures stand right in their columns, and so do the words above them.
+    columns.row(ui, |ui, index| {
+        if index >= FIRST_FIGURE {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| header_cell(ui, t, cx.say(keys[index])));
+        } else {
+            header_cell(ui, t, cx.say(keys[index]));
+        }
+    });
     for row in &view.workers {
         columns.row(ui, |ui, index| match index {
             0 => {

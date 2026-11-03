@@ -22,10 +22,15 @@ fn coin() -> CoinConfig {
     let values = vec![
         ("name".into(), "Pool Test".into()),
         ("ticker".into(), "PLT".into()),
-        ("rules.block_time_ms".into(), "6000".into()),
+        ("rules.block_time_ms".into(), "8000".into()),
         ("genesis_time_ms".into(), now.to_string()),
     ];
-    new_coin(&NewCoin { values }).unwrap()
+    let mut coin = new_coin(&NewCoin { values }).unwrap();
+    // About what two capped miners find in the block time, so blocks come about as often as the
+    // coin says from the first one, and the refused shares are the few a real pool sees.
+    coin.initial_difficulty = 8_000;
+    coin.rules.min_difficulty = 1;
+    coin
 }
 
 fn shots() -> PathBuf {
@@ -80,7 +85,11 @@ fn report(window: &Window, who: &str) {
     let snap = window.state().snapshot();
     let pool = &snap.pool;
     let workers: Vec<String> = pool.workers.iter().map(|row| format!("{} {}/{} paid {}", row.worker, row.accepted, row.refused, row.paid)).collect();
-    let links: Vec<String> = pool.links.iter().map(|row| format!("{:?} {:?} {}/{}", row.join.who, row.view.link, row.view.accepted, row.view.refused)).collect();
+    let links: Vec<String> = pool
+        .links
+        .iter()
+        .map(|row| format!("{:?} {:?} {}/{} {:?}", row.join.who, row.view.link, row.view.accepted, row.view.refused, row.view.last_refusal))
+        .collect();
     tell(&format!("  {who}: running {}, workers {workers:?}, links {links:?}, found {}", pool.running, pool.found.len()));
 }
 
@@ -101,7 +110,8 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     let mut b = window(&b_root, port_of_scene(47), &[format!("127.0.0.1:{a_port}")], PoolSettings::default(), &coin);
 
     // A: the app's miner is the first worker, and every miner it knows is listed.
-    assert!(a.query(By::new().label("이 컴퓨터")).is_some(), "this computer is not listed");
+    save(&mut a, "pool-00-form-ko-basic");
+    assert!(a.query_all(By::new().label_contains("이 컴퓨터")).next().is_some(), "this computer is not listed");
     press_till(&mut a, "풀 시작", |window| window.state().snapshot().pool.running);
     report(&a, "a after start");
 
@@ -142,6 +152,14 @@ fn a_second_computer_joins_the_pool_by_address_and_both_are_paid() {
     let paid = snap.pool.found.iter().find(|row| row.state == BlockState::Paid).unwrap();
     let laptop = paid.parts.iter().find(|(name, _)| name.ends_with(".laptop"));
     assert!(laptop.is_some_and(|(_, amount)| *amount > 0), "the other computer is paid: {paid:?}");
+    // The pool's own miner sends what it found before the pool takes a new block, so few of its
+    // shares are refused as old work: 5 of 21 were before it did.
+    let own = snap.pool.workers.iter().find(|row| row.here == Some(Who::Own)).expect("this computer works");
+    assert!(own.refused * 10 <= own.accepted, "{} refused of {}", own.refused, own.accepted);
+    // Two shares that both seal the same parent make one block, not two of one height.
+    let mut heights: Vec<u64> = snap.pool.found.iter().map(|row| row.height).collect();
+    heights.dedup();
+    assert_eq!(heights.len(), snap.pool.found.len(), "one block a height: {heights:?}");
     assert!(has(&a, "풀 멈추기"));
     tell("done: a second computer joined the pool by address and both were paid");
 }

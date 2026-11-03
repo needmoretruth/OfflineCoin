@@ -35,6 +35,8 @@ impl Pool {
         found.state = BlockState::Lost;
         let credits = std::mem::take(&mut found.credits);
         self.ledger.reopen(credits);
+        // The node did not take it, so the next share that seals on the same parent may.
+        self.sealed_on = None;
     }
 
     /// Hands out every block's coins once they can be spent, and marks a block that left the
