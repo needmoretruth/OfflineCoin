@@ -82,7 +82,7 @@ struct Boards(Mutex<Desk>);
 
 impl Desk {
     /// Puts what board one sends on its way: down the cable to the app, or over the radio to zero.
-    fn from_one(&mut self, forward: Forward, bytes: Vec<u8>) {
+    fn one_sends(&mut self, forward: Forward, bytes: Vec<u8>) {
         let to_app = matches!(forward, Forward::Peer(APP_ON_ONE) | Forward::All | Forward::AllExcept(ZERO_ON_ONE));
         let to_zero = matches!(forward, Forward::Peer(ZERO_ON_ONE) | Forward::All | Forward::AllExcept(APP_ON_ONE));
         if to_zero {
@@ -114,14 +114,14 @@ impl Desk {
             let verdict = self.one.router.incoming(peer, &packet);
             if verdict.forward != Forward::Nowhere {
                 packet.hops += 1;
-                self.from_one(verdict.forward, packet.encode());
+                self.one_sends(verdict.forward, packet.encode());
                 packet.hops -= 1;
             }
             if verdict.for_me {
                 if let Handling::Pass(peer, passed) = handle(&packet, &self.one.address, &self.one.gate, &self.one.heard) {
                     assert_eq!(peer, ZERO_ON_ONE, "board one passes work to the peer board zero spoke from");
                     self.one.passed += 1;
-                    self.from_one(Forward::Peer(peer), passed.encode());
+                    self.one_sends(Forward::Peer(peer), passed.encode());
                 }
             }
         }

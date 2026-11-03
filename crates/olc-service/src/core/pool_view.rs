@@ -152,7 +152,8 @@ pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos:
                 Choice { who: Some(Who::Lent(hello.address)), label, through: Some(relay.seen.beacon.name.clone()), why_not: None, speed }
             }
             _ => {
-                let through = (!hello.card.via.0.is_empty()).then(|| hello.card.via.0.clone());
+                let medium = (!hello.card.via.0.is_empty()).then(|| hello.card.via.0.clone());
+                let through = on_cable(rows, *link).map(|row| row.seen.beacon.name.clone()).or(medium);
                 Choice { who: None, label, through, why_not: Some("pool.why_heard_only"), speed }
             }
         }
@@ -166,9 +167,14 @@ fn lends(build: &str) -> bool {
 
 /// The board on this app's `link` that passes pool work on, when it runs a build that can.
 pub fn relay_of(rows: &[BoardRow], link: Option<usize>) -> Option<&BoardRow> {
-    let link = link?;
-    let relay = rows.iter().find(|row| row.seen.connection == Connection::Direct { link })?;
+    let relay = on_cable(rows, link)?;
     (relay.seen.online && lends(&relay.seen.beacon.build)).then_some(relay)
+}
+
+/// The board on the cable that is this app's `link`.
+fn on_cable(rows: &[BoardRow], link: Option<usize>) -> Option<&BoardRow> {
+    let link = link?;
+    rows.iter().find(|row| row.seen.connection == Connection::Direct { link })
 }
 
 pub fn short_address(address: &str) -> String {
@@ -320,12 +326,15 @@ mod tests {
         assert_eq!(board.why_not, None);
         assert_eq!(board.through.as_deref(), Some("보드원"));
         // Either board on an older build, or a hello from a link no board of this app is on, keeps
-        // the reason.
-        for (zero_build, one_build, link) in [("i17", new.as_str(), Some(2)), (new.as_str(), "i17", Some(2)), (new.as_str(), new.as_str(), Some(5))] {
+        // the reason, and names the board it is heard through when that board is on a cable here.
+        let old = format!("i{}", FIRST_LEND_BUILD - 1);
+        let cases = [(old.as_str(), new.as_str(), Some(2), "보드원"), (new.as_str(), old.as_str(), Some(2), "보드원"), (new.as_str(), new.as_str(), Some(5), "espnow")];
+        for (zero_build, one_build, link, through) in cases {
             let zero = board_zero(zero_build);
             let all = choices(&[], &[board_one(one_build)], &[(&zero, link)], 1_000);
             let board = all.iter().find(|choice| choice.label == "보드제로").unwrap();
             assert_eq!((board.who, board.why_not), (None, Some("pool.why_heard_only")), "{zero_build} {one_build} {link:?}");
+            assert_eq!(board.through.as_deref(), Some(through));
         }
     }
 }

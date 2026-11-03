@@ -2,7 +2,7 @@
 //! pool found and where every coin of each went, and what is behind Details.
 use super::pool::label_of;
 use super::Cx;
-use crate::core::{BlockState, FoundRow, PoolView, WorkerRow};
+use crate::core::{BlockState, FoundRow, PoolView, Who, WorkerRow};
 use crate::ui::explain::{self, Choice};
 use crate::ui::format;
 use crate::ui::tokens::{self, Tokens};
@@ -114,32 +114,57 @@ pub fn found_blocks(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     }
 }
 
+/// One piece of a bar: whose, how much, and how it is drawn.
+struct Part {
+    name: String,
+    units: u64,
+    colour: Color32,
+    /// The pool's own share: a thin line in the bar, since it is nobody's work.
+    thin: bool,
+}
+
+/// Colour is for the person and for states only: this computer's part is the person's blue, and
+/// every other worker a grey, from the strongest ink to a faint one in the order they are listed.
+fn shades(t: &Tokens, mine: &[bool]) -> Vec<Color32> {
+    let others = mine.iter().filter(|mine| !**mine).count();
+    let faint = t.soft.lerp_to_gamma(t.card_top, 0.55);
+    let mut step = 0;
+    let mut grey = || {
+        let at = if others > 1 { step as f32 / (others - 1) as f32 } else { 0.0 };
+        step += 1;
+        t.soft.lerp_to_gamma(faint, at)
+    };
+    mine.iter().map(|mine| if *mine { t.info } else { grey() }).collect()
+}
+
 /// Where a block's coins went, as one bar cut by worker, then each part in words.
 fn split(ui: &mut Ui, cx: &Cx, view: &PoolView, row: &FoundRow) {
     let t = cx.t;
     let here = |name: &str| view.workers.iter().find(|worker| worker.name == name).and_then(|worker| worker.here);
-    let mut parts: Vec<(String, u64)> = row
+    let mine: Vec<bool> = row.parts.iter().map(|(name, _)| here(name) == Some(Who::Own)).collect();
+    let mut parts: Vec<Part> = row
         .parts
         .iter()
-        .map(|(name, amount)| {
+        .zip(shades(t, &mine))
+        .map(|((name, amount), colour)| {
             let who = here(name);
             let shown = if who.is_some() { label_of(cx, who, worker_of(name)) } else { worker_of(name).to_string() };
-            (shown, *amount)
+            Part { name: shown, units: *amount, colour, thin: false }
         })
         .collect();
     if row.pool_fee > 0 {
-        parts.push((cx.say("pool.kept").to_string(), row.pool_fee));
+        parts.push(Part { name: cx.say("pool.kept").to_string(), units: row.pool_fee, colour: t.muted, thin: true });
     }
     ui.add_space(4.0);
-    bar(ui, t, &parts, row.value);
+    bar(ui, t, &parts, row.value, |units| format::payout_amount(cx.voice(), units));
     ui.horizontal_wrapped(|ui| {
-        for (index, (name, amount)) in parts.iter().enumerate() {
-            swatch(ui, colour(t, index));
-            ui.label(format!("{name} {}", format::payout(cx.voice(), *amount, cx.ticker())));
+        for part in &parts {
+            swatch(ui, part.colour);
+            ui.label(format!("{} {}", part.name, format::payout(cx.voice(), part.units, cx.ticker())));
             ui.add_space(tokens::GAP);
         }
     });
-    let paid: u64 = parts.iter().map(|(_, amount)| amount).sum();
+    let paid: u64 = parts.iter().map(|part| part.units).sum();
     let left = row.value.saturating_sub(paid);
     let shown = |units| format::payout(cx.voice(), units, cx.ticker());
     let sum = cx.fill("pool.split_sum", &[&shown(paid), &shown(row.value)]);
@@ -149,31 +174,27 @@ fn split(ui: &mut Ui, cx: &Cx, view: &PoolView, row: &FoundRow) {
     }
 }
 
-fn colour(t: &Tokens, index: usize) -> Color32 {
-    let all = [t.main_top, t.info, t.good, t.warn, t.soft, t.line_strong];
-    all[index % all.len()]
-}
-
 fn swatch(ui: &mut Ui, colour: Color32) {
     let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(2), colour);
 }
 
-/// One bar, cut in proportion to each part.
-fn bar(ui: &mut Ui, t: &Tokens, parts: &[(String, u64)], whole: u64) {
+/// One bar, cut in proportion to each part, read aloud as each part's name and `say` of it.
+fn bar(ui: &mut Ui, t: &Tokens, parts: &[Part], whole: u64, say: impl Fn(u64) -> String) {
     let width = ui.available_width().min(720.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, BAR), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(tokens::RADIUS_TAG), t.line);
     let whole = whole.max(1) as f32;
     let mut left = rect.left();
-    for (index, (_, amount)) in parts.iter().enumerate() {
-        let wide = rect.width() * (*amount as f32 / whole);
+    for part in parts {
+        let wide = rect.width() * (part.units as f32 / whole);
         let piece = Rect::from_min_size(egui::pos2(left, rect.top()), vec2(wide, rect.height()));
-        painter.rect_filled(piece.shrink2(vec2(0.5, 0.0)), CornerRadius::same(3), colour(t, index));
+        let piece = if part.thin { piece.shrink2(vec2(0.5, rect.height() * 0.3)) } else { piece.shrink2(vec2(0.5, 0.0)) };
+        painter.rect_filled(piece, CornerRadius::same(3), part.colour);
         left += wide;
     }
-    let said: Vec<String> = parts.iter().map(|(name, amount)| format!("{name} {}", format::amount(*amount))).collect();
+    let said: Vec<String> = parts.iter().map(|part| format!("{} {}", part.name, say(part.units))).collect();
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, said.join(", ")));
 }
 
@@ -181,17 +202,22 @@ fn bar(ui: &mut Ui, t: &Tokens, parts: &[(String, u64)], whole: u64) {
 /// on the same four questions.
 pub fn how_it_works(ui: &mut Ui, cx: &Cx, last_shares: u64) {
     let t = cx.t;
-    let example: Vec<(String, u64)> =
-        [50, 30, 20].iter().enumerate().map(|(index, part)| (cx.fill("pool.pic_miner", &[&(index + 1).to_string()]), *part)).collect();
+    // Three miners, none of them this computer.
+    let example: Vec<Part> = [50, 30, 20]
+        .iter()
+        .zip(shades(t, &[false; 3]))
+        .enumerate()
+        .map(|(index, (part, colour))| Part { name: cx.fill("pool.pic_miner", &[&(index + 1).to_string()]), units: *part, colour, thin: false })
+        .collect();
     meta(ui, cx.say("pool.pic_work"), t);
-    bar(ui, t, &example, 100);
+    bar(ui, t, &example, 100, |part| format!("{part}%"));
     ui.add_space(4.0);
     meta(ui, cx.say("pool.pic_coins"), t);
-    bar(ui, t, &example, 100);
+    bar(ui, t, &example, 100, |part| format!("{part}%"));
     ui.horizontal_wrapped(|ui| {
-        for (index, (name, part)) in example.iter().enumerate() {
-            swatch(ui, colour(t, index));
-            ui.label(format!("{name} {part}%"));
+        for part in &example {
+            swatch(ui, part.colour);
+            ui.label(format!("{} {}%", part.name, part.units));
             ui.add_space(tokens::GAP);
         }
     });

@@ -8,6 +8,7 @@
 use crate::gate::Gate;
 use crate::packet::{Body, Packet};
 use crate::router::MAX_HOPS;
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use olc_crypto::{hash, Hash};
@@ -79,7 +80,7 @@ pub enum Handling {
     /// Grind this header to this difficulty for the packet's sender. `None` stops lent work.
     Take(Option<(Vec<u8>, u64)>),
     /// Send this packet to this peer, the board the work is for.
-    Pass(u32, Packet),
+    Pass(u32, Box<Packet>),
     Ignore,
 }
 
@@ -106,7 +107,7 @@ pub fn handle(packet: &Packet, me: &Address, gate: &Gate, heard: &Heard) -> Hand
                 hops: MAX_HOPS,
                 ..packet.clone()
             };
-            Handling::Pass(peer, passed)
+            Handling::Pass(peer, Box::new(passed))
         }
         _ => Handling::Ignore,
     }

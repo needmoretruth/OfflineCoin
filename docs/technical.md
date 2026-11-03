@@ -45,6 +45,8 @@ The BOOT button changes the screen between basic, detail and easy. Hold it to sw
 
 Commands over USB serial: `status`, `screen`, `boots`, `logo`, `view`, `lang`, `mine`, `limit`, `smooth`, `power`, `bright`, `ignore`, `offline`, `espnow`, `bluetooth`, `links`, `length`, `near`, `wires`, `pay`, `pool`, `tx`, `trust`, `name`, `clock`, `full`, `network`, `wifi`, `dial`, `keys`, `key`, `mineto`, `keep`, `light`, `merge`, `note`, `minenote`, `snapshot`, `coin`, `work`.
 
+A pool on the computer gives a board on its cable work with `work`. A board heard only through another board gets the same work as a control packet signed with the app's control key: the board on the cable checks the signature and passes it one hop on by ESP-NOW, the board it is for checks it again and sends back what reached the difficulty the same way, and the pool credits that board's own address. Lent work ends a minute after the pool last renewed it. Both boards need build i19 or later.
+
 If a board's screen stays dark after powering up, press RST once: some boards stop in download mode.
 
 ## Connections

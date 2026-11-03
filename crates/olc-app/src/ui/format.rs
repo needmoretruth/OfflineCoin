@@ -89,15 +89,20 @@ pub fn coins(units: u64, ticker: &str) -> String {
 /// What a pool paid, to two decimals at most for a reader who wants to know about how much, and
 /// to the last unit for an expert. A payout too small to show says so rather than reading as 0.
 pub fn payout(voice: Voice, units: u64, ticker: &str) -> String {
+    format!("{} {ticker}", payout_amount(voice, units))
+}
+
+/// A payout as `payout` says it, with no coin's name beside it.
+pub fn payout_amount(voice: Voice, units: u64) -> String {
     if voice.mode == i18n::Mode::Expert {
-        return coins(units, ticker);
+        return amount(units);
     }
     let cent = COIN / 100;
     let near = units.saturating_add(cent / 2) / cent * cent;
     if units > 0 && near == 0 {
-        return format!("< {}", coins(cent, ticker));
+        return format!("< {}", amount(cent));
     }
-    coins(near, ticker)
+    amount(near)
 }
 
 /// An amount with no coin's name beside it. No page draws an amount any other way.
