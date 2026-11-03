@@ -59,9 +59,9 @@ fn window(root: &Path, port: u16, peers: &[String], pool: PoolSettings, coin: &C
     let mut window = harness(app(root.to_path_buf(), settings, None), SIZE);
     window.state().send(crate::core::Command::Join { coin: Box::new(coin.clone()), address: None });
     wait_in(&mut window, "the coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "PLT"));
-    window.state_mut().open("page.boards");
+    window.state_mut().open("page.mining");
     window.run_steps(3);
-    press(&mut window, "함께 채굴");
+    scroll_to(&mut window, "이 컴퓨터에서 풀 열기");
     window
 }
 

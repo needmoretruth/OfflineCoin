@@ -169,7 +169,6 @@ impl Page for Mining {
         Self::boards(ui, cx);
         ui.add_space(tokens::GAP_PAGE);
         section(ui, cx.say("mining.together"));
-        explain::short(ui, t, cx.say("mining.together_about"));
         ui.add_space(tokens::GAP);
         self.pool.show(ui, cx);
     }
