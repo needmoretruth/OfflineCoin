@@ -62,6 +62,12 @@ impl Gate {
         self.key.is_some()
     }
 
+    /// Whether the trusted key signed `digest`. Nothing is counted, so only what is harmless to
+    /// hear twice may rest on this.
+    pub fn signed_by_key(&self, digest: &Hash, signature: &[u8]) -> bool {
+        self.key.is_some_and(|key| verify(&key, digest, signature))
+    }
+
     /// Checks one order and returns what it asks. The caller saves the new counter first, so a
     /// power cut cannot make an order valid twice.
     pub fn admit(&mut self, signed: &Signed) -> Result<Action, Refusal> {

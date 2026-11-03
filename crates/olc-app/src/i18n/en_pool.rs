@@ -7,7 +7,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.through", "through {}"),
     ("pool.why_silent", "It is not answering right now."),
     ("pool.why_old", "Its program is too old for pool work. Update the board first."),
-    ("pool.why_heard_only", "It is heard only through another board, so this app cannot give it work. Connect it by cable once and update it."),
+    ("pool.why_heard_only", "It is heard only through another board. Update both boards so it can take pool work."),
     ("pool.why_not_running", "It is not running. Start it first."),
     ("pool.open", "Let other computers join"),
     ("pool.open_about", "Other computers on your network join with this computer's address. Your firewall may ask you first."),

@@ -63,7 +63,7 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
             2 => cell(ui, last_share(cx, row.last_share_secs)),
             3 => right_cell(ui, format::number(row.accepted.into())),
             4 => right_cell(ui, format::number(row.refused.into())),
-            5 => right_cell(ui, format::coins(row.paid, cx.ticker())),
+            5 => right_cell(ui, format::payout(cx.voice(), row.paid, cx.ticker())),
             _ => right_cell(ui, format::number(row.difficulty.into())),
         });
     }
@@ -96,7 +96,7 @@ pub fn found_blocks(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     for (at, row) in view.found.iter().take(BLOCKS_SHOWN).enumerate() {
         ui.horizontal(|ui| {
             ui.label(RichText::new(cx.fill("pool.block", &[&format::number(row.height.into())])).strong());
-            ui.label(format::coins(row.value, cx.ticker()));
+            ui.label(format::payout(cx.voice(), row.value, cx.ticker()));
             let (key, colour) = state_of(t, row.state);
             tag(ui, cx.say(key), colour, t);
             meta(ui, &format::ago(cx.voice(), row.secs_ago.saturating_mul(1_000), 0), t);
@@ -135,16 +135,17 @@ fn split(ui: &mut Ui, cx: &Cx, view: &PoolView, row: &FoundRow) {
     ui.horizontal_wrapped(|ui| {
         for (index, (name, amount)) in parts.iter().enumerate() {
             swatch(ui, colour(t, index));
-            ui.label(format!("{name} {}", format::coins(*amount, cx.ticker())));
+            ui.label(format!("{name} {}", format::payout(cx.voice(), *amount, cx.ticker())));
             ui.add_space(tokens::GAP);
         }
     });
     let paid: u64 = parts.iter().map(|(_, amount)| amount).sum();
     let left = row.value.saturating_sub(paid);
-    let sum = cx.fill("pool.split_sum", &[&format::coins(paid, cx.ticker()), &format::coins(row.value, cx.ticker())]);
+    let shown = |units| format::payout(cx.voice(), units, cx.ticker());
+    let sum = cx.fill("pool.split_sum", &[&shown(paid), &shown(row.value)]);
     meta(ui, &sum, t);
     if left > 0 {
-        meta(ui, &cx.fill("pool.payment_fee", &[&format::coins(left, cx.ticker())]), t);
+        meta(ui, &cx.fill("pool.payment_fee", &[&shown(left)]), t);
     }
 }
 

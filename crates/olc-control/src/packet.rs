@@ -140,6 +140,13 @@ pub enum Body {
         done: u32,
         runs: Vec<(u32, u32)>,
     },
+    /// Pool work for a board this computer reaches only through another. See [`crate::lend`].
+    Lend(crate::lend::Lent),
+    /// Headers that reached lent work's difficulty, from the board that ground them.
+    Shares {
+        worker: [u8; 20],
+        headers: Vec<Vec<u8>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

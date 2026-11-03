@@ -40,6 +40,15 @@ pub trait FleetPort: Send + Sync {
     }
     /// Like `run_line`, with what the board answered.
     fn ask(&self, board: BoardId, line: &str) -> Result<Option<String>, LineError>;
+    /// Signs pool work for the board that mines to `worker` and sends it through `relay`, the
+    /// board that hears it. `None` stops the work. Says whether it went out.
+    fn lend(&self, _relay: BoardId, _worker: [u8; 20], _work: Option<(Vec<u8>, u64)>) -> bool {
+        false
+    }
+    /// What the board that mines to `worker` found for lent work since the last call.
+    fn take_lent_shares(&self, _worker: &[u8; 20]) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
     fn start_update(&self, board: BoardId);
     fn start_install(&self, path: &str, name: &str) -> bool;
     fn start_extra(

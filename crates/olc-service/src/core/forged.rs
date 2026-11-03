@@ -166,7 +166,7 @@ fn a_tcp_peer_that_hangs_up_is_not_taken_for_a_board() {
     }
     let until = Instant::now() + Duration::from_millis(800);
     while Instant::now() < until {
-        assert!(node.take_heard().iter().all(|(from, _)| *from != HeardFrom::Board));
+        assert!(node.take_heard().iter().all(|(from, _)| !matches!(from, HeardFrom::Board(_))));
         std::thread::sleep(Duration::from_millis(10));
     }
 }

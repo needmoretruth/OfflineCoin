@@ -56,6 +56,9 @@ pub struct Work {
     pub difficulty: u64,
     /// Headers that reached the difficulty, until someone asks for them.
     pub found: VecDeque<BlockHeader>,
+    /// For work a computer lent through another board: where the shares go, and when the work
+    /// ends unless renewed.
+    pub lender: Option<(olc_control::BoardId, u64)>,
 }
 
 impl Node {
@@ -389,6 +392,7 @@ impl Node {
                     header,
                     difficulty,
                     found,
+                    lender: None,
                 });
                 self.say("work taken".into());
             }

@@ -72,6 +72,14 @@ impl FleetPort for RealFleet {
         self.manager.ask(board, line)
     }
 
+    fn lend(&self, relay: BoardId, worker: [u8; 20], work: Option<(Vec<u8>, u64)>) -> bool {
+        self.manager.lend(relay, worker, work)
+    }
+
+    fn take_lent_shares(&self, worker: &[u8; 20]) -> Vec<Vec<u8>> {
+        self.manager.take_lent_shares(worker)
+    }
+
     fn start_update(&self, board: BoardId) {
         self.manager.start_update(board);
     }

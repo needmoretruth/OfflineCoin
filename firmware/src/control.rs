@@ -65,6 +65,9 @@ pub struct Control {
     pub signer: Signer,
     /// When the last piece of an image came.
     chunk_ms: u64,
+    /// The boards that said what they are, by the address each mines to, and where each spoke
+    /// from: the boards this one can pass lent work on to.
+    pub heard: olc_control::lend::Heard,
 }
 
 impl Control {
@@ -108,6 +111,7 @@ impl Control {
             ask_around_ms: 0,
             signer,
             chunk_ms: 0,
+            heard: Default::default(),
         }
     }
 }
@@ -147,10 +151,13 @@ impl Node {
                 packet.hops += 1;
                 self.emit(verdict.forward, &packet);
             }
-            if verdict.for_me {
+            if verdict.for_me && matches!(packet.body, Body::Lend(_)) {
+                self.lent(&packet, now);
+            } else if verdict.for_me {
                 self.obey(packet.from, packet.body, now);
             }
         }
+        self.serve_lent(now);
         if now >= self.control.beacon_ms {
             self.control.beacon_ms = now + BEACON_EVERY_MS;
             self.runner.card = self.card();
@@ -185,6 +192,7 @@ impl Node {
             self.runner.ask_who();
         }
         while let Some((peer, hello)) = self.runner.take_hello() {
+            self.control.heard.heard(hello.address, peer);
             if cabled {
                 self.runner.pass_hello(LINK_USB, peer, hello);
             }

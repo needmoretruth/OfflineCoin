@@ -11,6 +11,7 @@ mod comeback;
 pub mod control_key;
 mod extra;
 pub mod fleet;
+mod lent;
 pub mod install;
 pub mod journal;
 pub mod manager;

@@ -1,6 +1,7 @@
 //! This computer's view of every board it can hear, and the packets it sends them.
 use crate::control_key::ControlKey;
 use crate::pins::Pins;
+use olc_control::lend::{sign_lent, Address};
 use olc_control::{
     sign, Action, Beacon, BoardId, Body, Forward, OldBeacon, Order, Packet, Read, Refusal, Router,
     Signed,
@@ -64,6 +65,8 @@ pub struct Fleet {
     missing: BTreeMap<u32, (u32, Vec<(u32, u32)>)>,
     outgoing: VecDeque<(Forward, Vec<u8>)>,
     pins: Pins,
+    /// Headers boards found for lent work, by the address each board mines to.
+    shares: BTreeMap<Address, VecDeque<Vec<u8>>>,
 }
 
 fn random_id() -> Result<(BoardId, u32), String> {
@@ -94,6 +97,7 @@ impl Fleet {
             missing: BTreeMap::new(),
             outgoing: VecDeque::new(),
             pins: Pins::default(),
+            shares: BTreeMap::new(),
         })
     }
 
@@ -222,6 +226,16 @@ impl Fleet {
                 }
                 refusals.push_back(reason);
             }
+            Body::Shares { worker, headers } => {
+                room_for(&mut self.shares, &worker);
+                let kept = self.shares.entry(worker).or_default();
+                for header in headers {
+                    if kept.len() >= MAX_LINES {
+                        kept.pop_front();
+                    }
+                    kept.push_back(header);
+                }
+            }
             _ => {}
         }
     }
@@ -271,6 +285,19 @@ impl Fleet {
         let signed = self.sign(board, action)?;
         self.send_signed(board, signed);
         Ok(())
+    }
+
+    /// Signs pool work for the board that mines to `worker` and sends it to `relay`, the board
+    /// that hears it. `None` stops the work.
+    pub fn lend(&mut self, relay: BoardId, worker: Address, work: Option<(Vec<u8>, u64)>) -> Result<(), String> {
+        let lent = sign_lent(self.key.secret(), worker, work).ok_or("The control key is bad")?;
+        self.start_packet(relay, Body::Lend(lent));
+        Ok(())
+    }
+
+    /// The headers the board that mines to `worker` found for lent work since the last call.
+    pub fn take_shares(&mut self, worker: &Address) -> Vec<Vec<u8>> {
+        self.shares.remove(worker).map(Vec::from).unwrap_or_default()
     }
 
     /// Sends a packet exactly as given. Tests of the board's refusals need this.

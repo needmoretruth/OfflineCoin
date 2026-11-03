@@ -33,6 +33,8 @@ pub struct Found {
     known: BTreeMap<String, Known>,
     /// What boards said over their links, by the address they mine to.
     boards: BTreeMap<Address, Hello>,
+    /// The link of this app each board was last heard on.
+    board_links: BTreeMap<Address, usize>,
     /// Computers a board hears, which have no address on this network either.
     computers: BTreeMap<Address, (Hello, Instant)>,
 }
@@ -111,13 +113,24 @@ impl Found {
         }
     }
 
-    pub fn board(&self, address: &Address) -> Option<&Hello> {
-        self.boards.get(address)
+    /// What a board said, heard on this app's `link`.
+    pub fn board_said_on(&mut self, hello: Hello, link: usize) {
+        if hello.card.device == BOARD_KIND {
+            room_for(&mut self.board_links, &hello.address);
+            self.board_links.insert(hello.address, link);
+        }
+        self.board_said(hello);
     }
 
-    /// Every board heard over a link this app opened, by what it said.
-    pub fn boards(&self) -> impl Iterator<Item = &Hello> {
-        self.boards.values()
+    /// Every board heard over a link this app opened, by what it said, with the link it was last
+    /// heard on.
+    pub fn boards_on_links(&self) -> Vec<(&Hello, Option<usize>)> {
+        let link = |hello: &Hello| self.board_links.get(&hello.address).copied();
+        self.boards.values().map(|hello| (hello, link(hello))).collect()
+    }
+
+    pub fn board(&self, address: &Address) -> Option<&Hello> {
+        self.boards.get(address)
     }
 
     /// Notes who passed an address on, the first time.

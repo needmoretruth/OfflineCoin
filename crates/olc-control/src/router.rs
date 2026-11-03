@@ -3,7 +3,8 @@
 use crate::packet::{BoardId, Packet};
 use alloc::collections::{BTreeMap, VecDeque};
 
-const MAX_HOPS: u8 = 4;
+/// A packet that went this many hops goes no further.
+pub const MAX_HOPS: u8 = 4;
 const MAX_ROUTES: usize = 32;
 const SEEN: usize = 48;
 
