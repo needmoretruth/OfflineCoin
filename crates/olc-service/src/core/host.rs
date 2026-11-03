@@ -78,6 +78,8 @@ pub(super) struct State {
     /// A spend waiting for another signer, and who that is.
     half_spend: Mutex<Option<(String, Vec<String>)>>,
     pub(super) channels: Mutex<super::host_channels::ChannelDesk>,
+    /// The network link's own controls: who is connected, dropping one, keeping an address out.
+    pub(super) tcp: TcpControl,
     /// Tips other miners hold, where the node looks for a branch racing its own.
     other_tips: Mutex<Vec<Hash>>,
 }
@@ -141,6 +143,7 @@ impl Host {
                 keep_from: None,
             })),
             view: Mutex::new(NodeView::default()),
+            tcp: control.clone(),
             heard: Mutex::default(),
             radio_notes: Mutex::default(),
             known: Mutex::default(),

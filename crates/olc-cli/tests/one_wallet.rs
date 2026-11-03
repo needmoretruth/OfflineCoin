@@ -145,6 +145,10 @@ fn sample(word: &str, home: &Path) -> String {
         "channel-close" => "channel-close x".into(),
         "invoice" => "invoice 5 hello".into(),
         "channel-pay" => "channel-pay x".into(),
+        "peers" => word.to_string(),
+        "disconnect" => "disconnect 99".into(),
+        "ban" => "ban 192.0.2.7 1d".into(),
+        "unban" => "unban 192.0.2.7".into(),
         "words" | "shared" => word.to_string(),
         // A signature is base64, which reads like code to this test, so the line asks for a key
         // this wallet does not hold.
