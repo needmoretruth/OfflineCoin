@@ -72,6 +72,11 @@ pub struct Rules {
     /// once the time comes. 0 sets no limit.
     #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
     pub max_ahead_ms: u64,
+    /// Under ASERT, a block late enough carries the floor, as Bitcoin Core's
+    /// `fPowAllowMinDifficultyBlocks`, and ASERT anchors on the last block that did not: see
+    /// [`crate::Chain::floor_after`]. BIP 94 always has it and Bitcoin's rule never.
+    #[serde(default, serialize_with = "text_only", deserialize_with = "read_text_only")]
+    pub allow_min_difficulty_blocks: bool,
 }
 
 /// Older builds read a coin in a fixed binary layout, and postcard cannot tell a missing field
@@ -110,6 +115,7 @@ impl Default for Rules {
             half_life_blocks: HALF_LIFE_BLOCKS,
             median_time_blocks: MEDIAN_TIME_BLOCKS,
             max_ahead_ms: MAX_AHEAD_MS,
+            allow_min_difficulty_blocks: true,
         }
     }
 }
@@ -135,15 +141,17 @@ impl Rules {
 
     /// What these rules say about difficulty and time, as the binary form carries it.
     pub fn timing(&self) -> Timing {
-        (self.difficulty_rule, self.half_life_blocks, self.median_time_blocks, self.max_ahead_ms)
+        let late_floor = self.allow_min_difficulty_blocks;
+        (self.difficulty_rule, self.half_life_blocks, self.median_time_blocks, self.max_ahead_ms, late_floor)
     }
 
     fn set_timing(&mut self, timing: Timing) {
-        let (rule, half_life_blocks, median_time_blocks, max_ahead_ms) = timing;
+        let (rule, half_life_blocks, median_time_blocks, max_ahead_ms, late_floor) = timing;
         self.difficulty_rule = rule;
         self.half_life_blocks = half_life_blocks;
         self.median_time_blocks = median_time_blocks;
         self.max_ahead_ms = max_ahead_ms;
+        self.allow_min_difficulty_blocks = late_floor;
     }
 
     pub fn reward_at(&self, height: u64) -> u64 {

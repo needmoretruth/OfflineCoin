@@ -5,7 +5,7 @@ use crate::bits;
 use crate::coin::{CoinConfig, Rules};
 use crate::headers::HeaderRefused;
 use crate::plugin::{Consensus, PerBlockInput, RetargetInput};
-use crate::timing::{median, DifficultyRule};
+use crate::timing::{median, DifficultyRule, LONGEST_LATE_RUN};
 use crate::types::{BlockHeader, ROLLED_BITS};
 use alloc::vec::Vec;
 
@@ -54,18 +54,11 @@ fn asked(
     if interval == 0 {
         return parent.difficulty;
     }
+    if late_from(rules, parent, next_height, below).is_some_and(|late| time_ms > late) {
+        return floor;
+    }
     if rules.difficulty_rule == DifficultyRule::Asert {
-        let Some(grandparent) = next_height.checked_sub(2).and_then(below) else {
-            return parent.difficulty;
-        };
-        let gap = i128::from(parent.time_ms) - i128::from(grandparent.time_ms);
-        return consensus.per_block_difficulty(&PerBlockInput {
-            parent_difficulty: parent.difficulty,
-            gap_ms: i64::try_from(gap).unwrap_or(if gap < 0 { i64::MIN } else { i64::MAX }),
-            block_time_ms: rules.block_time_ms,
-            half_life_ms: rules.half_life_blocks.saturating_mul(rules.block_time_ms),
-            min_difficulty: floor,
-        });
+        return asert(coin, rules, consensus, parent, next_height, below);
     }
     let bip94 = rules.difficulty_rule == DifficultyRule::Bip94;
     if !next_height.is_multiple_of(interval) || next_height < interval {
@@ -73,10 +66,7 @@ fn asked(
             return parent.difficulty;
         }
         // Bitcoin Core's test network rule: a block more than two block times after its parent
-        // carries the floor, and any other the last difficulty that is not such a block's.
-        if time_ms > parent.time_ms.saturating_add(rules.block_time_ms.saturating_mul(2)) {
-            return floor;
-        }
+        // carries the floor (above), and any other the last difficulty that is not such a block's.
         let carried = shaped(coin, floor);
         let (mut height, mut header) = (next_height - 1, *parent);
         while height > 0 && !height.is_multiple_of(interval) && header.difficulty == carried {
@@ -101,6 +91,84 @@ fn asked(
         expected_ms: rules.block_time_ms.saturating_mul(interval - 1),
         min_difficulty: floor,
     })
+}
+
+/// ASERT anchored on the parent, or with late blocks at the floor on the newest block before
+/// them: such a block adds its little work and leaves ASERT where it was, so the regular
+/// difficulty goes on falling by the spec's formula over the time they took. A late block at the
+/// floor may also be one ASERT itself brought there; stepping past it then lands on the floor
+/// all the same, because every step past a late block only eases.
+fn asert(
+    coin: &CoinConfig,
+    rules: &Rules,
+    consensus: &dyn Consensus,
+    parent: &BlockHeader,
+    next_height: u64,
+    below: Below,
+) -> u64 {
+    let Some(mut before) = next_height.checked_sub(2).and_then(below) else {
+        return parent.difficulty;
+    };
+    let (mut anchor, mut height) = (*parent, next_height - 1);
+    let mut before_ms = before.time_ms;
+    let twice = rules.block_time_ms.saturating_mul(2);
+    while rules.allow_min_difficulty_blocks
+        && next_height - height < LONGEST_LATE_RUN
+        && coin.fork_starting_at(height).is_none()
+        && anchor.difficulty == shaped(coin, rules.floor_at(height))
+        && anchor.time_ms > before_ms.saturating_add(twice)
+    {
+        if height == 1 {
+            // The first block came late, so the genesis anchors, a block time after a parent it
+            // never had: the step from it is the one a first block on time would have taken.
+            (anchor, height) = (before, 0);
+            before_ms = before.time_ms.saturating_sub(rules.block_time_ms);
+            break;
+        }
+        let Some(older) = height.checked_sub(2).and_then(below) else {
+            break;
+        };
+        (anchor, before, height) = (before, older, height - 1);
+        before_ms = before.time_ms;
+    }
+    let since = i128::from(parent.time_ms) - i128::from(before_ms);
+    consensus.per_block_difficulty(&PerBlockInput {
+        anchor_difficulty: anchor.difficulty,
+        time_delta_ms: i64::try_from(since).unwrap_or(if since < 0 { i64::MIN } else { i64::MAX }),
+        height_delta: next_height - 1 - height,
+        block_time_ms: rules.block_time_ms,
+        half_life_ms: rules.half_life_blocks.saturating_mul(rules.block_time_ms),
+        min_difficulty: rules.floor_at(next_height),
+    })
+}
+
+/// The time after which a block at `next_height` on `parent` carries the floor, under `rules`
+/// with that exception. Under BIP 94 it is two block times after the parent, between retargets,
+/// as Bitcoin Core's test network. Under ASERT with `allow_min_difficulty_blocks` it is two block
+/// times and the clock limit after the newest time the blocks of the median time past carry: a
+/// computer takes no block further ahead of its clock than the limit, so no miner, however it
+/// sets its clock, takes the floor before two block times have passed since that time, and a
+/// parent stamped early opens it no sooner. A board has no clock of the date and no such bound.
+fn late_from(rules: &Rules, parent: &BlockHeader, next_height: u64, below: Below) -> Option<u64> {
+    let twice = rules.block_time_ms.saturating_mul(2);
+    let interval = rules.retarget_interval;
+    match rules.difficulty_rule {
+        DifficultyRule::Bip94 if interval > 0 && !next_height.is_multiple_of(interval) => {
+            Some(parent.time_ms.saturating_add(twice))
+        }
+        DifficultyRule::Asert if interval > 0 && rules.allow_min_difficulty_blocks => {
+            let heights = next_height.saturating_sub(rules.median_time_blocks.max(1))..next_height;
+            let newest = heights.filter_map(below).map(|header| header.time_ms).max();
+            Some(newest.unwrap_or(parent.time_ms).saturating_add(twice).saturating_add(rules.max_ahead_ms))
+        }
+        _ => None,
+    }
+}
+
+/// As [`late_from`], with the rules a block at `next_height` is checked by.
+pub fn floor_after(coin: &CoinConfig, parent: &BlockHeader, next_height: u64, below: Below) -> Option<u64> {
+    let rules = coin.rules_at(next_height - u64::from(coin.fork_starting_at(next_height).is_some()));
+    late_from(rules, parent, next_height, below)
 }
 
 /// `difficulty` as a header of this coin carries it.

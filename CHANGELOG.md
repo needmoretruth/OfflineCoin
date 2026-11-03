@@ -11,7 +11,7 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - OLC starts over from a new first block with today's rules from block 0. Coins and blocks of the earlier OLC stay on that chain only.
 - On the new OLC the difficulty follows each block: after a slow block the next is easier, and after a fast one harder. Mine fast and then slow down, and blocks keep coming about as often as your rate allows, after one long wait at most.
 - Every coin chooses how its difficulty moves in its coin file: at each block, as above, or every set number of blocks as in Bitcoin, either as Bitcoin does it or as Bitcoin's test network does, where a block that comes after two block times may take the lowest difficulty. A coin file from before keeps Bitcoin's way.
-- A block's time must be after the middle time of the 11 blocks before it, and a computer takes no block more than 2 minutes ahead of its clock, on the new OLC and every coin made since.
+- A block's time must be after the middle time of the 11 blocks before it, and a computer takes no block more than 30 seconds ahead of its clock, on the new OLC and every coin made since.
 - New OLC blocks have Bitcoin's 80-byte header and proof of work, the shape mining software and machines made for Bitcoin work on, with room in the first payment for a pool's extra numbers.
 
 ### Fixed

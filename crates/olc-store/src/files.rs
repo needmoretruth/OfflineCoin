@@ -141,6 +141,11 @@ impl Medium for Segments {
         self.numbers().first().map_or(0, |number| number * SEGMENT)
     }
 
+    /// Every write makes its segment's file, so nothing lies past the last one.
+    fn written_end(&self) -> Option<u64> {
+        Some(self.numbers().last().map_or(0, |number| (number + 1) * SEGMENT))
+    }
+
     fn forget(&mut self, below: u64) {
         for number in self.numbers() {
             if (number + 1) * SEGMENT <= below {
@@ -221,5 +226,46 @@ mod tests {
         let keep = keep_in(&folder, None, None).unwrap();
         assert_eq!(keep.shelf.unwrap().get(5), Some(header));
         fs::remove_dir_all(folder).unwrap();
+    }
+
+    fn plugins() -> olc_core::Plugins {
+        olc_core::Plugins { consensus: Box::new(olc_pow::ProofOfWork), languages: Vec::new() }
+    }
+
+    /// A new miner's first open reads only what was written, not every sector its limit allows:
+    /// the 32 GiB a Raspberry Pi gets opens at once.
+    #[test]
+    fn a_large_empty_limit_opens_at_once() {
+        let folder = std::env::temp_dir().join(format!("olc-large-{}", std::process::id()));
+        let began = std::time::Instant::now();
+        let chain = crate::open_chain(&folder, CoinConfig::olc(), plugins(), Some(32 << 30)).unwrap();
+        let took = began.elapsed();
+        assert_eq!(chain.height(), 0);
+        fs::remove_dir_all(&folder).unwrap();
+        assert!(took.as_millis() < 1_000, "opening took {took:?}");
+    }
+
+    /// Without its saved state a store finds its blocks by reading what was written.
+    #[test]
+    fn a_store_without_its_state_finds_its_blocks() {
+        let folder = std::env::temp_dir().join(format!("olc-survey-{}", std::process::id()));
+        let coin = CoinConfig::olc();
+        let mut chain = crate::open_chain(&folder, coin.clone(), plugins(), Some(32 << 30)).unwrap();
+        for _ in 0..3 {
+            let time_ms = chain.earliest_time(&chain.tip()).max(chain.tip_header().time_ms + 30_000);
+            let mut block = chain.block_template(&[7; 20], &[], time_ms);
+            assert!(olc_core::Consensus::try_seal(&olc_pow::ProofOfWork, &mut block.header, u32::MAX));
+            chain.add_block(block).unwrap();
+        }
+        let tip = chain.tip();
+        drop(chain);
+        for state in ["state-a", "state-b"] {
+            for number in 0..2 {
+                let _ = fs::remove_file(folder.join(format!("{state}-{number:06}.dat")));
+            }
+        }
+        let again = crate::open_chain(&folder, coin, plugins(), Some(32 << 30)).unwrap();
+        assert_eq!(again.tip(), tip);
+        fs::remove_dir_all(&folder).unwrap();
     }
 }
