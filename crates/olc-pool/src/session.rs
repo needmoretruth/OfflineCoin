@@ -229,7 +229,9 @@ impl Pool {
                 stats.difficulty = difficulty;
             }
         }
-        debug_assert!(EXTRANONCE1_BYTES + EXTRANONCE2_BYTES == olc_core::EXTRANONCE_BYTES);
         lines
     }
 }
+
+// The pool's part and the miner's part of the extranonce fill the coinbase's slot exactly.
+const _: () = assert!(EXTRANONCE1_BYTES + EXTRANONCE2_BYTES == olc_core::EXTRANONCE_BYTES);

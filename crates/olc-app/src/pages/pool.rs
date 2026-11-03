@@ -55,18 +55,22 @@ impl PoolTab {
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let view = cx.snap.pool.clone();
         if view.running {
+            // The running pool is the whole page: its own miner's standing is the workers table,
+            // and a joining card below would move with every worker that joins. Each miner's pool
+            // elsewhere stays on its own row.
             running(ui, cx, &view);
-        } else if view.links.iter().any(|link| !link.here) {
+            return;
+        }
+        if view.links.iter().any(|link| !link.here) {
             // A computer that works in a pool elsewhere sees that pool first, then how to open one.
             super::pool_join::page_card(ui, cx, &view);
             ui.add_space(tokens::GAP_WIDE);
             self.form(ui, cx, &view);
-            return;
         } else {
             self.form(ui, cx, &view);
+            ui.add_space(tokens::GAP_WIDE);
+            super::pool_join::page_card(ui, cx, &view);
         }
-        ui.add_space(tokens::GAP_WIDE);
-        super::pool_join::page_card(ui, cx, &view);
     }
 
     fn form(&mut self, ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
