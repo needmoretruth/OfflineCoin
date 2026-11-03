@@ -12,6 +12,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -56,6 +57,22 @@ pub struct ChildStatus {
     /// Headers found on work from outside since the last line.
     #[serde(default)]
     pub shares: Vec<String>,
+    /// Keeping to itself, as a board does when told `offline on`. Said in an experiment only.
+    pub offline: bool,
+    /// The newest blocks of its chain. Said in an experiment only.
+    pub chain: Vec<ChainBlock>,
+}
+
+/// One block as an experiment draws it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChainBlock {
+    pub height: u64,
+    pub id: String,
+    /// The address its reward went to.
+    pub miner: String,
+    /// Its payments, without the reward.
+    pub txs: Vec<String>,
 }
 
 impl ChildStatus {
@@ -85,6 +102,8 @@ impl ChildStatus {
             half: None,
             public: view.keys.first().map_or_else(String::new, |key| key.public.clone()),
             shares: Vec::new(),
+            offline: false,
+            chain: Vec::new(),
         }
     }
 }
@@ -102,9 +121,13 @@ pub struct LocalView {
     pub ended: Option<String>,
 }
 
+/// Board lines a node process printed go here while an experiment listens.
+type BoardLines = Arc<Mutex<Option<Sender<String>>>>;
+
 struct Running {
     child: Child,
-    input: ChildStdin,
+    input: Arc<Mutex<ChildStdin>>,
+    board_lines: BoardLines,
     status: Arc<Mutex<Option<ChildStatus>>>,
     errors: JoinHandle<VecDeque<String>>,
     meter: Meter,
@@ -150,12 +173,19 @@ fn read_status(
     child: &mut Child,
     status: Arc<Mutex<Option<ChildStatus>>>,
     answers: Arc<Mutex<Vec<(u32, ChildStatus)>>>,
+    board_lines: BoardLines,
 ) {
     let Some(output) = child.stdout.take() else {
         return;
     };
     thread::spawn(move || {
         for line in BufReader::new(output).lines().map_while(Result::ok) {
+            if !line.starts_with('{') {
+                if let Some(sender) = board_lines.lock().ok().as_ref().and_then(|slot| slot.as_ref()) {
+                    let _ = sender.send(line);
+                }
+                continue;
+            }
             let Ok(parsed) = serde_json::from_str::<ChildStatus>(&line) else {
                 continue;
             };
@@ -251,14 +281,16 @@ impl Supervisor {
         let input = child.stdin.take().ok_or("The node took no input.")?;
         let errors = read_errors(&mut child)?;
         let status = Arc::new(Mutex::new(None));
-        read_status(spec.id, &mut child, status.clone(), self.answers.clone());
+        let board_lines = BoardLines::default();
+        read_status(spec.id, &mut child, status.clone(), self.answers.clone(), board_lines.clone());
         let meter = Meter::new(child.id());
         self.ended.remove(&spec.id);
         self.running.insert(
             spec.id,
             Running {
                 child,
-                input,
+                input: Arc::new(Mutex::new(input)),
+                board_lines,
                 status,
                 errors,
                 meter,
@@ -272,7 +304,9 @@ impl Supervisor {
         let Some(mut node) = self.running.remove(&id) else {
             return;
         };
-        let _ = writeln!(node.input, "quit");
+        if let Ok(mut input) = node.input.lock() {
+            let _ = writeln!(input, "quit");
+        }
         // Reaps it away from the screen's path.
         thread::spawn(move || {
             thread::sleep(QUIT_WAIT);
@@ -290,7 +324,17 @@ impl Supervisor {
 
     pub fn send(&mut self, id: u32, line: &str) -> Result<(), String> {
         let node = self.running.get_mut(&id).ok_or("not_running")?;
-        writeln!(node.input, "{line}").map_err(|error| error.to_string())
+        let mut input = node.input.lock().map_err(|_| "not_running".to_string())?;
+        writeln!(input, "{line}").map_err(|error| error.to_string())
+    }
+
+    /// The node as a board an experiment can drive: lines go in as `board <line>`, and the
+    /// answers come back as a board prints them. A second link takes over from the first.
+    pub fn link(&self, id: u32) -> Option<LocalLink> {
+        let node = self.running.get(&id)?;
+        let (sender, lines) = channel();
+        *node.board_lines.lock().ok()? = Some(sender);
+        Some(LocalLink { input: node.input.clone(), lines })
     }
 
     pub fn pid(&self, id: u32) -> Option<u32> {
@@ -348,8 +392,30 @@ impl Supervisor {
 impl Drop for Supervisor {
     fn drop(&mut self) {
         for node in self.running.values_mut() {
-            let _ = writeln!(node.input, "quit");
+            if let Ok(mut input) = node.input.lock() {
+                let _ = writeln!(input, "quit");
+            }
         }
+    }
+}
+
+/// A node process driven with a board's lines. See [`Supervisor::link`].
+pub struct LocalLink {
+    input: Arc<Mutex<ChildStdin>>,
+    lines: Receiver<String>,
+}
+
+impl olc_board::BoardLink for LocalLink {
+    fn send(&mut self, line: &str) -> Result<(), String> {
+        let mut input = self.input.lock().map_err(|_| "The node stopped.".to_string())?;
+        for part in line.lines().filter(|part| !part.trim().is_empty()) {
+            writeln!(input, "board {part}").map_err(|_| "The node stopped.".to_string())?;
+        }
+        Ok(())
+    }
+
+    fn receive(&mut self, wait: Duration) -> Option<String> {
+        self.lines.recv_timeout(wait).ok()
     }
 }
 

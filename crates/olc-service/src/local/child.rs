@@ -2,6 +2,7 @@
 //! its input, prints its status as one JSON line a second, and ends when its input closes, so no
 //! node outlives the app that started it.
 use crate::core::Book;
+use super::board_lines::BoardSide;
 use super::supervisor::ChildStatus;
 use crate::core::host_locks::{fault_of_lock, LockDone};
 use crate::core::{parse_coins, Host, Plan};
@@ -83,11 +84,15 @@ fn read_lines() -> Receiver<String> {
 
 fn say(status: &ChildStatus) {
     if let Ok(line) = serde_json::to_string(status) {
-        let mut out = std::io::stdout().lock();
-        // A reader that left means the app is gone too.
-        if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
-            std::process::exit(0);
-        }
+        say_line(&line);
+    }
+}
+
+fn say_line(line: &str) {
+    let mut out = std::io::stdout().lock();
+    // A reader that left means the app is gone too.
+    if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
+        std::process::exit(0);
     }
 }
 
@@ -155,9 +160,17 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
     bytes.collect()
 }
 
-fn status_of(host: &Host) -> ChildStatus {
+/// With `lab`, the line also carries what an experiment draws: the newest blocks, the node's
+/// own number and whether it keeps to itself.
+fn status_of(host: &Host, lab: bool) -> ChildStatus {
     let mut status = ChildStatus::from_view(&host.view());
     status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
+    if lab {
+        status.chain = BoardSide::newest_blocks(host);
+        if let Ok(runner) = host.runner.lock() {
+            status.offline = runner.offline;
+        }
+    }
     status
 }
 
@@ -189,9 +202,20 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
         None,
     )?;
     let lines = read_lines();
+    let mut board = BoardSide::default();
+    let mut lab = false;
     loop {
         match lines.recv_timeout(STATUS_EVERY) {
             Ok(line) if line == "quit" => return Ok(()),
+            Ok(line) if line.starts_with("board ") => {
+                while host.opening() {
+                    thread::sleep(OPENING_STEP);
+                }
+                lab = true;
+                if let Some(answer) = board.answer(&host, &line["board ".len()..]) {
+                    say_line(&answer);
+                }
+            }
             Ok(line) => {
                 // The window holds its orders the same way: the engine there now will be replaced.
                 while host.opening() {
@@ -204,7 +228,10 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
-        say(&status_of(&host));
+        if lab {
+            board.watch(&host);
+        }
+        say(&status_of(&host, lab));
     }
 }
 
