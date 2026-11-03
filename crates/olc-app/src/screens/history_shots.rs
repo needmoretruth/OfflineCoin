@@ -86,6 +86,10 @@ fn wait_long(window: &mut Window, minutes: u64, mut done: impl FnMut(&crate::app
     panic!("waited {minutes} min: height {}, rows {:?}", node.height, node.wallet.history.iter().map(|item| item.kind).collect::<Vec<_>>());
 }
 
+fn waiting_join(item: &crate::core::Activity) -> bool {
+    item.kind == ActivityKind::Joined && item.height.is_none()
+}
+
 fn has_row(app: &crate::app::App, kind: ActivityKind) -> bool {
     app.snapshot().node.wallet.history.iter().any(|item| item.kind == kind)
 }
@@ -186,6 +190,10 @@ fn history_rows_detail_requests_two_people_and_the_explorer_as_a_person_meets_th
     picture(&mut window, folder, "history-mining-expert");
     assert!(shows(&window, "Confirmations"), "an expert reads the number of confirmations");
 
+    // Merging stops first and mining runs on until every join is in a block: a join made after
+    // the last block would wait forever, and its row, the newest, has no block to open.
+    window.state().send(Command::Own(Personal::SetMerging(false)));
+    wait_long(&mut window, 1, |app| !crate::pages::history::every_row(&app.snapshot().node).any(waiting_join));
     // Rows stop moving under the pointer once mining stops, so a click lands on the joined row.
     window.state().send(Command::SetMining(false));
     let (mut last, mut same) = (0, 0);
