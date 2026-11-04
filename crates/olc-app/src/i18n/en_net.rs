@@ -132,7 +132,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.say_won", "{} won the race with {}% of all power."),
     ("net.say_lost", "{} had {}% of all power and gave up {} blocks behind. Less than half rarely catches up."),
     ("net.hash_room", "Speed limit {}. Every miner here mines at the speed set."),
-    ("net.hash_scaled", "This app and its added miners share the speed limit too. The miners here get {} together, so each slows by the same part."),
+    ("net.hash_scaled", "The speed limit is shared with this app and its added miners. The miners here mine at {} together, keeping the ratio of their set speeds."),
     ("net.holds", "Holds {}."),
     ("net.soon", "{} arrives soon."),
     ("net.set_hash", "Set speed {}"),
