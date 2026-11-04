@@ -143,6 +143,8 @@ struct Running {
 pub struct Supervisor {
     paths: Paths,
     program: PathBuf,
+    /// The threads every node started from here mines on: the app's thread cap.
+    threads: usize,
     running: BTreeMap<u32, Running>,
     ended: BTreeMap<u32, String>,
     answers: Arc<Mutex<Vec<(u32, ChildStatus)>>>,
@@ -219,6 +221,7 @@ impl Supervisor {
         Self {
             paths,
             program,
+            threads: 1,
             running: BTreeMap::new(),
             ended: BTreeMap::new(),
             answers: Arc::default(),
@@ -255,10 +258,18 @@ impl Supervisor {
         for peer in peers {
             words.extend(["--connect".to_string(), peer.clone()]);
         }
+        if self.threads > 1 {
+            words.extend(["--threads".to_string(), self.threads.to_string()]);
+        }
         if spec.mining {
             words.push("--mine".into());
         }
         words
+    }
+
+    /// The threads nodes started from now on mine on. Running ones are told with `threads N`.
+    pub fn set_threads(&mut self, threads: usize) {
+        self.threads = threads.max(1);
     }
 
     /// Starts a node on the coin file at `coin`, connected to `peers`.

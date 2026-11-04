@@ -3018,6 +3018,7 @@ dependencies = [
  "olc-node",
  "olc-pow",
  "olc-wallet",
+ "postcard",
  "serde_json",
  "sha2",
 ]

@@ -84,6 +84,8 @@ fn a_node_that_joins_by_address_and_name_is_paid_from_the_pools_block() {
     assert_eq!(here.link, Link::Working);
     assert_eq!(there.link, Link::Working);
     assert!(here.accepted > 0 && there.accepted > 0, "{here:?} {there:?}");
+    // Each worker knows whose blocks it helps find: the address the pool's coinbase pays.
+    assert_eq!(there.payee, Some(pool_node.address()), "the joiner names the pool by its payout address");
 
     // The coins mature, the pool pays, and the payment reaches the other node in a block.
     let mut held = pool.lock().unwrap();

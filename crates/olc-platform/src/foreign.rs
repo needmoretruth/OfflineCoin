@@ -12,5 +12,6 @@ pub fn usage(pid: u32) -> Option<Usage> {
         rss_bytes: process.memory(),
         group_bytes: None,
         cpu_ms: process.accumulated_cpu_time(),
+        threads: None,
     })
 }

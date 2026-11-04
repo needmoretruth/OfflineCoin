@@ -1,7 +1,8 @@
 //! Names the miner of every block from what this computer knows: its own wallet, the miners it
 //! runs, the boards it hears. Then counts each one's share, keeps this computer's speed over ten
 //! minutes and works out when the next block should come.
-use super::chain_view::{ChainView, MinedBlock, Miner, Share};
+use super::chain_view::{ChainView, MinedBlock, Miner, Reading, Share, SHARE_WINDOW};
+use super::pool_plan::Who;
 use super::snapshot::{BoardView, NodeView};
 use crate::local::LocalView;
 use olc_core::Hash;
@@ -23,7 +24,8 @@ struct Named {
 }
 
 fn named(node: &NodeView, local: &[LocalView], boards: &[BoardView]) -> Vec<Named> {
-    let own_rate = node.mining.then_some(node.hashrate);
+    // Work for a pool hashes with mining off, so a measured speed counts whatever the switch says.
+    let own_rate = (node.mining || node.hashrate > 0).then_some(node.hashrate);
     let mut known: Vec<Named> = node
         .keys
         .iter()
@@ -44,7 +46,7 @@ fn named(node: &NodeView, local: &[LocalView], boards: &[BoardView]) -> Vec<Name
         known.push(Named {
             miner: Miner::Here(view.spec.name.clone()),
             address: status.address.clone(),
-            hashrate: status.mining.then_some(status.hashrate),
+            hashrate: (status.mining || status.hashrate > 0).then_some(status.hashrate),
             joined: view.spec.joined,
         });
     }
@@ -60,12 +62,18 @@ fn named(node: &NodeView, local: &[LocalView], boards: &[BoardView]) -> Vec<Name
     known
 }
 
+/// A block's finder. A pool's block is the pool's, as Bitcoin's explorers count them: this app's
+/// pool when it pays this app's wallet, another pool by the address it pays otherwise.
 fn who(block: &MinedBlock, known: &[Named]) -> Miner {
     let Some(payee) = &block.payee else {
         return Miner::Unknown;
     };
-    let found = known.iter().find(|named| named.address == *payee);
-    found.map_or_else(|| Miner::Away(payee.clone()), |named| named.miner.clone())
+    let found = known.iter().find(|named| named.address == *payee).map(|named| named.miner.clone());
+    match (block.pool, found) {
+        (true, Some(Miner::You)) => Miner::OwnPool,
+        (true, _) => Miner::Pool(payee.clone()),
+        (false, found) => found.unwrap_or_else(|| Miner::Away(payee.clone())),
+    }
 }
 
 /// The tips other miners on this computer and the boards hold that differ from this node's, for
@@ -118,11 +126,21 @@ impl Trail {
     }
 }
 
-/// Blocks the measured speed and the real average read: one lucky block moves them by a
-/// twentieth, and a change of speed shows within twenty blocks. The wait itself never assumes a
-/// retarget rule: it divides the difficulty the chain asks for the next block (`next_difficulty`,
-/// which the node's status carries) by the speed.
+/// Blocks the real average time between blocks reads. The wait itself never assumes a retarget
+/// rule: it divides the difficulty the chain asks for the next block (`next_difficulty`, which
+/// the node's status carries) by the network's speed.
 pub const RECENT: usize = 20;
+
+/// Fewer blocks than this give no network speed. Block times scatter, so a speed read from n
+/// blocks is off by about one part in √n: twelve keep that under 30 %. Bitcoin's getnetworkhashps
+/// reads 120 by default, a day of its blocks; a coin here may be minutes old, so it would show
+/// nothing for most of its life. The block before the twelve marks where their time starts.
+pub const FEWEST_BLOCKS: usize = 12;
+
+/// The network's speed reads every block of this last stretch, up to now, when it holds more than
+/// [`FEWEST_BLOCKS`]; so a change of speed shows in full half a minute after it, however many
+/// blocks are kept. When blocks come slower, the last [`FEWEST_BLOCKS`] stretch it further.
+pub const SPAN_MS: u64 = 30_000;
 
 /// The average time between the last [`RECENT`] blocks.
 fn average_of(latest: &[MinedBlock]) -> Option<u64> {
@@ -132,18 +150,90 @@ fn average_of(latest: &[MinedBlock]) -> Option<u64> {
     Some(span / (recent.len() as u64 - 1))
 }
 
-/// The speed the last [`RECENT`] blocks took: their work over the time between them.
-fn speed_of_blocks(latest: &[MinedBlock]) -> Option<u64> {
-    let latest = &latest[..latest.len().min(RECENT + 1)];
+/// The speed the last `count` blocks took: their work over the time between them, as Bitcoin
+/// Core's getnetworkhashps reads it. A difficulty of N asks about N tries.
+fn speed_of_blocks(latest: &[MinedBlock], count: usize) -> Option<u64> {
+    let latest = &latest[..latest.len().min(count + 1)];
     let (newest, oldest) = (latest.first()?, latest.last()?);
     let span = newest.time_ms.checked_sub(oldest.time_ms).filter(|span| *span > 0)?;
     let work: u128 = latest[..latest.len() - 1].iter().map(|block| u128::from(block.difficulty)).sum();
     u64::try_from(work * 1_000 / u128::from(span)).ok()
 }
 
-/// Fills in who mined what, the shares, the speed line and the next block's wait.
-pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boards: &[BoardView], trail: &mut Trail, now_ms: u64) {
+/// The network's speed now: the work of the blocks of the last [`SPAN_MS`], or of the last
+/// [`FEWEST_BLOCKS`] when that holds fewer, over their time up to now, and apart the work of those
+/// whose finder is not `measured`. Counting up to now, not up to the newest block, lets a slowdown
+/// show before the next block comes.
+fn speed_now(latest: &[MinedBlock], now_ms: u64, measured: impl Fn(&Miner) -> bool) -> Option<Reading> {
+    let end = now_ms.max(latest.first()?.time_ms);
+    let in_span = latest.iter().take_while(|block| block.time_ms.saturating_add(SPAN_MS) > end).count();
+    let blocks = in_span.max(FEWEST_BLOCKS).min(latest.len().saturating_sub(1));
+    if blocks < FEWEST_BLOCKS {
+        return None;
+    }
+    // The span itself when it holds the blocks and an older one lies outside it; otherwise the
+    // block before the counted ones starts their time.
+    let start = if blocks == in_span { end.saturating_sub(SPAN_MS) } else { latest[blocks].time_ms };
+    let span_ms = end.checked_sub(start).filter(|span| *span > 0)?;
+    let speed = |work: u128| u64::try_from(work * 1_000 / u128::from(span_ms)).ok();
+    let work: u128 = latest[..blocks].iter().map(|block| u128::from(block.difficulty)).sum();
+    let found_by_others = || latest[..blocks].iter().filter(|block| !measured(&block.miner));
+    let others_work: u128 = found_by_others().map(|block| u128::from(block.difficulty)).sum();
+    Some(Reading { blocks, span_ms, rate: speed(work)?, others: found_by_others().count(), others_rate: speed(others_work)? })
+}
+
+/// A miner here working in a pool: the one this app runs, or another whose blocks pay `payee`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InPool {
+    pub worker: Who,
+    pub here: bool,
+    /// The address the pool's blocks pay, as the worker read it from its work.
+    pub payee: Option<String>,
+}
+
+/// Every miner here working in a pool, and the speed the pool this app runs hears from its
+/// members on other computers: the network's speed counts that as measured, like its own.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InPools {
+    pub links: Vec<InPool>,
+    pub away: u64,
+}
+
+fn miner_of(who: &Who, local: &[LocalView], boards: &[BoardView]) -> Option<Miner> {
+    let board = |found: Option<&BoardView>| found.map(|board| Miner::Board(board.seen.beacon.name.clone()));
+    match who {
+        Who::Own => Some(Miner::You),
+        Who::Node(id) => local.iter().find(|view| view.spec.id == *id).map(|view| Miner::Here(view.spec.name.clone())),
+        Who::Board(id) => board(boards.iter().find(|board| board.seen.id == *id)),
+        Who::Lent(address) => board(boards.iter().find(|board| board.seen.beacon.address == *address)),
+    }
+}
+
+/// Each miner here that works in a pool beside the pool it works in, named as its blocks are.
+fn working(pools: &[InPool], known: &[Named], local: &[LocalView], boards: &[BoardView]) -> Vec<(Miner, Miner)> {
+    let mut pairs = Vec::new();
+    for in_pool in pools {
+        let pays_you = |payee: &String| known.iter().any(|named| named.miner == Miner::You && named.address == *payee);
+        let pool = match &in_pool.payee {
+            _ if in_pool.here => Miner::OwnPool,
+            Some(payee) if pays_you(payee) => Miner::OwnPool,
+            Some(payee) => Miner::Pool(payee.clone()),
+            None => continue,
+        };
+        if let Some(worker) = miner_of(&in_pool.worker, local, boards) {
+            pairs.push((worker, pool));
+        }
+    }
+    pairs
+}
+
+/// Fills in who mined what, the shares, the speed line and the next block's wait. A miner that
+/// works in a pool finds blocks for the pool, so it is listed under the pool's row rather than as
+/// a finder of its own; one that found blocks itself before it joined keeps its row for them.
+pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boards: &[BoardView], pools: &InPools, trail: &mut Trail, now_ms: u64) {
+    let (pools, pool_away) = (pools.links.as_slice(), pools.away);
     let known = named(node, local, boards);
+    let working = working(pools, &known, local, boards);
     let branches = view.rival.iter_mut().chain(view.replaced.iter_mut()).flat_map(|branch| branch.blocks.iter_mut());
     for block in view.latest.iter_mut().chain(branches) {
         block.miner = who(block, &known);
@@ -156,11 +246,22 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
         let rates = known.iter().filter(|named| named.miner == *miner).filter_map(|named| named.hashrate);
         rates.reduce(|sum, rate| sum + rate)
     };
-    let mut shares: Vec<Share> =
-        counts.iter().map(|(miner, blocks)| Share { miner: miner.clone(), blocks: *blocks, hashrate: rate_of(miner) }).collect();
+    let share_of = |miner: &Miner, blocks: u32| Share { miner: miner.clone(), blocks, hashrate: rate_of(miner), workers: Vec::new() };
+    let mut shares: Vec<Share> = counts.iter().map(|(miner, blocks)| share_of(miner, *blocks)).collect();
+    let in_a_pool = |miner: &Miner| working.iter().any(|(worker, _)| worker == miner);
     for named in known.iter().filter(|named| named.joined && named.hashrate.is_some_and(|rate| rate > 0)) {
-        if !shares.iter().any(|share| share.miner == named.miner) {
-            shares.push(Share { miner: named.miner.clone(), blocks: 0, hashrate: rate_of(&named.miner) });
+        if !in_a_pool(&named.miner) && !shares.iter().any(|share| share.miner == named.miner) {
+            shares.push(share_of(&named.miner, 0));
+        }
+    }
+    for (worker, pool) in &working {
+        if !shares.iter().any(|share| share.miner == *pool) {
+            shares.push(share_of(pool, 0));
+        }
+        if let Some(share) = shares.iter_mut().find(|share| share.miner == *pool) {
+            if !share.workers.contains(worker) {
+                share.workers.push(worker.clone());
+            }
         }
     }
     shares.sort_by(|a, b| {
@@ -169,18 +270,33 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
     });
     view.shares = shares;
 
-    let own = if node.mining { node.hashrate } else { 0 };
-    let here: u64 = local.iter().filter_map(|view| view.status.as_ref()).filter(|status| status.mining).map(|status| status.hashrate).sum();
-    view.hashrate_here = own + here;
+    let here: u64 = local.iter().filter_map(|view| view.status.as_ref()).map(|status| status.hashrate).sum();
+    view.hashrate_here = node.hashrate + here;
     trail.add(now_ms, view.hashrate_here);
     view.trail = trail.points();
 
-    let heard: u64 = known.iter().filter(|named| named.joined).filter_map(|named| named.hashrate).sum();
-    let all_named = view.latest.iter().all(|block| !matches!(block.miner, Miner::Away(_) | Miner::Unknown));
-    view.hashrate_all = match (all_named, speed_of_blocks(&view.latest)) {
-        (false, Some(seen)) => heard.max(seen),
-        _ => heard,
+    // The network's speed: every miner this app measures by its measured speed, and the blocks the
+    // others found by their work over the time, as getnetworkhashps reads them. Mining alone it is
+    // this computer's speed exactly, not a reading of a dozen blocks that scatters by a third. A
+    // miner here that works in another pool counts in that pool's blocks, not twice. Its own pool
+    // adds the members it hears from other computers. It holds this computer, so it never reads
+    // below what this computer measures. Until enough blocks are kept to tell who else mines, the
+    // speeds heard stand in for the wait, and the screens say the network's speed is not known yet.
+    // A finder whose speed is measured now and counted: its blocks need no reading from their times.
+    let elsewhere = |miner: &Miner| working.iter().any(|(worker, pool)| worker == miner && *pool != Miner::OwnPool);
+    let counted = || known.iter().filter(|named| named.joined && !elsewhere(&named.miner));
+    let heard_of = |miner: &Miner| counted().filter(|named| named.miner == *miner).filter_map(|named| named.hashrate).sum::<u64>();
+    let own_pool = working.iter().filter(|(_, pool)| *pool == Miner::OwnPool).map(|(worker, _)| heard_of(worker)).sum::<u64>() + pool_away;
+    let measured = |miner: &Miner| match miner {
+        Miner::You | Miner::Here(_) | Miner::Board(_) => heard_of(miner) > 0,
+        Miner::OwnPool => own_pool > 0,
+        Miner::Away(_) | Miner::Pool(_) | Miner::Unknown => false,
     };
+    let heard: u64 = counted().filter_map(|named| named.hashrate).sum::<u64>() + pool_away;
+    view.network = speed_now(&view.latest, now_ms, measured);
+    view.hashrate_all = view.network.map_or(heard, |reading| heard + reading.others_rate).max(view.hashrate_here);
+    let enough = view.latest.len() > FEWEST_BLOCKS;
+    view.hashrate_average = speed_of_blocks(&view.latest, SHARE_WINDOW).filter(|_| enough).unwrap_or(0);
     view.expected_ms = (view.hashrate_all > 0 && node.difficulty > 0)
         .then(|| u64::try_from(u128::from(node.difficulty) * 1_000 / u128::from(view.hashrate_all)).unwrap_or(u64::MAX));
     view.average_ms = average_of(&view.latest);
@@ -195,7 +311,8 @@ mod tests {
     }
 
     /// Two blocks of this wallet and one of an address nobody here knows: the wallet leads, the
-    /// stranger is named by address, and the wait comes from the speed the blocks took.
+    /// stranger is named by address. Three blocks are too few to read the network's speed from,
+    /// so the wait comes from the speed heard.
     #[test]
     fn shares_name_each_miner_and_the_wait_follows_the_speed() {
         let node = NodeView {
@@ -211,17 +328,188 @@ mod tests {
             ..ChainView::default()
         };
         let mut trail = Trail::default();
-        complete(&mut view, &node, &[], &[], &mut trail, 50_000);
-        assert_eq!(view.shares[0], Share { miner: Miner::You, blocks: 2, hashrate: Some(100) });
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut trail, 50_000);
+        assert_eq!(view.shares[0], Share { miner: Miner::You, blocks: 2, hashrate: Some(100), workers: Vec::new() });
         assert_eq!(view.shares[1].miner, Miner::Away("olcother".into()));
         assert_eq!(view.window(), 3);
-        // Two blocks of 1,000 in two seconds: 1,000 a second, more than this node's own 100.
-        assert_eq!(view.hashrate_all, 1_000);
-        assert_eq!(view.expected_ms, Some(1_000));
+        assert_eq!(view.network, None);
+        assert_eq!((view.hashrate_all, view.hashrate_average), (100, 0));
+        assert_eq!(view.expected_ms, Some(10_000));
         assert_eq!(view.average_ms, Some(1_000));
         assert_eq!(view.trail, [(50_000, 100)]);
-        complete(&mut view, &node, &[], &[], &mut trail, 50_000 + TRAIL_MS + 10_000);
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut trail, 50_000 + TRAIL_MS + 10_000);
         assert_eq!(view.trail.len(), 1, "points older than ten minutes go");
+    }
+
+    /// Blocks keep coming to this wallet while nothing here says it hashes, as when boards work
+    /// in this computer's pool: with no speed measured, the network's speed is what the blocks
+    /// took, as Bitcoin's getnetworkhashps reads it, never 0 while blocks come.
+    #[test]
+    fn the_network_speed_comes_from_the_blocks_when_no_speed_is_measured() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
+        let latest: Vec<MinedBlock> = (1..=21).rev().map(|height| block(height, "olcmine", height * 2_000)).collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 43_000);
+        // Fifteen blocks of 1,000 tries in the last thirty seconds.
+        assert_eq!(view.hashrate_all, 500, "the network's speed while blocks come");
+        let read = Reading { blocks: 15, span_ms: SPAN_MS, rate: 500, others: 15, others_rate: 500 };
+        assert_eq!(view.network, Some(read));
+        assert_eq!(view.expected_ms, Some(2_000));
+        // Twenty blocks of 1,000 in forty seconds, as getnetworkhashps reads every block kept.
+        assert_eq!(view.hashrate_average, 500);
+    }
+
+    /// Blocks every two seconds, then every second once the network doubles its speed: half a
+    /// minute later the speed now reads only the fast blocks, while forty blocks would still hold
+    /// slow ones. With no new block for long, the speed falls before the next one comes.
+    #[test]
+    fn the_network_speed_follows_a_change_within_its_span() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
+        let slow = (1..=20).map(|height| block(height, "olcmine", height * 2_000));
+        let fast = (21..=50).map(|height| block(height, "olcmine", 40_000 + (height - 20) * 1_000));
+        let latest: Vec<MinedBlock> = slow.chain(fast).rev().collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 70_000);
+        assert_eq!(view.hashrate_all, 1_000, "thirty fast blocks in thirty seconds");
+        assert_eq!(speed_of_blocks(&view.latest, 40), Some(800), "forty blocks still hold slow ones");
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 130_000);
+        // Nothing for a minute: the last twelve blocks over the seventy-two seconds since the
+        // block before them.
+        let read = Reading { blocks: FEWEST_BLOCKS, span_ms: 72_000, rate: 166, others: FEWEST_BLOCKS, others_rate: 166 };
+        assert_eq!(view.network, Some(read));
+        assert_eq!(view.hashrate_all, 12_000 * 1_000 / 72_000);
+    }
+
+    /// Mining alone, every block is this computer's and its speed is measured: the network's speed
+    /// is that speed exactly, however fast or slow luck made the last twelve blocks, and the share
+    /// is 100 % with nothing to be off by. Eleven blocks are too few to tell who else mines.
+    #[test]
+    fn mining_alone_reads_this_computers_measured_speed() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), mining: true, hashrate: 900, difficulty: 1_000, ..NodeView::default() };
+        let latest: Vec<MinedBlock> = (1..=13).rev().map(|height| block(height, "olcmine", height * 2_000)).collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 26_000);
+        let read = Reading { blocks: 12, span_ms: 24_000, rate: 500, others: 0, others_rate: 0 };
+        assert_eq!(view.network, Some(read), "twelve blocks after the first");
+        assert_eq!(view.hashrate_all, 900, "the blocks took 500 a second, this computer measures 900");
+        assert_eq!(view.share(), Some((100, 0)));
+        view.latest.pop();
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 26_000);
+        assert_eq!((view.network, view.share()), (None, None), "eleven blocks after the first are too few");
+    }
+
+    /// A stranger's blocks are read from their work over the time; this computer's speed is
+    /// measured. Every third block of 1,000 tries in the last thirty seconds is the stranger's:
+    /// five blocks read as 166 a second beside this computer's 400, a share of 70 %; five blocks
+    /// scatter by nearly half, so it says it may be off by 19 points.
+    #[test]
+    fn a_strangers_part_is_read_from_its_blocks() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), mining: true, hashrate: 400, difficulty: 1_000, ..NodeView::default() };
+        let payee = |height: u64| if height.is_multiple_of(3) { "olcstranger" } else { "olcmine" };
+        let latest: Vec<MinedBlock> = (1..=20).rev().map(|height| block(height, payee(height), height * 2_000 + 500)).collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 40_000);
+        let read = view.network.expect("fifteen blocks in the last thirty seconds");
+        assert_eq!((read.blocks, read.others, read.others_rate), (15, 5, 166));
+        assert_eq!(view.hashrate_all, 566);
+        assert_eq!(view.share(), Some((70, 19)), "400 of 566, the stranger's 166 read from five blocks");
+    }
+
+    /// A stranger with a third of the speed beside this computer, blocks coming by chance as they
+    /// do: the share stays within the error it states in about nine readings in ten, and is not
+    /// pulled to one side on average.
+    #[test]
+    fn the_share_stays_within_its_stated_error() {
+        let here = 1_000_u64;
+        let difficulty = 3_000_u64;
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), mining: true, hashrate: here, difficulty, ..NodeView::default() };
+        let mut bytes = [0_u8; 8];
+        let mut uniform = || {
+            getrandom::fill(&mut bytes).expect("randomness");
+            // 53 bits make every float in (0, 1] equally likely.
+            ((u64::from_le_bytes(bytes) >> 11) as f64 + 1.0) / (1_u64 << 53) as f64
+        };
+        let (trials, end_ms) = (1_000, 200_000_u64);
+        let truth = 100.0 * here as f64 / 1_500.0;
+        let (mut within, mut sum) = (0, 0.0);
+        for _ in 0..trials {
+            // Blocks of 3,000 tries at 1,500 a second come two seconds apart on average, at times
+            // that scatter as a race's do; the stranger finds each one with a chance of a third.
+            let mut blocks = Vec::new();
+            let mut at = 0.0;
+            loop {
+                at += -uniform().ln() * 2_000.0;
+                if at >= end_ms as f64 {
+                    break;
+                }
+                let payee = if uniform() < 1.0 / 3.0 { "olcstranger" } else { "olcmine" };
+                blocks.push(MinedBlock { difficulty, ..block(blocks.len() as u64 + 1, payee, at as u64) });
+            }
+            blocks.reverse();
+            let mut view = ChainView { latest: blocks, ..ChainView::default() };
+            complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), end_ms);
+            let (share, error) = view.share().expect("a hundred blocks");
+            sum += share as f64;
+            if (share as f64 - truth).abs() <= error as f64 + 1.0 {
+                within += 1;
+            }
+        }
+        let (part, mean) = (f64::from(within) / f64::from(trials), sum / f64::from(trials));
+        println!("within the stated error {:.0} %, mean share {mean:.1} against {truth:.1}", part * 100.0);
+        assert!(part >= 0.85, "only {:.0} % of the readings fall within their stated error", part * 100.0);
+        assert!((mean - truth).abs() <= 3.0, "the share reads {mean:.1} on average against {truth:.1}");
+    }
+
+    /// A pool's tagged blocks are the pool's: this app's pool when they pay this app's wallet,
+    /// another pool by its address otherwise. Four blocks are too few for the network's speed.
+    #[test]
+    fn a_pools_blocks_are_named_for_the_pool() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
+        let pooled = |height, payee: &str| MinedBlock { pool: true, ..block(height, payee, height * 1_000) };
+        let latest = vec![pooled(4, "olcmine"), pooled(3, "olcpool"), block(2, "olcmine", 2_000), block(1, "olcmine", 1_000)];
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 50_000);
+        let miners: Vec<&Miner> = view.latest.iter().map(|block| &block.miner).collect();
+        assert_eq!(miners, [&Miner::OwnPool, &Miner::Pool("olcpool".into()), &Miner::You, &Miner::You]);
+        assert_eq!((view.network, view.hashrate_average), (None, 0));
+    }
+
+    /// A miner here working in this app's pool, and this app working in another computer's pool,
+    /// are listed under those pools' rows, not as finders of their own with no blocks.
+    #[test]
+    fn a_miner_in_a_pool_is_listed_under_the_pool() {
+        let node = NodeView {
+            address: "olcmine".into(),
+            miner: "olcmine".into(),
+            hashrate: 300,
+            difficulty: 1_000,
+            ..NodeView::default()
+        };
+        let spec = crate::local::NodeSpec { id: 7, name: "miner-b".into(), joined: true, ..crate::local::NodeSpec::default() };
+        let status = crate::local::ChildStatus { address: "olcb".into(), hashrate: 200, ..crate::local::ChildStatus::default() };
+        let local = [LocalView {
+            spec,
+            pid: Some(1),
+            status: Some(status),
+            measured: None,
+            memory_limit: 0,
+            enforcement: crate::local::Enforcement::Nothing,
+            ended: None,
+        }];
+        let pooled = |height, payee: &str| MinedBlock { pool: true, ..block(height, payee, height * 1_000) };
+        let latest = vec![pooled(3, "olcmine"), pooled(2, "olcfar"), block(1, "olcmine", 1_000)];
+        let mut view = ChainView { latest, ..ChainView::default() };
+        let links = vec![
+            InPool { worker: Who::Node(7), here: true, payee: None },
+            InPool { worker: Who::Own, here: false, payee: Some("olcfar".into()) },
+        ];
+        complete(&mut view, &node, &local, &[], &InPools { links, away: 0 }, &mut Trail::default(), 50_000);
+        let rows: Vec<(&Miner, u32, &[Miner])> = view.shares.iter().map(|share| (&share.miner, share.blocks, share.workers.as_slice())).collect();
+        assert!(rows.contains(&(&Miner::OwnPool, 1, &[Miner::Here("miner-b".into())][..])), "{rows:?}");
+        assert!(rows.contains(&(&Miner::Pool("olcfar".into()), 1, &[Miner::You][..])), "{rows:?}");
+        assert!(!rows.iter().any(|(miner, _, _)| **miner == Miner::Here("miner-b".into())), "no 0 % row of its own: {rows:?}");
+        // This app found a block alone before it joined, and keeps its row for it.
+        assert!(rows.contains(&(&Miner::You, 1, &[][..])), "{rows:?}");
     }
 
     #[test]

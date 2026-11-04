@@ -1,5 +1,6 @@
 //! The snapshot the window reads: the node, the boards, the computers around and what runs here.
-use super::super::chain_race::{complete, other_tips};
+use super::super::chain_race::{complete, other_tips, InPool, InPools};
+use super::super::pool_view::PoolView;
 use super::super::coins::coin_folder;
 use super::super::host_parts::unix_ms;
 use super::super::found::link_of;
@@ -11,8 +12,26 @@ use crate::discovery::{group, Identity};
 use crate::fleet::BoardRow;
 use std::sync::Arc;
 
+/// The miners here that work in a pool now, beside the pool they work in, and the speed this app's
+/// pool hears from members on other computers.
+fn in_pools(pool: &PoolView) -> InPools {
+    let working = pool.links.iter().filter(|link| link.view.link == olc_pool::Link::Working);
+    let links = working
+        .map(|link| InPool {
+            worker: link.join.who,
+            here: link.here,
+            payee: link.view.payee.map(|address| olc_wallet::format_address(&address)),
+        })
+        .collect();
+    let away = pool.workers.iter().filter(|row| row.online && row.here.is_none()).map(|row| row.speed).sum();
+    InPools { links, away: if pool.running { away } else { 0 } }
+}
+
 impl Service {
     pub(super) fn publish(&mut self) {
+        // A miner that came back, or a worker a pool linked, takes its part before it is shown.
+        let budget = self.budget_with(None);
+        self.keep_budget(&budget);
         let mut node = self.host.view();
         let identity = node.coin.clone().map(Identity::of);
         let rows = self.fleet.as_ref().map(|fleet| fleet.board_rows());
@@ -68,8 +87,9 @@ impl Service {
             })
             .collect();
         self.host.watch_tips(other_tips(&node, &local, &boards));
+        let pool = self.pool.view();
         let mut chain = std::mem::take(&mut node.chain);
-        complete(&mut chain, &node, &local, &boards, &mut self.trail, unix_ms());
+        complete(&mut chain, &node, &local, &boards, &in_pools(&pool), &mut self.trail, unix_ms());
         node.chain = chain;
         let fleet = self.fleet.as_ref();
         let new_ports = fleet.map_or_else(Vec::new, |fleet| {
@@ -97,10 +117,11 @@ impl Service {
                 age_secs: self.scanner.age().map(|age| age.as_secs()),
             },
             experiment: ExperimentView { lines, running },
-            pool: self.pool.view(),
+            pool,
             notice: self.notice.clone(),
             usb: self.usb,
             full_rate: self.full_rate,
+            budget,
             mine_on_start: self.settings.mine_on_start,
             folder: self.paths.root.display().to_string(),
             made_ms: unix_ms(),

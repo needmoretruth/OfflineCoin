@@ -67,7 +67,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.watch_about", "개인 키 없이 주소를 따라갑니다."),
     ("settings.offline", "오프라인 서명"),
     ("settings.offline_about", "에어갭 지갑으로 준비, 서명, 전파합니다."),
-    ("settings.speed", "해시 상한"),
+    ("settings.speed", "해시레이트 제한"),
     ("settings.miner", "코인베이스 주소"),
     ("settings.miner_me", "이 지갑의 키"),
     ("settings.mine_note", "코인베이스 메모"),

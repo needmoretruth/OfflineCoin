@@ -1,6 +1,6 @@
 //! This computer's mining in one card: on or off, how fast it may go, how its speed went over ten
-//! minutes, how far the next block has come and how many blocks it found. Home shows it; the Mining
-//! page manages every miner in full.
+//! minutes, how far the next block has come, how many blocks it found and the whole network beside
+//! it. Home shows it; the Mining page manages every miner in full.
 use super::speed::Speed;
 use super::Cx;
 use crate::core::{unix_ms, Command, Link, Who};
@@ -10,8 +10,8 @@ use crate::ui::widgets::{button, button_on, card, dot, section, strong_text, Col
 use crate::ui::format;
 use egui::{Align, Label, Layout, RichText, Ui};
 
-/// The speed line's height on the card.
-const LINE_HEIGHT: f32 = 84.0;
+/// The speed line's height on the card, its ceiling's words included.
+const LINE_HEIGHT: f32 = 104.0;
 /// Room for every fact the card can show, so the cells keep one width as facts come and go.
 const FACT_CELLS: usize = 4;
 
@@ -70,11 +70,18 @@ impl MiningCard {
             let ticker = cx.ticker().to_string();
             let look = Look { t: &t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
             let node = &cx.snap.node;
-            chain::hashrate_line(ui, &look, &node.chain, LINE_HEIGHT);
+            chain::hashrate_line(ui, &look, &node.chain, &chain::Ceiling::of(&cx.snap.budget), LINE_HEIGHT);
             ui.add_space(tokens::GAP);
             chain::next_block_bar(ui, &look, &node.chain);
             ui.add_space(tokens::GAP);
             facts(ui, cx);
+            // The whole network beside this computer, the speed now and the share the Mining page
+            // shows, once there are blocks to read them from: before that they would only say
+            // "unknown" and push what stops this node further down Home.
+            if cx.snap.node.chain.latest.len() >= 2 {
+                ui.add_space(tokens::GAP);
+                super::network::figures(ui, cx, false);
+            }
         });
     }
 }

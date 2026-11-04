@@ -11,7 +11,7 @@
 //! let chain = &snapshot.node.chain;
 //! chain::block_strip(ui, &look, &chain::Strip::of(chain));   // Home, Explorer
 //! chain::race_bars(ui, &look, &chain.shares);                 // Mining
-//! chain::hashrate_line(ui, &look, chain, 120.0);              // Home mining card, Mining
+//! chain::hashrate_line(ui, &look, chain, &ceiling, 120.0);    // Home mining card, Mining
 //! chain::next_block_bar(ui, &look, chain);                    // Home mining card, Mining
 //! ```
 //!
@@ -31,7 +31,7 @@ mod pace;
 mod race;
 mod strip;
 
-pub use pace::{hashrate_line, next_block_bar};
+pub use pace::{hashrate_line, next_block_bar, Ceiling};
 pub use race::race_bars;
 pub use strip::{block_strip, BranchKind, Strip};
 pub(crate) use strip::{depth, draw_box};
@@ -126,6 +126,8 @@ pub fn miner_name(voice: Voice, miner: &Miner) -> String {
         Miner::You => i18n::text(voice, "chain.you").to_string(),
         Miner::Here(name) | Miner::Board(name) => name.clone(),
         Miner::Away(address) => super::format::short_address(address),
+        Miner::OwnPool => i18n::text(voice, "chain.own_pool").to_string(),
+        Miner::Pool(address) => i18n::fill(i18n::text(voice, "chain.pool"), &[&super::format::short_address(address)]),
         Miner::Unknown => i18n::text(voice, "chain.unknown").to_string(),
     }
 }

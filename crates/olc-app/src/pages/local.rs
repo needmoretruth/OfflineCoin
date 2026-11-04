@@ -64,9 +64,11 @@ fn budget_items(cx: &Cx, view: &LocalView) -> Vec<(&'static str, String, String)
     let given = |text: String| cx.fill("local.given", &[&text]);
     let mut items = Vec::new();
     if spec.holding != Holding::Headers {
-        let cap = match spec.hash_cap {
-            0 => cx.say("mining.no_cap").to_string(),
-            cap => given(format::rate(voice, cap)),
+        // What it may use is its part of this computer's limit, as the table above says it.
+        let cap = match (cx.snap.budget.part_of(spec.id), spec.hash_cap) {
+            (Some(part), _) => given(format::rate(voice, part)),
+            (None, 0) => cx.say("budget.equal_part").to_string(),
+            (None, own) => given(format::rate(voice, own)),
         };
         let used = view.status.as_ref().map_or_else(unknown, |status| format::rate(voice, status.hashrate));
         items.push(("local.hash", used, cap));
@@ -90,7 +92,7 @@ fn budget_items(cx: &Cx, view: &LocalView) -> Vec<(&'static str, String, String)
 /// What a preset gives a new miner, on the same four points for every preset, so they compare.
 fn preset_line(cx: &Cx, spec: &NodeSpec) -> String {
     let speed = match spec.hash_cap {
-        0 => cx.say("mining.no_cap").to_string(),
+        0 => cx.say("budget.equal_part").to_string(),
         cap => format::rate(cx.voice(), cap),
     };
     let share = match spec.cpu_percent {
@@ -170,7 +172,8 @@ fn status_line(ui: &mut Ui, cx: &Cx, view: &LocalView) {
 }
 
 impl Local {
-    /// A running node takes a new cap at once. A stopped one starts with it.
+    /// A speed of the miner's own, kept inside this computer's limit. A running node takes it at
+    /// once; a stopped one starts with it.
     fn cap_row(&mut self, ui: &mut Ui, cx: &Cx, view: &LocalView) {
         let t = cx.t;
         let id = view.spec.id;
@@ -184,6 +187,7 @@ impl Local {
                 cx.send(Command::NodeCap { id, cap: *cap });
             }
         });
+        meta(ui, cx.say("budget.own_about"), t);
     }
 
     fn node_card(&mut self, ui: &mut Ui, cx: &mut Cx, view: &LocalView) {

@@ -2,7 +2,7 @@
 //! `mining.notify`, build the header and send back what reaches the difficulty. The hashing itself
 //! happens elsewhere: this hands out a header and takes back the ones that met it.
 use crate::stratum::{hex, olc_difficulty, request, word_hex, Notify};
-use olc_core::{BlockHeader, Hash, EXTRANONCE_BYTES};
+use olc_core::{BlockHeader, Hash, Tx, ADDRESS_LANGUAGE, EXTRANONCE_BYTES};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{ErrorKind, Read, Write};
@@ -51,6 +51,8 @@ pub struct ClientView {
     /// Shares of a job the pool had already ended with a new block, kept back as Bitcoin's
     /// miners keep them: the pool could only refuse them.
     pub stale: u64,
+    /// The address the pool's blocks pay, read from its newest job: the name its blocks go by.
+    pub payee: Option<[u8; 20]>,
 }
 
 /// A header to hash and the difficulty a share must meet.
@@ -274,12 +276,21 @@ fn once(address: &str, user: &str, password: &str, state: &Mutex<State>, stop: &
     Link::Dialling
 }
 
+/// The address a job's coinbase pays most, as an explorer names a pool's block by it. The
+/// extranonce only fills a data field, so zeros of its length read the same outputs.
+fn payee_of(notify: &Notify) -> Option<[u8; 20]> {
+    let coinbase: Tx = postcard::from_bytes(&notify.coinbase_bytes(&[0; EXTRANONCE_BYTES])).ok()?;
+    let paid = coinbase.outputs.iter().filter(|output| output.language == ADDRESS_LANGUAGE);
+    paid.max_by_key(|output| output.value).and_then(|output| <[u8; 20]>::try_from(output.lock.as_slice()).ok())
+}
+
 /// Takes one message from the pool. `Some` ends the connection.
 fn take(state: &mut State, message: &Value) -> Option<Link> {
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     match message.get("method").and_then(Value::as_str) {
         Some("mining.notify") => {
             let notify = Notify::from_params(&params)?;
+            state.view.payee = payee_of(&notify).or(state.view.payee);
             if notify.clean {
                 state.jobs.clear();
             }

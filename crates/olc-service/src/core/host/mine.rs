@@ -75,7 +75,17 @@ impl Shared {
             *window = (Instant::now(), 0);
             elapsed = 0;
         }
-        if window.1 >= cap.saturating_mul(elapsed) / 1_000 {
+        let allowed = cap.saturating_mul(elapsed) / 1_000;
+        // A crew held up by a block or a busy machine does not race to make up the whole lag at the
+        // end of the second: a reading across two seconds would land half again above the cap.
+        // At most a twentieth of a second's hashes wait to be made up.
+        let most_behind = (cap / 20).max(u64::from(batch));
+        if allowed.saturating_sub(window.1) > most_behind {
+            window.1 = allowed - most_behind;
+        }
+        // A batch goes only once the time has earned all of it, so a second never holds more than
+        // the cap: a batch handed out ahead at each second's start read a hundredth over it.
+        if window.1 + u64::from(batch) > allowed {
             return 0;
         }
         window.1 += u64::from(batch);
@@ -304,6 +314,24 @@ mod tests {
         assert!(rate >= 30_000, "{rate} hashes a second under a cap of 40,000");
     }
 
+    /// Held up for most of a second, the crew may make up a twentieth of a second at once, not the
+    /// whole lag, so a one second reading that straddles two windows stays near the cap.
+    #[test]
+    fn a_crew_that_fell_behind_makes_up_only_a_little() {
+        let crew = Crew::default();
+        crew.set_cap(10_000);
+        *crew.shared.window.lock().unwrap() = (Instant::now() - Duration::from_millis(900), 0);
+        let mut granted = 0;
+        loop {
+            let batch = crew.shared.grant();
+            if batch == 0 {
+                break;
+            }
+            granted += u64::from(batch);
+        }
+        assert!(granted <= 1_000, "{granted} hashes at once after a stall, against 9,000 owed");
+    }
+
     #[test]
     fn a_sealed_header_comes_back_from_a_thread() {
         let mut crew = Crew::default();
@@ -347,6 +375,37 @@ mod tests {
         );
         assert!(all as f64 >= 0.8 * one as f64 * used as f64);
         assert!(all >= on_cores, "fewer threads would mine more");
+    }
+
+    /// The highest speed the app shows for a thread cap is measured on that many threads, so it
+    /// is not above what the miner really does on them: with one thread and with every core,
+    /// where one thread's speed times the threads would promise what two threads of one core
+    /// never do. It takes the whole machine, so it runs only when asked:
+    /// `cargo test -- --ignored highest_speed`.
+    #[test]
+    #[ignore = "measures this computer; run alone"]
+    fn the_highest_speed_is_not_above_a_real_run_on_those_threads() {
+        let all = crate::settings::cores();
+        let rates = crate::core::rates_by_threads(all);
+        for threads in [1, all] {
+            let shown = crate::core::rate_on(&rates, threads);
+            let real = grind_for(threads, 0, Duration::from_millis(2_000));
+            let times_one = rates[0] * threads as u64;
+            println!("{threads} threads: shown {shown}, real run {real}, one thread times {threads} {times_one}");
+            assert!(shown as f64 <= real as f64 * 1.10, "{shown} shown on {threads} threads is above the real run {real}");
+        }
+    }
+
+    /// A thread cap reads the speed measured on that many threads, not one thread's times them,
+    /// and a cap past the measured counts reads the last.
+    #[test]
+    fn the_highest_speed_is_read_for_the_threads_in_use() {
+        let rates = [100, 190, 230, 260];
+        assert_eq!(crate::core::rate_on(&rates, 1), 100);
+        assert_eq!(crate::core::rate_on(&rates, 3), 230, "not 3 x 100");
+        assert_eq!(crate::core::rate_on(&rates, 9), 260);
+        assert_eq!(crate::core::rate_on(&rates, 0), 100);
+        assert_eq!(crate::core::rate_on(&[], 4), 0);
     }
 
     /// A block's time moves on as the coin carries it, with the difficulty that time asks: whole

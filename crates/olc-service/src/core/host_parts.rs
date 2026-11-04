@@ -6,7 +6,7 @@ use olc_store::{load_headers, NodeSettings};
 use olc_pow::ProofOfWork;
 use olc_wallet::{format_address, parse_address};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub struct Plan {
     pub coin: CoinConfig,
@@ -57,6 +57,13 @@ pub fn unix_ms() -> u64 {
         .map_or(0, |time| time.as_millis() as u64)
 }
 
+/// How long each thread hashes before it is timed: a core that rested runs at a low clock for the
+/// first milliseconds, and a miner's speed is the speed of a busy core.
+const WARM: Duration = Duration::from_millis(15);
+/// How long each thread is timed. Runs of fixed length cost the same on any computer and build:
+/// twelve counts of threads stay near half a second.
+const RUN: Duration = Duration::from_millis(25);
+
 /// How many hashes this computer does in a second on `threads` cores at once, measured.
 pub fn full_rate(threads: usize) -> u64 {
     std::thread::scope(|scope| {
@@ -65,16 +72,43 @@ pub fn full_rate(threads: usize) -> u64 {
     })
 }
 
+/// The speed on each count of threads from one to `most`, measured on that many threads at once
+/// before anything mines. Two threads of one core share its hashing, so one thread's speed times
+/// the threads would promise more than such a computer does. A run while miners work would share
+/// the cores with them and read low, so every count is measured here, once.
+pub fn rates_by_threads(most: usize) -> Vec<u64> {
+    (1..=most.max(1)).map(full_rate).collect()
+}
+
+/// The speed for `threads` out of [`rates_by_threads`]: more threads than were measured run on
+/// no more cores than the last count did.
+pub fn rate_on(rates: &[u64], threads: usize) -> u64 {
+    let index = threads.clamp(1, rates.len().max(1)) - 1;
+    rates.get(index).copied().unwrap_or(0)
+}
+
 fn one_core_rate() -> u64 {
-    const ROUNDS: u32 = 20_000;
-    let started = Instant::now();
     let mut seed = [0u8; 80];
-    for _ in 0..ROUNDS {
-        let digest = olc_crypto::hash(&seed);
-        seed[..32].copy_from_slice(&digest);
+    hash_for(&mut seed, WARM);
+    let started = Instant::now();
+    let done = hash_for(&mut seed, RUN);
+    let micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX).max(1);
+    done.saturating_mul(1_000_000) / micros
+}
+
+/// Hashes one after another for `run`, and says how many.
+fn hash_for(seed: &mut [u8; 80], run: Duration) -> u64 {
+    const BATCH: u64 = 32;
+    let started = Instant::now();
+    let mut done = 0u64;
+    while started.elapsed() < run {
+        for _ in 0..BATCH {
+            let digest = olc_crypto::hash(seed);
+            seed[..32].copy_from_slice(&digest);
+        }
+        done += BATCH;
     }
-    let micros = started.elapsed().as_micros().max(1) as u64;
-    u64::from(ROUNDS) * 1_000_000 / micros
+    done
 }
 
 /// What this run goes by on the links. Nothing about it needs to last.

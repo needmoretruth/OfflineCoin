@@ -404,7 +404,6 @@ impl Worker {
             let outside = self.state.work.lock().ok().and_then(|work| *work);
             self.crew.resize(if wanted || outside.is_some() { threads.max(1) } else { 0 });
             self.crew.set_cap(cap);
-            let elapsed_ms = window.elapsed().as_millis() as u64;
             let shared = self.runner.clone();
             if let Ok(mut runner) = shared.lock() {
                 let now = unix_ms();
@@ -436,6 +435,9 @@ impl Worker {
                 }
             }
             hashes += self.crew.take_counted();
+            // The window's length when its hashes are counted: a step that held the chain for a
+            // while in between would otherwise count its hashes against a shorter time.
+            let elapsed_ms = window.elapsed().as_millis() as u64;
             if elapsed_ms >= 1_000 {
                 let rate = hashes * 1_000 / elapsed_ms;
                 self.state.hashrate.store(rate, Ordering::Relaxed);

@@ -3,6 +3,7 @@
 //! between them. What it is given is enforced by the operating system, and what it uses is
 //! measured from the operating system, so the two can stand side by side.
 mod board_lines;
+mod budget;
 mod child;
 pub mod lab;
 pub mod lab_net;
@@ -15,6 +16,7 @@ mod spawn;
 mod supervisor;
 pub mod trouble;
 
+pub use budget::Budget;
 pub use child::run_node;
 pub use measure::{is_running, Measured};
 pub use preset::{Preset, PROCESS_OVERHEAD_MIB};
@@ -64,7 +66,8 @@ pub struct NodeSpec {
     pub id: u32,
     pub name: String,
     pub preset: Preset,
-    /// Hashes per second. 0 is no cap, which leaves the CPU share as the limit.
+    /// A speed of its own in hashes a second, kept inside this computer's limit. 0 takes an equal
+    /// part of the limit, as every miner here shares one: see [`Budget`].
     pub hash_cap: u64,
     /// Memory for chain data. The process itself takes `PROCESS_OVERHEAD_MIB` on top.
     pub memory_mib: u64,

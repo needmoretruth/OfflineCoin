@@ -53,12 +53,10 @@ pub const WORDS: &[(&str, &str)] = &[
     ("mining.no_boards", "No boards yet. This computer mines without them."),
     ("mining.open_devices", "Open Devices"),
     ("mining.together", "Mine together"),
-    ("rate.title", "This app's speed"),
     ("rate.full", "Full"),
     ("rate.of", "Up to {} of the computer's {}"),
     ("rate.measuring", "Measuring this computer's full speed."),
     ("rate.slider", "Speed limit"),
-    ("rate.about", "Higher finds blocks more often and keeps the computer busier."),
     ("rate.unknown", "Not known yet"),
     ("rate.compare_share", "Share of full speed"),
     ("rate.compare_rate", "Speed here"),
@@ -111,7 +109,6 @@ pub const WORDS: &[(&str, &str)] = &[
 
 /// The standard terms that replace the plain ones above, and rows only expert mode shows.
 pub const EXPERT: &[(&str, &str)] = &[
-    ("rate.title", "This app's hashrate limit"),
     ("mining.race", "Block share and hashrate"),
     ("mining.tries", "Difficulty"),
     ("mining.tries_value", "{}"),

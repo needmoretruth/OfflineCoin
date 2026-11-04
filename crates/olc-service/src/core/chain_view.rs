@@ -25,6 +25,10 @@ pub enum Miner {
     Board(String),
     /// Some other computer, by the address its reward went to.
     Away(String),
+    /// The pool this app runs: its blocks pay this app's wallet and carry the pool's tag.
+    OwnPool,
+    /// Another pool, by the address its blocks pay.
+    Pool(String),
     /// A reward with no plain address.
     #[default]
     Unknown,
@@ -42,6 +46,8 @@ pub struct MinedBlock {
     pub difficulty: u64,
     /// The address the reward went to, as people write it.
     pub payee: Option<String>,
+    /// The reward carries a pool's tag.
+    pub pool: bool,
     pub miner: Miner,
 }
 
@@ -63,6 +69,7 @@ impl MinedBlock {
             reward: paid.map(|output| output.value).sum(),
             difficulty: block.header.difficulty,
             payee: payee.map(|address| format_address(&address)),
+            pool: outputs.iter().any(|output| output.is_data() && output.lock.starts_with(olc_pool::POOL_TAG)),
             miner: Miner::Unknown,
         }
     }
@@ -91,6 +98,21 @@ impl Branch {
     }
 }
 
+/// What the network's speed was read from: this many blocks, over this long up to now. Miners
+/// whose speed this app measures count by that speed; the blocks others found count as their work
+/// over the span, so a change of their speed shows in full once the span has passed since it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reading {
+    pub blocks: usize,
+    pub span_ms: u64,
+    /// What those blocks alone say, whoever found them, before anything measured.
+    pub rate: u64,
+    /// Of those blocks, the ones found by miners whose speed this app does not measure.
+    pub others: usize,
+    /// Their work over the span: the part of the network's speed that is read, not measured.
+    pub others_rate: u64,
+}
+
 /// One miner's part of the latest blocks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Share {
@@ -98,6 +120,8 @@ pub struct Share {
     pub blocks: u32,
     /// Its speed now, where this computer hears it.
     pub hashrate: Option<u64>,
+    /// For a pool: the miners here working in it, whose blocks count as the pool's.
+    pub workers: Vec<Miner>,
 }
 
 /// Everything the block strip, the race bars, the speed line and the next block bar draw.
@@ -115,9 +139,15 @@ pub struct ChainView {
     /// (unix ms, rate) over the last ten minutes.
     pub trail: Vec<(u64, u64)>,
     pub hashrate_here: u64,
-    /// All the speed the network has: what this computer hears, or what the latest blocks took
-    /// when some came from miners it cannot hear.
+    /// The network's speed now: the measured speed of every miner this app knows, and for the
+    /// latest blocks others found, their work over their time up to now, as Bitcoin's
+    /// getnetworkhashps reads it. Never below `hashrate_here`, since the network holds this
+    /// computer. With too few blocks to tell who else mines, the speeds this computer hears.
     pub hashrate_all: u64,
+    /// The blocks and the time that speed was read from; `None` while too few blocks are kept.
+    pub network: Option<Reading>,
+    /// The work of every block in `latest` over their time, the recent average; 0 while too few.
+    pub hashrate_average: u64,
     /// How long the next block takes at that speed and the current difficulty.
     pub expected_ms: Option<u64>,
     /// How long the last blocks really took, on average, to set beside the expected wait.
@@ -133,6 +163,25 @@ impl ChainView {
     /// How many blocks the shares count.
     pub fn window(&self) -> u32 {
         self.shares.iter().map(|share| share.blocks).sum()
+    }
+
+    /// This computer's part of the network's speed in whole percent, and in whole points how far
+    /// off it may be. `None` while too few blocks tell who else mines. With every block found by
+    /// miners whose speed is measured, the part is exact. Otherwise the others' speed is read
+    /// from their k blocks, off by about one part in √k, and moves the part by its share of the
+    /// whole as much: twice that holds about nine readings in ten.
+    pub fn share(&self) -> Option<(u64, u64)> {
+        let reading = self.network?;
+        let (here, all) = (u128::from(self.hashrate_here), u128::from(self.hashrate_all));
+        let percent = u64::try_from((here * 100).checked_div(all)?).unwrap_or(100).min(100);
+        if reading.others == 0 {
+            return Some((percent, 0));
+        }
+        // Speeds stay far below 2^53, where a float holds every whole number.
+        let part = |rate: u64| rate as f64 / self.hashrate_all as f64;
+        let scatter = f64::from(u32::try_from(reading.others).unwrap_or(u32::MAX)).sqrt();
+        let error = 200.0 * part(self.hashrate_here) * part(reading.others_rate) / scatter;
+        Some((percent, error.ceil() as u64))
     }
 }
 

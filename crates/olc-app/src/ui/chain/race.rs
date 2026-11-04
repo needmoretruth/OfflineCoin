@@ -14,6 +14,23 @@ const FIGURES_NARROW: f32 = 140.0;
 /// Below this the bars are too short to compare, so a narrow column drops the speed instead.
 const MIN_TRACK: f32 = 110.0;
 
+/// Each miner's whole percent of the blocks, adding to 100 exactly: the floors first, then one
+/// point each to the largest remainders, as a breakdown that has to add up is rounded.
+pub fn percents(shares: &[Share]) -> Vec<u32> {
+    let window: u32 = shares.iter().map(|share| share.blocks).sum();
+    if window == 0 {
+        return vec![0; shares.len()];
+    }
+    let mut given: Vec<u32> = shares.iter().map(|share| share.blocks * 100 / window).collect();
+    let left = 100 - given.iter().sum::<u32>();
+    let mut order: Vec<usize> = (0..shares.len()).collect();
+    order.sort_by_key(|at| std::cmp::Reverse(shares[*at].blocks * 100 % window));
+    for at in order.into_iter().take(left as usize) {
+        given[at] += 1;
+    }
+    given
+}
+
 /// One bar per miner, most blocks first as the view already sorts them, with "you" in the accent.
 /// A miner that hashes and has found nothing yet keeps an empty bar. In a narrow column the speed
 /// leaves the row, so the bars keep room and no figure is cut at the edge; the hover still says it.
@@ -22,8 +39,14 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
     let t = look.t;
     let voice = look.voice;
     let width = ui.available_width();
-    let rows = shares.len().max(1) as f32;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, tokens::META_LINE + 6.0 + rows * ROW), Sense::hover());
+    // A pool's row says under it which miners here work in it: their blocks are the pool's.
+    let workers_of = |share: &Share| {
+        let names: Vec<String> = share.workers.iter().map(|worker| miner_name(voice, worker)).collect();
+        (!names.is_empty()).then(|| i18n::fill(i18n::text(voice, "chain.pool_workers"), &[&names.join(", ")]))
+    };
+    let height_of = |share: &Share| if share.workers.is_empty() { ROW } else { ROW + tokens::META_LINE };
+    let rows: f32 = if shares.is_empty() { ROW } else { shares.iter().map(height_of).sum() };
+    let (rect, response) = ui.allocate_exact_size(vec2(width, tokens::META_LINE + 6.0 + rows), Sense::hover());
     let painter = ui.painter_at(rect);
     let small = FontId::new(tokens::META, FontFamily::Proportional);
     let title = i18n::fill(i18n::text(voice, "chain.shares"), &[&format::number(window.into())]);
@@ -38,10 +61,17 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
     let with_speed = width - NAME - FIGURES >= MIN_TRACK;
     let figures = if with_speed { FIGURES } else { FIGURES_NARROW };
     let track_width = (width - NAME - figures).max(40.0);
+    let rounded = percents(shares);
+    let mut top = rect.top() + tokens::META_LINE + 6.0;
     for (index, share) in shares.iter().enumerate() {
         let you = share.miner == Miner::You;
         let colours = faces(t, you);
-        let middle = rect.top() + tokens::META_LINE + 6.0 + ROW * (index as f32 + 0.5);
+        let middle = top + ROW / 2.0;
+        top += height_of(share);
+        let workers = workers_of(share);
+        if let Some(workers) = &workers {
+            painter.text(pos2(rect.left(), middle + ROW / 2.0 - 4.0), Align2::LEFT_TOP, workers, small.clone(), t.muted);
+        }
         let name = miner_name(voice, &share.miner);
         let name_font = FontId::new(tokens::TEXT, if you { fonts::strong() } else { fonts::medium() });
         let name_colour = if you { t.info } else { t.text };
@@ -58,7 +88,7 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
             let (start, end) = colours.bar(t);
             painter.add(paint::gradient(fill, BAR / 2.0, start, end));
         }
-        let percent = (share.blocks * 100).checked_div(window).unwrap_or(0);
+        let percent = rounded[index];
         let count = match share.blocks {
             1 => i18n::text(voice, "chain.share_one").to_string(),
             blocks => i18n::fill(i18n::text(voice, "chain.share_blocks"), &[&format::number(blocks.into())]),
@@ -71,11 +101,26 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
         if let Some(speed) = speed.as_ref().filter(|_| with_speed) {
             painter.text(pos2(counted.right() + 12.0, middle), Align2::LEFT_CENTER, speed, small.clone(), t.muted);
         }
-        let row = Rect::from_min_size(pos2(rect.left(), middle - ROW / 2.0), vec2(width, ROW));
-        let label = [Some(name), Some(format!("{percent}%")), Some(count), speed].into_iter().flatten().collect::<Vec<_>>().join(", ");
+        let row = Rect::from_min_size(pos2(rect.left(), middle - ROW / 2.0), vec2(width, height_of(share)));
+        let said = [Some(name), Some(format!("{percent}%")), Some(count), speed, workers];
+        let label = said.into_iter().flatten().collect::<Vec<_>>().join(", ");
         let said = ui.interact(row, ui.scope_id().with(("chain-share", index)), Sense::hover());
         said.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
         said.on_hover_text(label);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Three equal miners read 34, 33 and 33, not 33 three times: the breakdown adds to 100.
+    #[test]
+    fn the_percents_add_to_a_hundred() {
+        let of = |blocks: &[u32]| -> Vec<Share> { blocks.iter().map(|blocks| Share { blocks: *blocks, ..Share::default() }).collect() };
+        assert_eq!(percents(&of(&[1, 1, 1])), [34, 33, 33]);
+        assert_eq!(percents(&of(&[29, 17, 9, 4, 1])).iter().sum::<u32>(), 100);
+        assert_eq!(percents(&of(&[0, 0])), [0, 0]);
+    }
 }

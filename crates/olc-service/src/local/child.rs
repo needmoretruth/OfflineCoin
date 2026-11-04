@@ -34,6 +34,7 @@ struct Words {
     port: u16,
     connect: Vec<String>,
     cap: u64,
+    threads: usize,
     storage: Option<u64>,
     name: String,
     mining: bool,
@@ -63,6 +64,7 @@ fn parse(words: Vec<String>) -> Result<Words, String> {
             }
             "--connect" => parsed.connect.push(value),
             "--cap" => parsed.cap = number(&value)?,
+            "--threads" => parsed.threads = number(&value)? as usize,
             "--storage" => parsed.storage = Some(number(&value)?),
             "--name" => parsed.name = value,
             _ => return Err(format!("unknown word {word}")),
@@ -105,6 +107,7 @@ fn run_line(host: &Host, line: &str) -> Option<ChildStatus> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words.as_slice() {
         ["limit", cap] => host.set_cap(cap.parse().ok()?),
+        ["threads", threads] => host.set_threads(threads.parse().ok()?),
         ["mine", on] => host.set_mining(*on == "on"),
         ["mineto", "own"] => drop(host.set_miner("")),
         ["mineto", address] => drop(host.set_miner(address)),
@@ -208,6 +211,8 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
         },
         None,
     )?;
+    // Mines on the threads the app gives every miner here; one when it says none.
+    host.set_threads(words.threads.max(1));
     let lines = read_lines();
     let mut board = BoardSide::default();
     let mut side = LabSide::default();

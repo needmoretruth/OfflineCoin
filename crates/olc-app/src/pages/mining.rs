@@ -7,7 +7,7 @@ use super::local::Local;
 use super::pool::PoolTab;
 use super::pool_join::standing_words;
 use super::speed::Speed;
-use super::{miners, pacing, Cx, Page};
+use super::{miners, network, pacing, Cx, Page};
 use crate::core::{unix_ms, Choice, Who};
 use crate::ui::chain::{self, Look};
 use crate::ui::explain;
@@ -19,7 +19,7 @@ use egui::{vec2, Align, Layout, RichText, Ui};
 
 /// How wide the miners take of the first row; the race and the pacing take the rest.
 const MINERS_SHARE: f32 = 0.58;
-const LINE_HEIGHT: f32 = 130.0;
+const LINE_HEIGHT: f32 = 150.0;
 
 #[derive(Default)]
 pub struct Mining {
@@ -34,24 +34,9 @@ fn details_labels(cx: &Cx) -> (&'static str, &'static str) {
     (cx.say("explain.details"), cx.say("explain.hide"))
 }
 
-/// Every miner's share of the latest blocks and its speed, most blocks first.
+/// The whole network's speed, this computer's share and who found the latest blocks.
 fn race(ui: &mut Ui, cx: &Cx, still: bool) {
-    let t = cx.t;
-    card(ui, t, |ui| {
-        section(ui, cx.say("mining.race"));
-        explain::short(ui, t, cx.say("mining.race_about"));
-        ui.add_space(tokens::GAP);
-        let ticker = cx.ticker().to_string();
-        let look = Look { t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
-        chain::race_bars(ui, &look, &cx.snap.node.chain.shares);
-        ui.add_space(tokens::GAP);
-        chain::next_block_bar(ui, &look, &cx.snap.node.chain);
-        explain::details(ui, t, "mining-race", details_labels(cx), |ui| {
-            explain::analogy(ui, t, cx.say("mining.race_analogy"));
-            ui.add_space(tokens::GAP);
-            ui.label(cx.say("mining.race_more"));
-        });
-    });
+    network::card_of(ui, cx, still);
 }
 
 impl Mining {
@@ -70,6 +55,7 @@ impl Mining {
                 });
             });
             explain::short(ui, &t, cx.say("mining.more_about"));
+            miners::next_line(ui, cx);
             ui.add_space(4.0);
             miners::table(ui, cx);
             ui.add_space(tokens::GAP_WIDE);
@@ -77,7 +63,7 @@ impl Mining {
             ui.add_space(tokens::GAP_WIDE);
             let ticker = cx.ticker().to_string();
             let look = Look { t: &t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
-            chain::hashrate_line(ui, &look, &cx.snap.node.chain, LINE_HEIGHT);
+            chain::hashrate_line(ui, &look, &cx.snap.node.chain, &chain::Ceiling::of(&cx.snap.budget), LINE_HEIGHT);
         });
     }
 

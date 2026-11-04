@@ -1,8 +1,7 @@
 //! Every miner this computer runs in one table: this app's own first, then each one added, with
-//! what it mines at, the limit it keeps to, whose wallet it pays and a switch. Added miners can
-//! be taken out from their row. The table is where miners are managed; each one's memory, disk and
-//! payments stay in its own card further down the Mining page.
-use super::speed::cap_for;
+//! what it mines at, its part of this computer's limit, whose wallet it pays and a switch. Added
+//! miners can be taken out from their row. The table is where miners are managed; each one's
+//! memory, disk and payments stay in its own card further down the Mining page.
 use super::{Cx, Slipping};
 use crate::ui::floating::Slip;
 use super::pool_join::standing_words;
@@ -16,8 +15,6 @@ use egui::{Label, RichText, Ui};
 /// Name, speed, limit, wallet, switch, and room for the button that takes a miner out.
 const WEIGHTS: [f32; 6] = [1.4, 1.1, 1.1, 1.0, 0.55, 1.05];
 const HEADINGS: [&str; 6] = ["local.name", "mining.col_speed", "mining.col_limit", "mining.col_wallet", "mining.col_on", ""];
-/// A new miner starts at a quarter of one core, so adding one leaves the computer usable.
-const NEW_SHARE: u64 = 25;
 /// What a new miner may hold, as the Lab's miners do: plenty for a coin made on this computer.
 const NEW_MEMORY_MIB: u64 = 64;
 const NEW_DISK_MIB: u64 = 64;
@@ -56,21 +53,27 @@ fn figure(cx: &Cx, rate: u64) -> String {
     }
 }
 
-fn limit_text(cx: &Cx, cap: u64) -> String {
-    match cap {
-        0 => cx.say("mining.no_cap").to_string(),
-        cap => figure(cx, cap),
+/// An added miner's part of the limit: what it is held to while it mines, its own speed while it
+/// rests if it has one, and otherwise the equal part it would take.
+pub fn part_text(cx: &Cx, spec: &NodeSpec) -> String {
+    match (cx.snap.budget.part_of(spec.id), spec.hash_cap) {
+        (Some(part), _) => figure(cx, part),
+        (None, 0) => cx.say("budget.equal_part").to_string(),
+        (None, own) => figure(cx, own),
     }
 }
 
 fn app_row(cx: &Cx) -> Row {
     let node = &cx.snap.node;
+    let budget = &cx.snap.budget;
     let speed = if node.mining { figure(cx, node.hashrate) } else { cx.say("mining.off").to_string() };
+    // This app's part waits for it while it rests, so the others keep their speed.
+    let limit = if budget.unbounded() { cx.say("mining.no_cap").to_string() } else { figure(cx, budget.own) };
     Row {
         name: cx.say("mining.this_app").to_string(),
         running: node.mining,
         speed,
-        limit: limit_text(cx, node.cap),
+        limit,
         wallet: cx.say("mining.wallet_here"),
         switch: if node.light.is_some() { Switch::None } else { Switch::App(node.mining) },
         remove: None,
@@ -93,7 +96,7 @@ fn node_row(cx: &Cx, view: &LocalView) -> Row {
         name: view.spec.name.clone(),
         running: view.pid.is_some(),
         speed: mining.map_or_else(|| cx.say("mining.off").to_string(), |status| figure(cx, status.hashrate)),
-        limit: limit_text(cx, view.spec.hash_cap),
+        limit: part_text(cx, &view.spec),
         wallet: cx.say(wallet),
         switch,
         remove: Some(id),
@@ -197,16 +200,25 @@ fn in_pools(ui: &mut Ui, cx: &Cx, t: &Tokens) {
     }
 }
 
-/// One more miner on this computer with its own wallet, mining at once at a quarter of the full
-/// speed. Every number stays editable in its card. `next` is the first id not yet asked for, so two
-/// clicks before the core answers still make two miners.
+/// What one more miner would start at, said before it is added.
+pub fn next_line(ui: &mut Ui, cx: &Cx) {
+    let next = cx.snap.budget.next;
+    if next > 0 {
+        let line = cx.fill("budget.next", &[&format::rate(cx.voice(), next)]);
+        ui.add(Label::new(RichText::new(line).size(tokens::META).color(cx.t.soft)).wrap());
+    }
+}
+
+/// One more miner on this computer with its own wallet, mining at once on an equal part of this
+/// computer's limit, never above it. Every number stays editable in its card. `next` is the first
+/// id not yet asked for, so two clicks before the core answers still make two miners.
 pub fn add(cx: &Cx, next: &mut u32) {
     let known = cx.snap.local.iter().map(|view| view.spec.id).max().map_or(0, |id| id + 1);
     let id = known.max(*next);
     *next = id + 1;
     let spec = NodeSpec {
         name: cx.fill("mining.miner_name", &[&(id + 1).to_string()]),
-        hash_cap: cap_for(cx.snap.full_rate, NEW_SHARE),
+        hash_cap: 0,
         memory_mib: NEW_MEMORY_MIB,
         disk_mib: NEW_DISK_MIB,
         wallet: WalletChoice::Own,
