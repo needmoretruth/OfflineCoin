@@ -169,6 +169,8 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("net.fact_in_pool", "Stratum worker of {}. Paid {}."),
     ("net.fact_pool", "{} workers. {} blocks found."),
     ("net.fact_worker", "{}: {} shares, paid {}"),
+    ("pro.worker_stale", "{}: {} shares, {} stale, paid {}"),
+    ("pro.stale_shares", "Stale shares: {} of {}."),
     ("net.fact_full", "Holds every block to height {}."),
     ("net.fact_pruned", "Pruned below height {}; keeps the UTXO set."),
     ("net.fact_light", "{} headers. No blocks, no UTXO set."),

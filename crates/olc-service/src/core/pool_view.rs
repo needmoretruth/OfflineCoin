@@ -25,6 +25,8 @@ pub struct WorkerRow {
     pub last_share_secs: Option<u64>,
     pub accepted: u64,
     pub refused: u64,
+    /// Shares that came after a new block ended their job: work lost to timing, not a fault.
+    pub stale: u64,
     pub paid: u64,
     pub difficulty: u64,
     pub online: bool,

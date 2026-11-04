@@ -49,6 +49,8 @@ pub struct WorkerLine {
     pub paid: u64,
     pub online: bool,
     pub speed: u64,
+    /// Its shares that came after a new block ended their job.
+    pub stale: u64,
 }
 
 /// A payment to this wallet as this node sees it now.
@@ -76,6 +78,8 @@ pub struct LabLine {
     pub working: bool,
     /// Shares the pool took from this node.
     pub accepted: u64,
+    /// Its shares of a job a new block ended: kept back, or refused by the pool as stale.
+    pub stale: u64,
     pub incoming: Vec<Incoming>,
     /// Payments waiting for a block, and their bytes, counted at one moment.
     pub waiting: u64,
@@ -154,6 +158,11 @@ impl LabSide {
     /// spammer pays, many times a second.
     pub fn busy(&self) -> bool {
         self.seat.is_some() || self.spam > 0
+    }
+
+    /// Runs or works in a pool, whose jobs and shares cannot wait for the next tenth of a second.
+    pub fn pooled(&self) -> bool {
+        self.seat.is_some()
     }
 
     /// A `lab` line came, so the status line carries the `lab` part.
@@ -399,6 +408,7 @@ impl LabSide {
                     paid: row.paid,
                     online: row.online,
                     speed: row.speed,
+                    stale: row.stale,
                 })
                 .collect();
             line.pool_found = view.let_go.blocks + view.found.len() as u64;
@@ -406,6 +416,7 @@ impl LabSide {
                 line.joined = Some(link.join.address.clone());
                 line.working = link.view.link == olc_pool::Link::Working;
                 line.accepted = link.view.accepted;
+                line.stale = link.view.stale;
             }
         }
         if let Ok(runner) = host.runner.lock() {

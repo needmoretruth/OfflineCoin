@@ -61,6 +61,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.dial_off", "다이얼 중지"),
     ("pro.dial_off_about", "다이얼한 피어를 잊습니다."),
     ("pro.difficulty", "난이도"),
+    ("pro.stale", "스테일"),
     ("pro.difficulty_about", "시작 난이도입니다."),
     ("pro.export_key", "키 내보내기"),
     ("pro.export_key_about", "번호로 키를 출력합니다. 케이블로만 됩니다."),

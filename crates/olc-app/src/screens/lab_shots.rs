@@ -243,6 +243,16 @@ fn every_kind_does_its_part_in_expert_english() {
     counts(&mut run, &pool, 1.0, 30);
     counts(&mut run, &miners[0], 1.0, 120);
     run.shoot("02-pool");
+    // An expert reads the shares a new block ended apart: on the miner, and on the pool's lines.
+    run.select(&miners[0]);
+    run.wait(60, "the miner says its stale shares of all", |run| {
+        run.line_numbers("pro.stale_shares").is_some_and(|numbers| numbers.len() == 2 && numbers[1] > 0.0)
+    });
+    run.select(&miners[0]);
+    run.select(&pool);
+    run.wait(30, "the pool says each worker's stale shares", |run| !run.lines_with("pro.worker_stale").is_empty());
+    run.shoot("02-pool-stale");
+    run.select(&pool);
     for kind in [Kind::Full, Kind::Light] {
         let keeper = add_and_see(&mut run, kind, 1);
         counts(&mut run, &keeper, 1.0, 120);

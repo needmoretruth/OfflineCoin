@@ -15,6 +15,9 @@ pub const PORT: u16 = 3333;
 /// A line longer than this is no Stratum request.
 const MOST_LINE: usize = 4_096;
 const TURN: Duration = Duration::from_millis(100);
+/// A connection hears a new job within this long. With blocks seconds apart, every moment a
+/// miner works on a job a new block ended is work lost, so the wait for a request is short.
+const PUSH_WITHIN: Duration = Duration::from_millis(10);
 /// A connection that has not subscribed by then is closed.
 const SUBSCRIBE_WITHIN: Duration = Duration::from_secs(30);
 /// A connection quiet this long is gone.
@@ -91,7 +94,7 @@ fn serve(mut stream: TcpStream, pool: &Shared, stop: &AtomicBool) {
 
 fn run(stream: &mut TcpStream, pool: &Shared, stop: &AtomicBool, id: u64) -> std::io::Result<()> {
     stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(TURN))?;
+    stream.set_read_timeout(Some(PUSH_WITHIN))?;
     stream.set_write_timeout(Some(WRITE_WITHIN))?;
     let _ = stream.set_nodelay(true);
     let started = Instant::now();

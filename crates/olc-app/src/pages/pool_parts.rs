@@ -41,6 +41,9 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
     let mut keys = vec!["pool.who", "pool.speed", "pool.last_share", "pool.accepted", "pool.refused", "pool.paid"];
     let mut weights = vec![2.4, 1.4, 1.1, 0.8, 0.8, 1.4];
     if cx.expert() {
+        // Shares a new block ended stand beside those refused for a fault.
+        keys.insert(5, "pro.stale");
+        weights.insert(5, 0.8);
         keys.push("pro.difficulty");
         weights.push(0.9);
     }
@@ -54,8 +57,8 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
         }
     });
     for row in &view.workers {
-        columns.row(ui, |ui, index| match index {
-            0 => {
+        columns.row(ui, |ui, index| match keys[index] {
+            "pool.who" => {
                 dot(ui, if row.online { t.good } else { t.muted });
                 let name = ui.add(egui::Label::new(name_of(cx, row)).truncate());
                 name.on_hover_text(&row.name);
@@ -63,11 +66,12 @@ pub fn workers_table(ui: &mut Ui, cx: &Cx, view: &PoolView) {
                     tag(ui, cx.say("pool.elsewhere"), t.info, t);
                 }
             }
-            1 => cell(ui, format::rate(cx.voice(), row.speed)),
-            2 => cell(ui, last_share(cx, row.last_share_secs)),
-            3 => right_cell(ui, format::number(row.accepted.into())),
-            4 => right_cell(ui, format::number(row.refused.into())),
-            5 => right_cell(ui, format::payout(cx.voice(), row.paid, cx.ticker())),
+            "pool.speed" => cell(ui, format::rate(cx.voice(), row.speed)),
+            "pool.last_share" => cell(ui, last_share(cx, row.last_share_secs)),
+            "pool.accepted" => right_cell(ui, format::number(row.accepted.into())),
+            "pool.refused" => right_cell(ui, format::number(row.refused.into())),
+            "pool.paid" => right_cell(ui, format::payout(cx.voice(), row.paid, cx.ticker())),
+            "pro.stale" => right_cell(ui, format::number(row.stale.into())),
             _ => right_cell(ui, format::number(row.difficulty.into())),
         });
         // A board the pool switched off for never taking its work says why under its row.

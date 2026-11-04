@@ -183,6 +183,10 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
             Some(pool) => {
                 let paid = member.received.from_pool;
                 facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(voice, paid)]));
+                // Shares of a job a new block ended are work lost to timing: an expert reads how many.
+                if voice.mode == Mode::Expert {
+                    facts.push(with("pro.stale_shares", &[&number(line.stale), &number(line.accepted + line.stale)]));
+                }
             }
             None => facts.push(format!("{} {holds}", with("net.fact_miner", &[&number(status.blocks_mined)]))),
         },
@@ -206,7 +210,11 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
                     .iter()
                     .find(|other| other.address() == Some(worker.address.as_str()))
                     .map_or_else(|| worker.address.chars().take(10).collect(), |other| name(voice, other));
-                facts.push(with("net.fact_worker", &[&who, &number(worker.accepted), &coins(voice, worker.paid)]));
+                let paid = coins(voice, worker.paid);
+                facts.push(match voice.mode {
+                    Mode::Expert => with("pro.worker_stale", &[&who, &number(worker.accepted), &number(worker.stale), &paid]),
+                    Mode::Basic => with("net.fact_worker", &[&who, &number(worker.accepted), &paid]),
+                });
             }
         }
         Kind::Full => facts.push(with("net.fact_full", &[&number(status.height)])),

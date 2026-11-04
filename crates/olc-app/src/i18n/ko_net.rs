@@ -169,6 +169,8 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("net.fact_in_pool", "{}의 Stratum 워커입니다. 받은 금액 {}."),
     ("net.fact_pool", "워커 {}명. 찾은 블록 {}개."),
     ("net.fact_worker", "{}: 셰어 {}, 지급 {}"),
+    ("pro.worker_stale", "{}: 셰어 {}, 스테일 {}, 지급 {}"),
+    ("pro.stale_shares", "스테일 셰어 {}개, 전체 {}개."),
     ("net.fact_full", "높이 {}까지 모든 블록을 보관합니다."),
     ("net.fact_pruned", "높이 {} 아래는 프루닝했고 UTXO 세트는 그대로입니다."),
     ("net.fact_light", "헤더 {}개. 블록과 UTXO 세트는 없습니다."),

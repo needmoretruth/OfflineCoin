@@ -61,6 +61,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pro.dial_off", "Stop dialing"),
     ("pro.dial_off_about", "Forget the dialed peer."),
     ("pro.difficulty", "Difficulty"),
+    ("pro.stale", "Stale"),
     ("pro.difficulty_about", "Starting difficulty."),
     ("pro.export_key", "Export key"),
     ("pro.export_key_about", "Prints a key by number. Cable only."),

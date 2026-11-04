@@ -98,6 +98,9 @@ fn malformed_and_replayed_shares_are_refused_without_harm() {
     let mut stale = good.clone();
     stale[2] = json!("00000099");
     assert_eq!(submit(&mut miner, &mut pool, stale, now + 30_000), Err(21));
+    // Work a new block ended counts apart, as stale: it says nothing against the worker.
+    let rig = pool.workers(now + 30_000).into_iter().find(|row| row.name == name).unwrap();
+    assert_eq!((rig.accepted, rig.refused, rig.stale), (1, 14, 1));
 }
 
 #[test]

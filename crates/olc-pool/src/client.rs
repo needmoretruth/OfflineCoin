@@ -1,7 +1,7 @@
 //! Joining a pool, as any Stratum v1 miner does: subscribe, sign in as `address.worker`, take each
 //! `mining.notify`, build the header and send back what reaches the difficulty. The hashing itself
 //! happens elsewhere: this hands out a header and takes back the ones that met it.
-use crate::stratum::{hex, olc_difficulty, request, word_hex, Notify};
+use crate::stratum::{hex, olc_difficulty, request, word_hex, Notify, Refusal};
 use olc_core::{BlockHeader, Hash, Tx, ADDRESS_LANGUAGE, EXTRANONCE_BYTES};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
@@ -48,8 +48,8 @@ pub struct ClientView {
     pub difficulty: u64,
     /// The last reason the pool gave for refusing a share.
     pub last_refusal: Option<String>,
-    /// Shares of a job the pool had already ended with a new block, kept back as Bitcoin's
-    /// miners keep them: the pool could only refuse them.
+    /// Shares of a job a new block ended: kept back here, as Bitcoin's miners keep them, when the
+    /// pool's clean notice came first, or refused by the pool as stale when they crossed it.
     pub stale: u64,
     /// The address the pool's blocks pay, read from its newest job: the name its blocks go by.
     pub payee: Option<[u8; 20]>,
@@ -331,6 +331,12 @@ fn take(state: &mut State, message: &Value) -> Option<Link> {
         _ if result.as_bool() == Some(true) => {
             state.unanswered = state.unanswered.saturating_sub(1);
             state.view.accepted += 1;
+        }
+        // A share the pool calls stale came after its job ended: work lost to a new block, not a
+        // fault of the miner's, so it counts with the shares kept back here.
+        _ if error.and_then(|error| error.get(0)?.as_i64()) == Some(Refusal::Stale.code()) => {
+            state.unanswered = state.unanswered.saturating_sub(1);
+            state.view.stale += 1;
         }
         _ => {
             state.unanswered = state.unanswered.saturating_sub(1);

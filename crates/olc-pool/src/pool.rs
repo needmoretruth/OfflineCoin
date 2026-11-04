@@ -52,6 +52,8 @@ pub(crate) struct Stats {
     pub(crate) address: Address,
     pub(crate) accepted: u64,
     pub(crate) refused: u64,
+    /// Shares of a job a new block ended, which say nothing against the worker.
+    pub(crate) stale: u64,
     pub(crate) paid: u64,
     pub(crate) last_share_ms: Option<u64>,
     pub(crate) first_ms: u64,
@@ -71,6 +73,8 @@ pub struct WorkerView {
     pub last_share_ms: Option<u64>,
     pub accepted: u64,
     pub refused: u64,
+    /// Shares that came after a new block ended their job: work lost to timing, not a fault.
+    pub stale: u64,
     pub paid: u64,
     pub difficulty: u64,
     pub online: bool,
@@ -231,7 +235,10 @@ impl Pool {
 
     fn refuse(&mut self, session: u64, worker: Option<&str>, refusal: Refusal) -> Result<(), Refusal> {
         if let Some(stats) = worker.and_then(|worker| self.workers.get_mut(worker)) {
-            stats.refused += 1;
+            match refusal {
+                Refusal::Stale => stats.stale += 1,
+                _ => stats.refused += 1,
+            }
         } else if let Some(session) = self.sessions.get_mut(&session) {
             session.malformed += 1;
         }
@@ -252,6 +259,15 @@ impl Pool {
         let (extranonce1, rolling) = (open.extranonce1, open.rolling);
         let difficulties = (open.vardiff.difficulty(), open.vardiff.before(now_ms));
         let Some(job) = self.jobs.iter().find(|job| job.notify.job_id == share.job) else {
+            // A job this pool once handed out and a new block ended is stale; one it never
+            // handed out is a fault, though Stratum gives both the same code.
+            let ended = u64::from_str_radix(share.job, 16).is_ok_and(|number| number < self.next_job);
+            if !ended {
+                if let Some(stats) = self.workers.get_mut(worker) {
+                    stats.refused += 1;
+                }
+                return Err(Refusal::Stale);
+            }
             return self.refuse(session, Some(worker), Refusal::Stale);
         };
         if share.extranonce2.len() != EXTRANONCE2_BYTES {
@@ -389,6 +405,7 @@ impl Pool {
                     last_share_ms: stats.last_share_ms,
                     accepted: stats.accepted,
                     refused: stats.refused,
+                    stale: stats.stale,
                     paid: stats.paid,
                     difficulty: stats.difficulty,
                     online: stats.sessions > 0,

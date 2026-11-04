@@ -117,6 +117,51 @@ fn a_pool_takes_shares_and_pays_its_miners() {
     assert!(line.pool_found >= 1, "the pool found a block");
 }
 
+/// The part of a pool's work that a new block may end before the miners move to the new job.
+const MOST_STALE: f64 = 0.05;
+const STALE_WATCH: Duration = Duration::from_secs(60);
+
+/// Blocks come about two seconds apart in the Lab, so every moment a pool takes to send the new
+/// job, and a miner to move to it, is work lost: its shares are of a job a new block ended. The
+/// pool sends the new job at once and each miner moves at once, and both count those shares apart
+/// as stale.
+#[test]
+#[ignore]
+fn a_pools_miners_lose_little_work_to_jobs_a_new_block_ended() {
+    place("net-stale");
+    let net = LabNet::start();
+    net.order(Order::Scene(Scene::Pool));
+    let line = |member: &Member| member.status.as_ref().and_then(|status| status.lab.clone()).unwrap_or_default();
+    let joined = |state: &NetState| -> Vec<Member> { of(state, Kind::Miner).into_iter().filter(|miner| miner.pool.is_some()).collect() };
+    let work = |state: &NetState| joined(state).iter().map(line).fold((0, 0), |(taken, stale), line| (taken + line.accepted, stale + line.stale));
+    let height = |state: &NetState| state.members.iter().map(Member::height).max().unwrap_or(0);
+    let start = wait_for(&net, Duration::from_secs(180), "two miners send shares to the pool", |state| {
+        let miners = joined(state);
+        miners.len() == 2 && miners.iter().map(line).all(|line| line.working && line.accepted > 0)
+    });
+    let ((taken_before, stale_before), height_before) = (work(&start), height(&start));
+    let began = Instant::now();
+    thread::sleep(STALE_WATCH);
+    let end = net.state();
+    let (taken, stale) = work(&end);
+    let (taken, stale) = (taken - taken_before, stale - stale_before);
+    let blocks = height(&end).saturating_sub(height_before);
+    let pool_stale: u64 = of(&end, Kind::Pool).iter().flat_map(|pool| line(pool).workers).map(|worker| worker.stale).sum();
+    let lost = stale as f64 / (taken + stale).max(1) as f64;
+    println!(
+        "over {:.0?}: {blocks} blocks, {:.2} s apart; the pool's miners had {taken} shares taken and {stale} stale, {:.1}% lost; the pool counted {pool_stale} stale",
+        began.elapsed(),
+        began.elapsed().as_secs_f64() / blocks.max(1) as f64,
+        lost * 100.0
+    );
+    assert!(blocks >= 15, "blocks come about two seconds apart: {blocks} in {STALE_WATCH:?}");
+    assert!(taken >= 100, "enough shares to judge by: {taken}");
+    assert!(lost <= MOST_STALE, "{:.1}% of the pool's work was on jobs a new block ended", lost * 100.0);
+    let all = pids(&end);
+    drop(net);
+    gone(&all);
+}
+
 #[test]
 #[ignore]
 fn full_pruned_and_light_nodes_hold_what_they_say() {

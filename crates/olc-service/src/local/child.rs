@@ -21,8 +21,12 @@ use std::time::{Duration, Instant};
 const STATUS_EVERY: Duration = Duration::from_secs(1);
 /// A node of the Lab's network says its status twice a second, so a block shows as it lands.
 const LAB_STATUS_EVERY: Duration = Duration::from_millis(500);
-/// How often a node that runs or works in a Lab pool, or floods payments, takes its turn.
+/// How often a node that floods payments takes its turn.
 const LAB_TURN: Duration = Duration::from_millis(100);
+/// How often a node that runs or works in a Lab pool takes its turn. Blocks come seconds apart
+/// there, so a new block's job goes out, a miner moves to it and a share goes in at once: every
+/// moment on an ended job is work lost.
+const POOL_TURN: Duration = Duration::from_millis(10);
 const OPENING_STEP: Duration = Duration::from_millis(10);
 
 #[derive(Default)]
@@ -222,7 +226,15 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
     let mut lab = false;
     let mut said: Option<Instant> = None;
     loop {
-        let turn = if side.busy() { LAB_TURN } else if side.on() { LAB_STATUS_EVERY } else { STATUS_EVERY };
+        let turn = if side.pooled() {
+            POOL_TURN
+        } else if side.busy() {
+            LAB_TURN
+        } else if side.on() {
+            LAB_STATUS_EVERY
+        } else {
+            STATUS_EVERY
+        };
         match lines.recv_timeout(turn) {
             Ok(line) if line == "quit" => return Ok(()),
             Ok(line) if line.starts_with("board ") => {

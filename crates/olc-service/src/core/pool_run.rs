@@ -488,6 +488,7 @@ impl PoolSeat {
                     speed: row.speed,
                     accepted: row.accepted,
                     refused: row.refused,
+                    stale: row.stale,
                     paid: row.paid,
                     difficulty: row.difficulty,
                     online: row.online,
