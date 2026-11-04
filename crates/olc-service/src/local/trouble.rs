@@ -24,6 +24,9 @@
 //! has and the copy lacks, sends the trick there, and waits for that node to say what it did. `funds` is a wallet folder holding spendable coins on `coin`; it is read, never
 //! written. `verdicts` returns the node's current verdict list, which the supervisor reads from
 //! the node's status line.
+//!
+//! `try_trick_on(copy, ...)`: the same with a copy kept from the try before, which then fetches
+//! only the blocks since. A try that could not be made leaves no copy behind.
 #[path = "trouble_peer.rs"]
 mod trouble_peer;
 
@@ -165,7 +168,7 @@ pub fn valid_payment(
     by: &str,
     verdicts: &dyn Fn() -> Vec<Verdict>,
 ) -> Result<Outcome, String> {
-    let mut peer = Peer::connect(coin, target)?;
+    let mut peer = Peer::connect(coin, target, &mut None)?;
     peer.catch_up()?;
     let tx = a_valid_payment(&peer.chain, funds)?;
     send_tx(&mut peer, tx, by, verdicts, Trick::DoubleSpend)
@@ -179,7 +182,7 @@ pub fn valid_block(
     by: &str,
     verdicts: &dyn Fn() -> Vec<Verdict>,
 ) -> Result<Outcome, String> {
-    let mut peer = Peer::connect(coin, target)?;
+    let mut peer = Peer::connect(coin, target, &mut None)?;
     peer.catch_up()?;
     let miner = address_of(&throwaway_key().1);
     let mut block = peer.chain.block_template(&miner, &[], now_ms());
@@ -205,17 +208,48 @@ pub fn try_trick(
     by: &str,
     verdicts: &dyn Fn() -> Vec<Verdict>,
 ) -> Result<Outcome, String> {
-    let mut peer = Peer::connect(coin, route.from)?;
+    try_trick_on(&mut None, trick, coin, route, funds, by, verdicts)
+}
+
+/// [`try_trick`] with a copy of the chain kept from the try before, which then fetches only the
+/// blocks since: eight targets tried nine times each would fetch the whole chain seventy-two
+/// times. A try that could not be made drops the copy, so the next one starts clean.
+pub fn try_trick_on(
+    copy: &mut Option<Chain>,
+    trick: Trick,
+    coin: &CoinConfig,
+    route: Route,
+    funds: &Path,
+    by: &str,
+    verdicts: &dyn Fn() -> Vec<Verdict>,
+) -> Result<Outcome, String> {
+    let mut peer = Peer::connect(coin, route.from, copy)?;
+    let outcome = commit(&mut peer, trick, coin, route, funds, by, verdicts);
+    if outcome.is_ok() {
+        *copy = Some(peer.into_chain());
+    }
+    outcome
+}
+
+fn commit(
+    peer: &mut Peer,
+    trick: Trick,
+    coin: &CoinConfig,
+    route: Route,
+    funds: &Path,
+    by: &str,
+    verdicts: &dyn Fn() -> Vec<Verdict>,
+) -> Result<Outcome, String> {
     peer.catch_up()?;
     if route.to != route.from {
         peer.turn_to(route.to)?;
     }
     if trick.is_block() {
         let block = build_block(trick, &peer.chain)?;
-        send_block(&mut peer, block, by, verdicts, trick)
+        send_block(peer, block, by, verdicts, trick)
     } else {
         let tx = build_tx(trick, coin, &peer.chain, funds)?;
-        send_tx(&mut peer, tx, by, verdicts, trick)
+        send_tx(peer, tx, by, verdicts, trick)
     }
 }
 

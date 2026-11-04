@@ -50,6 +50,14 @@ impl LabRun {
         Self { window, voice, folder, tag: tag_of(voice), name: name.to_string(), clicks: 0 }
     }
 
+    /// Sets the speed limit as Settings does, the service told, and waits until it took it: the
+    /// Lab's miners take their part from the service's budget, not from the window's settings.
+    pub fn set_limit(&mut self, cap: u64) {
+        self.window.state_mut().settings_mut().hash_cap = cap;
+        self.window.state().send(crate::core::Command::SetCap(cap));
+        self.wait(30, "the service took the speed limit", |run| run.window.state().snapshot().budget.limit == cap);
+    }
+
     /// Turns the window to other words, as a person does in Settings, while the network runs.
     pub fn speak(&mut self, voice: Voice) {
         let settings = self.window.state_mut().settings_mut();

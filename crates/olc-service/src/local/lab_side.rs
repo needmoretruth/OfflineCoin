@@ -210,11 +210,16 @@ impl LabSide {
         None
     }
 
-    /// One turn: the pool's, then the spam's, then a look at the payments to this wallet.
-    pub fn step(&mut self, host: &Host) {
+    /// The pool's turn: jobs out, shares in. It comes many times a second.
+    pub fn step_seat(&mut self, host: &Host) {
         if let Some(seat) = &mut self.seat {
             seat.step(host);
         }
+    }
+
+    /// The rest of a turn, a tenth of a second apart at most: the spam's payments at their rate,
+    /// or the waiting payments offered again.
+    pub fn step(&mut self, host: &Host) {
         let now = Instant::now();
         let spent = self.turned.map_or(0.0, |turned| now.duration_since(turned).as_secs_f64());
         self.turned = Some(now);

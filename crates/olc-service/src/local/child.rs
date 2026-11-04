@@ -225,6 +225,7 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
     let mut side = LabSide::default();
     let mut lab = false;
     let mut said: Option<Instant> = None;
+    let mut stepped: Option<Instant> = None;
     loop {
         let turn = if side.pooled() {
             POOL_TURN
@@ -266,9 +267,15 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
-        side.step(&host);
-        if lab {
-            board.watch(&host);
+        // The pool's seat turns at once; the rest copies the node's waiting payments and needs
+        // no more than its tenth of a second.
+        side.step_seat(&host);
+        if !side.pooled() || stepped.is_none_or(|at| at.elapsed() >= LAB_TURN) {
+            stepped = Some(Instant::now());
+            side.step(&host);
+            if lab {
+                board.watch(&host);
+            }
         }
         // A busy node turns many times a second and says its status twice a second.
         if !side.busy() || said.is_none_or(|said| said.elapsed() >= LAB_STATUS_EVERY) {

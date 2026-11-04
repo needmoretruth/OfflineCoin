@@ -15,8 +15,11 @@ use std::time::{Duration, Instant};
 const DIAL: Duration = Duration::from_secs(4);
 const WRITE: Duration = Duration::from_secs(4);
 const HELLO_WAIT: Duration = Duration::from_secs(10);
-/// A node answers a request for blocks at once. This long without a block ends one round.
+/// A node answers a request for blocks at once when it is idle. On a computer busy with the Lab's
+/// miners its first block may take a while; after one, this long without a block ends a round.
 const QUIET: Duration = Duration::from_millis(400);
+/// How long the first block of a round may take.
+const FIRST_ANSWER: Duration = Duration::from_secs(5);
 /// Blocks a node serves for one request (`olc_node::sync::BLOCKS_AT_ONCE`).
 const BLOCKS_AT_ONCE: usize = 8;
 /// Long enough for a thousand Lab blocks, a hundred and twenty-five rounds.
@@ -27,9 +30,18 @@ const TURN_WAIT: Duration = Duration::from_secs(15);
 const TURN_LOOK: Duration = Duration::from_millis(300);
 const READ_SIZE: usize = 16 * 1024;
 
+/// The connection, closed when it goes, so the node's reader never waits on a socket left open.
+struct Line(TcpStream);
+
+impl Drop for Line {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(Shutdown::Both);
+    }
+}
+
 pub(super) struct Peer {
     target: SocketAddr,
-    stream: TcpStream,
+    line: Line,
     heard: Receiver<Message>,
     mark: Mark,
     pub(super) chain: Chain,
@@ -81,14 +93,27 @@ fn dial(target: SocketAddr, mark: Mark) -> Result<(TcpStream, Receiver<Message>)
 }
 
 impl Peer {
-    /// Connects to `target` and fetches its chain from its first block on.
-    pub(super) fn connect(coin: &CoinConfig, target: SocketAddr) -> Result<Self, String> {
-        // The plugins every node of this app runs with.
-        let plugins = Plugins { consensus: Box::new(ProofOfWork), languages: olc_lang::all() };
-        let chain = Chain::new(coin.clone(), plugins);
+    /// Connects to `target` with the copy `kept` from a try before, or a new one that starts at
+    /// the first block. Either way [`Peer::catch_up`] fetches only the blocks it lacks.
+    pub(super) fn connect(coin: &CoinConfig, target: SocketAddr, kept: &mut Option<Chain>) -> Result<Self, String> {
+        let chain = match kept.take() {
+            Some(chain) => chain,
+            // The plugins every node of this app runs with.
+            None => Chain::new(coin.clone(), Plugins { consensus: Box::new(ProofOfWork), languages: olc_lang::all() }),
+        };
         let mark = network::mark_of(&chain.genesis_id());
-        let (stream, heard) = dial(target, mark)?;
-        Ok(Self { target, stream, heard, mark, chain })
+        match dial(target, mark) {
+            Ok((stream, heard)) => Ok(Self { target, line: Line(stream), heard, mark, chain }),
+            Err(error) => {
+                *kept = Some(chain);
+                Err(error)
+            }
+        }
+    }
+
+    /// The copy, for the next try.
+    pub(super) fn into_chain(self) -> Chain {
+        self.chain
     }
 
     pub(super) fn send(&mut self, message: &Message) -> Result<(), String> {
@@ -97,7 +122,7 @@ impl Peer {
             _ => self.mark,
         };
         let frame = encode(&network::stamp(mark, &message.encode()));
-        self.stream.write_all(&frame).map_err(|error| format!("{}: {error}", self.target))
+        self.line.0.write_all(&frame).map_err(|error| format!("{}: {error}", self.target))
     }
 
     /// Asks the node what it is. A node drops a connection that said nothing for a while, so a
@@ -106,9 +131,8 @@ impl Peer {
         match self.ask_hello() {
             Ok(hello) => Ok(hello),
             Err(_) => {
-                let _ = self.stream.shutdown(Shutdown::Both);
                 let (stream, heard) = dial(self.target, self.mark)?;
-                (self.stream, self.heard) = (stream, heard);
+                (self.line, self.heard) = (Line(stream), heard);
                 self.ask_hello()
             }
         }
@@ -147,12 +171,16 @@ impl Peer {
             self.drain();
             self.send(&Message::GetBlocks(ids, Heights(heights)))?;
             let mut got = 0;
+            let first_by = Instant::now() + FIRST_ANSWER;
             while got < BLOCKS_AT_ONCE && !self.chain.contains(&hello.tip) {
-                match self.heard.recv_timeout(QUIET) {
+                let wait = if got == 0 { first_by.saturating_duration_since(Instant::now()) } else { QUIET };
+                match self.heard.recv_timeout(wait) {
                     Ok(Message::Block(block)) => {
                         got += 1;
                         let _ = self.chain.add_block(block);
                     }
+                    // A node that let these blocks go says so: no wait helps.
+                    Ok(Message::Pruned { .. }) => break,
                     Ok(_) => {}
                     Err(RecvTimeoutError::Timeout) => break,
                     Err(RecvTimeoutError::Disconnected) => return Err(format!("{} closed the connection.", self.target)),
@@ -165,7 +193,8 @@ impl Peer {
                 return Err(format!("{} served its blocks too slowly.", self.target));
             }
         }
-        if self.chain.tip() != hello.tip {
+        // A copy kept from a try before may stand a block past this node, taken from the target.
+        if self.chain.id_at(hello.height) != Some(hello.tip) {
             return Err(format!("{} follows a branch this copy does not.", self.target));
         }
         Ok(hello)
@@ -175,9 +204,8 @@ impl Peer {
     /// may keep only recent blocks, so it is asked for no more than the newest few the copy lacks;
     /// one a block behind is given a moment to hear of it from its neighbours.
     pub(super) fn turn_to(&mut self, target: SocketAddr) -> Result<Hello, String> {
-        let _ = self.stream.shutdown(Shutdown::Both);
         let (stream, heard) = dial(target, self.mark)?;
-        (self.target, self.stream, self.heard) = (target, stream, heard);
+        (self.target, self.line, self.heard) = (target, Line(stream), heard);
         let until = Instant::now() + TURN_WAIT;
         loop {
             let hello = self.hello()?;
@@ -194,11 +222,5 @@ impl Peer {
             }
             thread::sleep(TURN_LOOK);
         }
-    }
-}
-
-impl Drop for Peer {
-    fn drop(&mut self) {
-        let _ = self.stream.shutdown(Shutdown::Both);
     }
 }

@@ -21,9 +21,16 @@ pub trait Share: Send {
 }
 
 impl Keeper {
-    /// The speeds the miners hashing were set to, together.
+    /// The miner making blocks, which hashes as fast as its part of the budget lets it.
+    fn maker(&self) -> Option<u32> {
+        self.runs.maker.map(|(id, _, _)| id)
+    }
+
+    /// The speeds the miners hashing were set to, together, the one making blocks left out.
     fn hash_asked(&self) -> u64 {
-        self.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| member.speed).sum()
+        let maker = self.maker();
+        let hashing = self.members.iter().filter(|member| member.kind.mines() && !member.paused && Some(member.id) != maker);
+        hashing.map(|member| member.speed).sum()
     }
 
     /// The Lab's turn with the one budget: it says which miners hash at what speed when that
@@ -34,18 +41,22 @@ impl Keeper {
         let Some(link) = &self.link else {
             return;
         };
-        let asks: Vec<(u32, u64)> =
-            self.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| (member.id, member.speed)).collect();
+        // The miner making blocks asks for an equal part, 0, as fast as the budget allows.
+        let maker = self.maker();
+        let hashing = self.members.iter().filter(|member| member.kind.mines() && !member.paused);
+        let asks: Vec<(u32, u64)> = hashing.map(|member| (member.id, if Some(member.id) == maker { 0 } else { member.speed })).collect();
         if asks != self.asks_told {
             link.ask(asks.clone());
             self.asks_told = asks.clone();
         }
         let split = link.split();
         // Before this computer's speed is known and with no limit there is nothing to share.
-        let budget = (split.total > 0).then(|| asks.iter().filter_map(|(id, _)| split.lab_part(*id)).sum::<u64>());
+        let given = |id: u32| split.lab_part(id).filter(|_| split.total > 0);
+        let budget = (split.total > 0).then(|| asks.iter().filter(|(id, _)| Some(*id) != maker).filter_map(|(id, _)| given(*id)).sum::<u64>());
+        let maker_part = maker.and_then(given);
         self.limit = split.limit;
-        if budget != self.budget {
-            self.budget = budget;
+        if (budget, maker_part) != (self.budget, self.maker_part) {
+            (self.budget, self.maker_part) = (budget, maker_part);
             self.limits();
         }
     }
@@ -66,7 +77,7 @@ impl Keeper {
     /// Every miner's real speed, told to its node when it changed. A node in the running
     /// experiment stays as the experiment holds it, and so does the one making blocks.
     pub(super) fn limits(&mut self) {
-        let maker = self.runs.maker.map(|(id, _, _)| id);
+        let maker = self.maker();
         let mut tell = Vec::new();
         for at in 0..self.members.len() {
             let (id, kind, speed, busy) = {
@@ -76,24 +87,32 @@ impl Keeper {
             if !kind.mines() {
                 continue;
             }
-            let limit = self.limit_for(speed, 0);
+            let limit = match self.maker_limit(id) {
+                part if Some(id) == maker && part > 0 => part,
+                _ => self.limit_for(speed, 0),
+            };
             self.members[at].limit = limit;
             if !busy && Some(id) != maker {
                 tell.push((id, limit));
             }
+        }
+        if let Some(maker) = maker {
+            tell.push((maker, self.maker_limit(maker)));
         }
         for (id, limit) in tell {
             self.tell(id, "limit", format!("board limit {limit}"));
         }
     }
 
-    /// The miner making blocks hashes with all the Lab's part leaves it, or uncapped without one.
+    /// The miner making blocks hashes uncapped when the person set no limit, as it always did, and
+    /// under a limit at the part the budget gave it. Until that part comes it keeps the part it
+    /// had as a miner, so the sum on this computer never goes over on the way.
     pub(super) fn maker_limit(&self, id: u32) -> u64 {
-        let Some(budget) = self.budget else {
+        if self.budget.is_none() || self.limit == 0 {
             return 0;
-        };
-        let others: u64 = self.members.iter().filter(|member| member.kind.mines() && !member.paused && member.id != id).map(|member| member.limit).sum();
-        budget.saturating_sub(others).max(1)
+        }
+        let had = self.member(id).map_or(1, |member| member.limit);
+        self.maker_part.unwrap_or(had).max(1)
     }
 
     /// A new participant's speed: a miner's modest middle preset, the same for a bad miner.

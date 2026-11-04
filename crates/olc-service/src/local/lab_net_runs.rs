@@ -4,7 +4,7 @@
 use super::*;
 use crate::local::lab_picture::{replaced_between, Frame, Sides};
 use crate::core::Verdict;
-use crate::local::trouble::{try_trick, Outcome as TrickOutcome, Route, Trick};
+use crate::local::trouble::{try_trick_on, Outcome as TrickOutcome, Route, Trick};
 use std::net::SocketAddr;
 use crate::local::LocalView;
 use olc_board::BoardLink;
@@ -79,15 +79,17 @@ impl Runs {
                     let all = verdicts.lock().ok().and_then(|all| all.get(&target).cloned()).unwrap_or_default();
                     all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
                 };
+                // The copy of the chain this target's tries share: each fetches what is new.
+                let mut copy = None;
                 for trick in Trick::ALL {
                     let route = Route { from: own, to: address };
-                    let mut outcome = try_trick(trick, &coin, route, &funds, &target.to_string(), &seen);
+                    let mut outcome = try_trick_on(&mut copy, trick, &coin, route, &funds, &target.to_string(), &seen);
                     for _ in 1..TRICK_TRIES {
                         if outcome.as_ref().is_ok_and(TrickOutcome::refused_as_expected) {
                             break;
                         }
                         thread::sleep(TRICK_AGAIN);
-                        outcome = try_trick(trick, &coin, route, &funds, &target.to_string(), &seen);
+                        outcome = try_trick_on(&mut copy, trick, &coin, route, &funds, &target.to_string(), &seen);
                     }
                     if answers.send((target, trick, outcome)).is_err() {
                         return;

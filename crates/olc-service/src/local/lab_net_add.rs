@@ -227,7 +227,8 @@ impl Keeper {
         let (id, from) = (miner.id, miner.height());
         let count = count.clamp(1, super::super::lab::MOST_BLOCKS);
         self.send(id, &format!("board mine-to {}", from + count));
-        self.send(id, &format!("board limit {}", self.maker_limit(id)));
+        let limit = self.maker_limit(id);
+        self.tell(id, "limit", format!("board limit {limit}"));
         self.send(id, "board mine on");
         self.runs.making = Some((0, count));
         self.runs.maker = Some((id, from, Instant::now()));

@@ -260,10 +260,11 @@ fn every_kind_does_its_part_in_expert_english() {
     // A pruned node lets go of blocks past the newest 288: one click makes the chain that long.
     // These tests mine under a speed limit; the default has none, and Settings lifts it so.
     let pruned = add_and_see(&mut run, Kind::Pruned, 1);
-    let limit = std::mem::take(&mut run.window.state_mut().settings_mut().hash_cap);
+    let limit = run.window.state().settings().hash_cap;
+    run.set_limit(0);
     run.press("+300");
     run.wait(300, "the pruned node let old blocks go", |run| run.count(&pruned).is_some_and(|below| below >= 1.0));
-    run.window.state_mut().settings_mut().hash_cap = limit;
+    run.set_limit(limit);
     // Its token and its panel, which names the height it pruned below.
     run.select(&pruned);
     run.shoot("07-pruned");
@@ -370,7 +371,9 @@ fn every_trick_refused(run: &mut LabRun, exploiter: &str) {
         _ => false,
     };
     run.wait(480, "every node answers every trick", answered);
-    assert!(run.lines_with("net.trick_failed").is_empty(), "tricks not tried: {:?}", run.lines_with("net.trick_failed"));
+    // Every cause, which a plain page does not say, so a failure here names what kept them.
+    let causes: Vec<String> = run.window.state().lab_state().unwrap_or_default().members.iter().flat_map(|member| member.tricks.iter().filter_map(|row| row.failed.clone())).collect();
+    assert!(run.lines_with("net.trick_failed").is_empty(), "tricks not tried: {:?} {causes:?}", run.lines_with("net.trick_failed"));
     assert!(run.line_numbers("net.trick_let_through").is_none(), "a trick was let through: {:?}", run.labels());
     println!("every trick refused by every node");
     run.press(run.say("net.tricks_all"));

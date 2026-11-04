@@ -398,10 +398,12 @@ struct Keeper {
     room_at: Option<Instant>,
     room: Room,
     error: Option<String>,
-    /// The one hash budget, what it gives the Lab's miners together, and the person's limit.
+    /// The one hash budget, what it gives the Lab's miners together and the one making blocks,
+    /// and the person's limit.
     link: Option<Box<dyn Share>>,
     asks_told: Vec<(u32, u64)>,
     budget: Option<u64>,
+    maker_part: Option<u64>,
     limit: u64,
 }
 
@@ -443,6 +445,7 @@ impl Keeper {
             link: None,
             asks_told: Vec::new(),
             budget: None,
+            maker_part: None,
             limit: 0,
         }
     }
