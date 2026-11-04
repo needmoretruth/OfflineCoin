@@ -1,0 +1,38 @@
+//! 랩의 버그 이용자. 쉬운 말. 수법마다 무엇을 해 봤는지 한 줄, 어떤 규칙이 막았는지 한 줄.
+pub const WORDS: &[(&str, &str)] = &[
+    ("trouble.extra_reward", "규칙보다 많은 채굴 보상을 자기에게 주려고 했습니다."),
+    ("trouble.extra_reward_rule", "블록은 정해진 보상과 모은 수수료까지만 나눠 줄 수 있습니다."),
+    ("trouble.double_spend", "한 번의 송금에서 같은 코인을 두 번 쓰려고 했습니다."),
+    ("trouble.double_spend_rule", "코인은 한 번만 쓸 수 있습니다."),
+    ("trouble.spend_missing", "있지도 않은 코인을 쓰려고 했습니다."),
+    ("trouble.spend_missing_rule", "있고 아직 안 쓴 코인만 쓸 수 있습니다."),
+    ("trouble.forged_signature", "남의 코인을 가짜 서명으로 쓰려고 했습니다."),
+    ("trouble.forged_signature_rule", "코인은 주인의 키로 서명해야만 움직입니다."),
+    ("trouble.immature_reward", "아직 쓸 수 없는 갓 받은 채굴 보상을 쓰려고 했습니다."),
+    ("trouble.immature_reward_rule", "채굴 보상은 정해진 블록 수만큼 지나야 쓸 수 있습니다."),
+    ("trouble.future_block", "시계보다 한참 앞선 시각이 찍힌 블록을 보냈습니다."),
+    ("trouble.future_block_rule", "지금보다 너무 앞선 시각의 블록은 받지 않습니다."),
+    ("trouble.too_little_work", "계산을 덜 하고 만든 블록을 보냈습니다."),
+    ("trouble.too_little_work_rule", "블록은 정해진 만큼 계산해서 찾아야 합니다."),
+    ("trouble.oversize_block", "크기 제한보다 큰 블록을 보냈습니다."),
+    ("trouble.oversize_block_rule", "블록은 크기 제한을 넘을 수 없습니다."),
+];
+
+pub const EXPERT: &[(&str, &str)] = &[
+    ("trouble.extra_reward", "코인베이스 출력을 블록 보상과 수수료 합보다 크게 부풀렸습니다."),
+    ("trouble.extra_reward_rule", "거부(BadCoinbase): 코인베이스 금액이 보상과 수수료 합을 넘습니다."),
+    ("trouble.double_spend", "한 거래의 두 입력이 같은 UTXO를 가리키게 했습니다."),
+    ("trouble.double_spend_rule", "거부(DuplicateInput): 한 UTXO는 한 번만 입력으로 쓸 수 있습니다."),
+    ("trouble.spend_missing", "UTXO 집합에 없는 출력을 입력으로 썼습니다."),
+    ("trouble.spend_missing_rule", "거부(MissingInput): 그 입력이 UTXO 집합에 없습니다."),
+    ("trouble.forged_signature", "스크립트를 풀지 못하는 해제 데이터로 남의 UTXO를 썼습니다."),
+    ("trouble.forged_signature_rule", "거부(BadLock): 서명이 출력 스크립트를 풀지 못합니다."),
+    ("trouble.immature_reward", "코인베이스 성숙 전에 코인베이스 출력을 썼습니다."),
+    ("trouble.immature_reward_rule", "거부(ImmatureCoinbase): 코인베이스는 채굴 뒤 정해진 블록 수만큼 지나야 성숙합니다."),
+    ("trouble.future_block", "블록 타임스탬프가 미래 허용 범위를 넘었습니다(time-too-new)."),
+    ("trouble.future_block_rule", "거부(BadTime): 블록 시각이 노드의 미래 허용 범위를 넘었습니다."),
+    ("trouble.too_little_work", "헤더 해시가 난이도가 정한 목표를 못 맞췄습니다."),
+    ("trouble.too_little_work_rule", "거부(BadSeal): 작업증명이 목표를 못 맞췄습니다."),
+    ("trouble.oversize_block", "직렬화한 블록이 최대 블록 크기를 넘었습니다."),
+    ("trouble.oversize_block_rule", "거부(TooLarge): 블록이 최대 블록 크기를 넘었습니다."),
+];

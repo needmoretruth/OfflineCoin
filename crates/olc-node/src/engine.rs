@@ -396,6 +396,10 @@ impl Engine {
             return;
         }
         if self.is_from_the_future(&block) {
+            // Bitcoin's time-too-new: not stored and not held against anyone, so it is taken once
+            // its time is near. The node still refuses it now and says so, which lets a watcher
+            // learn the rule without the block ever joining the chain.
+            self.push_event(Event::BlockRejected { reason: ChainError::BadTime });
             return;
         }
         let height = block.txs.first().and_then(|tx| tx.coinbase_height);

@@ -85,4 +85,4 @@ pub use found::LIVE_WITHIN;
 pub use making::{read as read_chain, ChainOrder, Maker, MOST_TO_MAKE};
 pub use rows::device_kind;
 pub use service::{short_hex, Core, CoreLaunch};
-pub use snapshot::{BoardView, ExperimentView, KeyView, NodeView, Notice, ScanView, Snapshot, SwapView, SwapsView};
+pub use snapshot::{BoardView, ExperimentView, KeyView, NodeView, Notice, ScanView, Snapshot, SwapView, SwapsView, Verdict};
