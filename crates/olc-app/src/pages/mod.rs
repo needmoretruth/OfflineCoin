@@ -26,6 +26,7 @@ mod locks;
 mod mining;
 mod mining_card;
 mod miners;
+mod network;
 mod pacing;
 mod message_sign;
 mod money;

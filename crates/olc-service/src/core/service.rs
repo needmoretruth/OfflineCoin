@@ -106,6 +106,7 @@ fn bind_host(settings: &Settings) -> String {
 /// Notices from threads the service started: key, detail, and whether it went well.
 pub type LateNotices = Arc<Mutex<Vec<(&'static str, String, bool)>>>;
 
+mod budget;
 mod forks;
 mod locks;
 mod listen;
@@ -131,6 +132,9 @@ struct Service {
     full_rate: u64,
     /// What one of those threads did beside the others.
     thread_rate: u64,
+    /// This app's cap as last set from the budget, and what each added miner was last told.
+    own_cap: Option<u64>,
+    parts_told: std::collections::BTreeMap<u32, budget::Told>,
     /// The settings as the app last sent them, so a save takes only what it changed.
     page: Settings,
     notice: Option<Notice>,
@@ -210,6 +214,8 @@ impl Service {
             local,
             full_rate: measured,
             thread_rate: measured / threads.max(1) as u64,
+            own_cap: None,
+            parts_told: Default::default(),
             notice: None,
             notices: Arc::default(),
             asked_boards: None,
@@ -299,9 +305,10 @@ impl Service {
             Command::Join { coin, address } => self.join(*coin, address),
             // Start and Stop act now. Whether mining starts with the app is a setting of its own.
             Command::SetMining(on) => self.host.set_mining(on),
+            // The limit is for every miner here, so each part follows it at once.
             Command::SetCap(cap) => {
-                self.host.set_cap(cap);
                 self.settings.hash_cap = cap;
+                self.share_budget();
                 self.save();
             }
             Command::Pay { to, amount } => self.pay(&to, &amount),
@@ -384,33 +391,45 @@ impl Service {
             Command::AddNode(spec) => {
                 self.settings.nodes.push(*spec.clone());
                 self.save();
-                self.start_node(&spec);
+                self.start_in_budget(&spec);
             }
             Command::RemoveNode(id) => {
                 self.local.stop(id);
                 self.settings.nodes.retain(|spec| spec.id != id);
                 self.save();
+                self.share_budget();
             }
             Command::StartNode(id) => {
                 if let Some(spec) = self.spec(id) {
-                    self.start_node(&spec);
+                    self.start_in_budget(&spec);
                 }
             }
-            Command::StopNode(id) => self.local.stop(id),
+            Command::StopNode(id) => {
+                self.local.stop(id);
+                self.share_budget();
+            }
+            // A speed of its own stays inside the limit: the budget says what the miner gets.
             Command::NodeCap { id, cap } => {
                 if let Some(spec) = self.settings.nodes.iter_mut().find(|spec| spec.id == id) {
                     spec.hash_cap = cap;
                 }
                 self.save();
-                let _ = self.local.send(id, &format!("limit {cap}"));
+                self.share_budget();
             }
+            // A miner switched on is counted before it hashes, so the others make room first.
             Command::NodeMining { id, on } => {
                 if let Some(spec) = self.settings.nodes.iter_mut().find(|spec| spec.id == id) {
                     spec.mining = on;
                 }
                 self.save();
+                if on {
+                    self.share_budget();
+                }
                 let word = if on { "on" } else { "off" };
                 let _ = self.local.send(id, &format!("mine {word}"));
+                if !on {
+                    self.share_budget();
+                }
             }
             Command::NodeMiner { id, to } => {
                 let target = if to.trim().is_empty() { "own" } else { to.trim() };
@@ -454,7 +473,7 @@ impl Service {
 
     fn start_nodes(&mut self) {
         for spec in self.settings.nodes.clone() {
-            self.start_node(&spec);
+            self.start_in_budget(&spec);
         }
     }
 
@@ -468,7 +487,6 @@ impl Service {
             StartCoin::New(coin) => self.join(coin, None),
             StartCoin::Join { coin, address } => self.join(coin, address),
         }
-        self.host.set_cap(self.settings.hash_cap);
         self.set_threads();
         self.host.set_mining(self.settings.mine_on_start);
         self.save();
@@ -486,11 +504,13 @@ impl Service {
         added
     }
 
-    /// Mining threads as the settings say, and the full rate that goes with them.
+    /// Mining threads as the settings say, and the full rate that goes with them. The thread cap
+    /// is for every miner here, so the added ones follow it and the parts are worked out again.
     pub(super) fn set_threads(&mut self) {
         let threads = self.settings.threads(standard_threads());
         self.host.set_threads(threads);
         self.full_rate = self.thread_rate * threads as u64;
+        self.share_budget();
     }
 
     /// The node comes back as the other kind on the same coin and the same folder.

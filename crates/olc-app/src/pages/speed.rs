@@ -1,6 +1,8 @@
 //! How fast this computer mines: four steps of its full speed, a slider for anything between, and
-//! in expert mode the exact number. Home and Mining draw the same control, so the speed is set the
-//! same way wherever a person meets it. A change goes out once the hand lets go.
+//! in expert mode the exact number. The limit holds for every miner here, this app and the added
+//! ones together, and the line under it says how they share it. Home and Mining draw the same
+//! control, so the speed is set the same way wherever a person meets it. A change goes out once the
+//! hand lets go.
 use super::Cx;
 use crate::core::Command;
 use crate::ui::explain::{self, Choice};
@@ -54,14 +56,38 @@ fn apply(cx: &mut Cx, cap: u64) {
     cx.save();
 }
 
+/// The limit against this computer's highest speed, as the speed control and Settings say it.
+pub fn limit_words(cx: &Cx, cap: u64) -> String {
+    let voice = cx.voice();
+    let full = cx.snap.full_rate;
+    match () {
+        () if full == 0 => cx.say("rate.measuring").to_string(),
+        () if cap == 0 || cap >= full => cx.fill("rate.max", &[&format::rate(voice, full)]),
+        () => cx.fill("rate.of", &[&format::rate(voice, cap), &format::rate(voice, full)]),
+    }
+}
+
+/// How this app and the added miners share the limit now, once there are added miners that mine.
+pub fn split_line(ui: &mut Ui, cx: &Cx) {
+    let budget = &cx.snap.budget;
+    if budget.parts.is_empty() {
+        return;
+    }
+    let voice = cx.voice();
+    let added: u64 = budget.parts.iter().map(|(_, part)| part).sum();
+    let line = cx.fill("budget.split", &[&format::rate(voice, budget.own), &format::rate(voice, added)]);
+    meta(ui, &line, cx.t);
+}
+
 impl Speed {
+    /// The person's limit for the whole computer: what was sent until the core holds it.
     fn cap_now(&mut self, cx: &Cx) -> u64 {
-        let node_cap = cx.snap.node.cap;
+        let held = cx.snap.budget.limit;
         match self.sent {
-            Some(sent) if sent != node_cap => sent,
+            Some(sent) if sent != held => sent,
             _ => {
                 self.sent = None;
-                node_cap
+                held
             }
         }
     }
@@ -78,14 +104,11 @@ impl Speed {
         let full = cx.snap.full_rate;
         let cap = self.cap_now(cx);
         let percent = self.held.unwrap_or_else(|| percent_of(cap, full));
-        // The limit this control sets, against this computer's full speed for one miner.
-        let shown = if full == 0 {
-            cx.say("rate.measuring").to_string()
-        } else if percent >= 100.0 {
-            cx.fill("rate.max", &[&format::rate(voice, full)])
-        } else {
-            let now = (full as f32 * percent / 100.0).round() as u64;
-            cx.fill("rate.of", &[&format::rate(voice, now), &format::rate(voice, full)])
+        // The limit this control sets, against this computer's highest speed on its threads.
+        let shown = match self.held {
+            Some(held) if held < 100.0 => limit_words(cx, (full as f32 * held / 100.0).round() as u64),
+            Some(_) => limit_words(cx, 0),
+            None => limit_words(cx, cap),
         };
         // The name and the figure share a line when both fit whole; a narrow card puts the figure under.
         // The longest figure decides, so the slider does not jump a line while it is dragged.
@@ -95,8 +118,8 @@ impl Speed {
         let widest = format::rate(voice, full.max(WIDEST_RATE));
         let longest = cx.fill("rate.of", &[&widest, &widest]);
         let figure_room = wide(&longest, tokens::META).max(wide(&shown, tokens::META));
-        let room = wide(cx.say("rate.title"), tokens::TEXT) + figure_room + tokens::GAP_WIDE;
-        let title = RichText::new(cx.say("rate.title")).color(t.text);
+        let room = wide(cx.say("budget.title"), tokens::TEXT) + figure_room + tokens::GAP_WIDE;
+        let title = RichText::new(cx.say("budget.title")).color(t.text);
         let figure = RichText::new(shown).size(tokens::META).color(t.soft);
         if room <= ui.available_width() {
             ui.horizontal(|ui| {
@@ -132,7 +155,8 @@ impl Speed {
         if cx.expert() {
             self.exact_row(ui, cx, cap);
         }
-        explain::short(ui, t, cx.say("rate.about"));
+        split_line(ui, cx);
+        explain::short(ui, t, cx.say("budget.about"));
         let labels = (cx.say("explain.details"), cx.say("explain.hide"));
         explain::details(ui, t, ("speed", salt), labels, |ui| steps_compared(ui, cx));
     }

@@ -21,6 +21,11 @@ const APP_CAP: u64 = 3_000;
 const ALONE_CAP: u64 = 12_000;
 const A_CAP: u64 = 6_000;
 const B_CAP: u64 = 2_000;
+/// This computer's limit while Miner A mines alone: room for the 12,000 it asks beside Miner B's
+/// 2,000 and the equal part this app keeps while it rests.
+const ALONE_LIMIT: u64 = 2 * ALONE_CAP + B_CAP;
+/// The limit all three then share: about 4,500 each for this app and Miner A, 2,000 for Miner B.
+const RACE_LIMIT: u64 = APP_CAP + A_CAP + B_CAP;
 const A: u32 = 46;
 const B: u32 = 47;
 /// Intervals the estimate is checked against.
@@ -71,7 +76,7 @@ fn draw(ui: &mut egui::Ui, gallery: &mut Gallery) {
         ui.columns(2, |columns| {
             widgets::card(&mut columns[0], &t, |ui| chain::race_bars(ui, &look, &chain.shares));
             widgets::card(&mut columns[1], &t, |ui| {
-                chain::hashrate_line(ui, &look, chain, 150.0);
+                chain::hashrate_line(ui, &look, chain, &chain::Ceiling::of(&gallery.snap.budget), 150.0);
                 ui.add_space(tokens::GAP_WIDE);
                 chain::next_block_bar(ui, &look, chain);
             });
@@ -179,7 +184,7 @@ fn measure_the_wait(core: &Core) {
 #[test]
 fn the_chain_shows_who_mined_each_block_and_the_race() {
     let root = scratch("chain-shots");
-    let settings = Settings { port: port_of_scene(50), mine_on_start: true, ..quiet_settings() };
+    let settings = Settings { port: port_of_scene(50), ..quiet_settings() };
     let launch = CoreLaunch { paths: Paths { root }, fleet: None, usb: false, node_program: Some(node_program()) };
     let core = Core::start(launch, settings).unwrap();
     let mut coin = CoinConfig::olc();
@@ -189,9 +194,10 @@ fn the_chain_shows_who_mined_each_block_and_the_race() {
     coin.rules.min_difficulty = 100;
     coin.initial_difficulty = (APP_CAP + B_CAP) * BLOCK_MS / 1_000;
     core.send(Command::Join { coin: Box::new(coin), address: None });
-    core.send(Command::SetCap(APP_CAP));
-    core.send(Command::SetMining(true));
-    // Miner A mines alone from the start, Miner B with this app.
+    // One limit holds every miner here, and this app takes an equal part of it, so the app rests
+    // while Miner A mines alone: no part of the limit could make Miner A outrun it otherwise.
+    core.send(Command::SetCap(ALONE_LIMIT));
+    // Miner A mines alone from the start, Miner B on this app's chain.
     core.send(Command::AddNode(Box::new(miner(A, "Miner A", ALONE_CAP, false))));
     core.send(Command::AddNode(Box::new(miner(B, "Miner B", B_CAP, true))));
     let status_of = |id: u32| core.snapshot().local.iter().find(|view| view.spec.id == id).and_then(|view| view.status.clone());
@@ -201,7 +207,7 @@ fn the_chain_shows_who_mined_each_block_and_the_race() {
         node_height >= 3 && alone >= node_height + 3
     });
 
-    // Miner A joins: its heavier branch replaces what this app and Miner B found meanwhile.
+    // Miner A joins: its heavier branch replaces what Miner B found on this app's chain meanwhile.
     restart(&core, miner(A, "Miner A", ALONE_CAP, true));
     // Miner A forked at the first block, so the branch that lost starts there. A race between this
     // app and Miner B before it would be kept the same way, so this waits for the one from 1.
@@ -232,7 +238,9 @@ fn the_chain_shows_who_mined_each_block_and_the_race() {
     shoot(&mut window, "replaced");
 
     // All three race on one chain at the speeds a person would set.
+    core.send(Command::SetCap(RACE_LIMIT));
     core.send(Command::NodeCap { id: A, cap: A_CAP });
+    core.send(Command::SetMining(true));
     measure_the_wait(&core);
     wait("a strip of blocks", 240, || core.snapshot().node.chain.latest.len() >= 12);
     let snap = core.snapshot();

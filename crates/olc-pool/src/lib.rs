@@ -22,3 +22,7 @@ pub use pool::{meets, BlockState, BlockView, FoundTotal, Plan, Pool, Submitted, 
 pub use server::{unix_ms, Server, Shared, PORT};
 pub use session::{worker_address, Reply};
 pub use stratum::Refusal;
+
+/// The note a pool's blocks carry in their reward, as Bitcoin's pools tag their coinbase, so
+/// anyone reading the chain can tell a pool's blocks from a lone miner's.
+pub const POOL_TAG: &[u8] = b"/OLC Pool/";

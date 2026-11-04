@@ -6,6 +6,6 @@ pub const WORDS: &[(&str, &str)] = &[
 
 pub const EXPERT: &[(&str, &str)] = &[
     ("pro.threads", "Mining threads"),
-    ("pro.threads_about", "This computer has {} cores. All threads share the cap."),
+    ("pro.threads_about", "This computer has {} cores. This app and every added miner mine on this many threads, under one limit."),
     ("storage.merge_about", "Spends 8 small UTXOs into one when 16 pile up. Off by default, as in Bitcoin Core."),
 ];

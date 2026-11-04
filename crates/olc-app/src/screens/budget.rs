@@ -1,0 +1,354 @@
+//! One limit for everything OLC Core mines with on this computer, and the network seen as Bitcoin
+//! users see it. Every node in these scenes is a real process on 127.0.0.1, and every speed is the
+//! one the nodes measured themselves. OLC_SHOTS=<folder> saves what a person sees at 1280 by 800.
+use super::live_swap::{press, wait_in};
+use super::shots::shot;
+use super::{app, harness, node_program, port_of_scene, quiet_settings, scratch, wait_until, Window, SETTLE_STEPS, SIZES};
+use crate::app::App;
+use crate::core::{Command, PoolOrder, PoolSettings, Snapshot, Who};
+use crate::i18n::{Lang, Mode, Voice};
+use crate::local::{NodeSpec, Preset, WalletChoice};
+use crate::settings::{cores, Theme};
+use crate::ui::format;
+use egui::accesskit::Role;
+use egui::{Key, Modifiers};
+use egui_kittest::kittest::{By, NodeT, Queryable};
+use std::time::{Duration, Instant};
+
+/// The limit the person sets on Home.
+const LIMIT: u64 = 2_000;
+/// A node reads its speed once a second, and the cap hands out a second's hashes in hundredths,
+/// so one reading may run a little over while the mean holds.
+const READING_SLACK: f64 = 1.10;
+const MEAN_SLACK: f64 = 1.03;
+
+/// Every miner's measured speed on this computer together, as the nodes last said it.
+fn together(snap: &Snapshot) -> u64 {
+    let own = if snap.node.mining { snap.node.hashrate } else { 0 };
+    let here = snap.local.iter().filter_map(|view| view.status.as_ref()).filter(|status| status.mining);
+    own + here.map(|status| status.hashrate).sum::<u64>()
+}
+
+/// The highest and the mean of that sum, read twice a second for `seconds`.
+fn watch(window: &mut Window, seconds: u64) -> (u64, u64) {
+    let started = Instant::now();
+    let mut readings = Vec::new();
+    while started.elapsed() < Duration::from_secs(seconds) {
+        window.run_steps(1);
+        readings.push(together(&window.state().snapshot()));
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let most = readings.iter().copied().max().unwrap_or(0);
+    (most, readings.iter().sum::<u64>() / readings.len().max(1) as u64)
+}
+
+fn speak(window: &mut Window, mode: Mode, lang: Lang) {
+    let settings = window.state_mut().settings_mut();
+    settings.mode = mode;
+    settings.language = lang;
+    window.run_steps(SETTLE_STEPS);
+}
+
+fn save(window: &mut Window, name: &str) {
+    if let Some(folder) = std::env::var_os("OLC_SHOTS").map(std::path::PathBuf::from) {
+        shot(window, &folder, name);
+    }
+}
+
+/// Replaces what a field holds and presses Enter, as a person selects it all and types.
+fn retype(window: &mut Window, label: &str, text: &str) {
+    let field = || window.query(By::new().role(Role::TextInput).label(label)).unwrap_or_else(|| panic!("no field {label}"));
+    field().focus();
+    window.run_steps(2);
+    window.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    window.run_steps(1);
+    let field = window.query(By::new().role(Role::TextInput).label(label)).unwrap_or_else(|| panic!("no field {label}"));
+    field.type_text(text);
+    window.run_steps(2);
+    window.key_press(Key::Enter);
+    window.run_steps(3);
+}
+
+/// Every text on the window that holds `part`.
+/// Every text on the screen holding `part`: a line of words keeps its text as its value, a control
+/// as its name.
+fn texts_with(window: &Window, part: &str) -> Vec<String> {
+    let text = |node: egui_kittest::Node<'_>| {
+        let node = node.accesskit_node();
+        if node.role() == Role::Label { node.value() } else { node.label() }
+    };
+    window.query_all(By::new().label_contains(part).include_labels()).filter_map(text).collect()
+}
+
+fn voice(window: &Window) -> Voice {
+    let settings = window.state().settings();
+    Voice { lang: settings.language, mode: settings.mode }
+}
+
+fn mining_miners(snap: &Snapshot) -> usize {
+    snap.local.iter().filter(|view| view.status.as_ref().is_some_and(|status| status.mining)).count()
+}
+
+fn wait_for_miners(window: &mut Window, count: usize) {
+    wait_until(window, |app: &App| mining_miners(&app.snapshot()) >= count);
+}
+
+/// The person sets 2,000 on Home and adds a miner, in basic Korean and again in expert English:
+/// the miners start inside the limit and share it, and the window says what a new one starts at
+/// before it starts. With no limit a new miner still starts at a share, not the whole computer.
+#[test]
+fn a_new_miner_shares_the_limit_set_on_home() {
+    let mut settings = quiet_settings();
+    settings.mine_on_start = true;
+    settings.mode = Mode::Expert;
+    settings.language = Lang::En;
+    settings.theme = Theme::Dark;
+    let mut window = harness(app(scratch("budget-share"), settings, Some(node_program())), SIZES[0]);
+    wait_until(&mut window, |app| app.snapshot().node.mining && app.snapshot().full_rate > 0);
+
+    retype(&mut window, "Exact limit (H/s)", &LIMIT.to_string());
+    press(&mut window, "Apply");
+    wait_until(&mut window, |app| app.settings().hash_cap == LIMIT && app.snapshot().node.hashrate > 0);
+
+    // Basic Korean: the line by the button says what a new miner starts at, then it starts there.
+    speak(&mut window, Mode::Basic, Lang::Ko);
+    window.state_mut().open("page.mining");
+    window.run_steps(SETTLE_STEPS);
+    let half = format::number((LIMIT / 2).into());
+    let said = texts_with(&window, "새 채굴기");
+    press(&mut window, "채굴기 더하기");
+    wait_for_miners(&mut window, 1);
+    let (most, mean) = watch(&mut window, 30);
+    println!("one added miner: highest {most}, mean {mean} against {LIMIT}");
+    assert!(most as f64 <= LIMIT as f64 * READING_SLACK, "together {most} went over {LIMIT}");
+    assert!(mean as f64 <= LIMIT as f64 * MEAN_SLACK, "together {mean} on average, over {LIMIT}");
+    assert!(said.iter().any(|text| text.contains(&half)), "the start is said before the miner starts: {said:?}");
+    let snap = window.state().snapshot();
+    let child_cap = snap.local[0].status.as_ref().map_or(0, |status| status.cap);
+    assert_eq!((snap.node.cap, child_cap), (LIMIT / 2, LIMIT / 2), "this app and the miner share the limit");
+    window.state_mut().open("page.home");
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "budget-home-limit-miner-ko-basic");
+    window.state_mut().open("page.mining");
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "budget-mining-limit-miner-ko-basic");
+
+    // Expert English: a second miner, and the three share it.
+    speak(&mut window, Mode::Expert, Lang::En);
+    press(&mut window, "Add a miner");
+    wait_for_miners(&mut window, 2);
+    let (most, mean) = watch(&mut window, 30);
+    println!("two added miners: highest {most}, mean {mean} against {LIMIT}");
+    assert!(most as f64 <= LIMIT as f64 * READING_SLACK, "together {most} went over {LIMIT}");
+    assert!(mean as f64 <= LIMIT as f64 * MEAN_SLACK, "together {mean} on average, over {LIMIT}");
+    window.state_mut().open("page.home");
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "budget-home-limit-miners-en-expert");
+
+    // No limit: a new miner still starts at a stated share of the computer's highest speed.
+    press(&mut window, "Full");
+    wait_until(&mut window, |app| app.settings().hash_cap == 0);
+    window.state_mut().open("page.mining");
+    window.run_steps(SETTLE_STEPS);
+    let highest = window.state().snapshot().full_rate;
+    let said = texts_with(&window, "A new miner");
+    assert!(!said.is_empty(), "the start is said before the miner starts");
+    press(&mut window, "Add a miner");
+    wait_for_miners(&mut window, 3);
+    let snap = window.state().snapshot();
+    let newest = snap.local.iter().max_by_key(|view| view.spec.id).and_then(|view| view.status.clone()).unwrap();
+    assert!(newest.cap > 0 && newest.cap <= highest / 2, "a new miner takes {} of {highest}", newest.cap);
+    assert!(said.iter().any(|text| text.contains(&format::number(newest.cap.into()))), "{said:?} against {}", newest.cap);
+}
+
+/// The threads of a process and of the processes it started, as the system counts them.
+#[cfg(target_os = "linux")]
+fn os_threads(pid: u32) -> usize {
+    let count = |pid: &str| std::fs::read_dir(format!("/proc/{pid}/task")).map_or(0, |tasks| tasks.count());
+    let mut total = count(&pid.to_string());
+    for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let stat = std::fs::read_to_string(format!("/proc/{name}/stat")).unwrap_or_default();
+        let parent = stat.rsplit(')').next().and_then(|rest| rest.split_whitespace().nth(1));
+        if parent == Some(pid.to_string().as_str()) {
+            total += count(&name);
+        }
+    }
+    total
+}
+
+#[cfg(target_os = "linux")]
+fn settle_threads(window: &mut Window, pid: u32, done: impl Fn(usize) -> bool) -> usize {
+    let started = Instant::now();
+    loop {
+        window.run_steps(1);
+        let now = os_threads(pid);
+        if done(now) || started.elapsed() > Duration::from_secs(20) {
+            return now;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The thread cap sets this computer's highest speed and every miner's threads at once, with one
+/// thread and with every core.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
+    let mut settings = quiet_settings();
+    settings.mine_on_start = true;
+    settings.hash_cap = 0;
+    settings.mode = Mode::Expert;
+    settings.language = Lang::En;
+    let mut window = harness(app(scratch("budget-threads"), settings, Some(node_program())), SIZES[0]);
+    wait_until(&mut window, |app| app.snapshot().node.mining && app.snapshot().full_rate > 0);
+    let one = window.state().snapshot().full_rate;
+    let spec = NodeSpec { name: "miner-a".into(), memory_mib: 64, disk_mib: 64, mining: true, wallet: WalletChoice::Own, ..Preset::Custom.spec(0) };
+    window.state().send(Command::AddNode(Box::new(spec)));
+    wait_for_miners(&mut window, 1);
+    let pid = window.state().snapshot().local[0].pid.unwrap();
+    let alone = os_threads(pid);
+
+    let all = cores();
+    window.state_mut().open("page.settings");
+    window.run_steps(SETTLE_STEPS);
+    retype(&mut window, "Mining threads", &all.to_string());
+    wait_until(&mut window, |app| app.snapshot().full_rate == one * all as u64);
+    let wide = settle_threads(&mut window, pid, |now| now + 1 >= alone + all);
+    println!("miner threads: {alone} on one, {wide} on {all}");
+    assert!(wide + 1 >= alone + all, "the added miner mines on every core too: {alone} then {wide}");
+    window.state_mut().open("page.home");
+    window.run_steps(SETTLE_STEPS);
+    let highest = format::rate(voice(&window), one * all as u64);
+    assert!(!texts_with(&window, &highest).is_empty(), "Home shows the highest speed {highest}");
+
+    window.state_mut().open("page.settings");
+    window.run_steps(SETTLE_STEPS);
+    retype(&mut window, "Mining threads", "1");
+    wait_until(&mut window, |app| app.snapshot().full_rate == one);
+    let narrow = settle_threads(&mut window, pid, |now| now <= alone);
+    assert!(narrow <= alone, "back on one thread: {narrow} against {alone}");
+    save(&mut window, "budget-threads-one-settings-en-expert");
+    window.state_mut().open("page.home");
+    window.run_steps(SETTLE_STEPS);
+    let highest = format::rate(voice(&window), one);
+    assert!(!texts_with(&window, &highest).is_empty(), "Home shows the highest speed {highest} at once");
+    // The measured speed follows within a few seconds, as each miner's window turns over.
+    let lowered = Instant::now();
+    let mut shown = window.state().snapshot().node.chain.hashrate_here;
+    while shown > one + one / 20 && lowered.elapsed() < Duration::from_secs(30) {
+        window.run_steps(1);
+        std::thread::sleep(Duration::from_millis(250));
+        shown = window.state().snapshot().node.chain.hashrate_here;
+    }
+    println!("measured {shown} under {one} after {} ms", lowered.elapsed().as_millis());
+    assert!(shown <= one + one / 20, "the measured speed {shown} came under the highest {one}");
+    window.run_steps(SETTLE_STEPS);
+    save(&mut window, "budget-threads-one-home-en-expert");
+    speak(&mut window, Mode::Basic, Lang::Ko);
+    save(&mut window, "budget-threads-one-home-ko-basic");
+}
+
+/// A coin of two second blocks, so sixty blocks come in about two minutes. At one second a pool's
+/// worker spends a large part of each block on work the next block made stale, and that work is in
+/// no block, here or in Bitcoin.
+const BLOCK_MS: u64 = 2_000;
+
+fn quick_coin(rate: u64) -> olc_core::CoinConfig {
+    let now = super::live_swap::unix_ms();
+    let values = vec![
+        ("name".into(), "Network Test".into()),
+        ("ticker".into(), "NWT".into()),
+        ("rules.block_time_ms".into(), BLOCK_MS.to_string()),
+        ("genesis_time_ms".into(), now.to_string()),
+    ];
+    let mut coin = olc_store::coin_file::new_coin(&olc_store::coin_file::NewCoin { values }).unwrap();
+    coin.initial_difficulty = rate * BLOCK_MS / 1_000;
+    coin.rules.min_difficulty = 1;
+    coin
+}
+
+/// The rows of the breakdown of who found the last blocks: each name and its percent.
+fn breakdown(window: &Window) -> Vec<(String, u32)> {
+    let mut rows = Vec::new();
+    for text in texts_with(window, "%, ") {
+        let mut parts = text.splitn(3, ", ");
+        let (Some(name), Some(percent)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        if let Ok(percent) = percent.trim_end_matches('%').parse::<u32>() {
+            rows.push((name.to_string(), percent));
+        }
+    }
+    rows
+}
+
+/// This app mines, one miner beside it mines alone and another works in the pool this app runs.
+/// After fifty blocks the network's speed read from the blocks is within 30 % of what the miners
+/// measured, and the breakdown names this computer, its miners and the pool, adding to 100 %.
+#[test]
+fn the_network_shows_its_speed_and_who_found_the_blocks() {
+    const LIMIT: u64 = 30_000;
+    let mut settings = quiet_settings();
+    settings.mine_on_start = true;
+    settings.hash_cap = LIMIT;
+    settings.port = port_of_scene(61);
+    let mut window = harness(app(scratch("budget-network"), settings, Some(node_program())), SIZES[0]);
+    window.state().send(Command::Join { coin: Box::new(quick_coin(LIMIT)), address: None });
+    wait_in(&mut window, "the coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "NWT"));
+    for (id, name) in [(0, "miner-a"), (1, "miner-b")] {
+        let spec = NodeSpec { name: name.into(), memory_mib: 64, disk_mib: 64, mining: true, ..Preset::Custom.spec(id) };
+        window.state().send(Command::AddNode(Box::new(spec)));
+    }
+    wait_for_miners(&mut window, 2);
+    let pool = PoolSettings { port: port_of_scene(62), workers: vec![Who::Node(1)], ..PoolSettings::default() };
+    window.state().send(Command::Pool(PoolOrder::Start(pool)));
+    wait_in(&mut window, "the pool's worker", 2, |snap| snap.pool.workers.iter().any(|row| row.accepted > 0));
+    let from = window.state().snapshot().node.height;
+    let started = Instant::now();
+    let mut readings = Vec::new();
+    while window.state().snapshot().node.height < from + 61 {
+        assert!(started.elapsed() < Duration::from_secs(300), "sixty blocks in five minutes");
+        window.run_steps(1);
+        readings.push(together(&window.state().snapshot()));
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let measured = readings.iter().sum::<u64>() / readings.len().max(1) as u64;
+    let snap = window.state().snapshot();
+    // Over the sixty blocks kept, at least the fifty the measure asks for; the twenty block figure
+    // beside it moves more with luck.
+    let estimate = snap.node.chain.hashrate_average;
+    let blocks = snap.node.chain.latest.len() - 1;
+    println!("network {estimate} over {blocks} blocks, {} over 20, against {measured} measured over {} readings", snap.node.chain.hashrate_all, readings.len());
+    assert!(blocks >= 50, "the average reads {blocks} blocks");
+    let off = (estimate as f64 - measured as f64).abs() / measured as f64;
+    assert!(off <= 0.30, "the network's speed {estimate} is {:.0} % off the measured {measured}", off * 100.0);
+
+    for (mode, lang, you, pool, name) in [(Mode::Basic, Lang::Ko, "나", "내 풀", "budget-network-ko-basic"), (Mode::Expert, Lang::En, "You", "Your pool", "budget-network-en-expert")] {
+        speak(&mut window, mode, lang);
+        window.state_mut().open("page.mining");
+        window.run_steps(SETTLE_STEPS);
+        let rows = breakdown(&window);
+        println!("{lang:?}: {rows:?}");
+        let names: Vec<&str> = rows.iter().map(|(name, _)| name.as_str()).collect();
+        for wanted in [you, "miner-a", pool] {
+            assert!(names.contains(&wanted), "the breakdown names {wanted}: {rows:?}");
+        }
+        assert_eq!(rows.iter().map(|(_, percent)| percent).sum::<u32>(), 100, "the shares add up: {rows:?}");
+        // miner-b works in the pool: its blocks are the pool's, so it is named under the pool's
+        // row, not as a finder of its own at 0 %.
+        assert!(!names.contains(&"miner-b"), "miner-b has no row of its own: {rows:?}");
+        let works = if lang == Lang::Ko { "이 풀에서 일함: miner-b" } else { "Working in it: miner-b" };
+        let pool_row = texts_with(&window, works);
+        assert!(pool_row.iter().any(|row| row.starts_with(pool)), "the pool's row names miner-b: {pool_row:?}");
+        let share = if lang == Lang::Ko { "이 컴퓨터 몫" } else { "This computer's share" };
+        assert!(!texts_with(&window, share).is_empty(), "the page says this computer's share");
+        // Every miner on this coin is on this computer, so its share is all of it.
+        assert!(texts_with(&window, "100%").iter().any(|text| text == "100%"), "this computer's share reads 100 %");
+        save(&mut window, name);
+        window.state_mut().open("page.home");
+        window.run_steps(SETTLE_STEPS);
+        let network = format::rate(voice(&window), window.state().snapshot().node.chain.hashrate_all);
+        assert!(!texts_with(&window, &network).is_empty(), "Home shows the same network speed {network}");
+    }
+}

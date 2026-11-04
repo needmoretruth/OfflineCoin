@@ -1,6 +1,6 @@
 //! This computer's mining in one card: on or off, how fast it may go, how its speed went over ten
-//! minutes, how far the next block has come and how many blocks it found. Home shows it; the Mining
-//! page manages every miner in full.
+//! minutes, how far the next block has come, how many blocks it found and the whole network beside
+//! it. Home shows it; the Mining page manages every miner in full.
 use super::speed::Speed;
 use super::Cx;
 use crate::core::{unix_ms, Command, Link, Who};
@@ -70,11 +70,14 @@ impl MiningCard {
             let ticker = cx.ticker().to_string();
             let look = Look { t: &t, voice: cx.voice(), still, now_ms: unix_ms(), ticker: &ticker };
             let node = &cx.snap.node;
-            chain::hashrate_line(ui, &look, &node.chain, LINE_HEIGHT);
+            chain::hashrate_line(ui, &look, &node.chain, &chain::Ceiling::of(&cx.snap.budget), LINE_HEIGHT);
             ui.add_space(tokens::GAP);
             chain::next_block_bar(ui, &look, &node.chain);
             ui.add_space(tokens::GAP);
             facts(ui, cx);
+            // The whole network beside this computer, the same figures the Mining page shows.
+            ui.add_space(tokens::GAP);
+            super::network::figures(ui, cx);
         });
     }
 }

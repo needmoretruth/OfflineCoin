@@ -15,7 +15,7 @@ impl Pool {
         if !self.wants_template(engine.chain().tip(), now_ms) {
             return true;
         }
-        let block = engine.work_template(&self.payout, now_ms, &[]);
+        let block = engine.work_template(&self.payout, now_ms, crate::POOL_TAG);
         self.take_template(block, now_ms)
     }
 

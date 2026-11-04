@@ -95,7 +95,7 @@ impl Service {
         // Several miners chosen after the first run are made now, as at the first run.
         if self.settings.setup_done {
             for spec in self.add_wanted_nodes() {
-                self.start_node(&spec);
+                self.start_in_budget(&spec);
             }
         }
         let now = bind_host(&self.settings);
@@ -105,7 +105,7 @@ impl Service {
                 self.say("notice.listen_failed", error, false);
             }
         }
-        self.host.set_cap(self.settings.hash_cap);
+        self.share_budget();
         self.save();
         self.plan_scan();
     }

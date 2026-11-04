@@ -67,7 +67,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.watch_about", "Follow an address with no private key."),
     ("settings.offline", "Offline signing"),
     ("settings.offline_about", "Prepare, sign and broadcast with an air-gapped wallet."),
-    ("settings.speed", "Hash cap"),
+    ("settings.speed", "Hashrate limit"),
     ("settings.miner", "Coinbase address"),
     ("settings.miner_me", "This wallet's key"),
     ("settings.mine_note", "Coinbase note"),

@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn a_new_miner_is_sized_for_a_computer() {
         let spec = Preset::default().spec(0);
-        assert_eq!(spec.hash_cap, 0, "a computer's miner starts at a board's speed");
+        assert_eq!(spec.hash_cap, 0, "a computer's miner takes an equal part of this computer's limit");
         assert!(spec.memory_mib >= 256);
         assert!(spec.mining);
         assert!(spec.disk_mib >= 8_192, "a new miner keeps a whole chain");

@@ -46,12 +46,10 @@ pub const WORDS: &[(&str, &str)] = &[
     ("mining.no_boards", "아직 보드가 없습니다. 이 컴퓨터는 보드 없이도 채굴합니다."),
     ("mining.open_devices", "기기 열기"),
     ("mining.together", "함께 채굴"),
-    ("rate.title", "이 앱의 속도"),
     ("rate.full", "최대"),
     ("rate.of", "{}까지, 컴퓨터 최대 {}"),
     ("rate.measuring", "이 컴퓨터의 최대 속도를 재는 중입니다."),
     ("rate.slider", "속도 제한"),
-    ("rate.about", "높을수록 블록을 자주 찾고 컴퓨터는 더 바빠집니다."),
     ("rate.unknown", "아직 모름"),
     ("rate.compare_share", "최대 대비"),
     ("rate.compare_rate", "이 컴퓨터 속도"),
@@ -101,7 +99,6 @@ pub const WORDS: &[(&str, &str)] = &[
 
 /// 위의 쉬운 말을 바꾸는 표준 용어와 전문가 모드에만 보이는 줄.
 pub const EXPERT: &[(&str, &str)] = &[
-    ("rate.title", "이 앱의 해시레이트 제한"),
     ("mining.race", "블록 점유율과 해시레이트"),
     ("mining.tries", "난이도"),
     ("mining.tries_value", "{}"),

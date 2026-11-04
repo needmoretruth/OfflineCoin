@@ -15,11 +15,27 @@ const TRACK: f32 = 8.0;
 /// How often the bar moves while a block is awaited.
 const BAR_STEP: Duration = Duration::from_millis(100);
 
+/// The most every miner on this computer may hash together: the person's limit, or the highest
+/// speed on the mining threads without one. The speed line draws it as its guide, so a new limit
+/// or thread cap moves the guide at once instead of after ten minutes of readings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ceiling {
+    pub rate: u64,
+    pub limited: bool,
+}
+
+impl Ceiling {
+    pub fn of(budget: &crate::local::Budget) -> Self {
+        let limited = budget.limit > 0 && (budget.highest == 0 || budget.limit < budget.highest);
+        Self { rate: budget.total, limited }
+    }
+}
+
 /// Every miner on this computer together, over up to the last ten minutes: the name and the number
 /// now on one line, a thin line on a soft fill under them, `height` points tall in all. The line
 /// spans as long as there is data for, so the first minutes fill the width rather than a sliver;
-/// under a minute it says when the line starts. The highest point is a labelled guide.
-pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, height: f32) -> Response {
+/// under a minute it says when the line starts. The ceiling is a labelled guide.
+pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, ceiling: &Ceiling, height: f32) -> Response {
     let t = look.t;
     let voice = look.voice;
     let width = ui.available_width();
@@ -53,14 +69,21 @@ pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, height: f32) -
     let far = i18n::fill(i18n::text(voice, "chain.minutes_ago"), &[&minutes.to_string()]);
     painter.text(plot.left_bottom() + vec2(0.0, 4.0), Align2::LEFT_TOP, &far, small.clone(), t.muted);
     painter.text(plot.right_bottom() + vec2(0.0, 4.0), Align2::RIGHT_TOP, i18n::text(voice, "chain.now"), small.clone(), t.muted);
-    let top = most as f32 * 1.25;
+    // The ceiling is the guide; a reading above it, from before a limit was lowered, still fits.
+    let guide = if ceiling.rate > 0 { ceiling.rate } else { most };
+    let top = guide.max(most) as f32 * 1.25;
     let point = |(at, rate): (u64, u64)| {
         let back = end_ms.saturating_sub(at).min(span) as f32 / span as f32;
         pos2(plot.right() - back * plot.width(), plot.bottom() - rate as f32 / top * plot.height())
     };
-    let peak_y = plot.bottom() - most as f32 / top * plot.height();
+    let peak_y = plot.bottom() - guide as f32 / top * plot.height();
     painter.line_segment([pos2(plot.left(), peak_y), pos2(plot.right(), peak_y)], Stroke::new(1.0, t.line));
-    let peak = i18n::fill(i18n::text(voice, "chain.peak"), &[&format::rate(voice, most)]);
+    let key = match (ceiling.rate, ceiling.limited) {
+        (0, _) => "chain.peak",
+        (_, true) => "chain.ceiling_limit",
+        (_, false) => "chain.ceiling_full",
+    };
+    let peak = i18n::fill(i18n::text(voice, key), &[&format::rate(voice, guide)]);
     painter.text(pos2(plot.left(), peak_y - 2.0), Align2::LEFT_BOTTOM, &peak, small, t.muted);
     let accent = t.info;
     let mut points: Vec<Pos2> = chain.trail.iter().copied().map(point).collect();

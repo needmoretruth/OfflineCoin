@@ -25,6 +25,10 @@ pub enum Miner {
     Board(String),
     /// Some other computer, by the address its reward went to.
     Away(String),
+    /// The pool this app runs: its blocks pay this app's wallet and carry the pool's tag.
+    OwnPool,
+    /// Another pool, by the address its blocks pay.
+    Pool(String),
     /// A reward with no plain address.
     #[default]
     Unknown,
@@ -42,6 +46,8 @@ pub struct MinedBlock {
     pub difficulty: u64,
     /// The address the reward went to, as people write it.
     pub payee: Option<String>,
+    /// The reward carries a pool's tag.
+    pub pool: bool,
     pub miner: Miner,
 }
 
@@ -63,6 +69,7 @@ impl MinedBlock {
             reward: paid.map(|output| output.value).sum(),
             difficulty: block.header.difficulty,
             payee: payee.map(|address| format_address(&address)),
+            pool: outputs.iter().any(|output| output.is_data() && output.lock.starts_with(olc_pool::POOL_TAG)),
             miner: Miner::Unknown,
         }
     }
@@ -98,6 +105,8 @@ pub struct Share {
     pub blocks: u32,
     /// Its speed now, where this computer hears it.
     pub hashrate: Option<u64>,
+    /// For a pool: the miners here working in it, whose blocks count as the pool's.
+    pub workers: Vec<Miner>,
 }
 
 /// Everything the block strip, the race bars, the speed line and the next block bar draw.
@@ -115,9 +124,11 @@ pub struct ChainView {
     /// (unix ms, rate) over the last ten minutes.
     pub trail: Vec<(u64, u64)>,
     pub hashrate_here: u64,
-    /// All the speed the network has: what this computer hears, or what the latest blocks took
-    /// when some came from miners it cannot hear.
+    /// The network's speed now: the work of the last 20 blocks over their time, as Bitcoin's
+    /// getnetworkhashps reads it. Before two blocks, the speeds this computer hears.
     pub hashrate_all: u64,
+    /// The same over every block in `latest`, the recent average.
+    pub hashrate_average: u64,
     /// How long the next block takes at that speed and the current difficulty.
     pub expected_ms: Option<u64>,
     /// How long the last blocks really took, on average, to set beside the expected wait.

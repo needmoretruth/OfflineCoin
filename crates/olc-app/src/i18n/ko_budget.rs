@@ -1,0 +1,29 @@
+//! 이 컴퓨터의 모든 채굴기가 함께 쓰는 속도 한도와, 최근 블록으로 본 전체 네트워크의 한국어 문구.
+pub const WORDS: &[(&str, &str)] = &[
+    ("budget.title", "이 컴퓨터의 채굴 속도"),
+    ("budget.about", "이 앱과 더한 채굴기가 이 한도를 나눠 씁니다. 높을수록 블록을 자주 찾고 컴퓨터는 더 바빠집니다."),
+    ("budget.split", "이 앱 {} · 더한 채굴기 {}"),
+    ("budget.next", "새 채굴기는 {}에서 시작합니다."),
+    ("budget.equal_part", "같은 몫"),
+    ("budget.own_about", "0이면 같은 몫을 받습니다. 어떤 채굴기도 이 컴퓨터 한도를 넘지 않습니다."),
+    ("chain.ceiling_limit", "한도 {}"),
+    ("chain.ceiling_full", "최대 {}"),
+    ("chain.own_pool", "내 풀"),
+    ("chain.pool", "풀 {}"),
+    ("chain.pool_workers", "이 풀에서 일함: {}"),
+    ("net.title", "전체 네트워크"),
+    ("net.now", "지금 네트워크 속도"),
+    ("net.average", "최근 {}블록 평균"),
+    ("net.share", "이 컴퓨터 몫"),
+    ("net.about", "최근 블록이 나온 빠르기로 계산합니다. 비트코인과 같은 방법입니다."),
+];
+
+pub const EXPERT: &[(&str, &str)] = &[
+    ("budget.title", "이 컴퓨터의 해시레이트 제한"),
+    ("budget.about", "이 앱과 더한 채굴기가 제한 하나를 나눠 씁니다. 도는 채굴기마다 같은 몫을 받고, 자기 해시 상한이 더 작으면 그만큼만 씁니다."),
+    ("budget.equal_part", "제한 균등 분배"),
+    ("budget.own_about", "0이면 같은 몫을 받습니다. 모든 채굴기의 합은 이 컴퓨터 제한을 넘지 않습니다."),
+    ("net.now", "네트워크 해시레이트"),
+    ("net.average", "최근 {}블록 평균"),
+    ("net.about", "최근 20블록의 작업량을 걸린 시간으로 나눈 값입니다. getnetworkhashps와 같습니다."),
+];

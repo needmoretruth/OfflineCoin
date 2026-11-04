@@ -9,7 +9,6 @@ use super::{Cx, Page};
 use crate::core::Command;
 use crate::i18n::{Lang, Mode};
 use crate::settings::{cores, standard_threads, Settings, Theme};
-use crate::ui::format;
 use crate::ui::register::{group, row, setting, setting_details, When};
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, field, meta, segments, switch, Kind};
@@ -119,13 +118,8 @@ pub fn committed_number(ui: &mut Ui, shown: u64, name: &str, width: f32) -> Opti
 /// threads follow, since they set what full speed is.
 pub fn speed_rows(ui: &mut Ui, cx: &mut Cx) {
     let t = cx.t;
-    let voice = cx.voice();
-    let (cap, full) = (cx.snap.node.cap, cx.snap.full_rate);
-    // A cap of 0, or one above what this computer can do, holds nothing back.
-    let now = match cap == 0 || (full > 0 && cap >= full) {
-        true => cx.fill("rate.max", &[&format::rate(voice, full)]),
-        false => cx.fill("rate.of", &[&format::rate(voice, cap), &format::rate(voice, full)]),
-    };
+    // The person's limit for every miner here, said as the speed control says it.
+    let now = super::speed::limit_words(cx, cx.snap.budget.limit);
     setting(ui, t, cx.say("settings.speed"), when(cx, When::Now), &now, |ui| {
         if button(ui, t, cx.say("settings.speed_go"), Kind::Plain).clicked() {
             *cx.go = Some("page.mining");
