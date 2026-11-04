@@ -127,6 +127,39 @@ fn a_locked_wallet_saves_names_and_contacts_and_never_its_keys() {
     fs::remove_dir_all(directory).unwrap();
 }
 
+/// A locked wallet hands out new receiving addresses from its words' account, the same ones the
+/// words make, with no secret in the file; opening it gives each one's secret from the words. A
+/// key the account did not make is still refused.
+#[test]
+fn a_locked_wallet_makes_receiving_addresses_the_words_open() {
+    let (directory, wallet) = sealed_in("locked-receive");
+    let mut locked = load_wallet(&directory).unwrap();
+    let index = locked.next_word_key().unwrap().unwrap();
+    locked.set_receiving(index).unwrap();
+    save_wallet(&directory, &locked).unwrap();
+    let mut same = wallet.clone();
+    let from_words = same.next_word_key().unwrap().unwrap();
+    assert_eq!(locked.address(), same.keys().nth(from_words).unwrap().0, "the address the words give");
+    let bytes = file_bytes(&directory);
+    for shape in secret_shapes(&same) {
+        assert!(!contains(&bytes, &shape), "a secret is readable in the sealed file");
+    }
+    let mut restarted = load_wallet(&directory).unwrap();
+    assert_eq!(restarted.address(), locked.address(), "the new address outlives a restart");
+    restarted.next_word_key().unwrap().unwrap();
+    save_wallet(&directory, &restarted).unwrap();
+    let (open, _) = open_wallet(&directory, PASSWORD).unwrap();
+    assert!(open.is_open(), "every address handed out has its secret");
+    assert_eq!(open.address(), locked.address());
+    assert_eq!(open.seed.as_ref().map(|seed| seed.next), Some(3), "the words count on from there");
+    let mut publics: Vec<_> = load_wallet(&directory).unwrap().keys().map(|(_, public)| public).collect();
+    publics.push(Wallet::from_secret([8; 32]).unwrap().keys().next().unwrap().1);
+    let mut forged = Wallet::from_publics(&publics, 0).unwrap();
+    forged.watch = load_wallet(&directory).unwrap().watch;
+    assert_eq!(save_wallet(&directory, &forged).err().as_deref(), Some(WALLET_LOCKED));
+    fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn a_backup_made_while_locked_comes_back_with_the_wallet_password() {
     let (directory, wallet) = sealed_in("locked-backup");

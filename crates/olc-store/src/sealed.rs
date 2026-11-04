@@ -8,7 +8,7 @@ use crate::wallet_file::{
     DAMAGED_WALLET, OLD_KEY_FILE, WALLET_FILE,
 };
 use olc_wallet::shared::Shared;
-use olc_wallet::{Contact, Wallet};
+use olc_wallet::{Account, Contact, Wallet};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,18 +34,28 @@ pub(crate) struct Readable {
     labels: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     contacts: Vec<Contact>,
+    /// The words' account, an xpub and its next key, so the locked wallet still makes receiving
+    /// addresses. No secret comes from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    watch: Option<Account>,
 }
 
 impl Readable {
     fn of(wallet: &Wallet) -> Self {
-        Self { shared: wallet.shared.clone(), labels: wallet.labels.clone(), contacts: wallet.contacts.clone() }
+        let (shared, labels, contacts) = (wallet.shared.clone(), wallet.labels.clone(), wallet.contacts.clone());
+        Self { shared, labels, contacts, watch: wallet.watch_account() }
     }
 
-    /// These are newer than the sealed copy, which only changes while the wallet is open.
+    /// These are newer than the sealed copy, which only changes while the wallet is open. Keys
+    /// the locked wallet made from its account get their secrets from the words here.
     pub(crate) fn put_in(self, wallet: &mut Wallet) {
         wallet.shared = self.shared;
         wallet.labels = self.labels;
         wallet.contacts = self.contacts;
+        if let Some(watch) = self.watch {
+            // A failure leaves those keys out, and the caller finds them missing.
+            let _ = wallet.catch_up_words(watch.next);
+        }
     }
 }
 
@@ -124,6 +134,7 @@ pub(crate) fn locked_wallet(file: &SealedFile) -> Result<Wallet, String> {
     let publics = publics.ok_or(DAMAGED_WALLET)?;
     let mut wallet = Wallet::from_publics(&publics, file.receiving).map_err(|_| DAMAGED_WALLET)?;
     file.readable.clone().put_in(&mut wallet);
+    wallet.watch = file.readable.watch.clone();
     Ok(wallet)
 }
 
@@ -185,11 +196,11 @@ pub fn open_wallet(directory: &Path, password: &str) -> Result<(Wallet, Seal), S
     let plain = Zeroizing::new(open_bytes(&key, &nonce, &sealed).ok_or(WRONG_WALLET_PASSWORD)?);
     let keys: Keys = serde_json::from_slice(&plain).map_err(|_| DAMAGED_WALLET)?;
     let mut wallet = wallet_of(&keys)?;
+    file.readable.put_in(&mut wallet);
     if publics_of(&wallet) != file.publics {
         return Err(DAMAGED_WALLET.to_string());
     }
     wallet.set_receiving(file.receiving).map_err(|_| DAMAGED_WALLET)?;
-    file.readable.put_in(&mut wallet);
     Ok((wallet, Seal { salt, key }))
 }
 
@@ -203,14 +214,22 @@ pub fn save_open(directory: &Path, wallet: &Wallet, seal: &Seal) -> Result<(), S
     write(directory, &sealed_file(wallet, seal)?)
 }
 
-/// Saves what a locked wallet may change. Keys and words change only while it is open, so a
-/// wallet whose keys differ from the sealed ones, or that holds a secret, is refused.
+/// Saves what a locked wallet may change. Secrets and words change only while it is open, so a
+/// wallet that holds a secret is refused, and so is one whose keys differ from the file's, but
+/// for receiving keys it added from the words' account, whose secrets the words keep.
 pub(crate) fn save_locked(directory: &Path, wallet: &Wallet, file: SealedFile) -> Result<(), String> {
-    if wallet.holds_secrets() || publics_of(wallet) != file.publics {
+    let publics = publics_of(wallet);
+    let kept = publics.get(..file.publics.len()).is_some_and(|earlier| earlier == file.publics.as_slice());
+    let made = publics.len() - file.publics.len().min(publics.len());
+    let from_account = match (&wallet.watch, &file.readable.watch) {
+        (Some(now), Some(before)) => now.xpub == before.xpub && u64::from(now.next.saturating_sub(before.next)) == made as u64,
+        _ => made == 0,
+    };
+    if wallet.holds_secrets() || !kept || !from_account {
         return Err(WALLET_LOCKED.to_string());
     }
     let readable = Readable::of(wallet);
-    write(directory, &SealedFile { receiving: wallet.receiving(), readable, ..file })
+    write(directory, &SealedFile { publics, receiving: wallet.receiving(), readable, ..file })
 }
 
 /// Seals the wallet again under `new` once `old` opens it. A wrong `old` changes nothing.

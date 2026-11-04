@@ -4,9 +4,10 @@
 //! The path is m/44'/5196867'/account'/0/index. 5196867 is 0x4F4C43, the letters "OLC", picked
 //! because it reads as the coin and sits far from the numbers SLIP 44 hands out.
 use alloc::string::{String, ToString};
-use crate::{SeedRecord, Wallet};
+use crate::{Account, SeedRecord, Wallet, WalletError};
 use alloc::vec::Vec;
-use bip32::{ChildNumber, XPrv};
+use bip32::{ChildNumber, Prefix, XPrv, XPub};
+use olc_crypto::PublicKey;
 use olc_crypto::sha256;
 use unicode_normalization::UnicodeNormalization;
 
@@ -155,14 +156,26 @@ fn child(key: &XPrv, index: u32, hardened: bool) -> Result<XPrv, SeedError> {
     key.derive_child(number).map_err(|_| SeedError::BadKey)
 }
 
+/// The key at m/44'/5196867'/`account`'/0, the parent of every receiving key.
+fn chain_key(seed: &[u8; 64], account: u32) -> Result<XPrv, SeedError> {
+    let master = XPrv::new(seed).map_err(|_| SeedError::BadKey)?;
+    [(44, true), (COIN_TYPE, true), (account, true), (0, false)]
+        .into_iter()
+        .try_fold(master, |key, (number, hardened)| child(&key, number, hardened))
+}
+
 /// The secret key at m/44'/5196867'/`account`'/0/`index`.
 pub fn derive_secret(seed: &[u8; 64], account: u32, index: u32) -> Result<[u8; 32], SeedError> {
-    let master = XPrv::new(seed).map_err(|_| SeedError::BadKey)?;
-    let account_key = [(44, true), (COIN_TYPE, true), (account, true), (0, false)]
-        .into_iter()
-        .try_fold(master, |key, (number, hardened)| child(&key, number, hardened))?;
-    let key = child(&account_key, index, false)?;
+    let key = child(&chain_key(seed, account)?, index, false)?;
     Ok(key.private_key().to_bytes().into())
+}
+
+/// The public key at `index` under an account's xpub: the same key the words give there, with no
+/// secret, since the last step of the path is not hardened.
+fn public_at(xpub: &str, index: u32) -> Option<PublicKey> {
+    let parent: XPub = xpub.parse().ok()?;
+    let number = ChildNumber::new(index, false).ok()?;
+    Some(parent.derive_child(number).ok()?.to_bytes())
 }
 
 /// The addresses of `count` keys from `from` on, to look them up before taking them in.
@@ -191,6 +204,12 @@ impl SeedRecord {
     pub fn mnemonic(&self) -> Option<Mnemonic> {
         let list = if self.korean { WordList::Korean } else { WordList::English };
         Mnemonic::from_entropy(&self.entropy, list).ok()
+    }
+
+    /// The words' first account as an xpub, with the number of its next key.
+    pub fn account(&self) -> Option<Account> {
+        let key = chain_key(&self.mnemonic()?.seed(""), 0).ok()?;
+        Some(Account { xpub: key.public_key().to_string(Prefix::XPUB), next: self.next })
     }
 }
 
@@ -234,15 +253,53 @@ impl Wallet {
         found
     }
 
-    /// The next key from the words, when there are words.
+    /// The next key from the words, when there are words. While they are sealed away it comes
+    /// from their account, public half only, as Bitcoin Core hands out keypool addresses while
+    /// locked; [`Wallet::catch_up_words`] gives its secret once the wallet opens.
     pub fn next_word_key(&mut self) -> Option<Result<usize, SeedError>> {
-        let record = self.seed.clone()?;
+        let Some(record) = self.seed.clone() else {
+            return self.next_account_key();
+        };
         let words = record.mnemonic()?;
         let added = words.key(record.next).and_then(|secret| self.add_secret(secret).map_err(|_| SeedError::BadKey));
         if let Some(seed) = self.seed.as_mut() {
             seed.next += 1;
         }
         Some(added)
+    }
+
+    fn next_account_key(&mut self) -> Option<Result<usize, SeedError>> {
+        let account = self.watch.as_mut()?;
+        let public = public_at(&account.xpub, account.next);
+        account.next += 1;
+        let Some(public) = public else {
+            return Some(Err(SeedError::BadKey));
+        };
+        let address = olc_crypto::address_of(&public);
+        if self.keys.iter().any(|known| known.address == address) {
+            return Some(Err(SeedError::BadKey));
+        }
+        self.keys.push(crate::Key { secret: None, public, address });
+        Some(Ok(self.keys.len() - 1))
+    }
+
+    /// Takes in the secrets of the keys a locked wallet made from its account, every one from the
+    /// words' count up to `next`, so the opened wallet signs for each address it handed out.
+    pub fn catch_up_words(&mut self, next: u32) -> Result<(), SeedError> {
+        let Some(record) = self.seed.clone().filter(|record| record.next < next) else {
+            return Ok(());
+        };
+        let seed = record.mnemonic().ok_or(SeedError::BadKey)?.seed("");
+        for index in record.next..next {
+            match self.add_secret(derive_secret(&seed, 0, index)?) {
+                Ok(_) | Err(WalletError::KnownKey) => {}
+                Err(_) => return Err(SeedError::BadKey),
+            }
+        }
+        if let Some(seed) = self.seed.as_mut() {
+            seed.next = next;
+        }
+        Ok(())
     }
 
     /// Takes in the keys these words give: every one up to `GAP` past the last that `used` says

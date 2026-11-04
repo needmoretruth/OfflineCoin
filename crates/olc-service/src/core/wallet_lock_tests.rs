@@ -123,15 +123,60 @@ fn an_encrypted_wallet_starts_locked_after_a_restart() {
     let add = ContactOrder::Add { name: "Mina".into(), address: address.clone() };
     assert!(host.obey(Personal::Wallet(WalletOrder::Contact(add))).2);
     let keys = load_wallet(&root.join("wallet")).unwrap().key_count();
-    assert_eq!(host.obey(Personal::Wallet(WalletOrder::NewAddress)).0, "notice.wallet_locked");
-    assert_eq!(host.obey(Personal::NewKey).0, "notice.wallet_locked");
-    assert_eq!(load_wallet(&root.join("wallet")).unwrap().key_count(), keys);
+    // Receiving works locked: the new address comes from the words' account.
+    let (key, fresh, good) = host.obey(Personal::Wallet(WalletOrder::NewAddress));
+    assert!(good && key == "notice.new_address" && fresh != address, "{key}");
+    assert_eq!(host.obey(Personal::NewKey).0, "notice.key_added", "so does the next key of the words");
+    let outside = Personal::ImportKey(hex_secret([3; 32]));
+    assert_eq!(host.obey(outside).0, "notice.wallet_locked", "a key from outside needs the password");
+    assert_eq!(load_wallet(&root.join("wallet")).unwrap().key_count(), keys + 2);
+    let sign_fresh = || Personal::Wallet(WalletOrder::SignMessage { address: fresh.clone(), message: "hello".into() });
+    assert_eq!(host.obey(sign_fresh()).0, "notice.wallet_locked");
     let backup = root.join("locked.backup");
     assert!(host.obey(Personal::BackUp { path: backup.display().to_string(), password: None }).2);
     let back = olc_store::restore(&backup, Some(PASSWORD)).unwrap();
     assert!(back.is_open());
     assert_eq!(back.contacts.len(), 1);
     assert!(host.obey(unlock(PASSWORD, 300)).2);
+    assert!(host.obey(sign_fresh()).2, "the opened wallet signs for the address it made locked");
     assert!(host.obey(Personal::NewKey).2, "an open wallet seals a new key with the rest");
-    assert_eq!(load_wallet(&root.join("wallet")).unwrap().key_count(), keys + 1);
+    assert_eq!(load_wallet(&root.join("wallet")).unwrap().key_count(), keys + 3);
+}
+
+fn hex_secret(secret: [u8; 32]) -> String {
+    secret.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Coins sent to an address a locked wallet made wait there, and the wallet spends them once the
+/// password opens it.
+#[test]
+fn a_locked_wallet_makes_an_address_that_the_opened_wallet_spends_from() {
+    let root = folder("receive-locked");
+    let words = olc_wallet::seed::Mnemonic::from_entropy(&[5; 16], olc_wallet::seed::WordList::English).unwrap();
+    olc_store::save_wallet(&root, &Wallet::from_words(&words, true).unwrap()).unwrap();
+    let wallet = load_wallet(&root).unwrap();
+    olc_store::seal_wallet(&root, &wallet, PASSWORD).unwrap();
+    let mut locked = load_wallet(&root).unwrap();
+    let index = locked.next_word_key().unwrap().unwrap();
+    locked.set_receiving(index).unwrap();
+    olc_store::save_wallet(&root, &locked).unwrap();
+    let fresh = locked.address();
+
+    let mut coin = CoinConfig::olc();
+    coin.initial_difficulty = 8;
+    coin.rules.coinbase_maturity = 1;
+    coin.rules.retarget_interval = 0;
+    let start = coin.genesis_time_ms;
+    let plugins = olc_core::Plugins { consensus: Box::new(olc_pow::ProofOfWork), languages: olc_lang::all() };
+    let mut engine = olc_node::Engine::new(coin, plugins, locked);
+    for block in 1..=3 {
+        while !engine.mine(1_000_000, start + block * 60_000) {}
+    }
+    assert!(engine.chain().balance(&fresh) > 0, "the coins came to the new address");
+    let to = Wallet::from_secret([7; 32]).unwrap().address();
+    let fee = engine.chain().rules().min_fee;
+    assert_eq!(engine.pay(to, 1_000, fee), Err(olc_wallet::WalletError::Locked));
+    let (open, _seal) = olc_store::open_wallet(&root, PASSWORD).unwrap();
+    *engine.wallet_mut() = open;
+    assert!(engine.pay(to, 1_000, fee).is_ok(), "the opened wallet spends from it");
 }
