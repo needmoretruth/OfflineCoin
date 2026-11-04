@@ -153,6 +153,8 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.no_such_key", "This wallet has no such key."),
     ("notice.no_watched", "Watch an address first. The payment is made from its coins."),
     ("notice.node_failed", "The node did not start."),
+    ("notice.olc_restarted", "OLC started over from a new first block in 0.3. The wallet is the same; coins from before do not come along."),
+    ("notice.olc_retired", "That OLC ended in 0.3. This app runs today's OLC."),
     ("notice.pool_failed", "The pool did not do that."),
     ("notice.node_paid", "Node {} sent the payment."),
     ("notice.not_a_backup", "That file is not a backup."),

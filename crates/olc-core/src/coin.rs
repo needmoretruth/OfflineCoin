@@ -19,6 +19,14 @@ pub const COIN: u64 = 100_000_000;
 /// How fast the one device a coin must be able to live on hashes.
 pub const LOWEST_HASHES_A_SECOND: u64 = 1_000;
 
+/// The first block of the OLC that OfflineCoin 0.1 and 0.2 ran, under every rule change it had.
+/// OLC started over from a new first block in 0.3 and left that chain, so an app or board that
+/// kept it moves to today's OLC.
+const RETIRED_OLC_GENESIS: Hash = [
+    0x82, 0x81, 0x6f, 0xe4, 0x0c, 0xdb, 0xd8, 0x28, 0xde, 0x7d, 0xdb, 0xc1, 0x58, 0xbb, 0xa3, 0x67,
+    0x8e, 0x2b, 0xd3, 0xd5, 0xa7, 0x77, 0xe4, 0x47, 0x9d, 0x83, 0x4d, 0x22, 0xde, 0xca, 0x39, 0xf6,
+];
+
 /// The floor and first difficulty of a new coin: that device finds a block every 30 seconds.
 pub const MIN_DIFFICULTY: u64 = 30 * LOWEST_HASHES_A_SECOND;
 
@@ -266,6 +274,11 @@ fn short_name(bytes: &[u8]) -> String {
 }
 
 impl CoinConfig {
+    /// Whether this is the OLC of 0.1 and 0.2, whose chain was left behind.
+    pub fn is_retired_olc(&self) -> bool {
+        self.genesis().id() == RETIRED_OLC_GENESIS
+    }
+
     /// The default coin, started over on 3 November 2026 with today's rules from its first block:
     /// version 1 and version 2 transactions, the floor, the median time past and per-block
     /// adjustment, with the floor for a block that comes late. It starts where one device at 1,000

@@ -338,6 +338,9 @@ impl Node {
     /// One coin's blocks sit in the log, so a different coin asks first. The keys stay. The same
     /// coin on other rules keeps its blocks up to where the rules part.
     fn change_coin(&mut self, coin: CoinConfig) {
+        if coin.is_retired_olc() {
+            return self.say("error coin ended: the OLC of 0.1 and 0.2".into());
+        }
         let chain = self.runner.engine.chain();
         if coin.genesis().id() == chain.genesis_id() {
             match chain.config().parts_from(&coin) {

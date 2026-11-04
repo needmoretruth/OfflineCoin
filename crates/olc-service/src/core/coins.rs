@@ -1,5 +1,5 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
-use crate::settings::Paths;
+use crate::settings::{Paths, Settings};
 use olc_core::CoinConfig;
 use olc_store::{coin_file, replace_file};
 use std::fs;
@@ -54,10 +54,23 @@ pub fn load_coin(paths: &Paths, name: &str) -> Option<CoinConfig> {
 }
 
 /// A coin this app ran, by its folder name. The built-in coin has no file of its own, so its
-/// folder or its ticker names it too.
+/// folder or its ticker names it too. The OLC of 0.1 and 0.2 is not offered: its chain ended.
 pub fn known_coin(paths: &Paths, name: &str) -> Option<CoinConfig> {
     let olc = CoinConfig::olc();
-    load_coin(paths, name).or_else(|| (name == coin_folder(&olc) || name.eq_ignore_ascii_case(&olc.ticker)).then_some(olc))
+    let kept = load_coin(paths, name).filter(|coin| !coin.is_retired_olc());
+    kept.or_else(|| (name == coin_folder(&olc) || name.eq_ignore_ascii_case(&olc.ticker)).then_some(olc))
+}
+
+/// Moves an app that kept the OLC of 0.1 and 0.2 to today's OLC, which started over from a new
+/// first block in 0.3. The wallet is the same and the old blocks stay in their folder. Returns
+/// the folder it left.
+pub fn leave_retired_olc(paths: &Paths, settings: &mut Settings) -> Option<String> {
+    let name = settings.coin.clone()?;
+    load_coin(paths, &name).filter(CoinConfig::is_retired_olc)?;
+    settings.coin = Some(coin_folder(&CoinConfig::olc()));
+    // Unsaved, the next start moves it again.
+    let _ = settings.save(&paths.root);
+    Some(name)
 }
 
 /// `olc app` kept the default coin's blocks beside the wallet. They carry over once.
@@ -86,6 +99,34 @@ pub fn write_coin_file(coin: &CoinConfig, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The coin file OfflineCoin 0.2 wrote for its built-in OLC.
+    const OLC_0_2: &str = r#"{"name": "OfflineCoin", "ticker": "OLC", "message": "OLCC genesis", "genesis_time_ms": 1793491200000, "initial_difficulty": 900000, "premine": [], "rules": {"block_time_ms": 30000, "retarget_interval": 10, "reward": 5000000000, "halving_interval": 210000, "coinbase_maturity": 3, "max_block_bytes": 4096, "min_fee": 0, "min_difficulty": 30000, "floor_from_height": 20000}, "message_in_block": false, "upgrade_from": 6240}"#;
+
+    #[test]
+    fn an_app_that_kept_the_olc_of_0_2_runs_todays_olc() {
+        let root = std::env::temp_dir().join(format!("olc-retired-{}", std::process::id()));
+        let paths = Paths { root: root.clone() };
+        let old = paths.coin("82816fe40cdb");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join(COIN_FILE), OLC_0_2).unwrap();
+        let mut settings = Settings { coin: Some("82816fe40cdb".into()), ..Settings::default() };
+
+        assert!(known_coin(&paths, "82816fe40cdb").is_none(), "the old OLC is offered as a coin");
+        assert_eq!(leave_retired_olc(&paths, &mut settings).as_deref(), Some("82816fe40cdb"));
+        assert_eq!(settings.coin, Some(coin_folder(&CoinConfig::olc())));
+        assert_eq!(Settings::load(&root).coin, settings.coin, "the move is not kept");
+        assert_eq!(leave_retired_olc(&paths, &mut settings), None);
+        assert!(old.join(COIN_FILE).exists(), "the old blocks' folder must stay");
+
+        let mut other = CoinConfig::olc();
+        other.message = "a coin of its own".into();
+        save_coin(&paths, &other).unwrap();
+        let mut on_other = Settings { coin: Some(coin_folder(&other)), ..Settings::default() };
+        assert_eq!(leave_retired_olc(&paths, &mut on_other), None);
+        assert!(known_coin(&paths, &coin_folder(&other)).is_some());
+        let _ = fs::remove_dir_all(root);
+    }
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;

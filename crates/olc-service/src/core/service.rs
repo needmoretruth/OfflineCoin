@@ -1,7 +1,7 @@
 //! The thread behind the window: it takes commands, keeps the node, the looks around and the node
 //! processes going, and publishes a fresh snapshot a few times a second.
 use super::coins::{
-    bring_old_blocks, coin_folder, load_coin, read_coin_file, save_coin, write_coin_file,
+    bring_old_blocks, coin_folder, leave_retired_olc, load_coin, read_coin_file, save_coin, write_coin_file,
 };
 use super::board_action::BoardAction;
 use super::swap_book::Swaps;
@@ -152,10 +152,11 @@ struct Service {
 impl Service {
     fn new(
         launch: CoreLaunch,
-        settings: Settings,
+        mut settings: Settings,
         out: Arc<Mutex<Arc<Snapshot>>>,
     ) -> Result<Self, String> {
         let paths = launch.paths;
+        let left_old_olc = leave_retired_olc(&paths, &mut settings).is_some();
         let coin = current_coin(&paths, &settings);
         bring_old_blocks(&paths, &coin);
         // Measured before anything mines, on as many cores as will mine.
@@ -192,7 +193,7 @@ impl Service {
             Some(program) => Supervisor::with_program(paths.clone(), program),
             None => Supervisor::new(paths.clone())?,
         };
-        let service = Self {
+        let mut service = Self {
             swaps: Swaps::load(paths.wallet()),
             trail: super::chain_race::Trail::default(),
             paths,
@@ -218,6 +219,9 @@ impl Service {
             maker: Default::default(),
             out,
         };
+        if left_old_olc {
+            service.say("notice.olc_restarted", String::new(), true);
+        }
         Ok(service)
     }
 
@@ -510,6 +514,10 @@ impl Service {
     /// Takes this node and its local nodes to `coin`. A fork names the folder it `leaves`, whose
     /// chain it carries on from.
     pub(super) fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
+        if coin.is_retired_olc() {
+            self.say("notice.olc_retired", String::new(), false);
+            return false;
+        }
         let name = coin_folder(&coin);
         if let Err(error) = save_coin(&self.paths, &coin) {
             self.say("notice.save_failed", error, false);
