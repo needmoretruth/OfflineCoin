@@ -17,11 +17,11 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.now_span", "Other computers over the last {}"),
     ("net.now_measured", "Each miner's measured speed, added up"),
     ("net.average", "Last {} blocks"),
-    ("net.average_late", "Follows a change of speed about {} late"),
+    ("net.average_late", "About {} behind a change of speed"),
     ("net.share", "Computer's share"),
     ("net.share_error", "May be {} points off"),
-    ("net.about_measured", "Every block of the last {}, {} of them, came from miners whose speed this app measures. So their speeds are added up. A change of speed shows at once."),
-    ("net.about", "Miners whose speed this app measures add their speed. Other computers are read from the last {}, from the {} blocks they found. A change of their speed shows in full after {}."),
+    ("net.about_measured", "Every block of the last {}, {} of them, came from miners this app measures, so their measured speeds are added up."),
+    ("net.about", "Miners this app measures add their measured speed; other computers add a speed read from the last {}, from the {} blocks they found. A change of theirs shows in full after {}."),
     ("net.too_few", "The network speed shows once {} blocks are made. {} so far."),
 ];
 
