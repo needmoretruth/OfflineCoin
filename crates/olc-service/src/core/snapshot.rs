@@ -191,4 +191,7 @@ pub struct Snapshot {
     /// The folder this app keeps its files in.
     pub folder: String,
     pub swaps: SwapsView,
+    /// When the core made this view, in milliseconds since 1970, so a reader can tell how old
+    /// what it shows is: a busy computer makes views late.
+    pub made_ms: u64,
 }
