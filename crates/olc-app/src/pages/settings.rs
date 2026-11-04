@@ -183,6 +183,9 @@ impl SettingsPage {
                 self.tools.open(Tool::Note);
             }
         });
+        // Which build this is, as Bitcoin Core's About says, so a person can tell after an update.
+        let version = format!("OLC Core {}", env!("CARGO_PKG_VERSION"));
+        row(ui, t, cx.say("settings.version"), &version, |_| {});
     }
 
     /// Bitcoin Core's two buttons under its options: the file, and everything back as it came.
