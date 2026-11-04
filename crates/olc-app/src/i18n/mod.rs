@@ -181,6 +181,10 @@ pub fn fill(text: &str, values: &[&str]) -> String {
     out
 }
 
+/// Run with the other word tests, so a change of words checks its particles too.
+#[cfg(test)]
+mod particles;
+
 #[cfg(test)]
 mod tests {
     use super::*;
