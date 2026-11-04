@@ -48,6 +48,15 @@ pub fn step_words(voice: Voice, kind: LabKind, step: &Step) -> String {
 /// The one sentence that says where a run stands now.
 pub fn now_words(voice: Voice, state: &LabState) -> String {
     let kind = state.kind.unwrap_or(LabKind::Attack);
+    if let Some((made, asked)) = state.making {
+        let height = state.miners.iter().map(|miner| miner.height).max().unwrap_or_default();
+        return match state.phase {
+            Phase::Failed => fill(text(voice, "lab2.make_failed"), &[state.error.as_deref().unwrap_or("")]),
+            Phase::Done => fill(text(voice, "lab2.made"), &[&asked.to_string(), &height.to_string()]),
+            Phase::Idle | Phase::Starting => text(voice, "lab2.starting").to_string(),
+            _ => fill(text(voice, "lab2.making"), &[&made.to_string(), &asked.to_string()]),
+        };
+    }
     match state.phase {
         Phase::Idle | Phase::Starting => text(voice, "lab2.starting").to_string(),
         Phase::Warming => text(voice, "lab2.warming").to_string(),

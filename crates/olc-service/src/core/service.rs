@@ -113,6 +113,7 @@ mod orders;
 mod view;
 mod channels;
 mod swaps;
+mod making;
 
 struct Service {
     paths: Paths,
@@ -140,6 +141,8 @@ struct Service {
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
     pool: PoolSeat,
+    /// Blocks being made now, as `generate N` asked.
+    maker: super::making::Maker,
     swaps: Swaps,
     /// This computer's speed over the last ten minutes, for the speed line.
     trail: super::chain_race::Trail,
@@ -212,6 +215,7 @@ impl Service {
             held: VecDeque::new(),
             late: Arc::default(),
             pool: PoolSeat::default(),
+            maker: Default::default(),
             out,
         };
         Ok(service)
@@ -240,6 +244,7 @@ impl Service {
             }
             self.let_go();
             self.listen();
+            self.step_making();
             self.step_swaps();
             self.follow_payment();
             self.publish();
@@ -407,6 +412,7 @@ impl Service {
                 let _ = self.local.send(id, &format!("mineto {target}"));
             }
             Command::Pool(order) => self.pool_order(order),
+            Command::Chain(order) => self.chain_order(order),
             Command::NodePay { id, to, amount } => {
                 let _ = self.local.send(id, &format!("pay {} {}", to.trim(), amount.trim()));
             }
