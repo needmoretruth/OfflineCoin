@@ -8,7 +8,7 @@ use super::pool::PoolTab;
 use super::pool_join::standing_words;
 use super::speed::Speed;
 use super::{miners, pacing, Cx, Page};
-use crate::core::{unix_ms, Who};
+use crate::core::{unix_ms, Choice, Who};
 use crate::ui::chain::{self, Look};
 use crate::ui::explain;
 use crate::ui::theme::desktop_reduces_motion;
@@ -121,7 +121,9 @@ impl Mining {
         });
         explain::short(ui, t, cx.say("mining.boards_about"));
         ui.add_space(4.0);
-        if cx.snap.boards.is_empty() {
+        // A board heard only by radio, through a board on the cable, is a board here all the same.
+        let by_radio: Vec<&Choice> = cx.snap.pool.choices.iter().filter(|choice| heard_by_radio(choice)).collect();
+        if cx.snap.boards.is_empty() && by_radio.is_empty() {
             meta(ui, cx.say("mining.no_boards"), t);
             return;
         }
@@ -143,7 +145,34 @@ impl Mining {
                 }
             });
         }
+        by_radio.iter().for_each(|choice| radio_row(ui, cx, choice));
     }
+}
+
+/// A board heard by radio and on no cable: the pool lists it with the board it comes through.
+fn heard_by_radio(choice: &Choice) -> bool {
+    matches!(choice.who, Some(Who::Lent(_)) | None) && choice.through.is_some()
+}
+
+/// A board heard by radio: its name, the board it comes through, its own mining, and its pool work.
+fn radio_row(ui: &mut Ui, cx: &Cx, choice: &Choice) {
+    let t = cx.t;
+    ui.horizontal(|ui| {
+        dot(ui, if choice.mining { t.good } else { t.info });
+        ui.label(choice.label.as_str());
+        let doing = match choice.mining {
+            true => format::rate(cx.voice(), choice.speed),
+            false => cx.say("boards.resting").to_string(),
+        };
+        ui.label(RichText::new(doing).size(tokens::META).color(t.soft));
+        let through = choice.through.as_deref().unwrap_or_default();
+        ui.label(RichText::new(cx.fill("pool.through", &[through])).size(tokens::META).color(t.soft));
+        if let Some(link) = choice.who.and_then(|who| cx.snap.pool.link_of(who)) {
+            let (colour, said) = standing_words(cx, link);
+            dot(ui, colour);
+            ui.label(RichText::new(said).size(tokens::META).color(t.soft));
+        }
+    });
 }
 
 impl Page for Mining {

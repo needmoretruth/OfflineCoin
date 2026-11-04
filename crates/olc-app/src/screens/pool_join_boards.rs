@@ -53,19 +53,24 @@ fn speak(window: &mut Window, mode: Mode, lang: Lang) {
 
 /// A window on the test coin, listening on 127.0.0.1 only, with `fleet` as its boards.
 fn window(root: &Path, port: u16, peers: &[String], fleet: Option<Arc<dyn FleetPort>>, coin: &CoinConfig) -> Window {
+    window_and_core(root, port, peers, fleet, coin).0
+}
+
+/// The window and its core, for the words typed as `olc` types them into a running app.
+fn window_and_core(root: &Path, port: u16, peers: &[String], fleet: Option<Arc<dyn FleetPort>>, coin: &CoinConfig) -> (Window, Core) {
     let mut settings = live_settings(port, peers);
     settings.hash_cap = 1_000;
     settings.mine_on_start = false;
     let launch = CoreLaunch { paths: Paths { root: root.to_path_buf() }, fleet, usb: false, node_program: None };
     let core = Core::start(launch, settings.clone()).unwrap();
-    let mut app = App::new(core, settings, None);
+    let mut app = App::new(core.clone(), settings, None);
     app.set_folder(root.to_path_buf());
     let mut window = harness(app, SIZE);
     window.state().send(Command::Join { coin: Box::new(coin.clone()), address: None });
     wait_in(&mut window, "the coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "JNT"));
     window.state_mut().open("page.mining");
     window.run_steps(3);
-    window
+    (window, core)
 }
 
 fn scroll_to(window: &mut Window, label: &str) {
@@ -207,4 +212,61 @@ fn this_computer_and_the_boards_join_a_pool_on_another_computer() {
     report(&me, "me after one left");
     boards.stop();
     tell("done: this computer and three boards joined a pool on another computer");
+}
+
+/// How many labels with `text` stand in the Mining page's list of boards.
+fn in_board_list(window: &Window, text: &str) -> usize {
+    let top = window.query(By::new().label_contains("보드는 더하는 장치입니다")).map_or(f64::MAX, |node| top_of(&node));
+    let bottom = window.query(By::new().label("함께 채굴")).map_or(f64::MIN, |node| top_of(&node));
+    let shown = window.query_all(By::new().label_contains(text)).filter(|node| node.accesskit_node().role() != Role::Switch);
+    shown.filter(|node| (top..bottom).contains(&top_of(node))).count()
+}
+
+/// Board zero, heard only by radio through board one, stands in the Mining page's list of boards
+/// with the board it comes through and what it does, and joins a pool by its name from a typed
+/// word, as `olc pool-join` sends it to the running app.
+#[test]
+#[ignore = "runs two nodes and a pool for a minute: run it by name"]
+fn the_mining_page_lists_a_board_heard_only_by_radio_and_a_word_joins_it_to_a_pool() {
+    let coin = coin();
+    let (friend_port, pool_port) = (port_of_scene(56), port_of_scene(58));
+    let mut friend = window(&live_root("RADIO-FRIEND"), friend_port, &[], None, &coin);
+    let pool = PoolSettings { port: pool_port, fixed_difficulty: SHARE_DIFFICULTY, workers: Vec::new(), ..PoolSettings::default() };
+    friend.state().send(Command::Pool(PoolOrder::Start(pool)));
+    wait_in(&mut friend, "the friend's pool runs", 1, |snap| snap.pool.running);
+    let boards = Boards::new(&coin, false);
+    let fleet: Arc<dyn FleetPort> = boards.clone();
+    let peers = [format!("127.0.0.1:{friend_port}")];
+    let (mut me, core) = window_and_core(&live_root("RADIO-ME"), port_of_scene(57), &peers, Some(fleet), &coin);
+    let heard = |snap: &Snapshot| snap.pool.choices.iter().any(|choice| choice.who == Some(Who::Lent(ZERO)));
+    wait_in(&mut me, "board zero heard through board one", 1, heard);
+
+    scroll_to(&mut me, "보드");
+    for text in ["보드투", "보드제로", "보드원 통해 연결"] {
+        assert_eq!(in_board_list(&me, text), 1, "{text} once in the list of boards");
+    }
+    assert_eq!(in_board_list(&me, "초당 9,000번"), 3, "each board says it mines and how fast");
+    save(&mut me, "radio-01-boards-ko-basic");
+    speak(&mut me, Mode::Expert, Lang::En);
+    scroll_to(&mut me, "Boards");
+    save(&mut me, "radio-01-boards-en-expert");
+    speak(&mut me, Mode::Basic, Lang::Ko);
+
+    let address = me.state().snapshot().node.address.clone();
+    let line = format!("pool-join 보드제로 127.0.0.1:{pool_port} {address}.보드제로");
+    let said = core.console(line, None).recv().expect("an answer");
+    tell(&format!("  pool-join said {said:?}"));
+    assert!(said.as_ref().is_ok_and(|said| said.starts_with("Joined the pool at")), "{said:?}");
+    wait_in(&mut me, "board zero works in the pool", 2, |snap| accepted(snap, Who::Lent(ZERO)) > 0);
+    wait_in(&mut friend, "the friend's pool takes board zero's shares", 1, |snap| taken_by_friend(snap, "보드제로") > 0);
+    me.run_steps(3);
+    scroll_to(&mut me, "보드");
+    let working = format!("127.0.0.1:{pool_port} 풀에서 채굴 중");
+    assert_eq!(in_board_list(&me, &working), 1, "board zero's pool work in the list");
+    save(&mut me, "radio-02-in-pool-ko-basic");
+    speak(&mut me, Mode::Expert, Lang::En);
+    scroll_to(&mut me, "Boards");
+    save(&mut me, "radio-02-in-pool-en-expert");
+    boards.stop();
+    tell("done: board zero listed with board one and joined from a word");
 }

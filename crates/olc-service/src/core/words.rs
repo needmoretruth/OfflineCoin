@@ -20,6 +20,11 @@ pub trait Desk {
     /// Carries out `command` and gives what to show for it.
     fn command(&mut self, command: Command) -> Result<String, String>;
     fn boards(&mut self) -> Result<Vec<BoardView>, String>;
+    /// Every miner that could join a pool, boards heard only by radio included. A desk with no
+    /// running core knows none.
+    fn choices(&mut self) -> Vec<super::Choice> {
+        Vec::new()
+    }
     /// A password asked for out of sight, so it stays off every command line.
     fn password(&mut self) -> Result<String, String>;
 }

@@ -24,7 +24,7 @@ const SHARES: [(&str, u64); 4] = [("core", 412), ("보드원", 461), ("보드투
 const BLOCK: u64 = 5_000_000_000;
 
 fn choice(who: Option<Who>, label: &str, through: Option<&str>, why_not: Option<&'static str>) -> Choice {
-    Choice { who, label: label.into(), through: through.map(Into::into), why_not, speed: 9_000 }
+    Choice { who, label: label.into(), through: through.map(Into::into), why_not, speed: 9_000, mining: true }
 }
 
 /// A board on this computer's cable, mining at the speed the pool lists for it.
