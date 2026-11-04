@@ -5,7 +5,7 @@ use super::{Cx, Page};
 use crate::core::WORDS;
 use crate::ui::tokens;
 use crate::ui::widgets::{self, button, meta, mono, secret_field, Kind};
-use crate::ui::Icon;
+use crate::ui::{floating, Icon};
 use egui::{Align, FontId, Key, Label, Layout, ScrollArea, TextEdit, Ui};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
@@ -27,6 +27,13 @@ pub struct Console {
     back: Option<usize>,
     lines: Vec<Line>,
     waiting: Option<Receiver<Result<String, String>>>,
+    /// The notices that answer the typed words, after `.0` up to `.1`: the console prints them,
+    /// so they do not float as well.
+    answered: (u64, u64),
+}
+
+fn newest_notice(cx: &Cx) -> u64 {
+    cx.snap.notice.as_ref().map_or(0, |notice| notice.number)
 }
 
 /// Every word that could go on at this point of the line.
@@ -98,13 +105,18 @@ impl Console {
         self.back = None;
         self.line.clear();
         let password = (!self.password.is_empty()).then(|| std::mem::take(&mut self.password));
+        if self.answered.1 < newest_notice(cx) {
+            self.answered.0 = newest_notice(cx);
+        }
         self.waiting = Some(cx.core.console(line, password));
     }
 
-    fn collect(&mut self, ui: &Ui) {
+    fn collect(&mut self, ui: &Ui, cx: &Cx) {
         let Some(waiting) = &self.waiting else {
             return;
         };
+        // While a word waits, every new notice is its answer or comes with it.
+        self.answered.1 = u64::MAX;
         match waiting.try_recv() {
             Ok(Ok(answer)) => {
                 self.lines.push(Line::Said(answer));
@@ -117,6 +129,10 @@ impl Console {
             Err(TryRecvError::Disconnected) => self.waiting = None,
             Err(TryRecvError::Empty) => ui.ctx().request_repaint(),
         }
+        if self.waiting.is_none() {
+            self.answered.1 = newest_notice(cx);
+        }
+        floating::quiet_notices(ui.ctx(), self.answered.0, self.answered.1);
     }
 
     fn output(&self, ui: &mut Ui, cx: &Cx) {
@@ -205,11 +221,13 @@ impl Page for Console {
     }
 
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
-        self.collect(ui);
+        self.collect(ui, cx);
         widgets::title(ui, cx.say("page.console"));
         ui.with_layout(Layout::top_down(Align::Min), |ui| {
             self.output(ui, cx);
             ui.add_space(tokens::GAP);
+            // Any other notice floats above the line, never over it or its Run button.
+            floating::notice_above(ui.ctx(), ui.cursor().top());
             self.input(ui, cx);
         });
     }
