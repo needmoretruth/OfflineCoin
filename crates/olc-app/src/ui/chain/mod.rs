@@ -120,14 +120,35 @@ pub(crate) fn faces_in(t: &Tokens, base: Color32, ink: Color32, label: Color32) 
     }
 }
 
+/// A finder's address as the breakdown can hold it whole, at large text too: its first seven
+/// characters and its last four, with one mark between, as explorers shorten a miner's address.
+/// The app's longer short form was cut again by the column, to a start and two marks.
+pub fn short_finder(address: &str) -> String {
+    let count = address.chars().count();
+    if count <= 12 {
+        return address.to_string();
+    }
+    let head: String = address.chars().take(7).collect();
+    let tail: String = address.chars().skip(count - 4).collect();
+    format!("{head}…{tail}")
+}
+
+/// The whole address behind a finder's short name, said where the row is hovered or read aloud.
+pub fn finder_address(miner: &Miner) -> Option<&str> {
+    match miner {
+        Miner::Away(address) | Miner::Pool(address) => Some(address),
+        _ => None,
+    }
+}
+
 /// A miner as the reader names it.
 pub fn miner_name(voice: Voice, miner: &Miner) -> String {
     match miner {
         Miner::You => i18n::text(voice, "chain.you").to_string(),
         Miner::Here(name) | Miner::Board(name) => name.clone(),
-        Miner::Away(address) => super::format::short_address(address),
+        Miner::Away(address) => short_finder(address),
         Miner::OwnPool => i18n::text(voice, "chain.own_pool").to_string(),
-        Miner::Pool(address) => i18n::fill(i18n::text(voice, "chain.pool"), &[&super::format::short_address(address)]),
+        Miner::Pool(address) => i18n::fill(i18n::text(voice, "chain.pool"), &[&short_finder(address)]),
         Miner::Unknown => i18n::text(voice, "chain.unknown").to_string(),
     }
 }

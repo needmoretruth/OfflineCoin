@@ -37,6 +37,7 @@ mod swap_page;
 mod fake_boards;
 mod pool_join_boards;
 mod console_chain;
+mod finders;
 
 use crate::app::App;
 use crate::core::{BoardView, Core, CoreLaunch, Snapshot};

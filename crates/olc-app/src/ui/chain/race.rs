@@ -7,7 +7,8 @@ use egui::{pos2, vec2, Align2, FontFamily, FontId, Rect, Response, Sense, Ui};
 
 const ROW: f32 = 34.0;
 const BAR: f32 = 10.0;
-const NAME: f32 = 132.0;
+/// Wide enough for "Pool" and a finder's short address, the widest name the app makes itself.
+const NAME: f32 = 156.0;
 const FIGURES: f32 = 260.0;
 /// The percent and the block count alone, when the speed leaves the row.
 const FIGURES_NARROW: f32 = 140.0;
@@ -102,7 +103,8 @@ pub fn race_bars(ui: &mut Ui, look: &Look, shares: &[Share]) -> Response {
             painter.text(pos2(counted.right() + 12.0, middle), Align2::LEFT_CENTER, speed, small.clone(), t.muted);
         }
         let row = Rect::from_min_size(pos2(rect.left(), middle - ROW / 2.0), vec2(width, height_of(share)));
-        let said = [Some(name), Some(format!("{percent}%")), Some(count), speed, workers];
+        let whole = super::finder_address(&share.miner).map(str::to_string);
+        let said = [Some(name), Some(format!("{percent}%")), Some(count), speed, workers, whole];
         let label = said.into_iter().flatten().collect::<Vec<_>>().join(", ");
         let said = ui.interact(row, ui.scope_id().with(("chain-share", index)), Sense::hover());
         said.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
@@ -122,5 +124,33 @@ mod tests {
         assert_eq!(percents(&of(&[1, 1, 1])), [34, 33, 33]);
         assert_eq!(percents(&of(&[29, 17, 9, 4, 1])).iter().sum::<u32>(), 100);
         assert_eq!(percents(&of(&[0, 0])), [0, 0]);
+    }
+
+    /// Every finder the app names by an address, alone or as a pool, stands whole in the name
+    /// column in both languages: one mark in the middle, never a second at the edge. Text size
+    /// zooms the column with the words, so this holds at 150 % as well.
+    #[test]
+    fn a_finder_by_address_stands_whole_in_its_column() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(fonts::definitions());
+        ctx.begin_pass(egui::RawInput::default());
+        let mut cut = Vec::new();
+        // An address of the owner's, and the widest and narrowest hex there is.
+        let addresses = ["olc4ab6b30f0e9d2c7a1b5e8f3d6c9a2b4e7f0c3d6a9b2e5f8c1d4a7b0e3f6a9c2", &format!("olc{}", "0".repeat(40)), &format!("olc{}", "d".repeat(40))];
+        for (lang, address) in [i18n::Lang::En, i18n::Lang::Ko].into_iter().flat_map(|lang| addresses.map(|address| (lang, address))) {
+            for mode in [i18n::Mode::Basic, i18n::Mode::Expert] {
+                let voice = i18n::Voice { lang, mode };
+                for miner in [Miner::Away(address.into()), Miner::Pool(address.into()), Miner::OwnPool, Miner::Unknown, Miner::You] {
+                    let name = miner_name(voice, &miner);
+                    let font = FontId::new(tokens::TEXT, fonts::strong());
+                    let width = ctx.fonts_mut(|fonts| fonts.layout_no_wrap(name.clone(), font, egui::Color32::WHITE).size().x);
+                    if width > NAME - 12.0 {
+                        cut.push(format!("{name} {width:.0}"));
+                    }
+                    assert_eq!(name.matches('…').count(), usize::from(super::super::finder_address(&miner).is_some()), "{name}");
+                }
+            }
+        }
+        assert!(cut.is_empty(), "wider than {}: {cut:?}", NAME - 12.0);
     }
 }
