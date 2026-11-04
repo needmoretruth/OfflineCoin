@@ -3,6 +3,7 @@
 //! node outlives the app that started it.
 use crate::core::Book;
 use super::board_lines::BoardSide;
+use super::lab_side::LabSide;
 use super::supervisor::ChildStatus;
 use crate::core::host_locks::{fault_of_lock, LockDone};
 use crate::core::{parse_coins, Host, Plan};
@@ -15,9 +16,13 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const STATUS_EVERY: Duration = Duration::from_secs(1);
+/// A node of the Lab's network says its status twice a second, so a block shows as it lands.
+const LAB_STATUS_EVERY: Duration = Duration::from_millis(500);
+/// How often a node that runs or works in a Lab pool, or floods payments, takes its turn.
+const LAB_TURN: Duration = Duration::from_millis(100);
 const OPENING_STEP: Duration = Duration::from_millis(10);
 
 #[derive(Default)]
@@ -162,9 +167,11 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 
 /// With `lab`, the line also carries what an experiment draws: the newest blocks, the node's
 /// own number and whether it keeps to itself.
-fn status_of(host: &Host, lab: bool) -> ChildStatus {
+fn status_of(host: &Host, lab: bool, shares: bool) -> ChildStatus {
     let mut status = ChildStatus::from_view(&host.view());
-    status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
+    if shares {
+        status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
+    }
     if lab {
         status.chain = BoardSide::newest_blocks(host);
         if let Ok(runner) = host.runner.lock() {
@@ -203,9 +210,12 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
     )?;
     let lines = read_lines();
     let mut board = BoardSide::default();
+    let mut side = LabSide::default();
     let mut lab = false;
+    let mut said: Option<Instant> = None;
     loop {
-        match lines.recv_timeout(STATUS_EVERY) {
+        let turn = if side.busy() { LAB_TURN } else if side.on() { LAB_STATUS_EVERY } else { STATUS_EVERY };
+        match lines.recv_timeout(turn) {
             Ok(line) if line == "quit" => return Ok(()),
             Ok(line) if line.starts_with("board ") => {
                 while host.opening() {
@@ -214,6 +224,14 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
                 lab = true;
                 if let Some(answer) = board.answer(&host, &line["board ".len()..]) {
                     say_line(&answer);
+                }
+            }
+            Ok(line) if line.starts_with("lab ") => {
+                while host.opening() {
+                    thread::sleep(OPENING_STEP);
+                }
+                if let Some(status) = side.answer(&host, &line["lab ".len()..]) {
+                    say(&status);
                 }
             }
             Ok(line) => {
@@ -228,10 +246,18 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
+        side.step(&host);
         if lab {
             board.watch(&host);
         }
-        say(&status_of(&host, lab));
+        // A busy node turns many times a second and says its status twice a second.
+        if !side.busy() || said.is_none_or(|said| said.elapsed() >= LAB_STATUS_EVERY) {
+            said = Some(Instant::now());
+            // A node working in a Lab pool hands its shares to that pool, not to the window.
+            let mut status = status_of(&host, lab, !side.joined());
+            status.lab = side.line(&host);
+            say(&status);
+        }
     }
 }
 

@@ -29,6 +29,8 @@ olc-wallet = { workspace = true, features = ["seed"] }
 postcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# How much memory is free, so the Lab stops adding nodes before the computer struggles.
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 zeroize = "1.8"
 if-addrs = "0.15"
 qrcode = { version = "0.14", default-features = false }

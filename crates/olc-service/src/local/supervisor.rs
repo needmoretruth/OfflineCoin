@@ -61,6 +61,8 @@ pub struct ChildStatus {
     pub offline: bool,
     /// The newest blocks of its chain. Said in an experiment only.
     pub chain: Vec<ChainBlock>,
+    /// What a node of the Lab's network does beside being a node. Said in the Lab only.
+    pub lab: Option<super::lab_side::LabLine>,
 }
 
 /// One block as an experiment draws it.
@@ -104,6 +106,7 @@ impl ChildStatus {
             shares: Vec::new(),
             offline: false,
             chain: Vec::new(),
+            lab: None,
         }
     }
 }

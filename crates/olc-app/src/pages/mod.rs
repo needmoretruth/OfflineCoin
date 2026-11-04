@@ -17,8 +17,13 @@ mod history_detail;
 mod home;
 mod lab;
 mod lab_boards;
-mod lab_make;
+mod lab_chain;
+mod lab_glyphs;
+mod lab_map;
+pub(crate) mod lab_palette;
+mod lab_panel;
 mod lab_strip;
+pub(crate) mod lab_tokens;
 pub(crate) mod lab_view;
 mod lab_words;
 mod local;
@@ -149,6 +154,8 @@ pub trait Page {
         false
     }
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx);
+    /// Another page was opened: what runs only while this page is open stops.
+    fn leave(&mut self) {}
 }
 
 /// The side bar, in the order of the redesign plan: this computer's own work first, then the tools.

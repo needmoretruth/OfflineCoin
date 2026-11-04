@@ -11,6 +11,7 @@ mod en_expert;
 mod en_expert_more;
 mod en_lab2;
 mod en_lab2_expert;
+mod en_net;
 mod en_mining;
 mod en_more;
 mod en_place;
@@ -29,6 +30,7 @@ mod ko_expert;
 mod ko_expert_more;
 mod ko_lab2;
 mod ko_lab2_expert;
+mod ko_net;
 mod ko_mining;
 mod ko_more;
 mod ko_place;
@@ -55,6 +57,7 @@ const BASE_EN: &[Words] = &[
     en_more::WORDS,
     en_chain::WORDS,
     en_lab2::WORDS,
+    en_net::WORDS,
     en_channels::WORDS,
     en_wallet::WORDS,
     en_mining::WORDS,
@@ -70,6 +73,7 @@ const BASE_KO: &[Words] = &[
     ko_more::WORDS,
     ko_chain::WORDS,
     ko_lab2::WORDS,
+    ko_net::WORDS,
     ko_channels::WORDS,
     ko_wallet::WORDS,
     ko_mining::WORDS,
@@ -85,6 +89,7 @@ const EXPERT_EN: &[Words] = &[
     en_expert_more::WORDS,
     en_chain::EXPERT,
     en_lab2_expert::WORDS,
+    en_net::EXPERT,
     en_channels_expert::WORDS,
     en_wallet::EXPERT,
     en_mining::EXPERT,
@@ -100,6 +105,7 @@ const EXPERT_KO: &[Words] = &[
     ko_expert_more::WORDS,
     ko_chain::EXPERT,
     ko_lab2_expert::WORDS,
+    ko_net::EXPERT,
     ko_channels_expert::WORDS,
     ko_wallet::EXPERT,
     ko_mining::EXPERT,

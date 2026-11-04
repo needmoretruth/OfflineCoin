@@ -50,6 +50,8 @@ pub struct App {
     settings: Settings,
     pages: Vec<Box<dyn crate::pages::Page>>,
     current: usize,
+    /// The page shown last frame, which is told when it is left.
+    shown: usize,
     setup: Setup,
     logo: Logo,
     tokens: Tokens,
@@ -76,6 +78,7 @@ impl App {
             settings,
             pages: all(),
             current: 0,
+            shown: 0,
             setup: Setup::default(),
             logo: Logo::default(),
             tokens: DARK,
@@ -244,6 +247,12 @@ impl App {
             self.rail(ui, &t, voice, &snap);
         } else {
             self.first_run_brand(ui, &t, &snap);
+        }
+        if self.shown != self.current {
+            if let Some(page) = self.pages.get_mut(self.shown) {
+                page.leave();
+            }
+            self.shown = self.current;
         }
         self.pages_view(ui, &snap);
         self.show_slip(ui, &t);

@@ -81,7 +81,7 @@ impl Page for Payments {
     }
 }
 
-/// The 51% attack and the network split, on miners of this computer.
+/// A network of participants on this computer, and the 51% attack and the split on it.
 #[derive(Default)]
 pub struct LabPage {
     lab: Lab,
@@ -99,5 +99,9 @@ impl Page for LabPage {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         widgets::title(ui, cx.say("page.lab"));
         self.lab.show(ui, cx);
+    }
+
+    fn leave(&mut self) {
+        self.lab.leave();
     }
 }

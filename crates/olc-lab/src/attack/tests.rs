@@ -70,6 +70,7 @@ fn plan(timeout: Duration) -> Plan {
         timeout,
         poll: Duration::from_millis(1),
         keep_caps: false,
+        victim_mines: true,
         give_up_behind: 0,
         race_limit: Duration::MAX,
         watch: no_watch(),

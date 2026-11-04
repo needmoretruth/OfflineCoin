@@ -3053,6 +3053,7 @@ dependencies = [
  "qrcode",
  "serde",
  "serde_json",
+ "sysinfo",
  "zeroize",
 ]
 

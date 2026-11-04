@@ -145,17 +145,6 @@ pub fn fits(width: f32, scale: Scale) -> usize {
     ((width / (scale.width + scale.gap)).floor() as usize).max(4)
 }
 
-/// The rows before a run, from what was chosen: each side's share of the hashing and no blocks yet.
-pub fn planned(kind: LabKind, strong_percent: u8, total_rate: u64) -> Picture {
-    let strong = f32::from(strong_percent.min(100)) / 100.0;
-    let row = |share: f32| Row { blocks: Vec::new(), height: 0, rate: (total_rate as f32 * share).round() as u64, share, apart: false };
-    let (upper, lower) = match kind {
-        LabKind::Attack => (row(1.0 - strong), row(strong)),
-        LabKind::Split => (row(strong), row(1.0 - strong)),
-    };
-    Picture { upper, lower, replaced: Vec::new() }
-}
-
 /// Faint blocks where blocks will stand, for rows that have none yet.
 fn empty(ui: &mut Ui, t: &Tokens, count: usize, scale: Scale) {
     let width = count as f32 * (scale.width + scale.gap);

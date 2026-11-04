@@ -6,6 +6,8 @@
 //! The same steps run on miners on this computer, which answer a board's lines. Their caps are
 //! set before the run, so the attacker holds the share a person chose, and an attacker under half
 //! may give up and come back to a chain that kept the payment.
+//! In a network of many, the victim may be a node that only receives, and the public chain is
+//! mined by honest miners beside it: they stop and start where a mining victim would.
 use crate::steps::{Outcome, Step, Watch};
 use olc_board::journal::Journal;
 use olc_board::{Args, Board, BoardLink, Place, Say, Status, UsbBoard};
@@ -31,6 +33,8 @@ struct Plan {
     poll: Duration,
     /// Leaves every cap as it was set before the run.
     keep_caps: bool,
+    /// The victim mines the public chain. Off, it only receives and watches.
+    victim_mines: bool,
     /// The attacker gives up this many blocks behind the public chain. 0 never gives up.
     give_up_behind: u64,
     /// The attacker gives up after racing this long.
@@ -46,6 +50,10 @@ pub struct AttackOptions {
     pub timeout: Duration,
     pub give_up_behind: u64,
     pub race_limit: Duration,
+    /// Honest miners beside the victim, which mine the public chain.
+    pub public: Vec<Box<dyn BoardLink>>,
+    /// The victim mines too, as with two boards. Off, it only receives.
+    pub victim_mines: bool,
 }
 
 fn no_watch() -> Watch {
@@ -66,6 +74,7 @@ impl Plan {
             timeout: Duration::from_secs(args.number("timeout", 1800)?),
             poll: Duration::from_secs(2),
             keep_caps: false,
+            victim_mines: true,
             give_up_behind: 0,
             race_limit: Duration::MAX,
             watch: no_watch(),
@@ -123,6 +132,7 @@ pub fn attack_with(
         timeout: options.timeout,
         poll: Duration::from_millis(500),
         keep_caps: true,
+        victim_mines: options.victim_mines,
         give_up_behind: options.give_up_behind,
         race_limit: options.race_limit,
         watch,
@@ -134,14 +144,28 @@ pub fn attack_with(
     let mut attacker = Board::new("attacker", attacker);
     let mut victim = Board::new("victim", victim);
     let mut helper = links.next().map(|link| Board::new("helper", link));
-    attack(&mut attacker, &mut victim, helper.as_mut(), &plan, &say, &stop)
+    let mut public: Vec<Board> = options.public.into_iter().map(|link| Board::new("honest", link)).collect();
+    attack_among(&mut attacker, &mut victim, helper.as_mut(), &mut public, &plan, &say, &stop)
 }
 
 /// Runs the steps, then puts both boards back as they were, whatever happened.
 fn attack(
     attacker: &mut Board,
     victim: &mut Board,
+    helper: Option<&mut Board>,
+    plan: &Plan,
+    say: &Say,
+    stop: &AtomicBool,
+) -> Result<Outcome, String> {
+    attack_among(attacker, victim, helper, &mut [], plan, say, stop)
+}
+
+/// The same with honest miners beside the victim, put back as they were too.
+fn attack_among(
+    attacker: &mut Board,
+    victim: &mut Board,
     mut helper: Option<&mut Board>,
+    public: &mut [Board],
     plan: &Plan,
     say: &Say,
     stop: &AtomicBool,
@@ -156,7 +180,12 @@ fn attack(
         }
         None => None,
     };
-    for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved) {
+    let mut public_saved = Vec::new();
+    for board in public.iter_mut() {
+        put_back_leftovers(board, plan, say)?;
+        public_saved.push(board.status()?);
+    }
+    for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved).chain(&public_saved) {
         plan.journal
             .remember(&board.address, board.restore_lines())?;
     }
@@ -164,6 +193,7 @@ fn attack(
         attacker,
         victim,
         helper: helper.as_deref_mut(),
+        public: &mut *public,
         plan,
         say,
         stop,
@@ -177,11 +207,13 @@ fn attack(
         (Some(board), Some(saved)) => restore(board, saved),
         _ => Ok(()),
     };
+    let public_back = public.iter_mut().zip(&public_saved).try_for_each(|(board, saved)| restore(board, saved));
     let restored = restore(attacker, &saved.0)
         .and(restore(victim, &saved.1))
-        .and(helper_back);
+        .and(helper_back)
+        .and(public_back);
     if restored.is_ok() {
-        for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved) {
+        for board in [&saved.0, &saved.1].into_iter().chain(&helper_saved).chain(&public_saved) {
             plan.journal.forget(&board.address);
         }
         say("All boards are back to their cap and network state.".to_string());
@@ -239,6 +271,8 @@ struct Race<'a> {
     attacker: &'a mut Board,
     victim: &'a mut Board,
     helper: Option<&'a mut Board>,
+    /// Honest miners beside the victim.
+    public: &'a mut [Board],
     plan: &'a Plan,
     say: &'a Say,
     stop: &'a AtomicBool,
@@ -296,10 +330,16 @@ impl Race<'_> {
     fn measure_power(&mut self) -> Result<(), String> {
         say!(self, "\n1. Hash power");
         let together = self.helper.is_some() || self.plan.keep_caps;
-        for board in [&mut *self.attacker, &mut *self.victim] {
+        for (board, mines) in [(&mut *self.attacker, true), (&mut *self.victim, self.plan.victim_mines)] {
             if !together {
                 board.set_limit(0)?;
             }
+            if mines {
+                board.set_mining(true)?;
+            }
+            board.set_offline(false)?;
+        }
+        for board in self.public.iter_mut() {
             board.set_mining(true)?;
             board.set_offline(false)?;
         }
@@ -327,6 +367,9 @@ impl Race<'_> {
                 attacker += helper.status()?.hashrate;
             }
             victim += self.victim.status()?.hashrate;
+            for board in self.public.iter_mut() {
+                victim += board.status()?.hashrate;
+            }
         }
         let total = (attacker + victim).max(1) as f64;
         let share = |rate: u64| rate as f64 * 100.0 / total;
@@ -353,7 +396,12 @@ impl Race<'_> {
     /// Stops both miners on the same tip, so no block can slip in around the payment. Two tips
     /// of equal work never settle by themselves, so the attacker mines until one is heavier.
     fn line_up(&mut self) -> Result<(), String> {
-        self.victim.set_mining(false)?;
+        if self.plan.victim_mines {
+            self.victim.set_mining(false)?;
+        }
+        for board in self.public.iter_mut() {
+            board.set_mining(false)?;
+        }
         if let Some(helper) = &mut self.helper {
             helper.set_mining(false)?;
         }
@@ -422,7 +470,12 @@ impl Race<'_> {
             None => self.attacker.set_offline(true)?,
         }
         self.attacker.set("pool clear", |now| now.pool == 0)?;
-        self.victim.set_mining(true)?;
+        if self.plan.victim_mines {
+            self.victim.set_mining(true)?;
+        }
+        for board in self.public.iter_mut() {
+            board.set_mining(true)?;
+        }
         (self.plan.watch)(Step::Dark);
         Ok(())
     }

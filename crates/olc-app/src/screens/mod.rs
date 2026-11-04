@@ -31,7 +31,6 @@ mod swap_local;
 mod swap_page;
 mod fake_boards;
 mod pool_join_boards;
-mod lab_make;
 mod console_chain;
 
 use crate::app::App;
