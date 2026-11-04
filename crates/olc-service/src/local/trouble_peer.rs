@@ -1,7 +1,7 @@
 //! The exploiter's side of one connection. It speaks to a node as any peer does, in the same
 //! frames with the same network mark, and keeps its own copy of the node's chain from the blocks
 //! the node serves, so what it builds stands on the node's real tip.
-use olc_core::{Chain, CoinConfig, Plugins};
+use olc_core::{AddOutcome, Chain, CoinConfig, Plugins};
 use olc_pow::ProofOfWork;
 use olc_node::frame::{encode, Decoder};
 use olc_node::network::{self, Mark};
@@ -175,9 +175,13 @@ impl Peer {
             while got < BLOCKS_AT_ONCE && !self.chain.contains(&hello.tip) {
                 let wait = if got == 0 { first_by.saturating_duration_since(Instant::now()) } else { QUIET };
                 match self.heard.recv_timeout(wait) {
+                    // A node sends blocks ahead of an ask, and those of an earlier ask may come only
+                    // now, after the drain: one the copy holds already, or keeps as an orphan
+                    // until its parent comes, moves it nowhere and ends no round.
                     Ok(Message::Block(block)) => {
-                        got += 1;
-                        let _ = self.chain.add_block(block);
+                        if matches!(self.chain.add_block(block), Ok(AddOutcome::NewTip | AddOutcome::Reorganized { .. })) {
+                            got += 1;
+                        }
                     }
                     // A node that let these blocks go says so: no wait helps.
                     Ok(Message::Pruned { .. }) => break,
