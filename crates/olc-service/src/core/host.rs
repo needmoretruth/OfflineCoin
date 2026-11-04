@@ -415,7 +415,7 @@ impl Worker {
                 // Work from outside goes first, on every thread; a node catching up does not mine.
                 let mine_to = self.state.mine_to.load(Ordering::Relaxed);
                 let below = mine_to == 0 || runner.engine.chain().height() < mine_to;
-                let free = runner.engine.syncing_to().is_none() && runner.engine.light().is_none() && below;
+                let free = !runner.engine.catching_up() && runner.engine.light().is_none() && below;
                 if let Some((header, difficulty)) = outside {
                     let found = self.crew.follow(header, difficulty);
                     if let Ok(mut shares) = self.state.shares.lock() {

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 olc-control.workspace = true
+olc-core.workspace = true
 olc-crypto.workspace = true
 olc-link-serial.workspace = true
 olc-node.workspace = true

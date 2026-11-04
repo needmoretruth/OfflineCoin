@@ -169,6 +169,8 @@ From OLC's new genesis, and on every coin made since:
 
 Times are whole seconds on a coin with Bitcoin's header. The rules' numbers stay in milliseconds in the file. A coin made before keeps a block after its parent and no limit.
 
+A board's clock counts from its own start. Left alone it runs at its chain's tip, so on a fresh chain it starts at the genesis time. The app that controls a board gives it the date, signed with the control key, when the board comes on its cable and every two minutes; the board on the cable passes it one radio hop on to the boards around it (`olc_control::dated`, build i21). A board takes a date only forward and never below its tip, and saves the date it holds to flash once a minute, so a restart starts from it. A computer starting on a tip more than an hour old waits 10 seconds to hear its peers before it mines, and mines nothing while it catches up, as Bitcoin Core in its initial download. Over a cable or TCP up to 64 blocks stay on the way to a peer catching up.
+
 ## Kinds of node
 
 Boards and computers run the same rules, and each person picks what their node does.
@@ -208,7 +210,8 @@ Watch-only addresses and signing on an offline computer work on any of them. A p
 
 These come from the rules, and changing them means a fork.
 
-- A board takes a block of any time, because it has no clock of the date. A computer takes none more than 30 seconds ahead of its own.
+- A board takes a block of any time, because it has no clock of the date of its own. A computer takes none more than 30 seconds ahead of its own.
+- A chain whose blocks were stamped before boards were given the date (build i21) keeps those times. Its next block on the true time comes long after its parent, and takes the floor.
 - A block has no limit on signature checks. Nodes won't relay or mine a transaction with more than 20, so stalling a board takes a mined block.
 - A version 1 transaction id covers its unlock data, as in Bitcoin before SegWit.
 - A 64-byte transaction could be mistaken for an inner node of the Merkle tree.
