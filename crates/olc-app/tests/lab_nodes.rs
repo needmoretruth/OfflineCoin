@@ -4,8 +4,11 @@
 //! `cargo test -p olc-app --test lab_nodes -- --ignored --test-threads 1`.
 use olc_app::local::is_running;
 use olc_app::local::lab::{use_place, Phase};
-use olc_app::local::lab_net::{Kind, LabNet, Member, NetState, Order, Scene, Trick, What};
+use olc_app::local::lab_net::{Kind, LabNet, Member, NetState, Order, Scene, Share, Trick, What};
+use olc_app::local::Budget;
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 use olc_lab::{Outcome, Step};
 use std::path::PathBuf;
 use std::thread;
@@ -269,29 +272,51 @@ fn hashing(state: &NetState) -> u64 {
     state.members.iter().map(|member| rate(state, member.id)).sum()
 }
 
-/// The person's speed limit holds the Lab's miners together: past it every miner slows by the same
-/// part, so their shares stay what the person chose, and without it each hashes at its own speed.
+/// The one budget as the app splits it, with no miner but the Lab's beside this app's own part: the
+/// real split, without a window. The limit can change while the network runs.
+struct Alone {
+    limit: Arc<AtomicU64>,
+    asks: Mutex<Vec<(u32, u64)>>,
+}
+
+impl Share for Alone {
+    fn ask(&self, asks: Vec<(u32, u64)>) {
+        if let Ok(mut known) = self.asks.lock() {
+            *known = asks;
+        }
+    }
+
+    fn split(&self) -> Budget {
+        let asks = self.asks.lock().map(|asks| asks.clone()).unwrap_or_default();
+        Budget::share_with_lab(self.limit.load(AtomicOrdering::SeqCst), 0, 1, &[], &asks)
+    }
+}
+
+/// The person's speed limit holds the Lab's miners together with this app: past their part every
+/// miner slows by the same part, so their shares stay what the person chose, and without a limit
+/// each hashes at its own speed.
 #[test]
 #[ignore]
 fn the_lab_keeps_its_miners_under_the_persons_limit() {
     place("net-budget");
-    let net = LabNet::start();
-    net.order(Order::Budget(12_000));
+    let limit = Arc::new(AtomicU64::new(12_000));
+    let net = LabNet::start_with(Alone { limit: limit.clone(), asks: Mutex::new(Vec::new()) });
     for _ in 0..3 {
         net.order(Order::Add(Kind::Miner));
     }
+    // Three Lab miners and this app share 12,000 in four parts of 3,000.
     let limits = |state: &NetState| state.members.iter().map(|member| member.limit).collect::<Vec<_>>();
-    let state = wait_for(&net, Duration::from_secs(60), "three miners at 4,000 under 12,000", |state| {
-        limits(state) == vec![4_000; 3] && (11_000..=12_600).contains(&hashing(state))
+    let state = wait_for(&net, Duration::from_secs(60), "three miners at 3,000 under 12,000", |state| {
+        limits(state) == vec![3_000; 3] && (8_500..=9_450).contains(&hashing(state))
     });
     println!("three miners set to 8,000 hash {} H/s under a limit of 12,000", hashing(&state));
-    net.order(Order::Budget(6_000));
-    let state = wait_for(&net, Duration::from_secs(60), "each slowed to 2,000 under 6,000", |state| {
-        limits(state) == vec![2_000; 3] && (5_000..=6_300).contains(&hashing(state))
+    limit.store(6_000, AtomicOrdering::SeqCst);
+    let state = wait_for(&net, Duration::from_secs(60), "each slowed to 1,500 under 6,000", |state| {
+        limits(state) == vec![1_500; 3] && (4_200..=4_750).contains(&hashing(state))
     });
     println!("under 6,000 they hash {} H/s", hashing(&state));
     assert!(state.members.iter().all(|member| member.speed == 8_000), "each keeps the speed the person chose");
-    net.order(Order::Budget(0));
+    limit.store(0, AtomicOrdering::SeqCst);
     let state = wait_for(&net, Duration::from_secs(60), "each at its own 8,000 with no limit", |state| {
         limits(state) == vec![8_000; 3] && hashing(state) > 20_000
     });

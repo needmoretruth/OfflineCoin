@@ -161,6 +161,14 @@ pub fn tricks(voice: Voice, member: &Member, state: &NetState) -> Vec<(String, S
     lines
 }
 
+/// What it holds, as Home says it: the coins it can spend, and a reward still too young to spend
+/// as coming soon, so a block just found never reads as nothing held.
+fn holding(voice: Voice, balance: u64, maturing: u64) -> String {
+    let holds = (balance > 0 || maturing == 0).then(|| fill(text(voice, "net.holds"), &[&coins(voice, balance)]));
+    let soon = (maturing > 0).then(|| fill(text(voice, "net.soon"), &[&coins(voice, maturing)]));
+    holds.into_iter().chain(soon).collect::<Vec<_>>().join(" ")
+}
+
 /// At most three lines that say what it holds and does now.
 pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     let Some(status) = &member.status else {
@@ -168,6 +176,7 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     };
     let line = lab(member);
     let with = |key: &str, values: &[&str]| fill(text(voice, key), values);
+    let holds = holding(voice, status.balance, line.maturing);
     let mut facts = Vec::new();
     match member.kind {
         Kind::Miner => match member.pool.and_then(|pool| state.members.iter().find(|other| other.id == pool)) {
@@ -175,11 +184,11 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
                 let paid = member.received.from_pool;
                 facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(voice, paid)]));
             }
-            None => facts.push(with("net.fact_miner", &[&number(status.blocks_mined), &coins(voice, status.balance)])),
+            None => facts.push(format!("{} {holds}", with("net.fact_miner", &[&number(status.blocks_mined)]))),
         },
         Kind::Attacker => {
             let share = power(member, state).unwrap_or(0);
-            facts.push(with("net.fact_attacker", &[&number(share), &coins(voice, status.balance)]));
+            facts.push(format!("{} {holds}", with("net.fact_attacker", &[&number(share)])));
             facts.push(rule(voice, share, false));
         }
         Kind::Pool if member.bad => {
@@ -187,7 +196,7 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
             let crew = state.members.iter().filter(|other| other.pool == Some(member.id)).count();
             facts.push(with("net.fact_bad_pool", &[&number(crew), &number(share)]));
             facts.push(rule(voice, share, true));
-            facts.push(with("net.fact_held", &[&coins(voice, status.balance)]));
+            facts.push(format!("{} {holds}", with("net.fact_held", &[])));
         }
         Kind::Pool => {
             facts.push(with("net.fact_pool", &[&number(line.workers.len()), &number(line.pool_found)]));
@@ -203,7 +212,7 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
         Kind::Full => facts.push(with("net.fact_full", &[&number(status.height)])),
         Kind::Pruned => facts.push(with("net.fact_pruned", &[&number(line.oldest_held)])),
         Kind::Light => facts.push(with("net.fact_light", &[&number(status.headers.unwrap_or(status.height))])),
-        Kind::Sender => facts.push(with("net.fact_sender", &[&number(member.received.sent), &coins(voice, status.balance)])),
+        Kind::Sender => facts.push(format!("{} {holds}", with("net.fact_sender", &[&number(member.received.sent)]))),
         Kind::Receiver => {
             let got = member.received;
             facts.push(with("net.fact_receiver", &[&number(got.payments), &number(got.settled), &number(got.undone)]));
@@ -326,6 +335,31 @@ mod tests {
         }
         assert_eq!(super::super::lab_words::fill("{} blocks, {} blocks", &["1", "21"]), "1 block, 21 blocks");
         assert_eq!(super::super::lab_words::fill("블록 {}개", &["1"]), "블록 1개");
+    }
+
+    /// A reward still too young to spend reads as Home says it, coming soon, never as nothing held,
+    /// on every kind that says what it holds.
+    #[test]
+    fn a_reward_not_yet_spendable_reads_as_coming_not_as_nothing() {
+        let soon = 5_000_000_000;
+        let lab = crate::local::lab_side::LabLine { maturing: soon, ..Default::default() };
+        let status = ChildStatus { blocks_mined: 1, lab: Some(lab), ..ChildStatus::default() };
+        let state = NetState::default();
+        let bad_pool = Member { bad: true, ..member(Kind::Pool, &status) };
+        let holders = [member(Kind::Miner, &status), member(Kind::Attacker, &status), member(Kind::Sender, &status), bad_pool];
+        for (lang, mode, word) in [
+            (Lang::Ko, Mode::Basic, "곧 들어옵니다"),
+            (Lang::En, Mode::Basic, "arrives soon"),
+            (Lang::Ko, Mode::Expert, "미성숙"),
+            (Lang::En, Mode::Expert, "immature"),
+        ] {
+            let voice = Voice { lang, mode };
+            for holder in &holders {
+                let said = facts(voice, holder, &state).join(" ");
+                assert!(said.contains(word) && said.contains(&coins(voice, soon)), "{lang:?} {mode:?} {:?}: {said}", holder.kind);
+                assert!(!said.contains(&format!(" {}", coins(voice, 0))), "{lang:?} {mode:?} {:?} holds nothing: {said}", holder.kind);
+            }
+        }
     }
 
     /// A miner that started on a tip over an hour old says so for the seconds it holds back.

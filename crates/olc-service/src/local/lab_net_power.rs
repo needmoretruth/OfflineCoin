@@ -1,7 +1,9 @@
-//! The Lab's hashing: what each miner really hashes at under the person's limit, the fair attack
-//! scene, a pool that turns bad, and how each attack ended. An attack is only as strong as the
-//! hashing really behind it: nothing here gives an attacker more than the speed a person set.
+//! The Lab's hashing: what each miner really hashes at under the one budget for this computer, the
+//! fair attack scene, a pool that turns bad, and how each attack ended. An attack is only as
+//! strong as the hashing really behind it: nothing here gives an attacker more than the speed a
+//! person set.
 use super::*;
+use crate::local::Budget;
 use olc_lab::Step;
 
 /// The attack scene's speeds: honest miners, then the two bad miners. Out of 40,000 H/s the first
@@ -9,21 +11,55 @@ use olc_lab::Step;
 pub(super) const FAIR_MINER: u64 = 2_000;
 pub(super) const FAIR_ATTACKERS: [u64; 2] = [24_000, 12_000];
 
+/// The one hash budget for this computer as the Lab feeds and reads it: the rest of OLC Core
+/// counts the Lab's miners as miners like its own and splits the person's limit among them all.
+pub trait Share: Send {
+    /// The Lab's miners that hash now, by number, and the speed each was set to.
+    fn ask(&self, asks: Vec<(u32, u64)>);
+    /// The budget as last split, with a part for each Lab miner it counted.
+    fn split(&self) -> Budget;
+}
+
 impl Keeper {
     /// The speeds the miners hashing were set to, together.
     fn hash_asked(&self) -> u64 {
         self.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| member.speed).sum()
     }
 
-    /// What a miner set to `speed` really hashes at: all of it, or under the person's limit the
-    /// same part as every other miner, so the shares stay what the person chose. `joining` is
-    /// the speed of a miner about to start, not counted yet.
+    /// The Lab's turn with the one budget: it says which miners hash at what speed when that
+    /// changed, and holds them to what the budget gave them together. A new miner is not in the
+    /// budget until this app and its miners were lowered for it; until then it shares what the
+    /// Lab had, so the sum on this computer never goes over.
+    pub(super) fn share_turn(&mut self) {
+        let Some(link) = &self.link else {
+            return;
+        };
+        let asks: Vec<(u32, u64)> =
+            self.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| (member.id, member.speed)).collect();
+        if asks != self.asks_told {
+            link.ask(asks.clone());
+            self.asks_told = asks.clone();
+        }
+        let split = link.split();
+        // Before this computer's speed is known and with no limit there is nothing to share.
+        let budget = (split.total > 0).then(|| asks.iter().filter_map(|(id, _)| split.lab_part(*id)).sum::<u64>());
+        self.limit = split.limit;
+        if budget != self.budget {
+            self.budget = budget;
+            self.limits();
+        }
+    }
+
+    /// What a miner set to `speed` really hashes at: all of it, or past what the budget gives the
+    /// Lab's miners together the same part as every other miner, so the shares stay what the
+    /// person chose and the 51 % attack races with the share it was given. `joining` is the speed
+    /// of a miner about to start, not counted yet.
     pub(super) fn limit_for(&self, speed: u64, joining: u64) -> u64 {
         let asked = self.hash_asked() + joining;
-        if self.budget == 0 || asked <= self.budget {
+        let Some(budget) = self.budget.filter(|budget| asked > *budget) else {
             return speed;
-        }
-        let part = u128::from(speed) * u128::from(self.budget) / u128::from(asked);
+        };
+        let part = u128::from(speed) * u128::from(budget) / u128::from(asked);
         u64::try_from(part).unwrap_or(speed).max(1)
     }
 
@@ -51,13 +87,13 @@ impl Keeper {
         }
     }
 
-    /// The miner making blocks hashes with all the limit leaves it, or uncapped with no limit.
+    /// The miner making blocks hashes with all the Lab's part leaves it, or uncapped without one.
     pub(super) fn maker_limit(&self, id: u32) -> u64 {
-        if self.budget == 0 {
+        let Some(budget) = self.budget else {
             return 0;
-        }
+        };
         let others: u64 = self.members.iter().filter(|member| member.kind.mines() && !member.paused && member.id != id).map(|member| member.limit).sum();
-        self.budget.saturating_sub(others).max(1)
+        budget.saturating_sub(others).max(1)
     }
 
     /// A new participant's speed: a miner's modest middle preset, the same for a bad miner.

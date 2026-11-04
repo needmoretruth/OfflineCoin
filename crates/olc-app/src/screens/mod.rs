@@ -7,6 +7,7 @@ mod channel_meet;
 mod pool_meet;
 mod pool_relay;
 mod lab_layout;
+mod lab_budget;
 mod lab_net;
 mod lab_shots;
 mod live;

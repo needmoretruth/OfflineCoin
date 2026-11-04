@@ -108,6 +108,9 @@ pub enum Command {
     },
     SetMining(bool),
     SetCap(u64),
+    /// The Lab's miners that hash now, by their number in the Lab, and the speed each was set to:
+    /// they share the one limit with this app and its miners.
+    LabMiners(Vec<(u32, u64)>),
     Pay {
         to: String,
         amount: String,

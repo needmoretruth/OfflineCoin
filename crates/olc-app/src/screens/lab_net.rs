@@ -31,9 +31,14 @@ pub(super) struct LabRun {
 
 impl LabRun {
     pub fn start(name: &str, voice: Voice) -> Self {
+        Self::start_in(name, voice, quiet_settings(), None)
+    }
+
+    /// A Lab run in an app with these settings, and with `program` for the miners added beside it.
+    pub fn start_in(name: &str, voice: Voice, settings: crate::settings::Settings, program: Option<PathBuf>) -> Self {
         let root = scratch(name);
         use_place(node_program(), root.join("lab"));
-        let mut window = harness(app(root, quiet_settings(), None), SHOT_SIZE);
+        let mut window = harness(app(root, settings, program), SHOT_SIZE);
         let settings = window.state_mut().settings_mut();
         settings.language = voice.lang;
         settings.mode = voice.mode;
@@ -42,13 +47,17 @@ impl LabRun {
         window.state_mut().open("page.lab");
         window.run_steps(SETTLE_STEPS);
         let folder = std::env::var_os("OLC_SHOTS").map(PathBuf::from);
-        let tag = match (voice.mode, voice.lang) {
-            (Mode::Basic, Lang::Ko) => "basic-ko",
-            (Mode::Expert, Lang::En) => "expert-en",
-            (Mode::Basic, Lang::En) => "basic-en",
-            (Mode::Expert, Lang::Ko) => "expert-ko",
-        };
-        Self { window, voice, folder, tag, name: name.to_string(), clicks: 0 }
+        Self { window, voice, folder, tag: tag_of(voice), name: name.to_string(), clicks: 0 }
+    }
+
+    /// Turns the window to other words, as a person does in Settings, while the network runs.
+    pub fn speak(&mut self, voice: Voice) {
+        let settings = self.window.state_mut().settings_mut();
+        settings.language = voice.lang;
+        settings.mode = voice.mode;
+        self.voice = voice;
+        self.tag = tag_of(voice);
+        self.window.run_steps(SETTLE_STEPS);
     }
 
     pub fn say(&self, key: &str) -> &'static str {
@@ -282,6 +291,15 @@ impl LabRun {
 
 /// Node processes of the run named `name` still alive, found by the place in their command line.
 /// Linux only: elsewhere none are found.
+fn tag_of(voice: Voice) -> &'static str {
+    match (voice.mode, voice.lang) {
+        (Mode::Basic, Lang::Ko) => "basic-ko",
+        (Mode::Expert, Lang::En) => "expert-en",
+        (Mode::Basic, Lang::En) => "basic-en",
+        (Mode::Expert, Lang::Ko) => "expert-ko",
+    }
+}
+
 fn processes_of(name: &str) -> usize {
     crate::local::lab_net::processes_with(&format!("{name}/lab"))
 }

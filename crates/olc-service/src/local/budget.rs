@@ -20,6 +20,9 @@ pub struct Budget {
     pub own: u64,
     /// The part of each added miner that mines now, by its number.
     pub parts: Vec<(u32, u64)>,
+    /// The part of each Lab miner that mines now, by its number in the Lab.
+    #[serde(default)]
+    pub lab: Vec<(u32, u64)>,
     /// What one more miner would start at, as the window says before it is added.
     pub next: u64,
 }
@@ -28,13 +31,20 @@ impl Budget {
     /// The parts of `total` for this app and for `asked`: each added miner that mines, by its
     /// number, with a speed of its own or 0 for an equal part.
     pub fn share(limit: u64, highest: u64, threads: usize, asked: &[(u32, u64)]) -> Self {
+        Self::share_with_lab(limit, highest, threads, asked, &[])
+    }
+
+    /// The same with the Lab's miners counted as miners like any other: `lab` holds each one that
+    /// mines, by its number in the Lab, with the speed it was set to.
+    pub fn share_with_lab(limit: u64, highest: u64, threads: usize, asked: &[(u32, u64)], lab: &[(u32, u64)]) -> Self {
         let total = match limit {
             0 => highest,
             limit if highest > 0 => limit.min(highest),
             limit => limit,
         };
-        let wants: Vec<u64> = std::iter::once(0).chain(asked.iter().map(|(_, own)| *own)).collect();
+        let wants: Vec<u64> = std::iter::once(0).chain(asked.iter().chain(lab).map(|(_, own)| *own)).collect();
         let given = split(total, &wants);
+        let (added, labs) = given[1..].split_at(asked.len());
         let mut with_one_more = wants.clone();
         with_one_more.push(0);
         let next = split(total, &with_one_more).last().copied().unwrap_or(0);
@@ -44,7 +54,8 @@ impl Budget {
             threads,
             total,
             own: given[0],
-            parts: asked.iter().map(|(id, _)| *id).zip(given[1..].iter().copied()).collect(),
+            parts: asked.iter().map(|(id, _)| *id).zip(added.iter().copied()).collect(),
+            lab: lab.iter().map(|(id, _)| *id).zip(labs.iter().copied()).collect(),
             next,
         }
     }
@@ -54,9 +65,14 @@ impl Budget {
         self.parts.iter().find(|(known, _)| *known == id).map(|(_, part)| *part)
     }
 
+    /// The part of the Lab miner `id`, while it mines.
+    pub fn lab_part(&self, id: u32) -> Option<u64> {
+        self.lab.iter().find(|(known, _)| *known == id).map(|(_, part)| *part)
+    }
+
     /// True when this app mines alone with no limit: it then runs uncapped, as it always did.
     pub fn unbounded(&self) -> bool {
-        self.limit == 0 && self.parts.is_empty()
+        self.limit == 0 && self.parts.is_empty() && self.lab.is_empty()
     }
 }
 
@@ -124,6 +140,19 @@ mod tests {
         assert_eq!((tight.part_of(1), tight.own), (Some(1_000), 1_000));
         let small = Budget::share(2_000, 7_000_000, 1, &[(1, 300), (2, 0)]);
         assert_eq!((small.part_of(1), small.part_of(2), small.own), (Some(300), Some(850), 850));
+    }
+
+    #[test]
+    fn the_labs_miners_share_the_limit_like_added_miners() {
+        // Two Lab miners set to 8,000 beside this app and one added miner, under 8,000: four equal
+        // parts, and the sum is the limit.
+        let four = Budget::share_with_lab(8_000, 7_000_000, 1, &[(4, 0)], &[(1_000, 8_000), (1_001, 8_000)]);
+        assert_eq!((four.own, four.part_of(4), four.lab_part(1_000), four.lab_part(1_001)), (2_000, Some(2_000), Some(2_000), Some(2_000)));
+        assert_eq!(four.part_of(1_000), None, "a Lab number is not an added miner's");
+        // A Lab miner set below an equal part keeps its speed, as an added miner does.
+        let small = Budget::share_with_lab(8_000, 7_000_000, 1, &[], &[(1_000, 1_000), (1_001, 8_000)]);
+        assert_eq!((small.lab_part(1_000), small.lab_part(1_001), small.own), (Some(1_000), Some(3_500), 3_500));
+        assert!(!Budget::share_with_lab(0, 7_000_000, 1, &[], &[(1_000, 8_000)]).unbounded(), "the Lab is counted with no limit too");
     }
 
     #[test]

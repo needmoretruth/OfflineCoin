@@ -91,6 +91,8 @@ pub struct LabLine {
     pub sizes: Vec<(u64, u64, u64)>,
     pub max_block_bytes: u64,
     pub spam_sent: u64,
+    /// Mined coins of its own still too young to spend, which the balance leaves out.
+    pub maturing: u64,
 }
 
 /// The pool seat of this process, with what it needs around it.

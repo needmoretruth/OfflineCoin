@@ -160,6 +160,11 @@ pub trait Page {
     fn show(&mut self, ui: &mut Ui, cx: &mut Cx);
     /// Another page was opened: what runs only while this page is open stops.
     fn leave(&mut self) {}
+    /// The Lab's network as it stands, for the screen tests that measure it.
+    #[cfg(test)]
+    fn lab_state(&self) -> Option<crate::local::lab_net::NetState> {
+        None
+    }
 }
 
 /// The side bar, in the order of the redesign plan: this computer's own work first, then the tools.

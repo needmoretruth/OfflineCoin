@@ -32,6 +32,8 @@ mod roles;
 #[path = "lab_net_runs.rs"]
 mod runs;
 
+pub use power::Share;
+
 /// How often the keeper looks at every node and acts.
 const TURN: Duration = Duration::from_millis(250);
 /// Events kept for the window, which draws the newest.
@@ -274,8 +276,6 @@ pub enum Order {
     Forget,
     /// Makes this many blocks now with the first miner, as fast as the hash limit lets it.
     MakeBlocks(u64),
-    /// The most the Lab's miners may hash together, from the person's limit; 0 is none.
-    Budget(u64),
     /// A pool turns bad and attacks with its miners' power, or turns honest again.
     Bad(u32, bool),
     End,
@@ -293,8 +293,10 @@ pub struct NetState {
     pub room: Room,
     pub error: Option<String>,
     pub max_block_bytes: u64,
-    /// The most the miners may hash together; 0 is no limit.
+    /// What the one budget gives the Lab's miners together; 0 is no limit.
     pub budget: u64,
+    /// The person's speed limit for everything on this computer; 0 is none.
+    pub limit: u64,
     /// Blocks no chain holds any more, newest last, by id.
     pub replaced: Vec<String>,
 }
@@ -310,7 +312,17 @@ pub struct LabNet {
 static NETS: AtomicUsize = AtomicUsize::new(0);
 
 impl LabNet {
+    /// A network on its own, with no limit on its miners.
     pub fn start() -> Self {
+        Self::begin(None)
+    }
+
+    /// A network whose miners share the one hash budget `link` keeps.
+    pub fn start_with(link: impl Share + 'static) -> Self {
+        Self::begin(Some(Box::new(link)))
+    }
+
+    fn begin(link: Option<Box<dyn Share>>) -> Self {
         let (orders, inbox) = channel();
         let state = Arc::new(Mutex::new(NetState { room: Room::measure(0), ..NetState::default() }));
         let shared = state.clone();
@@ -318,6 +330,7 @@ impl LabNet {
         let keeper = thread::spawn(move || {
             let mut keeper = Keeper::new(shared);
             keeper.sweep = sweep;
+            keeper.link = link;
             keeper.run(&inbox);
         });
         Self { orders, state, keeper: Some(keeper) }
@@ -385,7 +398,11 @@ struct Keeper {
     room_at: Option<Instant>,
     room: Room,
     error: Option<String>,
-    budget: u64,
+    /// The one hash budget, what it gives the Lab's miners together, and the person's limit.
+    link: Option<Box<dyn Share>>,
+    asks_told: Vec<(u32, u64)>,
+    budget: Option<u64>,
+    limit: u64,
 }
 
 impl Keeper {
@@ -423,7 +440,10 @@ impl Keeper {
             room_at: None,
             room: Room::measure(0),
             error: None,
-            budget: 0,
+            link: None,
+            asks_told: Vec::new(),
+            budget: None,
+            limit: 0,
         }
     }
 
@@ -434,6 +454,8 @@ impl Keeper {
                 match inbox.recv_timeout(left) {
                     Ok(Order::End) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         self.clear();
+                        // The Lab's part of the budget goes back to this app and its miners.
+                        self.share_turn();
                         return;
                     }
                     Ok(order) => self.take(order),
@@ -467,11 +489,6 @@ impl Keeper {
             }
             Order::Scene(scene) => self.scene(scene),
             Order::MakeBlocks(count) => self.make_blocks(count),
-            Order::Budget(cap) => {
-                self.budget = cap;
-                self.limits();
-                Ok(())
-            }
             Order::Bad(id, bad) => self.turn_bad(id, bad),
             Order::StopExperiment => {
                 self.stop_run();
@@ -494,6 +511,7 @@ impl Keeper {
     /// One look at every node, then each one's part, then what the window reads.
     fn turn(&mut self) {
         self.look();
+        self.share_turn();
         self.roles();
         self.runs_turn();
         self.publish();
@@ -537,31 +555,13 @@ impl Keeper {
             room: self.room,
             error: self.error.clone(),
             max_block_bytes: lab_coin().rules.max_block_bytes,
-            budget: self.budget,
+            budget: self.budget.unwrap_or(0),
+            limit: self.limit,
             replaced: self.replaced.iter().cloned().collect(),
         };
         if let Ok(mut shared) = self.shared.lock() {
             *shared = state;
         }
-    }
-}
-
-/// The node of one participant: plain, on 127.0.0.1, with room for the Lab's small chain.
-fn spec_of(id: u32, kind: Kind, number: u32, speed: u64) -> NodeSpec {
-    NodeSpec {
-        name: format!("lab-{}-{number}", kind.word()),
-        preset: Preset::Custom,
-        hash_cap: if kind.mines() { speed } else { 0 },
-        memory_mib: super::lab_room::MEMORY_MIB,
-        cpu_percent: 0,
-        disk_mib: super::lab_room::DISK_MIB,
-        wallet: WalletChoice::Own,
-        joined: true,
-        listen_lan: false,
-        mining: kind.mines(),
-        holding: kind.holding(),
-        recent: olc_core::chain::FEWEST_RECENT,
-        ..Preset::Custom.spec(id)
     }
 }
 

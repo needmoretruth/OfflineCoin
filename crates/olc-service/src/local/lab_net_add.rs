@@ -234,3 +234,22 @@ impl Keeper {
         Ok(())
     }
 }
+
+/// The node of one participant: plain, on 127.0.0.1, with room for the Lab's small chain.
+fn spec_of(id: u32, kind: Kind, number: u32, speed: u64) -> NodeSpec {
+    NodeSpec {
+        name: format!("lab-{}-{number}", kind.word()),
+        preset: Preset::Custom,
+        hash_cap: if kind.mines() { speed } else { 0 },
+        memory_mib: super::super::lab_room::MEMORY_MIB,
+        cpu_percent: 0,
+        disk_mib: super::super::lab_room::DISK_MIB,
+        wallet: WalletChoice::Own,
+        joined: true,
+        listen_lan: false,
+        mining: kind.mines(),
+        holding: kind.holding(),
+        recent: olc_core::chain::FEWEST_RECENT,
+        ..Preset::Custom.spec(id)
+    }
+}

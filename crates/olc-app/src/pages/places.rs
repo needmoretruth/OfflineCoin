@@ -104,4 +104,9 @@ impl Page for LabPage {
     fn leave(&mut self) {
         self.lab.leave();
     }
+
+    #[cfg(test)]
+    fn lab_state(&self) -> Option<crate::local::lab_net::NetState> {
+        self.lab.net_state()
+    }
 }

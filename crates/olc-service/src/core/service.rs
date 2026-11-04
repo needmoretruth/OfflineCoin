@@ -135,6 +135,8 @@ struct Service {
     /// This app's cap as last set from the budget, and what each added miner was last told.
     own_cap: Option<u64>,
     parts_told: std::collections::BTreeMap<u32, budget::Told>,
+    /// The Lab's miners that hash, by their number in the Lab, and the speed each was set to.
+    lab_asks: Vec<(u32, u64)>,
     /// The settings as the app last sent them, so a save takes only what it changed.
     page: Settings,
     notice: Option<Notice>,
@@ -216,6 +218,7 @@ impl Service {
             rates,
             own_cap: None,
             parts_told: Default::default(),
+            lab_asks: Vec::new(),
             notice: None,
             notices: Arc::default(),
             asked_boards: None,
@@ -310,6 +313,10 @@ impl Service {
                 self.settings.hash_cap = cap;
                 self.share_budget();
                 self.save();
+            }
+            Command::LabMiners(asks) => {
+                self.lab_asks = asks;
+                self.share_budget();
             }
             Command::Pay { to, amount } => self.pay(&to, &amount),
             Command::AddAddress(address) => self.add_address(address),

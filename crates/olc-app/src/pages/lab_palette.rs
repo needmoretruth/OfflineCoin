@@ -47,9 +47,9 @@ fn tile(ui: &mut Ui, t: &Tokens, voice: Voice, kind: Kind, enabled: bool) -> boo
 }
 
 /// The tiles, the setups and "clear all". Returns what was pressed.
-/// `hashing` is what the miners were set to together and the person's speed limit, when one
-/// is set.
-pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize, hashing: Option<(u64, u64)>) -> Option<Order> {
+/// `hashing` is what the miners were set to together, what the one budget gives them together and
+/// the person's speed limit, when one is set.
+pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize, hashing: Option<(u64, u64, u64)>) -> Option<Order> {
     let mut order = None;
     ui.label(RichText::new(text(voice, "net.add")).color(t.soft).size(tokens::META));
     ui.horizontal_wrapped(|ui| {
@@ -75,14 +75,15 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize, 
     });
     ui.add_space(4.0);
     let (mut line, colour) = room_line(t, voice, room);
-    // Past the limit every miner slows by the same part; below it, what is left.
+    // Past the Lab's part of the limit every miner slows by the same part; inside it each mines at
+    // the speed set. Before the budget counted a first miner there is nothing to say yet.
     let rate = |value: u64| crate::ui::format::rate(voice, value);
     // After a sentence a space; after the expert's list of figures, one more of its dots.
     let join = if line.ends_with('.') { " " } else { " · " };
     match hashing {
-        Some((asked, limit)) if asked > limit => line = format!("{line}{join}{}", fill(text(voice, "net.hash_scaled"), &[&rate(limit)])),
-        Some((asked, limit)) => line = format!("{line}{join}{}", fill(text(voice, "net.hash_room"), &[&rate(limit - asked)])),
-        None => {}
+        Some((asked, lab, _)) if asked > lab && lab > 0 => line = format!("{line}{join}{}", fill(text(voice, "net.hash_scaled"), &[&rate(lab)])),
+        Some((asked, lab, limit)) if asked <= lab => line = format!("{line}{join}{}", fill(text(voice, "net.hash_room"), &[&rate(limit)])),
+        _ => {}
     }
     ui.label(RichText::new(line).color(colour).size(tokens::META));
     order

@@ -310,6 +310,12 @@ impl App {
         self.folder = Some(folder);
     }
 
+    /// The Lab's network while it runs, for the screen tests that measure it.
+    #[cfg(test)]
+    pub fn lab_state(&self) -> Option<crate::local::lab_net::NetState> {
+        self.pages.iter().find_map(|page| page.lab_state())
+    }
+
     #[cfg(test)]
     pub fn settings(&self) -> &Settings {
         &self.settings

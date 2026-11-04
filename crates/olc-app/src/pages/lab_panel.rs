@@ -30,17 +30,32 @@ fn speed_key(kind: Kind) -> &'static str {
     }
 }
 
+/// The speed it works at now: what a miner measures, or what it was given before it measures,
+/// which is the speed set unless the one speed limit holds it lower. Nothing holds a payer back.
+fn speed_now(member: &Member) -> u64 {
+    let given = if member.limit > 0 { member.limit.min(member.speed) } else { member.speed };
+    match &member.status {
+        Some(status) if member.kind.mines() => status.hashrate,
+        _ if member.kind.mines() => given,
+        _ => member.speed,
+    }
+}
+
 fn speed(ui: &mut Ui, t: &Tokens, voice: Voice, held: &mut Held, member: &Member, enabled: bool) -> Option<Order> {
     let range = member.kind.speed()?;
     let mut order = None;
     ui.horizontal(|ui| {
         ui.label(RichText::new(text(voice, "net.speed")).color(t.soft));
-        let shown = if member.paused { text(voice, "net.paused").to_string() } else { fill(text(voice, speed_key(member.kind)), &[&number(member.speed)]) };
+        let shown = if member.paused { text(voice, "net.paused").to_string() } else { fill(text(voice, speed_key(member.kind)), &[&number(speed_now(member))]) };
         ui.label(RichText::new(shown).strong().color(t.text));
     });
-    if member.kind.mines() && !member.paused && member.limit < member.speed {
-        let now = crate::ui::format::rate(voice, member.limit);
-        ui.label(RichText::new(fill(text(voice, "net.speed_capped"), &[&now])).color(t.soft).size(tokens::META));
+    // The speed set, the slider's value, stands under it smaller, with the part of the one limit
+    // when that holds a miner lower: this app and its added miners share the limit too.
+    if member.kind.mines() {
+        let (set, part) = (number(member.speed), number(member.limit));
+        let below = !member.paused && member.limit > 0 && member.limit < member.speed;
+        let said = if below { fill(text(voice, "net.set_capped"), &[&set, &part]) } else { fill(text(voice, "net.set_hash"), &[&set]) };
+        ui.label(RichText::new(said).color(t.soft).size(tokens::META));
     }
     let presets = [
         (Preset::Stop, text(voice, "net.preset_stop").to_string()),

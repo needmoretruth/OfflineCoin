@@ -11,6 +11,7 @@ use super::lab_palette;
 use super::lab_panel::{self, Held};
 use super::lab_view::{self, Act};
 use super::Cx;
+use crate::core::Core;
 use crate::i18n::{text, Voice};
 use super::lab_words::fill;
 use crate::local::lab_net::{Kind, LabNet, NetState, Order, Room};
@@ -37,20 +38,24 @@ pub struct Lab {
     /// What this computer carries before the network starts, measured now and then.
     room: Option<(Instant, Room)>,
     boards: BoardLab,
-    /// The person's speed limit as last seen: everything OLC Core runs stays under it.
-    cap: u64,
+    /// The core, whose one hash budget the Lab's miners share with this app and its miners.
+    link: Option<Core>,
 }
 
 impl Lab {
-    /// A network starts under the person's speed limit, which holds the Lab's miners together.
+    /// A network starts inside the one budget for this computer, under the person's speed limit.
     fn order(&mut self, order: Order) {
-        let cap = self.cap;
-        let net = self.net.get_or_insert_with(|| {
-            let net = LabNet::start();
-            net.order(Order::Budget(cap));
-            net
+        let link = self.link.clone();
+        let net = self.net.get_or_insert_with(|| match link {
+            Some(core) => LabNet::start_with(core),
+            None => LabNet::start(),
         });
         net.order(order);
+    }
+
+    #[cfg(test)]
+    pub fn net_state(&self) -> Option<NetState> {
+        self.net.as_ref().map(LabNet::state)
     }
 
     /// Every participant stops: the page was left.
@@ -76,19 +81,18 @@ impl Lab {
 
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let (t, voice) = (cx.t, cx.voice());
-        self.cap = cx.settings.hash_cap;
+        if self.link.is_none() {
+            self.link = Some(cx.core.clone());
+        }
         let state = self.state();
         if self.net.is_some() {
             ui.ctx().request_repaint_after(REDRAW);
-            if state.budget != self.cap {
-                self.order(Order::Budget(self.cap));
-            }
         }
         explain::short(ui, t, text(voice, "net.intro"));
         ui.add_space(tokens::GAP);
-        let hashing = (state.budget > 0).then(|| {
+        let hashing = (state.limit > 0).then(|| {
             let asked: u64 = state.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| member.speed).sum();
-            (asked, state.budget)
+            (asked, state.budget, state.limit)
         });
         let mut asked = card(ui, t, |ui| lab_palette::draw(ui, t, voice, &state.room, state.members.len(), hashing));
         ui.add_space(tokens::GAP);

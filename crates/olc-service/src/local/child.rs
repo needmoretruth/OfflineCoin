@@ -170,8 +170,11 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 
 /// With `lab`, the line also carries what an experiment draws: the newest blocks, the node's
 /// own number and whether it keeps to itself.
-fn status_of(host: &Host, lab: bool, shares: bool) -> ChildStatus {
-    let mut status = ChildStatus::from_view(&host.view());
+fn status_of(host: &Host, lab: bool, shares: bool, side: &mut LabSide) -> ChildStatus {
+    let view = host.view();
+    let mut status = ChildStatus::from_view(&view);
+    // The balance leaves out a reward still too young to spend; the Lab says it is coming.
+    status.lab = side.line(host).map(|line| super::lab_side::LabLine { maturing: view.maturing, ..line });
     if shares {
         status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
     }
@@ -259,8 +262,7 @@ pub fn run_node(words: Vec<String>) -> Result<(), String> {
         if !side.busy() || said.is_none_or(|said| said.elapsed() >= LAB_STATUS_EVERY) {
             said = Some(Instant::now());
             // A node working in a Lab pool hands its shares to that pool, not to the window.
-            let mut status = status_of(&host, lab, !side.joined());
-            status.lab = side.line(&host);
+            let status = status_of(&host, lab, !side.joined(), &mut side);
             say(&status);
         }
     }

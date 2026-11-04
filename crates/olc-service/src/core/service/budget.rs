@@ -1,11 +1,24 @@
 //! The person's limit kept in force for every miner this computer runs. Each turn the parts are
 //! worked out again and only what changed is told: this app's cap at once, an added miner's cap and
 //! threads as one line on its input. A miner about to start or to switch on is counted first, so
-//! the others are lowered before it hashes and the sum never goes over.
+//! the others are lowered before it hashes and the sum never goes over. The Lab's miners are
+//! counted as miners like any other: the Lab says which hash at what speed, and reads its parts
+//! from the snapshot, which shows them only once this app and its miners were lowered.
 use super::super::pool_plan::Who;
-use super::Service;
+use super::{Command, Core, Service};
+use crate::local::lab_net::Share;
 use crate::local::{Budget, Holding, NodeSpec};
 use crate::settings::standard_threads;
+
+impl Share for Core {
+    fn ask(&self, asks: Vec<(u32, u64)>) {
+        self.send(Command::LabMiners(asks));
+    }
+
+    fn split(&self) -> Budget {
+        self.snapshot().budget.clone()
+    }
+}
 
 /// What an added miner was last told: its process, its cap and its threads.
 pub(super) type Told = (u32, u64, usize);
@@ -24,7 +37,7 @@ impl Service {
         let threads = self.settings.threads(standard_threads());
         let asked: Vec<(u32, u64)> =
             self.settings.nodes.iter().filter(|spec| self.hashes(spec, starting)).map(|spec| (spec.id, spec.hash_cap)).collect();
-        Budget::share(self.settings.hash_cap, self.full_rate, threads, &asked)
+        Budget::share_with_lab(self.settings.hash_cap, self.full_rate, threads, &asked, &self.lab_asks)
     }
 
     /// Holds this app and every added miner that runs to its part and to the thread cap. A miner
