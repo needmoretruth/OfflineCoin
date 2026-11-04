@@ -117,7 +117,9 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) 
     let expert = voice.mode == Mode::Expert;
     let say = |key: &str, value: u64| fill(text(voice, key), &[&number(value)]);
     let shown = match member.kind {
-        // In a pool the pool finds the blocks: a member counts the shares it handed in.
+        // In a pool the pool finds the blocks: a member counts the shares it handed in, and an
+        // expert reads the speed it hashes at above them, as for a miner alone.
+        Kind::Miner if member.pool.is_some() && expert => format!("{}\n{}", format::rate(voice, status.hashrate), say("net.shares", line.accepted)),
         Kind::Miner if member.pool.is_some() => say("net.shares", line.accepted),
         Kind::Miner | Kind::Attacker if expert => format!("{}\n{}", format::rate(voice, status.hashrate), say("net.found", status.blocks_mined)),
         Kind::Miner | Kind::Attacker => say("net.found", status.blocks_mined),
@@ -382,6 +384,25 @@ mod tests {
         assert_eq!(status_line(&t, voice, &alone, &state).0, "이웃 블록을 기다리는 중");
         let pooled = Member { pool: Some(9), ..member(Kind::Miner, &status) };
         assert_ne!(status_line(&t, voice, &pooled, &state).0, "이웃 블록을 기다리는 중");
+    }
+
+    /// In expert mode a miner in a pool shows the speed it hashes at, as a miner alone does, with
+    /// the shares it handed in under it; a plain reader sees the shares.
+    #[test]
+    fn a_pool_member_shows_its_speed_and_its_shares_in_expert_mode() {
+        let lab = crate::local::lab_side::LabLine { accepted: 1_234, ..Default::default() };
+        let status = ChildStatus { hashrate: 6_573, lab: Some(lab), ..ChildStatus::default() };
+        let state = NetState::default();
+        let t = crate::ui::tokens::DARK;
+        let pooled = Member { pool: Some(9), ..member(Kind::Miner, &status) };
+        for lang in [Lang::En, Lang::Ko] {
+            let line = |mode| status_line(&t, Voice { lang, mode }, &pooled, &state).0;
+            let expert = line(Mode::Expert);
+            let rows: Vec<&str> = expert.lines().collect();
+            assert!(rows.len() == 2 && rows[0].contains("6,573") && rows[1].contains("1,234"), "{lang:?} expert pool member: {expert:?}");
+            let basic = line(Mode::Basic);
+            assert!(basic.contains("1,234") && !basic.contains("6,573"), "{lang:?} plain pool member: {basic:?}");
+        }
     }
 
     /// Each row of the line under a token is at most as wide as its cell. A state it says alone, and a
