@@ -24,8 +24,8 @@ const GAP: f32 = 8.0;
 const MARGIN: f32 = 12.0;
 /// Around the miners inside a ring.
 const RING_PAD: f32 = 8.0;
-/// The pile of waiting payments: two cells wide.
-const PILE: Vec2 = vec2(CELL.x * 2.0 + GAP, CELL.y);
+/// The pile of waiting payments: two cells wide, and tall enough for its last line to wrap once.
+const PILE: Vec2 = vec2(CELL.x * 2.0 + GAP, CELL.y + 16.0);
 
 pub struct Places {
     /// Each token's centre; a pool's is its ring's.

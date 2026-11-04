@@ -53,9 +53,17 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState, rect: Rect)
     painter.rect_filled(rect, CornerRadius::same(8), t.card_top.gamma_multiply(0.7));
     let inner = rect.shrink(8.0);
     painter.text(inner.left_top(), Align2::LEFT_TOP, &title, FontId::proportional(12.5), t.text);
-    let per_row = ((inner.width() + SQUARE_GAP) / (SQUARE + SQUARE_GAP)).floor().max(1.0) as usize;
-    let shown = count.min(per_row * SQUARE_ROWS);
+    // What waits past the next block is a line of its own; each line wraps inside the box, the
+    // bar sits right above them and the squares above that.
+    let words = over.map_or(full.clone(), |over| format!("{full}\n{over}"));
+    let colour = if bytes > most { t.warn } else { t.muted };
+    let galley = painter.layout(words, FontId::proportional(11.5), colour, inner.width());
+    let words_top = inner.bottom() - galley.size().y;
+    let bar = Rect::from_min_size(egui::pos2(inner.left(), words_top - 9.0), vec2(inner.width(), 5.0));
     let top = inner.top() + 20.0;
+    let rows = (((bar.top() - 4.0 - top + SQUARE_GAP) / (SQUARE + SQUARE_GAP)).floor().max(1.0) as usize).min(SQUARE_ROWS);
+    let per_row = ((inner.width() + SQUARE_GAP) / (SQUARE + SQUARE_GAP)).floor().max(1.0) as usize;
+    let shown = count.min(per_row * rows);
     for index in 0..shown {
         let (column, row) = (index % per_row, index / per_row);
         let at = vec2(column as f32 * (SQUARE + SQUARE_GAP), row as f32 * (SQUARE + SQUARE_GAP));
@@ -63,12 +71,9 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState, rect: Rect)
         let colour = if index < fits { t.soft } else { t.warn };
         painter.rect_filled(square, CornerRadius::same(1), colour);
     }
-    let bar = Rect::from_min_size(egui::pos2(inner.left(), inner.bottom() - 22.0), vec2(inner.width(), 5.0));
     painter.rect_filled(bar, CornerRadius::same(2), t.hover);
     let part = next as f32 / most as f32;
     let lit = Rect::from_min_size(bar.min, vec2(bar.width() * part, bar.height()));
     painter.rect_filled(lit, CornerRadius::same(2), if bytes > most { t.warn } else { t.soft });
-    let words = over.map_or(full.clone(), |over| format!("{full} · {over}"));
-    let colour = if bytes > most { t.warn } else { t.muted };
-    painter.text(egui::pos2(inner.left(), inner.bottom()), Align2::LEFT_BOTTOM, words, FontId::proportional(11.5), colour);
+    painter.galley(egui::pos2(inner.left(), words_top), galley, colour);
 }

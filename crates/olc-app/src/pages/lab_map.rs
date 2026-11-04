@@ -334,9 +334,13 @@ fn marks(painter: &Painter, t: &Tokens, view: &MapView, places: &Places, now: f6
             What::Raced { by, won, share, .. } => {
                 if let Some(at) = spot(*by) {
                     let colour = if *won { t.bad } else { t.soft };
-                    let shown = format!("{share}%");
+                    let shown = format!("{}%", number(*share));
+                    // A share is wider than the round badge: a pill that fits it lies over it.
                     mark(at, colour, part, &|badge| {
-                        painter.text(badge, Align2::CENTER_CENTER, &shown, FontId::proportional(9.0), colour);
+                        let galley = painter.layout_no_wrap(shown.clone(), FontId::proportional(9.0), colour);
+                        let pill = Rect::from_center_size(badge, vec2(galley.size().x + 6.0, 16.0));
+                        painter.rect_filled(pill, CornerRadius::same(8), t.card_top);
+                        painter.galley(pill.center() - galley.size() / 2.0, galley, colour);
                     });
                 }
             }

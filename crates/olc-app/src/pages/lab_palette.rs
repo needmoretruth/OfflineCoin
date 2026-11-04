@@ -76,9 +76,11 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize, 
     let (mut line, colour) = room_line(t, voice, room);
     // Past the limit every miner slows by the same part; below it, what is left.
     let rate = |value: u64| crate::ui::format::rate(voice, value);
+    // After a sentence a space; after the expert's list of figures, one more of its dots.
+    let join = if line.ends_with('.') { " " } else { " · " };
     match hashing {
-        Some((asked, limit)) if asked > limit => line = format!("{line} {}", fill(text(voice, "net.hash_scaled"), &[&rate(limit)])),
-        Some((asked, limit)) => line = format!("{line} {}", fill(text(voice, "net.hash_room"), &[&rate(limit - asked)])),
+        Some((asked, limit)) if asked > limit => line = format!("{line}{join}{}", fill(text(voice, "net.hash_scaled"), &[&rate(limit)])),
+        Some((asked, limit)) => line = format!("{line}{join}{}", fill(text(voice, "net.hash_room"), &[&rate(limit - asked)])),
         None => {}
     }
     ui.label(RichText::new(line).color(colour).size(tokens::META));

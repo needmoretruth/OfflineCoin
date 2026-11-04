@@ -32,6 +32,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.busy", "실험이 끝날 때까지 기다려 주세요."),
     ("net.no_speed", "속도가 없는 참가자입니다."),
     ("net.need_miner", "채굴자부터 넣어 주세요."),
+    ("net.need_solo", "블록은 혼자 캐는 채굴자가 만듭니다. 풀에서 하나 빼거나 멈춘 채굴자를 다시 켜 주세요."),
     ("net.wait_start", "켜는 중입니다."),
     ("net.ended", "꺼졌습니다. 빼고 다시 넣어 주세요."),
     ("net.wait_coins", "먼저 코인을 모으는 중입니다."),

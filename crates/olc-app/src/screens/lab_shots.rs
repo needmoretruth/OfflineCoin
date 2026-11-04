@@ -243,10 +243,21 @@ fn every_kind_does_its_part_in_expert_english() {
     counts(&mut run, &pool, 1.0, 30);
     counts(&mut run, &miners[0], 1.0, 120);
     run.shoot("02-pool");
-    for kind in [Kind::Full, Kind::Pruned, Kind::Light] {
+    for kind in [Kind::Full, Kind::Light] {
         let keeper = add_and_see(&mut run, kind, 1);
         counts(&mut run, &keeper, 1.0, 120);
     }
+    // A pruned node lets go of blocks past the newest 288: one click makes the chain that long.
+    // These tests mine under a speed limit; the default has none, and Settings lifts it so.
+    let pruned = add_and_see(&mut run, Kind::Pruned, 1);
+    let limit = std::mem::take(&mut run.window.state_mut().settings_mut().hash_cap);
+    run.press("+300");
+    run.wait(300, "the pruned node let old blocks go", |run| run.count(&pruned).is_some_and(|below| below >= 1.0));
+    run.window.state_mut().settings_mut().hash_cap = limit;
+    // Its token and its panel, which names the height it pruned below.
+    run.select(&pruned);
+    run.shoot("07-pruned");
+    run.select(&pruned);
     let sender = add_and_see(&mut run, Kind::Sender, 1);
     let receiver = add_and_see(&mut run, Kind::Receiver, 1);
     run.wait(120, "the first payment leaves", |run| run.count(&sender).is_some_and(|sent| sent >= 1.0));

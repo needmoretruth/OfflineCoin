@@ -217,7 +217,13 @@ impl Keeper {
         if self.runs.running() || self.runs.making.is_some() {
             return Err("net.busy".into());
         }
-        let miner = self.members.iter().find(|member| member.kind == Kind::Miner).ok_or("net.need_miner")?;
+        if !self.members.iter().any(|member| member.kind == Kind::Miner) {
+            return Err("net.need_miner".into());
+        }
+        // A miner in a pool works for the pool and a stopped one does not mine: the blocks come
+        // from a miner on its own.
+        let alone = |member: &&Member| member.kind == Kind::Miner && member.pool.is_none() && !member.paused && !member.busy;
+        let miner = self.members.iter().find(alone).ok_or("net.need_solo")?;
         let (id, from) = (miner.id, miner.height());
         let count = count.clamp(1, super::super::lab::MOST_BLOCKS);
         self.send(id, &format!("board mine-to {}", from + count));

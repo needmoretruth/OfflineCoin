@@ -72,15 +72,15 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) 
         let key = if member.kind.mines() || member.kind.speed().is_some() { "net.paused" } else { "net.cut_off" };
         return (text(voice, key).to_string(), t.muted);
     }
+    let Some(status) = &member.status else {
+        return (text(voice, "net.wait_start").to_string(), t.muted);
+    };
     let attacker = member.kind == Kind::Attacker || (member.kind == Kind::Pool && member.bad);
     if attacker {
         let share = number(power(member, state).unwrap_or(0));
         let key = if member.busy { "net.attacking" } else { "net.power" };
         return (fill(text(voice, key), &[&share]), t.bad);
     }
-    let Some(status) = &member.status else {
-        return (text(voice, "net.wait_start").to_string(), t.muted);
-    };
     let line = lab(member);
     let expert = voice.mode == Mode::Expert;
     let say = |key: &str, value: u64| fill(text(voice, key), &[&number(value)]);
@@ -198,3 +198,58 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     facts
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Lang;
+    use crate::local::lab_net::Received;
+    use crate::local::ChildStatus;
+
+    fn member(kind: Kind, status: &ChildStatus) -> Member {
+        Member {
+            id: 1,
+            kind,
+            number: 1,
+            speed: 40_000,
+            limit: 12_500,
+            paused: false,
+            pool: None,
+            links: Vec::new(),
+            status: Some(status.clone()),
+            pid: None,
+            ended: None,
+            waits: None,
+            tricks: Vec::new(),
+            busy: false,
+            bad: false,
+            raced: false,
+            received: Received { payments: 2_048, ..Received::default() },
+        }
+    }
+
+    /// Speeds, heights, block and payment counts read as every other page writes numbers.
+    #[test]
+    fn every_lab_number_has_its_thousands_marked() {
+        let status = ChildStatus { height: 12_345, blocks_mined: 1_234, hashrate: 12_500, ..ChildStatus::default() };
+        let state = NetState::default();
+        let t = crate::ui::tokens::DARK;
+        for lang in [Lang::En, Lang::Ko] {
+            for mode in [Mode::Basic, Mode::Expert] {
+                let voice = Voice { lang, mode };
+                let said = |kind: Kind| {
+                    let member = member(kind, &status);
+                    format!("{} | {}", status_line(&t, voice, &member, &state).0, facts(voice, &member, &state).join(" "))
+                };
+                for (kind, figure) in [(Kind::Full, "12,345"), (Kind::Miner, "1,234"), (Kind::Receiver, "2,048")] {
+                    let words = said(kind);
+                    assert!(words.contains(figure), "{lang:?} {mode:?} {kind:?}: {words}");
+                }
+                if mode == Mode::Expert {
+                    let words = said(Kind::Miner);
+                    assert!(words.contains("12,500"), "{lang:?} expert miner: {words}");
+                }
+            }
+        }
+    }
+}
