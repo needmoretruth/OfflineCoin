@@ -59,7 +59,9 @@ fn choice(ui: &mut Ui, cx: &Cx, name: &str, about: &str) -> bool {
     let line = egui::Rect::from_min_max(pos2(left, rect.top() + 34.0), pos2(rect.right() - left + rect.left(), rect.bottom() - 6.0));
     let words = egui::RichText::new(about).size(tokens::META).color(t.muted);
     let place = egui::UiBuilder::new().max_rect(line).layout(egui::Layout::left_to_right(egui::Align::TOP));
-    ui.scope_builder(place, |ui| ui.add(egui::Label::new(words).selectable(false).truncate()));
+    // A child that takes no room: placed through the parent, the line moved the next card up
+    // into this one.
+    ui.new_child(place).add(egui::Label::new(words).selectable(false).truncate());
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect.expand(1.0),

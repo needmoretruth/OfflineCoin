@@ -5,6 +5,7 @@
 use super::shots::{shot, tap};
 use super::{app, click, harness, port_of_scene, quiet_settings, scratch, type_into_last, wait_until, SETTLE_STEPS, SIZES};
 use egui::accesskit::Role;
+use egui_kittest::kittest::Queryable;
 use olc_core::CoinConfig;
 use crate::i18n::Lang;
 use olc_wallet::seed::Mnemonic;
@@ -12,6 +13,21 @@ use olc_wallet::{format_address, Wallet};
 
 /// Words from the BIP's own test list, standing for ones a person wrote on paper.
 const WORDS: &str = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+/// The coin choices stand apart by the page's gap, as the words choice below them does.
+#[test]
+fn the_first_choices_stand_apart() {
+    let mut settings = quiet_settings();
+    settings.setup_done = false;
+    settings.language = Lang::Ko;
+    settings.port = port_of_scene(79);
+    let mut window = harness(app(scratch("first-gaps"), settings, None), SIZES[0]);
+    window.run_steps(SETTLE_STEPS);
+    let olc = window.get_by_role_and_label(Role::Button, "OfflineCoin").rect();
+    let new = window.get_by_role_and_label(Role::Button, "새 코인").rect();
+    let gap = new.top() - olc.bottom();
+    assert!(gap >= crate::ui::tokens::GAP - 0.5, "the two choices are {gap} apart");
+}
 
 #[test]
 fn words_bring_a_wallet_back_at_the_first_run() {
