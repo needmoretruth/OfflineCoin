@@ -89,7 +89,7 @@ impl Boards {
             let Some((header, difficulty)) = &mut grind.work else { continue };
             for _ in 0..BATCH {
                 if meets(header, *difficulty) {
-                    grind.found.push(header.clone());
+                    grind.found.push(*header);
                 }
                 header.nonce = header.nonce.wrapping_add(1);
             }
