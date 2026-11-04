@@ -199,3 +199,43 @@ fn orders_count_up_from_what_the_board_showed() {
     assert_eq!(first.order.counter, 42);
     assert_eq!(second.order.counter, 43);
 }
+
+/// The dated times waiting to go out, as each board would read them.
+fn dates_sent(fleet: &mut Fleet) -> Vec<(Option<BoardId>, olc_control::dated::Dated)> {
+    let mut sent = Vec::new();
+    while let Some((_, bytes)) = fleet.take_outgoing() {
+        if let Some(Packet { to, body: Body::Dated(dated), .. }) = Packet::decode(&bytes) {
+            sent.push((to, dated));
+        }
+    }
+    sent
+}
+
+#[test]
+fn a_board_on_a_cable_gets_the_signed_date_when_it_comes_on_and_every_two_minutes() {
+    use olc_control::dated::{handle, Handling, DATED_EVERY_MS};
+    const NOW: u64 = 1_793_800_000_000;
+    let mut fleet = fleet("dated");
+    let radio_only = [6; 6];
+    fleet.hear(CABLE, &beacon(1, 0, BOARD));
+    fleet.hear(CABLE, &beacon(2, 1, radio_only));
+    fleet.give_dates(NOW);
+    let sent = dates_sent(&mut fleet);
+    // Only the board on the cable: it passes the date on to the boards heard through it.
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].0, Some(BOARD));
+    let gate = olc_control::Gate::new(BOARD, Some(fleet.public_key().unwrap()), 0);
+    let packet = Packet { from: [1; 6], to: Some(BOARD), id: 9, hops: 0, body: Body::Dated(sent[0].1.clone()) };
+    assert!(matches!(handle(&packet, &gate, 0), Handling::Take { unix_ms: NOW, pass: Some(_) }));
+
+    fleet.give_dates(NOW + 1_000);
+    assert!(dates_sent(&mut fleet).is_empty(), "the board has the date already");
+    let two_minutes_ago = Instant::now() - Duration::from_millis(DATED_EVERY_MS);
+    fleet.dating.given.insert(BOARD, two_minutes_ago);
+    fleet.give_dates(NOW + DATED_EVERY_MS);
+    assert_eq!(dates_sent(&mut fleet).len(), 1);
+    // A computer whose clock has no date gives none.
+    fleet.dating.given.clear();
+    fleet.give_dates(5_000);
+    assert!(dates_sent(&mut fleet).is_empty());
+}

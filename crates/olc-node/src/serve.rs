@@ -9,7 +9,7 @@ use crate::sync::BLOCKS_AT_ONCE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use olc_core::proof::Coins;
-use olc_core::{Address, BlockHeader, CoinProof, Hash, OutPoint, Rules, Served, Tx};
+use olc_core::{Address, Block, BlockHeader, CoinProof, Hash, OutPoint, Rules, Served, Tx};
 use olc_wallet::{prepare, Order, Unsigned, WalletError};
 
 /// A peer that asks again this soon has not had time to see the answer. Asks pile up while a slow
@@ -19,6 +19,8 @@ const ANSWERED_FOR_MS: u64 = 3_000;
 /// A page of headers. A small radio queue on a slow reader sets this, as it does for blocks.
 const HEADERS_AT_ONCE: usize = 16;
 const COINS_AT_ONCE: usize = 8;
+/// Blocks on the way at once to a peer catching up over a cable or TCP, about 16 KB.
+pub const BLOCKS_AHEAD: usize = 64;
 
 impl Engine {
     /// Up to a few blocks after the newest one the peer named.
@@ -31,10 +33,20 @@ impl Engine {
         let repeated = self.answered.is_some_and(|(peer, newest, at)| {
             (peer, newest) == asked && self.now_ms.saturating_sub(at) < ANSWERED_FOR_MS
         });
-        if repeated {
+        // Over a fast link the answer is there long before the asker asks again: an ask
+        // repeated there means a block went missing, and the blocks are sent again.
+        if repeated && !(named_heights && self.fast_link) {
             return;
         }
         self.answered = Some((asked.0, asked.1, self.now_ms));
+        if named_heights && self.fast_link {
+            if let Some(blocks) = self.blocks_ahead(from, &ids, &heights) {
+                for block in blocks {
+                    self.outbox.push_back(Outgoing::To(from, Message::Block(block)));
+                }
+                return;
+            }
+        }
         let served = match named_heights {
             true => {
                 let locator: Vec<_> = heights.into_iter().zip(ids).collect();
@@ -57,6 +69,33 @@ impl Engine {
                 self.outbox.push_back(Outgoing::To(from, reply));
             }
         }
+    }
+
+    /// Blocks for a peer catching up over a link that carries much at once. It asks after every
+    /// [`BLOCKS_AT_ONCE`] it takes, and would wait out a round trip each time; here up to
+    /// [`BLOCKS_AHEAD`] stay on the way, so each ask brings the next few and the wire never
+    /// waits, as Bitcoin keeps several blocks in flight to each peer. `None` when the peer's
+    /// position is not on this chain, which the usual answer handles.
+    fn blocks_ahead(&mut self, from: PeerId, ids: &[Hash], heights: &[u64]) -> Option<Vec<Block>> {
+        let (&position, &id) = (heights.first()?, ids.first()?);
+        if self.chain.id_at(position) != Some(id) || position < self.chain.oldest_held() {
+            return None;
+        }
+        let height = self.chain.height();
+        // The usual answer always, which a peer that dropped what was on the way, or lost a
+        // block of it, needs; then the blocks after those on the way, up to the window.
+        let usual = (position + BLOCKS_AT_ONCE as u64).min(height);
+        let mut blocks = self.chain.blocks_from(position + 1, (usual - position) as usize);
+        let on_the_way = match self.ahead {
+            Some((peer, _, sent)) if peer == from && sent > usual => sent,
+            _ => usual,
+        };
+        let last = (position + BLOCKS_AHEAD as u64).min(height);
+        if on_the_way < last {
+            blocks.extend(self.chain.blocks_from(on_the_way + 1, (last - on_the_way) as usize));
+        }
+        self.ahead = Some((from, position, last.max(on_the_way)));
+        Some(blocks)
     }
 
     /// From now on this node holds headers only and never mines. Blocks it held stay on disk.

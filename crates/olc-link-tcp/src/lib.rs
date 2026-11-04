@@ -354,6 +354,11 @@ impl Link for TcpLink {
         Medium::Wifi
     }
 
+    /// TCP loses nothing and carries whatever is sent.
+    fn carries_much(&self) -> bool {
+        true
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         let Ok(mut peers) = self.shared.peers.lock() else {
             return;

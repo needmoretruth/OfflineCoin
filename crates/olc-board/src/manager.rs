@@ -175,6 +175,9 @@ impl Manager {
         while let Some((peer, bytes)) = runner.take_control() {
             fleet.hear(peer, &bytes);
         }
+        // Boards have no clock of the date, and stamp their blocks with the one given here.
+        let unix_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        fleet.give_dates(unix_ms.map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0)));
         while let Some((forward, bytes)) = fleet.take_outgoing() {
             let message = Message::Control(bytes);
             runner.send_now(match forward {

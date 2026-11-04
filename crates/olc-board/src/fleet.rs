@@ -69,6 +69,8 @@ pub struct Fleet {
     shares: BTreeMap<Address, VecDeque<Vec<u8>>>,
     /// When lent work for each worker was last passed on, and last taken.
     lent_heard: BTreeMap<Address, LentHeard>,
+    /// When each board on a cable was last given the date.
+    dating: dated::Dating,
 }
 
 /// What came back for lent work: when the board on the cable last said it passed work on to the
@@ -110,6 +112,7 @@ impl Fleet {
             pins: Pins::default(),
             shares: BTreeMap::new(),
             lent_heard: BTreeMap::new(),
+            dating: Default::default(),
         })
     }
 
@@ -405,6 +408,9 @@ impl Fleet {
             .is_some_and(|known| known.beacon.trusts_a_key)
     }
 }
+
+#[path = "fleet_dated.rs"]
+mod dated;
 
 #[cfg(test)]
 #[path = "fleet_tests.rs"]
