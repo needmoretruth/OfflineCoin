@@ -32,6 +32,16 @@ impl Windows {
         (self.start, self.granted) = (now, 0);
     }
 
+    /// Starts over under a new cap, whether a thread asks for hashes first or the speed is read
+    /// first: a crew held up past a change would otherwise show the old cap's speed beside the
+    /// new cap.
+    fn take_cap(&mut self, cap: u64, now: Instant) {
+        if cap != self.cap {
+            self.cap = cap;
+            self.restart(now);
+        }
+    }
+
     fn millis(from: Instant, to: Instant) -> u64 {
         u64::try_from(to.saturating_duration_since(from).as_millis()).unwrap_or(u64::MAX)
     }
@@ -39,10 +49,7 @@ impl Windows {
     /// Hashes a thread may try now, `batch` at most, under `cap` a second for every thread
     /// together; 0 is no cap. What is granted is counted for the speed.
     pub(super) fn grant(&mut self, cap: u64, batch: u32, now: Instant) -> u32 {
-        if cap != self.cap {
-            self.cap = cap;
-            self.restart(now);
-        }
+        self.take_cap(cap, now);
         let mut elapsed = Self::millis(self.start, now);
         if elapsed >= WINDOW_MS {
             self.past.push_back((self.start, self.granted));
@@ -73,8 +80,9 @@ impl Windows {
 
     /// Hashes a second over the windows that began within the last [`SPEED_SPAN`], up to `now`.
     /// Under a cap it is never above it. Without one a window just begun reads over a whole second,
-    /// so a first batch does not read as a burst.
-    pub(super) fn speed(&self, now: Instant) -> u64 {
+    /// so a first batch does not read as a burst. `cap` is the cap in force now.
+    pub(super) fn speed(&mut self, cap: u64, now: Instant) -> u64 {
+        self.take_cap(cap, now);
         let within = |start: &Instant| now.saturating_duration_since(*start) <= SPEED_SPAN;
         let from = self.past.iter().map(|(start, _)| *start).find(within).unwrap_or(self.start);
         let past: u64 = self.past.iter().filter(|(start, _)| *start >= from).map(|(_, granted)| granted).sum();
@@ -112,7 +120,7 @@ mod tests {
                 windows.grant(cap, (cap / 100) as u32, now);
             }
             if ms % 250 == 0 && ms >= 1_000 {
-                readings.push(windows.speed(now));
+                readings.push(windows.speed(cap, now));
             }
         }
         let most = readings.iter().copied().max().unwrap();
@@ -131,15 +139,23 @@ mod tests {
             windows.grant(100_000, 1_000, start + Duration::from_millis(ms));
         }
         let at = |ms: u64| start + Duration::from_millis(ms);
-        assert!(windows.speed(at(5_000)) > 90_000);
+        assert!(windows.speed(100_000, at(5_000)) > 90_000);
         for ms in 5_000..5_300u64 {
             windows.grant(20_000, 200, at(ms));
-            assert!(windows.speed(at(ms)) <= 20_000, "{} at {ms}", windows.speed(at(ms)));
+            let speed = windows.speed(20_000, at(ms));
+            assert!(speed <= 20_000, "{speed} at {ms}");
         }
         windows.restart(at(5_300));
-        assert_eq!(windows.speed(at(5_301)), 0);
+        assert_eq!(windows.speed(20_000, at(5_301)), 0);
+        // A crew held up when the cap halves asks for nothing for a while: the speed read beside
+        // the new cap is not the old cap's.
+        for ms in 5_301..10_301u64 {
+            windows.grant(20_000, 200, at(ms));
+        }
+        assert!(windows.speed(20_000, at(10_301)) > 18_000);
+        assert_eq!(windows.speed(10_000, at(10_302)), 0, "the old cap's speed beside the new cap");
         let mut open = Windows::new(start);
         open.grant(0, 5_000, start);
-        assert_eq!(open.speed(start + Duration::from_millis(1)), 5_000);
+        assert_eq!(open.speed(0, start + Duration::from_millis(1)), 5_000);
     }
 }

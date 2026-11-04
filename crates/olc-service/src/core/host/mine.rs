@@ -128,7 +128,8 @@ impl Crew {
 
     /// Hashes a second over the last five seconds, never above the cap.
     pub(super) fn speed(&self) -> u64 {
-        self.shared.windows.lock().map_or(0, |windows| windows.speed(Instant::now()))
+        let cap = self.shared.cap.load(Ordering::Relaxed);
+        self.shared.windows.lock().map_or(0, |mut windows| windows.speed(cap, Instant::now()))
     }
 
     /// Adds a block the threads sealed, and keeps them on the newest block to seal.
