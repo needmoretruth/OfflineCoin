@@ -212,17 +212,17 @@ impl Keeper {
 
     /// The bug exploiter tries each trick on every other node once, when it holds coins.
     fn tricks(&mut self, member: &Member) -> Option<&'static str> {
-        if self.tried.contains(&member.id) {
-            return self.runs.trick_error.then_some("net.tricks_not_yet");
-        }
-        if member.paused {
+        if self.tried.contains(&member.id) || member.paused {
             return None;
         }
-        let targets: Vec<(u32, String)> = self
+        // A light node keeps no blocks to build a trick on and checks no payment; a busy or
+        // cut-off node is not there to judge.
+        let targets: Vec<(u32, std::net::SocketAddr)> = self
             .members
             .iter()
-            .filter(|other| other.id != member.id && other.port().is_some())
-            .filter_map(|other| Some((other.id, self.address_of_member(other.id)?)))
+            .filter(|other| other.id != member.id && other.port().is_some() && other.status.is_some())
+            .filter(|other| other.kind != Kind::Light && !other.busy && !(other.paused && !other.kind.mines()))
+            .filter_map(|other| Some((other.id, self.address_of_member(other.id)?.parse().ok()?)))
             .collect();
         if targets.is_empty() {
             return Some("net.wait_target");

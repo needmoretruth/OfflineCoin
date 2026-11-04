@@ -3,7 +3,9 @@
 //! Each runs on its own thread through the lines a board answers; the keeper draws its picture.
 use super::*;
 use crate::local::lab_picture::{replaced_between, Frame, Sides};
-use crate::local::lab_tricks::{try_trick, Outcome as TrickOutcome};
+use crate::core::Verdict;
+use crate::local::trouble::{try_trick, Outcome as TrickOutcome, Trick};
+use std::net::SocketAddr;
 use crate::local::LocalView;
 use olc_board::BoardLink;
 use super::roles::ATTACK_AMOUNT;
@@ -30,7 +32,10 @@ struct Run {
     thread: Option<JoinHandle<()>>,
 }
 
-type TrickAnswer = Result<(u32, TrickOutcome), String>;
+/// What one trick got from one node: its verdict, or why it could not be tried there.
+type TrickAnswer = (u32, Trick, Result<TrickOutcome, String>);
+/// Each node's newest verdicts, as its status line said them, for the thread that tries tricks.
+pub(super) type Verdicts = Arc<Mutex<BTreeMap<u32, Vec<Verdict>>>>;
 
 #[derive(Default)]
 pub(super) struct Runs {
@@ -40,8 +45,7 @@ pub(super) struct Runs {
     pub maker: Option<(u32, u64, Instant)>,
     run: Option<Run>,
     tricks: Vec<(u32, Receiver<TrickAnswer>)>,
-    /// The tricks are not built yet.
-    pub trick_error: bool,
+    pub verdicts: Verdicts,
 }
 
 impl Runs {
@@ -53,15 +57,24 @@ impl Runs {
         self.run.as_ref().is_some_and(|run| run.ids.contains(&id) || run.public.contains(&id))
     }
 
-    /// Every trick on every target, one after another, on a thread of its own.
-    pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, targets: Vec<(u32, String)>, funds: PathBuf) {
+    /// Every trick on every target, one after another on a thread of its own: two at once on
+    /// one node could mix their verdicts. A trick that cannot be tried on one node is said, and
+    /// the rest go on.
+    pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, targets: Vec<(u32, SocketAddr)>, funds: PathBuf) {
         let (answers, inbox) = channel();
+        let verdicts = Arc::clone(&self.verdicts);
         thread::spawn(move || {
             for trick in Trick::ALL {
                 for (target, address) in &targets {
-                    let answer = try_trick(trick, &coin, address, &funds).map(|outcome| (*target, outcome));
-                    let failed = answer.is_err();
-                    if answers.send(answer).is_err() || failed {
+                    // The network runs on while a trick waits: honest blocks and payments the node
+                    // takes would be read as the trick's verdict, so only refusals are passed on.
+                    // A trick a node takes then shows as unanswered, never as refused.
+                    let seen = || {
+                        let all = verdicts.lock().ok().and_then(|all| all.get(target).cloned()).unwrap_or_default();
+                        all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
+                    };
+                    let outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+                    if answers.send((*target, trick, outcome)).is_err() {
                         return;
                     }
                 }
@@ -312,24 +325,33 @@ impl Keeper {
     }
 
     fn tricks_turn(&mut self) {
+        if let Ok(mut all) = self.runs.verdicts.lock() {
+            all.clear();
+            for member in &self.members {
+                if let Some(status) = &member.status {
+                    all.insert(member.id, status.verdicts.clone());
+                }
+            }
+        }
         let mut answers = Vec::new();
         for (exploiter, inbox) in &self.runs.tricks {
             while let Ok(answer) = inbox.try_recv() {
                 answers.push((*exploiter, answer));
             }
         }
-        for (exploiter, answer) in answers {
-            match answer {
-                Ok((target, outcome)) => {
-                    let row = TrickRow { trick: outcome.trick, by: target, refused: outcome.refused, rule: outcome.reason.clone() };
+        for (exploiter, (target, trick, answer)) in answers {
+            let row = match answer {
+                Ok(outcome) => {
+                    let rule = outcome.reason.clone().unwrap_or_default();
                     if outcome.refused {
-                        self.event(What::Refused { by: target, trick: outcome.trick, rule: outcome.reason });
+                        self.event(What::Refused { by: target, trick, rule: rule.clone() });
                     }
-                    if let Some(member) = self.member_mut(exploiter) {
-                        member.tricks.push(row);
-                    }
+                    TrickRow { trick, by: target, refused: outcome.refused, expected: outcome.refused_as_expected(), rule, failed: None }
                 }
-                Err(_) => self.runs.trick_error = true,
+                Err(error) => TrickRow { trick, by: target, refused: false, expected: false, rule: String::new(), failed: Some(error) },
+            };
+            if let Some(member) = self.member_mut(exploiter) {
+                member.tricks.push(row);
             }
         }
     }

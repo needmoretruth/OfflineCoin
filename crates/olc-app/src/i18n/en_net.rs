@@ -40,7 +40,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.wait_pool", "Drag miners in here."),
     ("net.wait_run", "Starts when the other experiment ends."),
     ("net.wait_target", "Needs someone else to try it on."),
-    ("net.tricks_not_yet", "Its tricks are not built yet."),
     ("net.found", "{} blocks found"),
     ("net.members", "{} miners"),
     ("net.holds_all", "Keeps {} blocks"),
@@ -65,7 +64,12 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.fact_receiver", "Got {} payments, {} settled, {} undone."),
     ("net.fact_spammer", "Sent {} small payments. {} KB wait for a block."),
     ("net.fact_attacker", "Mines {}% of all and holds {} coins."),
-    ("net.fact_trick", "{}: tried on {}, refused by {}"),
+    ("net.fact_trick", "Tried on {}, refused by {}."),
+    ("net.fact_tricks", "Tried {} tricks on {} others. Refused {} times."),
+    ("net.trick_let_through", "{} let it through."),
+    ("net.trick_failed", "Could not try it on {}."),
+    ("net.tricks_all", "Each trick"),
+    ("net.trick_skip_light", "Keepers of a summary check no blocks or payments, so it skips them."),
     ("net.speed", "Speed"),
     ("net.speed_hash", "{} tries a second"),
     ("net.speed_pay", "{} a minute"),
@@ -92,11 +96,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.legend_replaced", "Replaced"),
     ("net.make", "Make blocks now"),
     ("net.making", "Making blocks: {} of {}."),
-    ("net.trick_signature", "Fake signature"),
-    ("net.trick_double", "Spend a coin twice"),
-    ("net.trick_reward", "Too big a reward"),
-    ("net.trick_work", "A block with no work"),
-    ("net.trick_missing", "Spend a coin that does not exist"),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[

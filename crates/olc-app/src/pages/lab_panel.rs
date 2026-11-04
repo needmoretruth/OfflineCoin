@@ -2,7 +2,7 @@
 //! most three controls: its speed (a stop and three presets, and a slider), where a miner mines
 //! (alone or in a pool) or one action of its own, and remove.
 use super::lab_glyphs as glyphs;
-use super::lab_tokens::{facts, name};
+use super::lab_tokens::{facts, name, tricks};
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, Order, Phase};
 use crate::ui::tokens::{self, Tokens};
@@ -92,7 +92,7 @@ fn action(ui: &mut Ui, t: &Tokens, voice: Voice, member: &Member, state: &NetSta
             let ended = state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed));
             ("net.again_attack", ended && !member.busy)
         }
-        Kind::Exploiter => ("net.again_tricks", member.waits.is_none() || member.waits == Some("net.tricks_not_yet")),
+        Kind::Exploiter => ("net.again_tricks", member.waits.is_none()),
         Kind::Full | Kind::Pruned | Kind::Light | Kind::Receiver => {
             let key = if member.paused { "net.reconnect" } else { "net.cut" };
             let clicked = button_on(ui, t, text(voice, key), ButtonKind::Plain, enabled).clicked();
@@ -116,6 +116,18 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, held: &mut Held, member: &Mem
     ui.add_space(4.0);
     for line in facts(voice, member, state) {
         ui.label(RichText::new(line).color(t.soft));
+    }
+    let tried = tricks(voice, member, state);
+    if !tried.is_empty() {
+        let labels = (text(voice, "net.tricks_all"), text(voice, "explain.hide"));
+        crate::ui::explain::details(ui, t, "lab-tricks", labels, |ui| {
+            for (what, rule) in &tried {
+                if !what.is_empty() {
+                    ui.label(RichText::new(what).color(t.text));
+                }
+                ui.label(RichText::new(rule).color(t.muted).size(tokens::META));
+            }
+        });
     }
     if member.busy {
         ui.label(RichText::new(text(voice, "net.busy")).color(t.warn));

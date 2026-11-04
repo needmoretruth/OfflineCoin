@@ -8,7 +8,7 @@ use super::lab_tokens::{name, status_line};
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, What};
 use crate::ui::tokens::{self, Tokens};
-use egui::{vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
+use egui::{vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
@@ -50,12 +50,40 @@ fn in_pool(member: &Member, members: &[Member]) -> bool {
     member.pool.is_some_and(|pool| members.iter().any(|other| other.id == pool))
 }
 
+/// Room inside a pool for one miner: its token, its name and its line.
+const CELL: Vec2 = vec2(88.0, 68.0);
+/// Below a ring or a token: its name and its line.
+const TEXT_BELOW: f32 = 36.0;
+
+/// Columns and rows of the miners inside a pool.
+fn grid(inside: usize) -> (usize, usize) {
+    let columns = match inside {
+        0 | 1 => 1,
+        2..=4 => 2,
+        5 | 6 => 3,
+        _ => 4,
+    };
+    (columns, inside.div_ceil(columns).max(1))
+}
+
+/// A pool's ring holds its miners' grid with a little room around it.
 fn ring_radius(inside: usize) -> f32 {
-    match inside {
-        0 | 1 => TOKEN + 16.0,
-        2..=4 => 30.0 + TOKEN + 10.0,
-        _ => 42.0 + TOKEN + 10.0,
+    if inside == 0 {
+        return TOKEN + 26.0;
     }
+    let (columns, rows) = grid(inside);
+    let half = vec2(columns as f32 * CELL.x, rows as f32 * CELL.y) / 2.0;
+    half.length() + 6.0
+}
+
+/// The map's height for these members: the given height, or more for a large pool.
+pub fn height_for(members: &[Member], least: f32) -> f32 {
+    let widest = members
+        .iter()
+        .filter(|member| member.kind == Kind::Pool)
+        .map(|pool| ring_radius(members.iter().filter(|member| member.pool == Some(pool.id)).count()))
+        .fold(TOKEN, f32::max);
+    least.max(widest * 2.0 + TEXT_BELOW + 28.0)
 }
 
 /// Tokens on an ellipse in the order they came, pools with their miners inside.
@@ -67,33 +95,38 @@ fn places(members: &[Member], rect: Rect) -> Places {
         rings.insert(pool.id, ring_radius(inside));
     }
     let widest = rings.values().copied().fold(TOKEN, f32::max);
-    let (rx, ry) = ((rect.width() / 2.0 - widest - 40.0).max(20.0), (rect.height() / 2.0 - widest - 14.0).max(10.0));
+    let (rx, ry) = ((rect.width() / 2.0 - widest - 40.0).max(20.0), (rect.height() / 2.0 - widest - TEXT_BELOW).max(10.0));
     let mut at = BTreeMap::new();
     let count = outer.len();
+    // Two side by side read better than one above the other; more go round from the top.
+    let first = if count == 2 { TAU / 2.0 } else { -TAU / 4.0 };
     for (index, member) in outer.iter().enumerate() {
         let place = match count {
             1 => rect.center(),
             _ => {
-                let angle = -TAU / 4.0 + index as f32 * TAU / count as f32;
+                let angle = first + index as f32 * TAU / count as f32;
                 rect.center() + vec2(angle.cos() * rx, angle.sin() * ry)
             }
         };
-        at.insert(member.id, place);
+        // A token or a ring stays inside the map with its name under it.
+        let reach = rings.get(&member.id).copied().unwrap_or(TOKEN);
+        let x = place.x.clamp(rect.left() + reach + 8.0, (rect.right() - reach - 8.0).max(rect.left() + reach + 8.0));
+        let y = place.y.clamp(rect.top() + reach + 8.0, (rect.bottom() - reach - TEXT_BELOW).max(rect.top() + reach + 8.0));
+        at.insert(member.id, Pos2::new(x, y));
     }
     for (pool, _) in rings.clone() {
         let Some(centre) = at.get(&pool).copied() else {
             continue;
         };
         let inside: Vec<u32> = members.iter().filter(|member| member.pool == Some(pool)).map(|member| member.id).collect();
-        let reach = if inside.len() > 4 { 42.0 } else { 30.0 };
+        let (columns, rows) = grid(inside.len());
+        let corner = centre - vec2(columns as f32 * CELL.x, rows as f32 * CELL.y) / 2.0;
         for (index, id) in inside.iter().enumerate() {
-            let place = match inside.len() {
-                1 => centre,
-                count => {
-                    let angle = -TAU / 4.0 + index as f32 * TAU / count as f32;
-                    centre + vec2(angle.cos(), angle.sin()) * reach
-                }
-            };
+            let (column, row) = (index % columns, index / columns);
+            // The last row stands centred when it is not full.
+            let in_row = if row + 1 == rows { inside.len() - row * columns } else { columns };
+            let shift = (columns - in_row) as f32 * CELL.x / 2.0;
+            let place = corner + vec2(shift + (column as f32 + 0.5) * CELL.x, row as f32 * CELL.y + TOKEN + 4.0);
             at.insert(*id, place);
         }
     }
@@ -107,6 +140,7 @@ fn along(from: Pos2, to: Pos2, part: f32) -> Pos2 {
 /// Draws the map in `height` and says what the hand did.
 pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &NetState, height: f32) -> Option<MapAct> {
     let width = ui.available_width();
+    let height = height_for(&state.members, height);
     let (rect, background) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(tokens::RADIUS_CARD), t.back_floor.gamma_multiply(0.6));
@@ -156,7 +190,7 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
         let reach = pool_radius.unwrap_or(TOKEN);
         let hit = Rect::from_center_size(centre, vec2(reach * 2.0, reach * 2.0));
         // Named with its line, so a screen reader says what it does as the map shows it.
-        let (line, _) = status_line(t, voice, member, state);
+        let (line, _) = status_line(t, voice, member);
         let label = if line.is_empty() { name(voice, member) } else { format!("{}, {line}", name(voice, member)) };
         let response = ui.interact(hit, ui.scope_id().with(("lab-token", member.id)), Sense::click_and_drag());
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -183,14 +217,14 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
                 if selected {
                     painter.circle_stroke(centre, radius + 4.0, Stroke::new(2.5, t.info));
                 }
-                text_under(&painter, t, voice, member, state, centre + vec2(0.0, radius + 4.0));
+                text_under(&painter, t, voice, member, centre + vec2(0.0, radius + 4.0));
             }
             None => {
                 token(&painter, t, member, drawn_at, selected || response.hovered());
                 if selected {
                     painter.circle_stroke(drawn_at, TOKEN + 5.0, Stroke::new(2.5, t.info));
                 }
-                text_under(&painter, t, voice, member, state, drawn_at + vec2(0.0, TOKEN + 4.0));
+                text_under(&painter, t, voice, member, drawn_at + vec2(0.0, TOKEN + 4.0));
             }
         }
     }
@@ -225,9 +259,9 @@ fn token(painter: &egui::Painter, t: &Tokens, member: &Member, centre: Pos2, lif
     }
 }
 
-fn text_under(painter: &egui::Painter, t: &Tokens, voice: Voice, member: &Member, state: &NetState, top: Pos2) {
+fn text_under(painter: &egui::Painter, t: &Tokens, voice: Voice, member: &Member, top: Pos2) {
     painter.text(top, Align2::CENTER_TOP, name(voice, member), FontId::proportional(12.5), t.text);
-    let (line, colour) = status_line(t, voice, member, state);
+    let (line, colour) = status_line(t, voice, member);
     if !line.is_empty() {
         painter.text(top + vec2(0.0, 16.0), Align2::CENTER_TOP, line, FontId::proportional(11.5), colour);
     }
@@ -309,10 +343,11 @@ fn flights(painter: &egui::Painter, t: &Tokens, voice: Voice, view: &MapView, pl
                     flash(at, t.warn, &fill(text(voice, "net.flash_replaced"), &[&blocks.to_string()]), part);
                 }
             }
-            What::Refused { by, rule, .. } => {
+            What::Refused { by, rule, trick } => {
                 if let Some(at) = spot(*by) {
-                    let short: String = rule.chars().take(40).collect();
-                    flash(at, t.bad, &short, part);
+                    // Plain words name the rule; the trade's own name for it is what the node said.
+                    let named = if voice.mode == crate::settings::Mode::Expert && !rule.is_empty() { rule.as_str() } else { text(voice, trick.rule_key()) };
+                    flash(at, t.bad, named, part);
                     glyphs::cross(painter, at + vec2(TOKEN * 0.8, -TOKEN * 0.8), 14.0, t.bad);
                 }
             }

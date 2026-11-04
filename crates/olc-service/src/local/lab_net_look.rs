@@ -38,6 +38,9 @@ impl Keeper {
             return;
         };
         if status.paid.is_some() {
+            if let Some(member) = self.member_mut(id) {
+                member.received.sent += 1;
+            }
             self.event(What::Paid { from: id, to: asked.to, amount: asked.amount });
         } else if let Some(member) = self.member_mut(id) {
             member.waits = Some("net.wait_coins");
@@ -121,6 +124,9 @@ impl Keeper {
             }
             let before = self.payouts.insert((pool, miner), paid).unwrap_or(0);
             if paid > before {
+                if let Some(member) = self.member_mut(miner) {
+                    member.received.from_pool += paid - before;
+                }
                 self.event(What::Payout { from: pool, to: miner, amount: paid - before });
             }
         }
@@ -129,6 +135,7 @@ impl Keeper {
     /// Payments each receiver holds: settled under enough blocks, or undone.
     fn incoming(&mut self) {
         let mut news = Vec::new();
+        let mut fresh = Vec::new();
         for member in &self.members {
             let Some(status) = &member.status else {
                 continue;
@@ -138,6 +145,9 @@ impl Keeper {
             };
             for payment in &line.incoming {
                 let key = (member.id, payment.id.clone());
+                if !self.seen_incoming.contains(&key) {
+                    fresh.push(key.clone());
+                }
                 let deep = payment.height.is_some_and(|height| status.height + 1 >= height + SETTLED_AFTER);
                 if deep && !payment.gone && !self.settled.contains(&key) {
                     news.push((key, payment.amount, true));
@@ -146,8 +156,21 @@ impl Keeper {
                 }
             }
         }
+        for key in fresh {
+            if let Some(member) = self.member_mut(key.0) {
+                member.received.payments += 1;
+            }
+            self.seen_incoming.insert(key);
+        }
         for (key, amount, settled) in news {
             let at = key.0;
+            if let Some(member) = self.member_mut(at) {
+                if settled {
+                    member.received.settled += 1;
+                } else {
+                    member.received.undone += 1;
+                }
+            }
             if settled {
                 self.settled.insert(key);
                 self.event(What::Settled { at, amount });

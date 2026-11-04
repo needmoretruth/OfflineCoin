@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 pub use super::lab::{Frame, LabKind, LabState, Mark, Phase, Picture as Drawing, Row, Side};
 pub use super::lab_room::{Limit, Room, MOST};
-pub use super::lab_tricks::{Trick, NOT_YET};
+pub use super::trouble::Trick;
 
 #[path = "lab_net_add.rs"]
 mod add;
@@ -146,6 +146,19 @@ pub struct Member {
     pub tricks: Vec<TrickRow>,
     /// It takes part in the experiment running now, so its controls wait.
     pub busy: bool,
+    /// Payments it received since it was added, counted as they come: its node keeps only the
+    /// newest few.
+    pub received: Received,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Received {
+    pub payments: u64,
+    pub settled: u64,
+    pub undone: u64,
+    /// Payments it made, and coins its pool paid it.
+    pub sent: u64,
+    pub from_pool: u64,
 }
 
 impl Member {
@@ -167,7 +180,12 @@ pub struct TrickRow {
     pub trick: Trick,
     pub by: u32,
     pub refused: bool,
+    /// Refused for the rule the trick breaks.
+    pub expected: bool,
+    /// The rule the node named, as its chain says it.
     pub rule: String,
+    /// Why the trick could not be tried on this node.
+    pub failed: Option<String>,
 }
 
 /// Something that just happened, for the window to draw once.
@@ -334,6 +352,7 @@ struct Keeper {
     /// Shares and payouts each pool counted for each miner.
     accepted: BTreeMap<(u32, u32), u64>,
     payouts: BTreeMap<(u32, u32), u64>,
+    seen_incoming: BTreeSet<(u32, String)>,
     settled: BTreeSet<(u32, String)>,
     undone: BTreeSet<(u32, String)>,
     runs: runs::Runs,
@@ -373,6 +392,7 @@ impl Keeper {
             told: BTreeMap::new(),
             accepted: BTreeMap::new(),
             payouts: BTreeMap::new(),
+            seen_incoming: BTreeSet::new(),
             settled: BTreeSet::new(),
             undone: BTreeSet::new(),
             runs: runs::Runs::default(),

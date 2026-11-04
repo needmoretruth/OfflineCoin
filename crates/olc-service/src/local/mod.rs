@@ -9,7 +9,6 @@ pub mod lab_net;
 mod lab_picture;
 mod lab_room;
 pub mod lab_side;
-mod lab_tricks;
 mod measure;
 mod preset;
 mod spawn;

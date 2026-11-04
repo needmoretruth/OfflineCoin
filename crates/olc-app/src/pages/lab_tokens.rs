@@ -3,7 +3,7 @@
 //! heights, hash rates and the mempool.
 use crate::core::format_coins;
 use crate::i18n::{fill, text, Voice};
-use crate::local::lab_net::{Kind, Member, NetState, What};
+use crate::local::lab_net::{Kind, Member, NetState, Trick};
 use crate::settings::Mode;
 use crate::ui::tokens::Tokens;
 use egui::Color32;
@@ -44,7 +44,7 @@ fn coins(units: u64) -> String {
 }
 
 /// The one line under a token, and its colour.
-pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> (String, Color32) {
+pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color32) {
     if member.ended.is_some() {
         return (text(voice, "net.ended").to_string(), t.bad);
     }
@@ -71,21 +71,35 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) 
         Kind::Pruned if expert => say("net.holds_recent", line.oldest_held),
         Kind::Pruned => say("net.holds_recent", status.height.saturating_sub(line.oldest_held) + 1),
         Kind::Light => say("net.holds_summary", status.headers.unwrap_or(status.height)),
-        Kind::Receiver => say("net.received", line.incoming.len() as u64),
+        Kind::Receiver => say("net.received", member.received.payments),
         Kind::Spammer => say("net.spam_sent", line.spam_sent),
         Kind::Sender | Kind::Exploiter => match member.waits {
             Some(key) => text(voice, key).to_string(),
             None if member.kind == Kind::Exploiter => say("net.refused_count", member.tricks.iter().filter(|row| row.refused).count() as u64),
-            None => say("net.sent", sent_by(state, member.id)),
+            None => say("net.sent", member.received.sent),
         },
     };
     let colour = if member.kind == Kind::Spammer && line.waiting_bytes > line.max_block_bytes { t.warn } else { t.muted };
     (shown, colour)
 }
 
-/// Payments this sender made since it was added.
-pub fn sent_by(state: &NetState, id: u32) -> u64 {
-    state.events.iter().filter(|event| matches!(event.what, What::Paid { from, .. } if from == id)).count() as u64
+/// Each trick the bug exploiter tried: what it did, on how many nodes and how many refused it,
+/// and the rule that stopped it.
+pub fn tricks(voice: Voice, member: &Member, state: &NetState) -> Vec<(String, String)> {
+    let mut lines = Vec::new();
+    for trick in Trick::ALL {
+        let rows: Vec<_> = member.tricks.iter().filter(|row| row.trick == trick).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let refused = rows.iter().filter(|row| row.refused).count();
+        let counted = fill(text(voice, "net.fact_trick"), &[&rows.len().to_string(), &refused.to_string()]);
+        lines.push((text(voice, trick.key()).to_string(), format!("{counted} {}", text(voice, trick.rule_key()))));
+    }
+    if !lines.is_empty() && state.members.iter().any(|other| other.kind == Kind::Light) {
+        lines.push((String::new(), text(voice, "net.trick_skip_light").to_string()));
+    }
+    lines
 }
 
 /// At most three lines that say what it holds and does now.
@@ -99,7 +113,7 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     match member.kind {
         Kind::Miner => match member.pool.and_then(|pool| state.members.iter().find(|other| other.id == pool)) {
             Some(pool) => {
-                let paid = paid_by_pool(state, member.id);
+                let paid = member.received.from_pool;
                 facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(paid)]));
             }
             None => facts.push(with("net.fact_miner", &[&status.blocks_mined.to_string(), &coins(status.balance)])),
@@ -123,24 +137,27 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
         Kind::Full => facts.push(with("net.fact_full", &[&status.height.to_string()])),
         Kind::Pruned => facts.push(with("net.fact_pruned", &[&line.oldest_held.to_string()])),
         Kind::Light => facts.push(with("net.fact_light", &[&status.headers.unwrap_or(status.height).to_string()])),
-        Kind::Sender => {
-            let sent = state.events.iter().filter(|event| matches!(event.what, What::Paid { from, .. } if from == member.id)).count();
-            facts.push(with("net.fact_sender", &[&sent.to_string(), &coins(status.balance)]));
-        }
+        Kind::Sender => facts.push(with("net.fact_sender", &[&member.received.sent.to_string(), &coins(status.balance)])),
         Kind::Receiver => {
-            let settled = state.events.iter().filter(|event| matches!(event.what, What::Settled { at, .. } if at == member.id)).count();
-            let undone = line.incoming.iter().filter(|payment| payment.gone).count();
-            facts.push(with("net.fact_receiver", &[&line.incoming.len().to_string(), &settled.to_string(), &undone.to_string()]));
+            let got = member.received;
+            facts.push(with("net.fact_receiver", &[&got.payments.to_string(), &got.settled.to_string(), &got.undone.to_string()]));
         }
         Kind::Spammer => facts.push(with("net.fact_spammer", &[&line.spam_sent.to_string(), &(line.waiting_bytes / 1024).to_string()])),
         Kind::Exploiter => {
-            for trick in crate::local::lab_net::Trick::ALL {
-                let rows: Vec<_> = member.tricks.iter().filter(|row| row.trick == trick).collect();
-                if rows.is_empty() {
-                    continue;
-                }
+            let rows = &member.tricks;
+            if let Some(newest) = rows.last() {
+                let tried = Trick::ALL.iter().filter(|trick| rows.iter().any(|row| row.trick == **trick)).count();
+                let nodes: std::collections::BTreeSet<u32> = rows.iter().map(|row| row.by).collect();
                 let refused = rows.iter().filter(|row| row.refused).count();
-                facts.push(with("net.fact_trick", &[text(voice, trick.key()), &rows.len().to_string(), &refused.to_string()]));
+                facts.push(with("net.fact_tricks", &[&tried.to_string(), &nodes.len().to_string(), &refused.to_string()]));
+                facts.push(text(voice, newest.trick.key()).to_string());
+                let through = rows.iter().filter(|row| !row.refused && row.failed.is_none()).count();
+                let failed = rows.iter().filter(|row| row.failed.is_some()).count();
+                facts.push(match (through, failed) {
+                    (1.., _) => with("net.trick_let_through", &[&through.to_string()]),
+                    (0, 1..) => with("net.trick_failed", &[&failed.to_string()]),
+                    _ => text(voice, newest.trick.rule_key()).to_string(),
+                });
             }
         }
     }
@@ -151,9 +168,3 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     facts
 }
 
-fn paid_by_pool(state: &NetState, miner: u32) -> u64 {
-    state.events.iter().filter_map(|event| match event.what {
-        What::Payout { to, amount, .. } if to == miner => Some(amount),
-        _ => None,
-    }).sum()
-}

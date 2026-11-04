@@ -4,7 +4,8 @@
 //! `cargo test -p olc-app --test lab_nodes -- --ignored --test-threads 1`.
 use olc_app::local::is_running;
 use olc_app::local::lab::{use_place, LabKind, Phase};
-use olc_app::local::lab_net::{Kind, LabNet, Member, NetState, Order, Scene, What, NOT_YET};
+use olc_app::local::lab_net::{Kind, LabNet, Member, NetState, Order, Scene, Trick, What};
+use std::collections::BTreeSet;
 use olc_lab::{Outcome, Step};
 use std::path::PathBuf;
 use std::thread;
@@ -216,13 +217,22 @@ fn the_bug_exploiter_tries_its_tricks_on_every_node() {
     place("net-exploit");
     let net = LabNet::start();
     net.order(Order::Scene(Scene::Exploit));
-    let state = wait_for(&net, Duration::from_secs(180), "the tricks were tried", |state| {
-        of(state, Kind::Exploiter).first().is_some_and(|member| member.waits == Some("net.tricks_not_yet") || !member.tricks.is_empty())
+    // Two miners and the full node judge; the light node checks neither blocks nor payments.
+    let judges = 3;
+    let state = wait_for(&net, Duration::from_secs(300), "every trick tried on every node", |state| {
+        of(state, Kind::Exploiter).first().is_some_and(|member| member.tricks.len() >= Trick::ALL.len() * judges)
     });
     let exploiter = &of(&state, Kind::Exploiter)[0];
-    if exploiter.waits == Some("net.tricks_not_yet") {
-        println!("the tricks say: {NOT_YET}");
+    let light = of(&state, Kind::Light)[0].id;
+    let by: BTreeSet<u32> = exploiter.tricks.iter().map(|row| row.by).collect();
+    assert_eq!(by.len(), judges, "every node but the light one was tried");
+    assert!(!by.contains(&light));
+    for row in &exploiter.tricks {
+        assert!(row.refused && row.expected, "{row:?} was not refused for its own rule");
+        println!("{:?} refused by {} for {}", row.trick, row.by, row.rule);
     }
+    let flashed = state.events.iter().filter(|event| matches!(event.what, What::Refused { .. })).count();
+    assert!(flashed >= exploiter.tricks.len().min(200), "each refusal shows on the map");
 }
 
 #[test]

@@ -14,6 +14,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub(super) const SHOT_SIZE: (u32, u32) = (1280, 800);
+/// Frames a scroll to a widget takes to come to rest.
+const SCROLL_STEPS: usize = 30;
 
 pub(super) struct LabRun {
     pub window: Window,
@@ -58,7 +60,9 @@ impl LabRun {
     }
 
     pub fn labels(&self) -> Vec<String> {
-        self.window.query_all(By::new().include_labels()).filter_map(|node| node.accesskit_node().label()).collect()
+        // A button holds its words as its label; a line of text holds them as its value.
+        let words = |node: egui_kittest::Node<'_>| node.accesskit_node().label().or_else(|| node.accesskit_node().value());
+        self.window.query_all(By::new().include_labels()).filter_map(words).collect()
     }
 
     /// The token of this name and its line: "Miner 1, 2 blocks found".
@@ -86,7 +90,8 @@ impl LabRun {
         let find = |window: &Window| window.query(By::new().role(Role::Button).label(label)).is_some();
         assert!(find(&self.window), "no button {label:?} on the screen; buttons: {:?}", self.buttons());
         self.window.get_by_role_and_label(Role::Button, label).scroll_to_me();
-        self.window.run_steps(2);
+        // The page glides to it over several frames; a click before it stops would miss.
+        self.window.run_steps(SCROLL_STEPS);
         self.window.get_by_role_and_label(Role::Button, label).click();
         self.window.run_steps(2);
         self.clicks += 1;
@@ -109,6 +114,10 @@ impl LabRun {
     /// Clicks a token on the map: its panel opens, or closes when it was open.
     pub fn select(&mut self, name: &str) {
         let label = self.token(name).unwrap_or_else(|| panic!("no token {name}"));
+        self.window.get_by_role_and_label(Role::Button, &label).scroll_to_me();
+        self.window.run_steps(SCROLL_STEPS);
+        // Its line may have changed while the page moved.
+        let label = self.token(name).unwrap_or_else(|| panic!("no token {name}"));
         self.window.get_by_role_and_label(Role::Button, &label).click();
         self.window.run_steps(2);
         self.clicks += 1;
@@ -120,6 +129,9 @@ impl LabRun {
             let label = run.token(name).unwrap_or_else(|| panic!("no token {name}"));
             run.window.get_by_role_and_label(Role::Button, &label).rect().center()
         };
+        let label = self.token(from).unwrap_or_else(|| panic!("no token {from}"));
+        self.window.get_by_role_and_label(Role::Button, &label).scroll_to_me();
+        self.window.run_steps(SCROLL_STEPS);
         let (start, end) = (centre(self, from), centre(self, onto));
         self.window.hover_at(start);
         self.window.run_steps(1);
@@ -142,7 +154,7 @@ impl LabRun {
             self.window.run_steps(1);
             if seen(self) {
                 // What arrived after the frame was drawn is drawn before anyone looks.
-                self.window.run_steps(2);
+                self.window.run_steps(1);
                 println!("{what}: after {:.0?}", start.elapsed());
                 return;
             }
@@ -162,6 +174,16 @@ impl LabRun {
             shot(&mut self.window, &folder, &format!("lab-net-{name}-{}-1280", self.tag));
         } else {
             self.window.run_steps(SETTLE_STEPS);
+        }
+    }
+
+    /// Keeps a picture of this very frame: a moment on the map lasts a second or two, and each
+    /// frame of the test window is a quarter of a second.
+    pub fn shoot_now(&mut self, name: &str) {
+        if let Some(folder) = self.folder.clone() {
+            let image = self.window.render().expect("a renderer");
+            std::fs::create_dir_all(&folder).expect("the picture folder");
+            image.save(folder.join(format!("lab-net-{name}-{}-1280.png", self.tag))).expect("save");
         }
     }
 

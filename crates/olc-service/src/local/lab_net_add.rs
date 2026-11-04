@@ -57,6 +57,7 @@ impl Keeper {
             ended: None,
             waits: None,
             tricks: Vec::new(),
+            received: Received::default(),
             busy: false,
         });
         Ok(id)

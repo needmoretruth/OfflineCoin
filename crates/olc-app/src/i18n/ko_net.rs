@@ -40,7 +40,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.wait_pool", "채굴자를 여기로 끌어다 놓으세요."),
     ("net.wait_run", "다른 실험이 끝나면 시작합니다."),
     ("net.wait_target", "해 볼 상대가 있어야 합니다."),
-    ("net.tricks_not_yet", "속임수 기능이 아직 준비되지 않았습니다."),
     ("net.found", "블록 {}개 찾음"),
     ("net.members", "채굴자 {}명"),
     ("net.holds_all", "블록 {}개 보관"),
@@ -65,7 +64,12 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.fact_receiver", "{}번 받았습니다. {}번 확정됐고 {}번 취소됐습니다."),
     ("net.fact_spammer", "작은 송금을 {}개 보냈습니다. {} KB가 블록을 기다립니다."),
     ("net.fact_attacker", "전체 채굴 힘의 {}%로 캐고 코인 {}개를 가졌습니다."),
-    ("net.fact_trick", "{}: {}곳에 해 봤고 {}곳이 막음"),
+    ("net.fact_trick", "{}곳에 해 봤고 {}곳이 막았습니다."),
+    ("net.fact_tricks", "수법 {}개를 {}곳에 해 봤고 {}번 막혔습니다."),
+    ("net.trick_let_through", "{}곳이 막지 않았습니다."),
+    ("net.trick_failed", "{}곳에는 해 보지 못했습니다."),
+    ("net.tricks_all", "수법별 결과"),
+    ("net.trick_skip_light", "요약만 보관하는 참가자는 블록과 송금을 검사하지 않아서 빼고 해 봅니다."),
     ("net.speed", "속도"),
     ("net.speed_hash", "초당 {}번"),
     ("net.speed_pay", "1분에 {}번"),
@@ -92,11 +96,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.legend_replaced", "바뀐 블록"),
     ("net.make", "블록 바로 만들기"),
     ("net.making", "블록을 만드는 중입니다. {}/{}"),
-    ("net.trick_signature", "가짜 서명"),
-    ("net.trick_double", "같은 코인 두 번 쓰기"),
-    ("net.trick_reward", "보상 부풀리기"),
-    ("net.trick_work", "작업 없이 만든 블록"),
-    ("net.trick_missing", "없는 코인 쓰기"),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[

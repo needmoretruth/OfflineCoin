@@ -76,8 +76,11 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState) -> Option<O
         }
         if !replaced.is_empty() {
             ui.add_space(GAP * 2.0);
+            // A block's id says something only to who reads ids.
+            let expert = voice.mode == crate::settings::Mode::Expert;
             for id in replaced.iter().take(room / 3) {
-                tile(ui, t, t.warn, 0.0, true, &id.chars().take(4).collect::<String>());
+                let label: String = if expert { id.chars().take(4).collect() } else { String::new() };
+                tile(ui, t, t.warn, 0.0, true, &label);
             }
         }
     });

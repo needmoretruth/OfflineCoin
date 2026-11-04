@@ -101,7 +101,7 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     let sender = add_and_see(&mut run, Kind::Sender, 1);
     let receiver = add_and_see(&mut run, Kind::Receiver, 1);
     run.wait(120, "the first payment leaves", |run| run.count(&sender).is_some_and(|sent| sent >= 1.0));
-    run.shoot("03-payment-travels");
+    run.shoot_now("03-payment-travels");
     run.select(&receiver);
     run.wait(120, "a payment settles", |run| receiver_counts(run).is_some_and(|(_, settled, _)| settled >= 1.0));
     run.shoot("03-payment-settled");
@@ -126,15 +126,9 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     let piled = |run: &LabRun| run.line_numbers("net.waiting").is_some_and(|numbers| numbers.len() >= 2 && numbers[0] > numbers[1]);
     run.wait(240, "the waiting list passes a block", piled);
     run.shoot("05-spam");
-    // 6. A bug exploiter: each trick refused by every node, or, until the tricks land, a line saying so.
+    // 6. A bug exploiter: each trick refused by every node, with the rule named.
     let exploiter = add_and_see(&mut run, Kind::Exploiter, 1);
-    let not_yet = format!("{exploiter}, {}", run.say("net.tricks_not_yet"));
-    run.wait(240, "the tricks were tried", |run| {
-        run.token(&exploiter).is_some_and(|label| label == not_yet) || run.count(&exploiter).is_some_and(|refused| refused >= 1.0)
-    });
-    run.select(&exploiter);
-    run.shoot("06-refused");
-    run.select(&exploiter);
+    every_trick_refused(&mut run, &exploiter);
     // The three keepers hold what their lines say.
     for kind in [Kind::Full, Kind::Pruned, Kind::Light] {
         let keeper = add_and_see(&mut run, kind, 1);
@@ -186,7 +180,7 @@ fn every_kind_does_its_part_in_expert_english() {
     let sender = add_and_see(&mut run, Kind::Sender, 1);
     let receiver = add_and_see(&mut run, Kind::Receiver, 1);
     run.wait(120, "the first payment leaves", |run| run.count(&sender).is_some_and(|sent| sent >= 1.0));
-    run.shoot("03-payment-travels");
+    run.shoot_now("03-payment-travels");
     counts(&mut run, &receiver, 1.0, 120);
     let spammer = add_and_see(&mut run, Kind::Spammer, 1);
     counts(&mut run, &spammer, 1.0, 120);
@@ -201,13 +195,7 @@ fn every_kind_does_its_part_in_expert_english() {
     run.shoot("04-attack-undone");
     run.select(&receiver);
     let exploiter = add_and_see(&mut run, Kind::Exploiter, 1);
-    let not_yet = format!("{exploiter}, {}", run.say("net.tricks_not_yet"));
-    run.wait(240, "the tricks were tried", |run| {
-        run.token(&exploiter).is_some_and(|label| label == not_yet) || run.count(&exploiter).is_some_and(|refused| refused >= 1.0)
-    });
-    run.select(&exploiter);
-    run.shoot("06-refused");
-    run.select(&exploiter);
+    every_trick_refused(&mut run, &exploiter);
     fits(&mut run, &miners[1]);
     run.close();
 }
@@ -256,15 +244,29 @@ fn every_setup_is_one_click_in_expert_english() {
             }
             Scene::Exploit => {
                 let exploiter = run.named(Kind::Exploiter, 1);
-                let not_yet = format!("{exploiter}, {}", run.say("net.tricks_not_yet"));
-                run.wait(240, "the tricks were tried", |run| {
-                    run.token(&exploiter).is_some_and(|label| label == not_yet) || run.count(&exploiter).is_some_and(|refused| refused >= 1.0)
-                });
+                every_trick_refused(&mut run, &exploiter);
             }
         }
         run.shoot(&format!("setup-{}", format!("{scene:?}").to_lowercase()));
     }
     run.close();
+}
+
+/// The first refusal flashes on the map; then every trick has been tried on every node that
+/// judges, and every one of them refused it.
+fn every_trick_refused(run: &mut LabRun, exploiter: &str) {
+    run.wait(240, "the first refusal", |run| run.count(exploiter).is_some_and(|refused| refused >= 1.0));
+    run.shoot_now("06-refused");
+    run.select(exploiter);
+    let all = crate::local::lab_net::Trick::ALL.len() as f64;
+    let done = |run: &LabRun| match run.line_numbers("net.fact_tricks").as_deref() {
+        Some([tried, nodes, refused, ..]) => *tried >= all && *refused >= all * *nodes,
+        _ => false,
+    };
+    run.wait(480, "every trick refused by every node", done);
+    run.press(run.say("net.tricks_all"));
+    run.shoot("06-tricks");
+    run.select(exploiter);
 }
 
 /// The Lab with everyone in it, the panel open, fits at the smallest and a large window with
