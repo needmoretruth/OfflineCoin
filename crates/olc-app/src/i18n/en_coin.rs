@@ -36,7 +36,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.rule_picture", "When each way's blocks came after mining changed"),
     ("coin.rule_measured", "Measured by really mining with {} second blocks. 0 min is when mining changed."),
     ("bad.not_one_of", "{} is one of {}."),
-    ("notice.olc_restarted", "OLC started over from a new first block in this version. Your wallet is the same; coins from before do not come along."),
+    ("home.old_olc", "OLC started over from a new first block in version 0.3. Your wallet is the same; coins from before do not come along."),
     ("notice.olc_retired", "That OLC ended in version 0.3. This app runs today's OLC."),
 ];
 
@@ -68,6 +68,6 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("pro.max_ahead_about", "A node takes no block this far ahead of its clock. 0 sets no limit."),
     ("pro.bitcoin_header", "Bitcoin header"),
     ("pro.bitcoin_header_about", "Blocks use Bitcoin's 80-byte header, so Bitcoin miners and pools can mine them."),
-    ("notice.olc_restarted", "OLC restarted from a new genesis in 0.3. Same keys; coins on the old chain do not carry over."),
+    ("home.old_olc", "OLC restarted from a new genesis in 0.3. Same keys; coins on the old chain do not carry over."),
     ("notice.olc_retired", "That OLC chain ended in 0.3. This app runs today's OLC."),
 ];

@@ -69,3 +69,28 @@ fn every_words_line_wraps_beside_its_button_on_the_smallest_window() {
     }
     assert!(wrong.is_empty(), "these lines push their button off or under the text: {wrong:#?}");
 }
+
+/// The coin file OfflineCoin 0.2 wrote for its built-in OLC.
+const OLC_0_2: &str = r#"{"name": "OfflineCoin", "ticker": "OLC", "message": "OLCC genesis", "genesis_time_ms": 1793491200000, "initial_difficulty": 900000, "premine": [], "rules": {"block_time_ms": 30000, "retarget_interval": 10, "reward": 5000000000, "halving_interval": 210000, "coinbase_maturity": 3, "max_block_bytes": 4096, "min_fee": 0, "min_difficulty": 30000, "floor_from_height": 20000}, "message_in_block": false, "upgrade_from": 6240}"#;
+
+#[test]
+fn home_says_why_an_app_from_0_2_starts_again_at_zero_until_closed() {
+    let root = scratch("old-olc");
+    let old = root.join("coins").join("82816fe40cdb");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("coin.json"), OLC_0_2).unwrap();
+    let settings = crate::settings::Settings { coin: Some("82816fe40cdb".into()), ..quiet_settings() };
+    let mut window = harness(app(root.clone(), settings, None), SIZES[0]);
+    window.state_mut().open("page.home");
+    wait_until(&mut window, |app| app.snapshot().old_olc_note);
+    let line = word(&window, "home.old_olc");
+    assert!(window.query_by_label(line).is_some(), "Home does not say that OLC started over");
+    let coin = window.state().snapshot().node.coin.clone().expect("a coin");
+    assert!(!coin.is_retired_olc(), "the app stayed on the old OLC");
+
+    let close = word(&window, "common.close");
+    window.query_all_by_label(close).next().expect("the line's close button").click();
+    wait_until(&mut window, |app| !app.snapshot().old_olc_note);
+    assert!(window.query_by_label(line).is_none(), "the line stays after closing");
+    assert!(!crate::settings::Settings::load(&root).old_olc_note, "the closed line comes back at the next start");
+}

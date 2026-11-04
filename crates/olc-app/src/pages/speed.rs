@@ -153,8 +153,9 @@ impl Speed {
                 let exact = self.exact;
                 self.send(cx, exact);
             }
-            meta(ui, cx.say("pro.rate_zero"), t);
         });
+        // Below the row, so in Home's narrow card it reads as one line instead of a word a line.
+        meta(ui, cx.say("pro.rate_zero"), t);
     }
 }
 

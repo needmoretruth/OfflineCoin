@@ -194,4 +194,6 @@ pub struct Snapshot {
     /// When the core made this view, in milliseconds since 1970, so a reader can tell how old
     /// what it shows is: a busy computer makes views late.
     pub made_ms: u64,
+    /// Home says that OLC started over, as the core's settings hold it.
+    pub old_olc_note: bool,
 }

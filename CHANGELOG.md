@@ -13,7 +13,8 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 
 ### Fixed
 
-- An app or board that kept the OLC of 0.1 and 0.2 stayed on that chain after updating. It now moves to today's OLC and says so: the wallet is the same, and coins from before do not come along. Boards move with board build i20.
+- An app or board that kept the OLC of 0.1 and 0.2 stayed on that chain after updating. It now moves to today's OLC, and Home says until you close it that the wallet is the same and coins from before do not come along. Boards move with board build i20.
+- In expert mode, "0 means no limit." broke into a word a line beside the exact limit in Home's mining card. It sits under the field.
 - A word typed in the console showed its reply a second time as a notice over the Run button. It shows in the console only.
 - A pool word typed in the terminal waited 20 seconds and said no answer came. It answers as soon as the pool takes the miner.
 

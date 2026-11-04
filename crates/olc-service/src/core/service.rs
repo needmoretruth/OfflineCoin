@@ -156,7 +156,7 @@ impl Service {
         out: Arc<Mutex<Arc<Snapshot>>>,
     ) -> Result<Self, String> {
         let paths = launch.paths;
-        let left_old_olc = leave_retired_olc(&paths, &mut settings).is_some();
+        leave_retired_olc(&paths, &mut settings);
         let coin = current_coin(&paths, &settings);
         bring_old_blocks(&paths, &coin);
         // Measured before anything mines, on as many cores as will mine.
@@ -193,7 +193,7 @@ impl Service {
             Some(program) => Supervisor::with_program(paths.clone(), program),
             None => Supervisor::new(paths.clone())?,
         };
-        let mut service = Self {
+        let service = Self {
             swaps: Swaps::load(paths.wallet()),
             trail: super::chain_race::Trail::default(),
             paths,
@@ -219,9 +219,6 @@ impl Service {
             maker: Default::default(),
             out,
         };
-        if left_old_olc {
-            service.say("notice.olc_restarted", String::new(), true);
-        }
         Ok(service)
     }
 
@@ -295,6 +292,10 @@ impl Service {
             }
             Command::FinishSetup(settings, start) => self.finish_setup(*settings, start),
             Command::Save(settings) => self.save_settings(&settings),
+            Command::CloseOldOlcNote => {
+                self.settings.old_olc_note = false;
+                self.save();
+            }
             Command::Join { coin, address } => self.join(*coin, address),
             // Start and Stop act now. Whether mining starts with the app is a setting of its own.
             Command::SetMining(on) => self.host.set_mining(on),
