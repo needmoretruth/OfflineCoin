@@ -2803,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "olc-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "eframe",
@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "olc-board"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "getrandom 0.3.4",
  "olc-control",
@@ -2840,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "olc-channel"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "getrandom 0.3.4",
  "olc-core",
@@ -2855,7 +2855,7 @@ dependencies = [
 
 [[package]]
 name = "olc-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-board",
  "olc-control",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "olc-control"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-crypto",
  "postcard",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "olc-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-crypto",
  "postcard",
@@ -2893,7 +2893,7 @@ dependencies = [
 
 [[package]]
 name = "olc-crypto"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "k256",
  "ripemd",
@@ -2902,7 +2902,7 @@ dependencies = [
 
 [[package]]
 name = "olc-fuzz"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fastrand",
  "olc-board",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "olc-lab"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ctrlc",
  "olc-board",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "olc-lang"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-core",
  "olc-crypto",
@@ -2938,7 +2938,7 @@ dependencies = [
 
 [[package]]
 name = "olc-link-ble"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bluer",
  "futures",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "olc-link-espnow"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-node",
  "pnet_datalink",
@@ -2956,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "olc-link-serial"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-node",
  "olc-platform",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "olc-link-tcp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-node",
  "olc-platform",
@@ -2973,14 +2973,14 @@ dependencies = [
 
 [[package]]
 name = "olc-logo"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libm",
 ]
 
 [[package]]
 name = "olc-node"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-core",
  "olc-crypto",
@@ -2993,7 +2993,7 @@ dependencies = [
 
 [[package]]
 name = "olc-platform"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "olc-link-ble",
@@ -3009,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "olc-pool"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-core",
  "olc-crypto",
@@ -3023,14 +3023,14 @@ dependencies = [
 
 [[package]]
 name = "olc-pow"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "olc-core",
 ]
 
 [[package]]
 name = "olc-service"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "getrandom 0.3.4",
  "if-addrs",
@@ -3058,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "olc-store"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -3075,7 +3075,7 @@ dependencies = [
 
 [[package]]
 name = "olc-wallet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64ct",
  "bip32",

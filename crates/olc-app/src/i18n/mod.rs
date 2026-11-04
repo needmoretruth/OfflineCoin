@@ -19,6 +19,7 @@ mod en_pool;
 mod en_pool_expert;
 mod en_seal;
 mod en_wallet;
+mod en_making;
 mod ko;
 mod ko_chain;
 mod ko_coin;
@@ -36,6 +37,7 @@ mod ko_pool;
 mod ko_pool_expert;
 mod ko_seal;
 mod ko_wallet;
+mod ko_making;
 mod lab;
 
 pub use crate::settings::{Lang, Mode};
@@ -61,6 +63,7 @@ const BASE_EN: &[Words] = &[
     en_coin::WORDS,
     en_pool::WORDS,
     en_seal::WORDS,
+    en_making::WORDS,
 ];
 const BASE_KO: &[Words] = &[
     ko::WORDS,
@@ -75,6 +78,7 @@ const BASE_KO: &[Words] = &[
     ko_coin::WORDS,
     ko_pool::WORDS,
     ko_seal::WORDS,
+    ko_making::WORDS,
 ];
 const EXPERT_EN: &[Words] = &[
     en_expert::WORDS,
@@ -89,6 +93,7 @@ const EXPERT_EN: &[Words] = &[
     en_coin::EXPERT,
     en_pool_expert::WORDS,
     en_seal::EXPERT,
+    en_making::EXPERT,
 ];
 const EXPERT_KO: &[Words] = &[
     ko_expert::WORDS,
@@ -103,6 +108,7 @@ const EXPERT_KO: &[Words] = &[
     ko_coin::EXPERT,
     ko_pool_expert::WORDS,
     ko_seal::EXPERT,
+    ko_making::EXPERT,
 ];
 
 fn joined(tables: &[Words]) -> Table {

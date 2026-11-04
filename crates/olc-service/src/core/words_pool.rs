@@ -2,8 +2,10 @@
 use super::commands::Command;
 use super::pool_plan::{pool_address, Join, Method, PoolOrder, PoolSettings, Who};
 use super::words::{find_board, Desk};
+use super::Choice;
 use olc_board::Args;
 use olc_pool::{worker_address, MOST_FEE_BPS};
+use olc_wallet::format_address;
 
 fn order(desk: &mut dyn Desk, order: PoolOrder) -> Result<String, String> {
     desk.command(Command::Pool(order))
@@ -16,9 +18,22 @@ fn who_of(desk: &mut dyn Desk, word: Option<&str>) -> Result<Who, String> {
         Some("own") => Ok(Who::Own),
         Some(word) => match word.parse() {
             Ok(id) => Ok(Who::Node(id)),
-            Err(_) => find_board(desk, Some(word)).map(Who::Board),
+            Err(_) => find_board(desk, Some(word)).map(Who::Board).or_else(|missing| heard_only(desk, word).unwrap_or(Err(missing))),
         },
     }
+}
+
+/// A board heard only by radio, through a board on a cable, named as the pool form names it.
+fn heard_only(desk: &mut dyn Desk, word: &str) -> Option<Result<Who, String>> {
+    let named = |choice: &Choice| match choice.who {
+        Some(Who::Lent(address)) => choice.label == word || format_address(&address).starts_with(word),
+        _ => choice.label == word,
+    };
+    let choice = desk.choices().into_iter().find(|choice| choice.who != Some(Who::Own) && named(choice))?;
+    Some(match choice.who {
+        Some(Who::Lent(address)) => Ok(Who::Lent(address)),
+        _ => Err(format!("{word} is heard only by radio, and its board program is too old to take pool work through another board.")),
+    })
 }
 
 /// A percent as hundredths of a percent: `1.5` is 150.
@@ -97,9 +112,28 @@ mod tests {
         fn boards(&mut self) -> Result<Vec<BoardView>, String> {
             Ok(Vec::new())
         }
+        fn choices(&mut self) -> Vec<Choice> {
+            let heard = |who, label: &str, why_not| Choice { who, label: label.into(), through: Some("보드원".into()), why_not, ..Choice::default() };
+            vec![heard(Some(Who::Lent([0x5a; 20])), "보드제로", None), heard(None, "old", Some("pool.why_heard_only"))]
+        }
         fn password(&mut self) -> Result<String, String> {
             Err("none".into())
         }
+    }
+
+    #[test]
+    fn a_board_heard_only_by_radio_joins_by_its_name() {
+        let mut desk = Heard::default();
+        let user = format!("{}.zero", format_address(&[7; 20]));
+        run_line(&mut desk, &format!("pool-join 보드제로 192.168.0.5 {user}")).unwrap();
+        let joined = PoolOrder::Join(Join { who: Who::Lent([0x5a; 20]), address: "192.168.0.5:3333".into(), user: user.clone() });
+        assert_eq!(desk.0.last(), Some(&joined));
+        let by_address = &format_address(&[0x5a; 20])[..12];
+        run_line(&mut desk, &format!("pool-leave {by_address}")).unwrap();
+        assert_eq!(desk.0.last(), Some(&PoolOrder::Leave(Who::Lent([0x5a; 20]))));
+        let old = run_line(&mut desk, &format!("pool-join old 192.168.0.5 {user}")).unwrap_err();
+        assert!(old.contains("too old"), "{old}");
+        assert!(run_line(&mut desk, &format!("pool-join nobody 192.168.0.5 {user}")).unwrap_err().contains("No board called nobody"));
     }
 
     #[test]

@@ -2,6 +2,21 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
+## [0.3.1] - 2026-11-04
+
+### Added
+
+- Join a pool on another computer with this computer, its miners and your boards from Mining › Mine together: turn each on with its switch. Each one shows its accepted and refused shares and leaves on its own. A board heard only by radio joins through the board on your cable, and `olc pool-join` takes it by name.
+- The Mining page lists boards heard only by radio, with the board they come through and what they are mining.
+- Console and terminal words: `mempool` lists payments waiting for a block, `coins` lists this wallet's coins with amount, confirmations and address, and `generate N` mines N blocks now at full speed (`generate stop` ends it).
+- The Lab makes a number of blocks on its practice coin at once.
+
+### Fixed
+
+- An app or board that kept the OLC of 0.1 and 0.2 stayed on that chain after updating. It now moves to today's OLC and says so: the wallet is the same, and coins from before do not come along. Boards move with board build i20.
+- A word typed in the console showed its reply a second time as a notice over the Run button. It shows in the console only.
+- A pool word typed in the terminal waited 20 seconds and said no answer came. It answers as soon as the pool takes the miner.
+
 ## [0.3.0] - 2026-11-04
 
 ### Added

@@ -5,7 +5,7 @@ use super::tokens::{self, Tokens};
 use super::widgets::{button, mono, section, strong_text, Kind};
 use crate::core::Command;
 use egui::epaint::Shadow;
-use egui::{vec2, Area, Color32, Frame, Id, Label, Layout, Align, Margin, Modal, Order, RichText, Stroke, Ui};
+use egui::{Area, Color32, Frame, Id, Label, Layout, Align, Margin, Modal, Order, RichText, Stroke, Ui};
 
 const SHORT_VALUE: usize = 28;
 
@@ -134,15 +134,47 @@ pub fn sheet_head(ui: &mut Ui, title: &str) {
     ui.add_space(tokens::GAP);
 }
 
+/// What a page asks of the notice: no notice numbered after `.0` up to `.1` floats, since the
+/// page itself says it; and this frame, none lower than `floor`, so it covers no field.
+#[derive(Clone, Copy, Default)]
+pub struct NoticeRoom {
+    pub quiet: (u64, u64),
+    floor: Option<(u64, f32)>,
+}
+
+fn room_id() -> Id {
+    Id::unique("notice-room")
+}
+
+/// The room a page asked for, kept between frames.
+pub fn notice_room(ctx: &egui::Context) -> NoticeRoom {
+    ctx.data(|data| data.get_temp(room_id())).unwrap_or_default()
+}
+
+/// Keeps the notices numbered after `after` up to `through` from floating.
+pub fn quiet_notices(ctx: &egui::Context, after: u64, through: u64) {
+    let room = NoticeRoom { quiet: (after, through), ..notice_room(ctx) };
+    ctx.data_mut(|data| data.insert_temp(room_id(), room));
+}
+
+/// Keeps this frame's notice above `y`.
+pub fn notice_above(ctx: &egui::Context, y: f32) {
+    let room = NoticeRoom { floor: Some((ctx.cumulative_pass_nr(), y)), ..notice_room(ctx) };
+    ctx.data_mut(|data| data.insert_temp(room_id(), room));
+}
+
 /// The result of what a person did, over the bottom right of the window.
 pub fn notice(ui: &Ui, t: &Tokens, colour: Color32, line: &str) {
     let screen = ui.ctx().content_rect();
     let width = (screen.width() * 0.5).clamp(280.0, 520.0);
+    let room = notice_room(ui.ctx());
+    let pass = ui.ctx().cumulative_pass_nr();
+    let floor = room.floor.filter(|(asked, _)| *asked == pass).map_or(screen.bottom() - tokens::GAP_PAGE, |(_, y)| y - tokens::GAP);
     let area = Area::new(Id::unique("notice"))
         .order(Order::Tooltip)
         .interactable(false)
         .pivot(egui::Align2::RIGHT_BOTTOM)
-        .fixed_pos(screen.right_bottom() - vec2(tokens::GAP_PAGE, tokens::GAP_PAGE));
+        .fixed_pos(egui::pos2(screen.right() - tokens::GAP_PAGE, floor));
     area.show(ui.ctx(), |ui| {
         let slot = ui.painter().add(egui::Shape::Noop);
         let inner = Frame::new().inner_margin(Margin::symmetric(14, 10)).show(ui, |ui| {

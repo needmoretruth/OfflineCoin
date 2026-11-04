@@ -35,6 +35,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("coin.rule_picture", "채굴이 바뀐 뒤 방식마다 블록이 나온 때"),
     ("coin.rule_measured", "{}초 블록으로 실제로 채굴해 잰 값입니다. 0분은 채굴 속도가 바뀐 때입니다."),
     ("bad.not_one_of", "{} 칸은 {} 중 하나로 적어 주세요."),
+    ("notice.olc_restarted", "OLC가 이 버전부터 새 첫 블록에서 다시 시작합니다. 지갑은 그대로이고, 예전 코인은 넘어오지 않습니다."),
+    ("notice.olc_retired", "그 OLC는 0.3 버전에서 끝났습니다. 이 앱은 지금의 OLC를 씁니다."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -65,4 +67,6 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("pro.max_ahead_about", "노드는 자기 시계보다 이만큼 앞선 블록을 받지 않습니다. 0이면 한도가 없습니다."),
     ("pro.bitcoin_header", "비트코인 헤더"),
     ("pro.bitcoin_header_about", "블록이 비트코인의 80바이트 헤더를 써서 비트코인 채굴기와 풀이 캘 수 있습니다."),
+    ("notice.olc_restarted", "OLC가 0.3부터 새 제네시스에서 다시 시작합니다. 키는 그대로이고, 예전 체인의 코인은 넘어오지 않습니다."),
+    ("notice.olc_retired", "그 OLC 체인은 0.3에서 끝났습니다. 이 앱은 지금의 OLC를 씁니다."),
 ];

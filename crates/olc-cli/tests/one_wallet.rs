@@ -155,6 +155,8 @@ fn sample(word: &str, home: &Path) -> String {
         // `wallet` alone says how the lock stands; its other words read hidden passwords first.
         "words" | "shared" | "wallet" | "contacts" => word.to_string(),
         "contact" => format!("contact add Mina {somebody}"),
+        // How far blocks being made are, without making any.
+        "mempool" | "coins" | "generate" => word.to_string(),
         // A signature is base64, which reads like code to this test, so the line asks for a key
         // this wallet does not hold.
         "sign-message" => format!("sign-message --address {somebody} hello"),

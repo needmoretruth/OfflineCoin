@@ -17,6 +17,7 @@ mod history_detail;
 mod home;
 mod lab;
 mod lab_boards;
+mod lab_make;
 mod lab_strip;
 pub(crate) mod lab_view;
 mod lab_words;

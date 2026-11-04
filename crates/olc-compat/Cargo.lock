@@ -206,15 +206,15 @@ name = "olc-compat"
 version = "0.1.0"
 dependencies = [
  "olc-core 0.1.0",
- "olc-core 0.3.0",
+ "olc-core 0.3.1",
  "olc-lang 0.1.0",
- "olc-lang 0.3.0",
+ "olc-lang 0.3.1",
  "olc-node 0.1.0",
- "olc-node 0.3.0",
+ "olc-node 0.3.1",
  "olc-pow 0.1.0",
- "olc-pow 0.3.0",
+ "olc-pow 0.3.1",
  "olc-wallet 0.1.0",
- "olc-wallet 0.3.0",
+ "olc-wallet 0.3.1",
  "postcard",
 ]
 
@@ -230,9 +230,9 @@ dependencies = [
 
 [[package]]
 name = "olc-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
- "olc-crypto 0.3.0",
+ "olc-crypto 0.3.1",
  "postcard",
  "serde",
 ]
@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "olc-crypto"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "k256",
  "ripemd",
@@ -266,10 +266,10 @@ dependencies = [
 
 [[package]]
 name = "olc-lang"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
- "olc-core 0.3.0",
- "olc-crypto 0.3.0",
+ "olc-core 0.3.1",
+ "olc-crypto 0.3.1",
 ]
 
 [[package]]
@@ -286,12 +286,12 @@ dependencies = [
 
 [[package]]
 name = "olc-node"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
- "olc-core 0.3.0",
- "olc-crypto 0.3.0",
- "olc-lang 0.3.0",
- "olc-wallet 0.3.0",
+ "olc-core 0.3.1",
+ "olc-crypto 0.3.1",
+ "olc-lang 0.3.1",
+ "olc-wallet 0.3.1",
  "postcard",
  "serde",
 ]
@@ -306,9 +306,9 @@ dependencies = [
 
 [[package]]
 name = "olc-pow"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
- "olc-core 0.3.0",
+ "olc-core 0.3.1",
 ]
 
 [[package]]
@@ -323,12 +323,12 @@ dependencies = [
 
 [[package]]
 name = "olc-wallet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "k256",
- "olc-core 0.3.0",
- "olc-crypto 0.3.0",
- "olc-lang 0.3.0",
+ "olc-core 0.3.1",
+ "olc-crypto 0.3.1",
+ "olc-lang 0.3.1",
  "postcard",
  "serde",
 ]

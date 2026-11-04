@@ -140,6 +140,8 @@ impl BoardSide {
                     runner.offline = *on == "on";
                 }
             }
+            // Mining rests at this height, 0 for never: the Lab makes the blocks asked and no more.
+            ["mine-to", height] => host.mine_to(height.parse().ok().filter(|height| *height > 0)),
             ["limit", cap] => {
                 if let Ok(cap) = cap.parse() {
                     self.cap = Some(cap);

@@ -122,6 +122,11 @@ impl App {
         let Some(notice) = snap.notice.as_ref().filter(|notice| notice.key != "notice.wrong_wallet_password") else {
             return;
         };
+        // The console prints the answer to a typed word itself.
+        let (after, through) = floating::notice_room(ui.ctx()).quiet;
+        if (after + 1..=through).contains(&notice.number) {
+            return;
+        }
         let now = ui.input(|input| input.time);
         let seconds = if notice.good { tokens::NOTICE_SECONDS } else { tokens::FAILURE_SECONDS };
         let until = match self.notice_until {

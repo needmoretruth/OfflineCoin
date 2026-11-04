@@ -18,6 +18,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub use super::lab_picture::{Frame, Mark, Picture, Row, Side};
+pub use blocks::MOST_BLOCKS;
+
+#[path = "lab_blocks.rs"]
+mod blocks;
 
 /// Expected hashes for one block. With [`TOTAL_RATE`] a block comes about every two seconds, slow
 /// enough to watch and quick enough to end a run in a minute or two.
@@ -84,6 +88,8 @@ pub struct LabState {
     pub kept: bool,
     /// Each miner as it stands now.
     pub miners: Vec<MinerRow>,
+    /// Blocks made so far and asked for, when the run makes blocks rather than an experiment.
+    pub making: Option<(u64, u64)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -314,17 +320,7 @@ fn end(miners: &Mutex<Miners>) {
 
 /// Kept miners of the same shape, or new ones on a new lab coin.
 fn prepare(choice: &LabChoice, state: &Mutex<LabState>, stop: &AtomicBool) -> Result<Miners, String> {
-    let kept = KEPT.lock().ok().and_then(|mut kept| kept.take());
-    let mut miners = match kept {
-        Some(miners) if miners.kind == choice.kind && miners.helper == choice.helper => miners,
-        other => {
-            if let Some(mut old) = other {
-                old.supervisor.stop_all();
-                thread::sleep(Duration::from_secs(3));
-            }
-            start_miners(choice, stop)?
-        }
-    };
+    let mut miners = prepare_miners(choice, stop)?;
     for (id, cap) in ids(&miners).into_iter().zip(caps(choice)) {
         miners.supervisor.send(id, &format!("board limit {cap}"))?;
         // From the first line on, the node says its chain in every status line.
@@ -341,6 +337,19 @@ fn prepare(choice: &LabChoice, state: &Mutex<LabState>, stop: &AtomicBool) -> Re
         miners.supervisor.send(id, &format!("board limit {cap}"))?;
     }
     Ok(miners)
+}
+
+fn prepare_miners(choice: &LabChoice, stop: &AtomicBool) -> Result<Miners, String> {
+    match KEPT.lock().ok().and_then(|mut kept| kept.take()) {
+        Some(miners) if miners.kind == choice.kind && miners.helper == choice.helper => Ok(miners),
+        other => {
+            if let Some(mut old) = other {
+                old.supervisor.stop_all();
+                thread::sleep(Duration::from_secs(3));
+            }
+            start_miners(choice, stop)
+        }
+    }
 }
 
 fn start_miners(choice: &LabChoice, stop: &AtomicBool) -> Result<Miners, String> {

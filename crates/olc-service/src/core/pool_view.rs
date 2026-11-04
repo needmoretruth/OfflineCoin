@@ -58,7 +58,7 @@ pub struct LinkRow {
 }
 
 /// A miner that could work in a pool, and the reason it cannot when it cannot.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Choice {
     pub who: Option<Who>,
     pub label: String,
@@ -67,6 +67,8 @@ pub struct Choice {
     /// The key of the one sentence saying why it cannot take pool work.
     pub why_not: Option<&'static str>,
     pub speed: u64,
+    /// Mining for itself, as a board heard by radio last said.
+    pub mining: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -148,13 +150,14 @@ pub fn board_reason(row: &BoardRow) -> Option<&'static str> {
 /// this app it was heard on.
 /// A miner on this computer is given as its id, name and speed, with no speed when it is not running.
 pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos: &[(&Hello, Option<usize>)], own_speed: u64) -> Vec<Choice> {
-    let mut all = vec![Choice { who: Some(Who::Own), label: String::new(), through: None, why_not: None, speed: own_speed }];
+    let mut all = vec![Choice { who: Some(Who::Own), speed: own_speed, mining: own_speed > 0, ..Choice::default() }];
     all.extend(locals.iter().map(|(id, name, speed)| Choice {
         who: Some(Who::Node(*id)),
         label: name.clone(),
         through: None,
         why_not: speed.is_none().then_some("pool.why_not_running"),
         speed: speed.unwrap_or_default(),
+        mining: speed.is_some(),
     }));
     all.extend(rows.iter().map(|row| Choice {
         who: Some(Who::Board(row.seen.id)),
@@ -162,6 +165,7 @@ pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos:
         through: row.through.clone(),
         why_not: board_reason(row),
         speed: u64::from(row.seen.beacon.hashrate),
+        mining: row.seen.beacon.mining,
     }));
     let reached: Vec<[u8; 20]> = rows.iter().map(|row| row.seen.beacon.address).collect();
     // A board heard only as a node, passed on by the board on one of this app's cables. That board
@@ -169,15 +173,16 @@ pub fn choices(locals: &[(u32, String, Option<u64>)], rows: &[BoardRow], hellos:
     let heard_only = hellos.iter().filter(|(hello, _)| !reached.contains(&hello.address));
     all.extend(heard_only.map(|(hello, link)| {
         let label = if hello.card.name.is_empty() { short_address(&format_address(&hello.address)) } else { hello.card.name.clone() };
-        let speed = hello.card.hashrate;
+        let (speed, mining) = (hello.card.hashrate, hello.card.mining);
         match (relay_of(rows, *link), lends(&hello.card.build)) {
             (Some(relay), true) => {
-                Choice { who: Some(Who::Lent(hello.address)), label, through: Some(relay.seen.beacon.name.clone()), why_not: None, speed }
+                let through = Some(relay.seen.beacon.name.clone());
+                Choice { who: Some(Who::Lent(hello.address)), label, through, why_not: None, speed, mining }
             }
             _ => {
                 let medium = (!hello.card.via.0.is_empty()).then(|| hello.card.via.0.clone());
                 let through = on_cable(rows, *link).map(|row| row.seen.beacon.name.clone()).or(medium);
-                Choice { who: None, label, through, why_not: Some("pool.why_heard_only"), speed }
+                Choice { who: None, label, through, why_not: Some("pool.why_heard_only"), speed, mining }
             }
         }
     }));

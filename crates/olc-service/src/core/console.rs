@@ -52,6 +52,27 @@ fn quiet(command: &Command) -> Option<String> {
     })
 }
 
+type Settled = Box<dyn Fn(&Snapshot) -> Option<String>>;
+
+/// For a pool order that raises a notice only when it fails: what the snapshot shows once it is
+/// done, so a typed word answers then instead of waiting the whole while.
+fn settled_by(command: &Command) -> Option<Settled> {
+    use super::pool_plan::PoolOrder;
+    let Command::Pool(order) = command else {
+        return None;
+    };
+    match order.clone() {
+        PoolOrder::Join(join) => Some(Box::new(move |seen: &Snapshot| {
+            seen.pool.link_of(join.who).map(|_| format!("Joined the pool at {} as {}.", join.address, join.user))
+        })),
+        PoolOrder::Leave(who) => Some(Box::new(move |seen: &Snapshot| seen.pool.link_of(who).is_none().then(|| "Left the pool.".to_string()))),
+        PoolOrder::Start(settings) => {
+            Some(Box::new(move |seen: &Snapshot| seen.pool.running.then(|| format!("The pool is open on port {}.", settings.port))))
+        }
+        _ => None,
+    }
+}
+
 /// Sends `command` and waits for the notice it causes.
 pub(super) fn answer_to(
     snapshot: &dyn Fn() -> Arc<Snapshot>,
@@ -67,11 +88,15 @@ pub(super) fn answer_to(
         send(command);
         return Ok(said);
     }
+    let settled = settled_by(&command);
     send(command);
     let started = Instant::now();
     let wait = if board.is_some() { ANSWER_WAIT } else { ORDER_WAIT };
     while started.elapsed() < wait {
         let seen = snapshot();
+        if let Some(said) = settled.as_ref().and_then(|settled| settled(&seen)) {
+            return Ok(said);
+        }
         // Records still opening is no answer: the order runs once they are in.
         let fresh = |notice: &&Notice| notice.number > number && notice.key != "notice.held";
         if let Some(notice) = seen.notice.as_ref().filter(fresh) {
@@ -128,6 +153,8 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.no_such_key", "This wallet has no such key."),
     ("notice.no_watched", "Watch an address first. The payment is made from its coins."),
     ("notice.node_failed", "The node did not start."),
+    ("notice.olc_restarted", "OLC started over from a new first block in 0.3. The wallet is the same; coins from before do not come along."),
+    ("notice.olc_retired", "That OLC ended in 0.3. This app runs today's OLC."),
     ("notice.pool_failed", "The pool did not do that."),
     ("notice.node_paid", "Node {} sent the payment."),
     ("notice.not_a_backup", "That file is not a backup."),
@@ -173,6 +200,19 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.no_contact", "No contact has that name."),
     ("notice.pool_waits_wallet", "The wallet is locked, so payouts wait. They go out when it opens."),
     ("notice.zero_amount", "The amount has to be more than zero."),
+    ("notice.waiting_list", "{}"),
+    ("notice.coins_list", "{}"),
+    ("notice.chain_closed", "The chain is still opening. Try again in a moment."),
+    ("notice.making", "Making {} blocks at full speed. Type generate to see how far it is, or generate stop to end it."),
+    ("notice.made_block", "Made block {}."),
+    ("notice.made", "Done. {}"),
+    ("notice.making_status", "{}"),
+    ("notice.making_stopped", "Stopped making blocks. {}"),
+    ("notice.not_making", "No blocks are being made."),
+    ("notice.making_count", "Say how many blocks, from 1 to 1,000."),
+    ("notice.making_already", "Blocks are being made already. Type generate stop first.\n{}"),
+    ("notice.making_in_pool", "This computer mines in a pool now, and the pool's work goes first. Leave the pool, then try again."),
+    ("notice.making_light", "A node with headers only cannot mine. Run olc light off."),
     ("lock.bad_text", "That text is not a spend."),
     ("lock.immature", "Mined coins can move only after more blocks."),
     ("lock.needs_blocks", "A node with headers only cannot read locks. Run olc light off."),
@@ -342,6 +382,10 @@ impl Desk for ConsoleDesk {
             Command::Own(Personal::Explore(text)) => Ok(looked_up(core, text)),
             command => answer_to(&|| core.snapshot(), &|one| core.send(one), command),
         }
+    }
+
+    fn choices(&mut self) -> Vec<super::Choice> {
+        self.core.snapshot().pool.choices.clone()
     }
 
     fn boards(&mut self) -> Result<Vec<BoardView>, String> {

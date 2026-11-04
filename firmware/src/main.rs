@@ -160,7 +160,9 @@ async fn main(spawner: Spawner) -> ! {
     let panel_ms = node::device_ms();
     store.reach(Stage::Panel);
 
-    let coin = store.coin().unwrap_or_else(CoinConfig::olc);
+    // A board that kept the OLC of 0.1 and 0.2 moves to today's OLC: that chain ended, and its
+    // blocks no longer join this first block, so the chain starts over and the keys stay.
+    let coin = store.coin().filter(|coin| !coin.is_retired_olc()).unwrap_or_else(CoinConfig::olc);
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let name = own_network_name();
     let power_dbm = settings.power.parse().unwrap_or(node::DEFAULT_POWER_DBM);

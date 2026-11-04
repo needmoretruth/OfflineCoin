@@ -1,7 +1,7 @@
 //! The thread behind the window: it takes commands, keeps the node, the looks around and the node
 //! processes going, and publishes a fresh snapshot a few times a second.
 use super::coins::{
-    bring_old_blocks, coin_folder, load_coin, read_coin_file, save_coin, write_coin_file,
+    bring_old_blocks, coin_folder, leave_retired_olc, load_coin, read_coin_file, save_coin, write_coin_file,
 };
 use super::board_action::BoardAction;
 use super::swap_book::Swaps;
@@ -113,6 +113,7 @@ mod orders;
 mod view;
 mod channels;
 mod swaps;
+mod making;
 
 struct Service {
     paths: Paths,
@@ -140,6 +141,8 @@ struct Service {
     /// Payments and board lines end on threads of their own and report here.
     late: LateNotices,
     pool: PoolSeat,
+    /// Blocks being made now, as `generate N` asked.
+    maker: super::making::Maker,
     swaps: Swaps,
     /// This computer's speed over the last ten minutes, for the speed line.
     trail: super::chain_race::Trail,
@@ -149,10 +152,11 @@ struct Service {
 impl Service {
     fn new(
         launch: CoreLaunch,
-        settings: Settings,
+        mut settings: Settings,
         out: Arc<Mutex<Arc<Snapshot>>>,
     ) -> Result<Self, String> {
         let paths = launch.paths;
+        let left_old_olc = leave_retired_olc(&paths, &mut settings).is_some();
         let coin = current_coin(&paths, &settings);
         bring_old_blocks(&paths, &coin);
         // Measured before anything mines, on as many cores as will mine.
@@ -189,7 +193,7 @@ impl Service {
             Some(program) => Supervisor::with_program(paths.clone(), program),
             None => Supervisor::new(paths.clone())?,
         };
-        let service = Self {
+        let mut service = Self {
             swaps: Swaps::load(paths.wallet()),
             trail: super::chain_race::Trail::default(),
             paths,
@@ -212,8 +216,12 @@ impl Service {
             held: VecDeque::new(),
             late: Arc::default(),
             pool: PoolSeat::default(),
+            maker: Default::default(),
             out,
         };
+        if left_old_olc {
+            service.say("notice.olc_restarted", String::new(), true);
+        }
         Ok(service)
     }
 
@@ -240,6 +248,7 @@ impl Service {
             }
             self.let_go();
             self.listen();
+            self.step_making();
             self.step_swaps();
             self.follow_payment();
             self.publish();
@@ -407,6 +416,7 @@ impl Service {
                 let _ = self.local.send(id, &format!("mineto {target}"));
             }
             Command::Pool(order) => self.pool_order(order),
+            Command::Chain(order) => self.chain_order(order),
             Command::NodePay { id, to, amount } => {
                 let _ = self.local.send(id, &format!("pay {} {}", to.trim(), amount.trim()));
             }
@@ -504,6 +514,10 @@ impl Service {
     /// Takes this node and its local nodes to `coin`. A fork names the folder it `leaves`, whose
     /// chain it carries on from.
     pub(super) fn move_to(&mut self, coin: CoinConfig, peers: Vec<String>, leaves: Option<String>) -> bool {
+        if coin.is_retired_olc() {
+            self.say("notice.olc_retired", String::new(), false);
+            return false;
+        }
         let name = coin_folder(&coin);
         if let Err(error) = save_coin(&self.paths, &coin) {
             self.say("notice.save_failed", error, false);

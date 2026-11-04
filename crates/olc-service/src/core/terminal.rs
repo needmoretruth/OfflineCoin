@@ -3,6 +3,7 @@
 use super::commands::{Command, Personal, SwapOrder};
 use super::console::{answer_to, looked_up};
 use super::folder::Folder;
+use super::making::ChainOrder;
 use super::host_locks::plain_detail;
 use super::ops::Book;
 use super::service::{Core, CoreLaunch};
@@ -250,6 +251,8 @@ impl Desk for Terminal {
             Command::Channel(_) => Err(NO_NODE_RUNS.into()),
             // A swap takes many minutes, and only a node that keeps running can see it through.
             Command::Swap(order) if order != SwapOrder::List => Err(NO_NODE_RUNS.into()),
+            // Blocks are made by a node that keeps mining until they are there.
+            Command::Chain(ChainOrder::Make(_) | ChainOrder::MakeShow | ChainOrder::MakeStop) => Err(NO_NODE_RUNS.into()),
             Command::UpdateBoard(id) => self.update_board(id),
             Command::NewCoinFile { choices, path } => {
                 let coin = new_coin(&choices).map_err(|bad| bad.to_string())?;
