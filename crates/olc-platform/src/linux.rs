@@ -57,6 +57,12 @@ fn rss_bytes(pid: u32) -> Option<u64> {
     Some(kib * 1024)
 }
 
+fn threads(pid: u32) -> Option<usize> {
+    let text = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let line = text.lines().find(|line| line.starts_with("Threads:"))?;
+    line.split_whitespace().nth(1)?.parse().ok()
+}
+
 /// An address as the kernel's socket table writes it: each 32-bit word in the machine's order.
 fn table_address(hex: &str) -> Option<std::net::IpAddr> {
     let mut bytes = Vec::with_capacity(16);
@@ -255,6 +261,7 @@ impl Platform for Os {
             rss_bytes: rss_bytes(pid)?,
             group_bytes: group_bytes(pid),
             cpu_ms: cpu_ms(pid)?,
+            threads: threads(pid),
         })
     }
 

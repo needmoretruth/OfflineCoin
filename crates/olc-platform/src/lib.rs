@@ -110,6 +110,8 @@ pub struct Usage {
     pub group_bytes: Option<u64>,
     /// Processor time since it started.
     pub cpu_ms: u64,
+    /// The threads it runs, where the system says.
+    pub threads: Option<usize>,
 }
 
 /// Keeps a limit alive for as long as its process runs.

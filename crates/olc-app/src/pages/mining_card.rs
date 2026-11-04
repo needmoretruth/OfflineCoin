@@ -75,9 +75,13 @@ impl MiningCard {
             chain::next_block_bar(ui, &look, &node.chain);
             ui.add_space(tokens::GAP);
             facts(ui, cx);
-            // The whole network beside this computer, the same figures the Mining page shows.
-            ui.add_space(tokens::GAP);
-            super::network::figures(ui, cx);
+            // The whole network beside this computer, the same figures the Mining page shows, once
+            // there are blocks to read them from: before that they would only say "unknown" and
+            // push what stops this node further down Home.
+            if cx.snap.node.chain.latest.len() >= 2 {
+                ui.add_space(tokens::GAP);
+                super::network::figures(ui, cx);
+            }
         });
     }
 }

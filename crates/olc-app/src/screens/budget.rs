@@ -161,28 +161,16 @@ fn a_new_miner_shares_the_limit_set_on_home() {
     assert!(said.iter().any(|text| text.contains(&format::number(newest.cap.into()))), "{said:?} against {}", newest.cap);
 }
 
-/// The threads of a process and of the processes it started, as the system counts them.
-#[cfg(target_os = "linux")]
-fn os_threads(pid: u32) -> usize {
-    let count = |pid: &str| std::fs::read_dir(format!("/proc/{pid}/task")).map_or(0, |tasks| tasks.count());
-    let mut total = count(&pid.to_string());
-    for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let stat = std::fs::read_to_string(format!("/proc/{name}/stat")).unwrap_or_default();
-        let parent = stat.rsplit(')').next().and_then(|rest| rest.split_whitespace().nth(1));
-        if parent == Some(pid.to_string().as_str()) {
-            total += count(&name);
-        }
-    }
-    total
+/// The threads a node process runs, where the system says.
+fn os_threads(pid: u32) -> Option<usize> {
+    olc_service::platform().usage(pid).and_then(|usage| usage.threads)
 }
 
-#[cfg(target_os = "linux")]
 fn settle_threads(window: &mut Window, pid: u32, done: impl Fn(usize) -> bool) -> usize {
     let started = Instant::now();
     loop {
         window.run_steps(1);
-        let now = os_threads(pid);
+        let now = os_threads(pid).unwrap_or(0);
         if done(now) || started.elapsed() > Duration::from_secs(20) {
             return now;
         }
@@ -192,7 +180,6 @@ fn settle_threads(window: &mut Window, pid: u32, done: impl Fn(usize) -> bool) -
 
 /// The thread cap sets this computer's highest speed and every miner's threads at once, with one
 /// thread and with every core.
-#[cfg(target_os = "linux")]
 #[test]
 fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     let mut settings = quiet_settings();
@@ -207,7 +194,10 @@ fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     window.state().send(Command::AddNode(Box::new(spec)));
     wait_for_miners(&mut window, 1);
     let pid = window.state().snapshot().local[0].pid.unwrap();
-    let alone = os_threads(pid);
+    let Some(alone) = os_threads(pid) else {
+        println!("this system does not say how many threads a process runs");
+        return;
+    };
 
     let all = cores();
     window.state_mut().open("page.settings");
