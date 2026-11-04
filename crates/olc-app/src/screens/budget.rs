@@ -108,7 +108,8 @@ fn a_new_miner_shares_the_limit_set_on_home() {
 
     retype(&mut window, "Exact limit (H/s)", &LIMIT.to_string());
     press(&mut window, "Apply");
-    wait_until(&mut window, |app| app.settings().hash_cap == LIMIT && app.snapshot().node.hashrate > 0);
+    // The line reads the service's budget, which follows the setting a moment later.
+    wait_until(&mut window, |app| app.settings().hash_cap == LIMIT && app.snapshot().budget.limit == LIMIT && app.snapshot().node.hashrate > 0);
 
     // Basic Korean: the line by the button says what a new miner starts at, then it starts there.
     speak(&mut window, Mode::Basic, Lang::Ko);
@@ -147,7 +148,7 @@ fn a_new_miner_shares_the_limit_set_on_home() {
 
     // No limit: a new miner still starts at a stated share of the computer's highest speed.
     press(&mut window, "Full");
-    wait_until(&mut window, |app| app.settings().hash_cap == 0);
+    wait_until(&mut window, |app| app.settings().hash_cap == 0 && app.snapshot().budget.limit == 0);
     window.state_mut().open("page.mining");
     window.run_steps(SETTLE_STEPS);
     let highest = window.state().snapshot().full_rate;
@@ -430,7 +431,7 @@ fn the_network_shows_its_speed_and_who_found_the_blocks() {
         let mining = figures_agree(&mut window, "page.mining", LIMIT);
         // The long average stands only on Mining, saying how late it follows a change; on Home's
         // small card, beside the speed now and the share, it would read as a contradiction.
-        let (average, late) = if lang == Lang::Ko { ("블록 평균", "늦게 따라옵니다") } else { ("-block average", "Lags a change") };
+        let (average, late) = if lang == Lang::Ko { ("블록 평균", "늦게 따라옴") } else { ("-block average", "Lags a change") };
         assert!(!texts_with(&window, average).is_empty() && !texts_with(&window, late).is_empty(), "Mining shows the average and its lag");
         save(&mut window, name);
         let home = figures_agree(&mut window, "page.home", LIMIT);
