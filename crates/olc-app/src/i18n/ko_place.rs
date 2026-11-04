@@ -42,7 +42,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("mining.more", "채굴기마다 자세히"),
     ("mining.more_about", "각자 따로 돌고 지갑도 따로입니다. 한 컴퓨터에서 경쟁을 시험해 볼 때 좋습니다."),
     ("mining.boards", "보드"),
-    ("mining.boards_about", "보드는 더하는 장치입니다. 꽂으면 이 컴퓨터 옆에서 채굴합니다."),
+    ("mining.boards_about", "보드는 더하는 장치입니다. 꽂은 보드와, 그 보드와 무선으로 이어진 보드가 이 컴퓨터 옆에서 채굴합니다."),
     ("mining.no_boards", "아직 보드가 없습니다. 이 컴퓨터는 보드 없이도 채굴합니다."),
     ("mining.open_devices", "기기 열기"),
     ("mining.together", "함께 채굴"),

@@ -49,7 +49,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("mining.more", "Each miner in detail"),
     ("mining.more_about", "Each runs on its own with its own wallet. Good for trying a race on one computer."),
     ("mining.boards", "Boards"),
-    ("mining.boards_about", "Boards are add-ons. Once plugged in, they mine beside this computer."),
+    ("mining.boards_about", "Boards are add-ons. A plugged-in board, and any board it reaches by radio, mines beside this computer."),
     ("mining.no_boards", "No boards yet. This computer mines without them."),
     ("mining.open_devices", "Open Devices"),
     ("mining.together", "Mine together"),
