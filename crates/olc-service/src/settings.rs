@@ -161,6 +161,8 @@ pub struct Settings {
     /// Threads that mine. 0 is all cores but one.
     pub mining_threads: u32,
     pub mine_on_start: bool,
+    /// Home says that OLC started over and coins from before stay behind, until it is closed.
+    pub old_olc_note: bool,
     /// Node processes on this computer.
     pub nodes: Vec<NodeSpec>,
     pub port: u16,
@@ -202,6 +204,7 @@ impl Default for Settings {
             hash_cap: 0,
             mining_threads: 0,
             mine_on_start: false,
+            old_olc_note: false,
             auto_update: false,
             auto_boards: Vec::new(),
             nodes: Vec::new(),

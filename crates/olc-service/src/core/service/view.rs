@@ -104,6 +104,7 @@ impl Service {
             mine_on_start: self.settings.mine_on_start,
             folder: self.paths.root.display().to_string(),
             made_ms: unix_ms(),
+            old_olc_note: self.settings.old_olc_note,
         };
         if let Ok(mut out) = self.out.lock() {
             *out = Arc::new(snapshot);

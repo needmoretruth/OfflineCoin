@@ -68,6 +68,7 @@ pub fn leave_retired_olc(paths: &Paths, settings: &mut Settings) -> Option<Strin
     let name = settings.coin.clone()?;
     load_coin(paths, &name).filter(CoinConfig::is_retired_olc)?;
     settings.coin = Some(coin_folder(&CoinConfig::olc()));
+    settings.old_olc_note = true;
     // Unsaved, the next start moves it again.
     let _ = settings.save(&paths.root);
     Some(name)
@@ -115,6 +116,7 @@ mod tests {
         assert!(known_coin(&paths, "82816fe40cdb").is_none(), "the old OLC is offered as a coin");
         assert_eq!(leave_retired_olc(&paths, &mut settings).as_deref(), Some("82816fe40cdb"));
         assert_eq!(settings.coin, Some(coin_folder(&CoinConfig::olc())));
+        assert!(settings.old_olc_note, "Home does not say why the coins from before are gone");
         assert_eq!(Settings::load(&root).coin, settings.coin, "the move is not kept");
         assert_eq!(leave_retired_olc(&paths, &mut settings), None);
         assert!(old.join(COIN_FILE).exists(), "the old blocks' folder must stay");

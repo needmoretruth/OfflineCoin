@@ -100,6 +100,8 @@ pub enum Command {
     FinishSetup(Box<Settings>, StartCoin),
     /// Saves the settings and applies what can change at once.
     Save(Box<Settings>),
+    /// Home's line that OLC started over was read.
+    CloseOldOlcNote,
     Join {
         coin: Box<CoinConfig>,
         address: Option<String>,

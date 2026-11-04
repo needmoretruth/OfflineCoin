@@ -6,7 +6,7 @@ use super::history::{every_row, HistoryList};
 use super::mining_card::MiningCard;
 use super::money::{ReceiveSheet, SendSheet};
 use super::{Cx, Page};
-use crate::core::unix_ms;
+use crate::core::{unix_ms, Command};
 use crate::ui::chain::{self, Look, Strip};
 use crate::ui::explain;
 use crate::ui::floating::sheet;
@@ -100,6 +100,27 @@ fn light_limits(ui: &mut Ui, cx: &Cx) {
     }
 }
 
+/// After 0.2, OLC started over and the balance begins again at 0; this says why until it is closed.
+fn old_olc_line(ui: &mut Ui, cx: &Cx) {
+    if !cx.snap.old_olc_note {
+        return;
+    }
+    let t = cx.t;
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        dot(ui, t.warn);
+        let label = cx.say("common.close");
+        let room = ui.available_width() - widgets::button_width(ui, label) - ui.spacing().item_spacing.x;
+        ui.scope(|ui| {
+            ui.set_max_width(room.max(0.0));
+            ui.add(Label::new(cx.say("home.old_olc")).wrap());
+        });
+        if button(ui, t, label, Kind::Quiet).clicked() {
+            cx.send(Command::CloseOldOlcNote);
+        }
+    });
+}
+
 impl Home {
     /// Words not yet written down are the one way back to this wallet, so they ask here. They
     /// stand above what the node says, which comes and goes, so this button keeps its place.
@@ -171,6 +192,7 @@ impl Home {
                     self.open = Some(Open::Send(SendSheet::default()));
                 }
             });
+            old_olc_line(ui, cx);
             self.words_line(ui, cx);
             if light_or_full(ui, cx) {
                 *cx.go = Some("page.settings");
