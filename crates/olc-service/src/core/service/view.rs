@@ -17,7 +17,7 @@ fn in_pools(pool: &PoolView) -> Vec<InPool> {
     let working = pool.links.iter().filter(|link| link.view.link == olc_pool::Link::Working);
     working
         .map(|link| InPool {
-            worker: link.join.who.clone(),
+            worker: link.join.who,
             here: link.here,
             payee: link.view.payee.map(|address| olc_wallet::format_address(&address)),
         })
