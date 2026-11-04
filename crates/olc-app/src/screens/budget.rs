@@ -310,6 +310,23 @@ fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     save(&mut window, "budget-threads-limit-home-ko-basic");
     figures_agree(&mut window, "page.mining", limit);
     save(&mut window, "budget-threads-limit-mining-ko-basic");
+    // The speed line's limit words at large text, where they most easily meet the line.
+    for (mode, lang, tag) in [(Mode::Basic, Lang::Ko, "ko-basic"), (Mode::Expert, Lang::En, "en-expert")] {
+        speak(&mut window, mode, lang);
+        window.state_mut().settings_mut().text_percent = 150;
+        // The size is read through the zoom, so the zoom has to land first. The window stays
+        // 1280 by 800 pixels, so a page has two thirds of the points it has at normal text.
+        window.run_steps(2);
+        window.set_size(egui::vec2(SIZES[0].0 as f32, SIZES[0].1 as f32) / 1.5);
+        for page in ["page.home", "page.mining"] {
+            window.state_mut().open(page);
+            window.run_steps(SETTLE_STEPS);
+            save(&mut window, &format!("budget-threads-limit-{}-{tag}-150", page.trim_start_matches("page.")));
+        }
+    }
+    window.state_mut().settings_mut().text_percent = 100;
+    window.run_steps(2);
+    window.set_size(egui::vec2(SIZES[0].0 as f32, SIZES[0].1 as f32));
 }
 
 /// A coin of two second blocks, so sixty blocks come in about two minutes. At one second a pool's
@@ -409,8 +426,14 @@ fn the_network_shows_its_speed_and_who_found_the_blocks() {
         // Every miner on this coin is on this computer: its share of the speed is the measured
         // speed over the network's, which reads from the blocks and never below it.
         let mining = figures_agree(&mut window, "page.mining", LIMIT);
+        // The long average stands only on Mining, saying how late it follows a change; on Home's
+        // small card, beside the speed now and the share, it would read as a contradiction.
+        let (average, late) = if lang == Lang::Ko { ("블록 평균", "늦게 따라옵니다") } else { ("-block average", "Lags a change") };
+        assert!(!texts_with(&window, average).is_empty() && !texts_with(&window, late).is_empty(), "Mining shows the average and its lag");
         save(&mut window, name);
         let home = figures_agree(&mut window, "page.home", LIMIT);
+        assert!(texts_with(&window, average).is_empty(), "Home leaves the average to Mining: {:?}", texts_with(&window, average));
+        save(&mut window, &format!("{name}-home"));
         println!("{lang:?}: Home {home}, Mining {mining}");
     }
 }

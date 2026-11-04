@@ -1,6 +1,6 @@
 //! The whole network as a Bitcoin user reads it: its speed from the latest blocks, the average
 //! over every block kept, this computer's share of that speed, and who found the latest blocks.
-//! The Mining page shows it in full; Home shows the same figures under its mining card.
+//! The Mining page shows it in full; Home shows the speed now and the share under its mining card.
 use super::Cx;
 use crate::core::{unix_ms, ChainView, FEWEST_BLOCKS};
 use crate::ui::chain::{self, Look};
@@ -34,8 +34,10 @@ fn span_words(cx: &Cx, span_ms: u64) -> String {
 }
 
 /// The figures side by side, each a quiet name over its value; while too few blocks are kept to
-/// read the network's speed from, one line that says so instead.
-pub fn figures(ui: &mut Ui, cx: &Cx) {
+/// read the network's speed from, one line that says so instead. The long average follows a change
+/// of speed only after its whole span, so beside this computer's speed now it can read as a
+/// contradiction: only the Mining card shows it (`with_average`), saying how late it follows.
+pub fn figures(ui: &mut Ui, cx: &Cx, with_average: bool) {
     let t = cx.t;
     let voice = cx.voice();
     let chain = &cx.snap.node.chain;
@@ -47,14 +49,19 @@ pub fn figures(ui: &mut Ui, cx: &Cx) {
     };
     // The speed now says under it how far back it reads, which is how long a change takes to show.
     let span = cx.fill("net.now_span", &[&span_words(cx, reading.span_ms)]);
-    let mut shown = vec![(cx.say("net.now").to_string(), format::rate(voice, chain.hashrate_all), Some(span))];
+    let mut shown = vec![
+        (cx.say("net.now").to_string(), format::rate(voice, chain.hashrate_all), Some(span)),
+        (cx.say("net.share").to_string(), format!("{share}%"), None),
+    ];
     // Until more blocks are kept than the speed now reads, the average reads the same blocks and
     // would only say the same number twice.
     let blocks = chain.latest.len().saturating_sub(1);
-    if blocks > reading.blocks && chain.hashrate_average > 0 {
-        shown.push((cx.fill("net.average", &[&format::number(blocks as u128)]), format::rate(voice, chain.hashrate_average), None));
+    if with_average && blocks > reading.blocks && chain.hashrate_average > 0 {
+        // The newest block first: the average spans from the oldest kept to the newest.
+        let spans = chain.latest.first().zip(chain.latest.last()).map_or(0, |(newest, oldest)| newest.time_ms.saturating_sub(oldest.time_ms));
+        let late = cx.fill("net.average_late", &[&span_words(cx, spans)]);
+        shown.push((cx.fill("net.average", &[&format::number(blocks as u128)]), format::rate(voice, chain.hashrate_average), Some(late)));
     }
-    shown.push((cx.say("net.share").to_string(), format!("{share}%"), None));
     Columns::new(ui, &[1.0; 3]).row(ui, |ui, index| {
         let Some((name, value, under)) = shown.get(index) else {
             return;
@@ -75,7 +82,7 @@ pub fn card_of(ui: &mut Ui, cx: &Cx, still: bool) {
     let t = cx.t;
     card(ui, t, |ui| {
         section(ui, cx.say("net.title"));
-        figures(ui, cx);
+        figures(ui, cx, true);
         let chain = &cx.snap.node.chain;
         if let Some(reading) = chain.network {
             let span = span_words(cx, reading.span_ms);

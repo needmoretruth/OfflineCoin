@@ -19,7 +19,7 @@ use egui::{vec2, Align, Layout, RichText, Ui};
 
 /// How wide the miners take of the first row; the race and the pacing take the rest.
 const MINERS_SHARE: f32 = 0.58;
-const LINE_HEIGHT: f32 = 130.0;
+const LINE_HEIGHT: f32 = 150.0;
 
 #[derive(Default)]
 pub struct Mining {

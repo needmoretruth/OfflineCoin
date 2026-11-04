@@ -10,8 +10,8 @@ use crate::ui::widgets::{button, button_on, card, dot, section, strong_text, Col
 use crate::ui::format;
 use egui::{Align, Label, Layout, RichText, Ui};
 
-/// The speed line's height on the card.
-const LINE_HEIGHT: f32 = 84.0;
+/// The speed line's height on the card, its ceiling's words included.
+const LINE_HEIGHT: f32 = 104.0;
 /// Room for every fact the card can show, so the cells keep one width as facts come and go.
 const FACT_CELLS: usize = 4;
 
@@ -75,12 +75,12 @@ impl MiningCard {
             chain::next_block_bar(ui, &look, &node.chain);
             ui.add_space(tokens::GAP);
             facts(ui, cx);
-            // The whole network beside this computer, the same figures the Mining page shows, once
-            // there are blocks to read them from: before that they would only say "unknown" and
-            // push what stops this node further down Home.
+            // The whole network beside this computer, the speed now and the share the Mining page
+            // shows, once there are blocks to read them from: before that they would only say
+            // "unknown" and push what stops this node further down Home.
             if cx.snap.node.chain.latest.len() >= 2 {
                 ui.add_space(tokens::GAP);
-                super::network::figures(ui, cx);
+                super::network::figures(ui, cx, false);
             }
         });
     }

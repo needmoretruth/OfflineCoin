@@ -32,14 +32,16 @@ impl Ceiling {
 }
 
 /// Every miner on this computer together, over up to the last ten minutes: the name and the number
-/// now on one line, a thin line on a soft fill under them, `height` points tall in all. The line
-/// spans as long as there is data for, so the first minutes fill the width rather than a sliver;
-/// under a minute it says when the line starts. The ceiling is a labelled guide.
+/// now on one line, the ceiling's words under the number, a thin line on a soft fill under them,
+/// `height` points tall in all. The line spans as long as there is data for, so the first minutes
+/// fill the width rather than a sliver; under a minute it says when the line starts. The ceiling is
+/// an unlabelled guide in the plot: its words stand outside it with a short key in the guide's
+/// stroke, so no word is ever drawn over the line.
 pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, ceiling: &Ceiling, height: f32) -> Response {
     let t = look.t;
     let voice = look.voice;
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height.max(64.0)), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height.max(64.0 + tokens::META_LINE)), Sense::hover());
     let painter = ui.painter_at(rect);
     let small = FontId::new(tokens::META, FontFamily::Proportional);
     let title = i18n::text(voice, "chain.speed");
@@ -47,7 +49,9 @@ pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, ceiling: &Ceil
     let now = format::rate(voice, chain.hashrate_here);
     let figure = FontId::new(tokens::TEXT, fonts::strong());
     painter.text(rect.right_top(), Align2::RIGHT_TOP, &now, figure, t.text);
-    let plot = Rect::from_min_max(pos2(rect.left(), rect.top() + tokens::META_LINE + 10.0), pos2(rect.right(), rect.bottom() - tokens::META_LINE));
+    let key_y = rect.top() + tokens::META_LINE + tokens::META_LINE / 2.0;
+    let plot_top = rect.top() + tokens::META_LINE * 2.0 + 8.0;
+    let plot = Rect::from_min_max(pos2(rect.left(), plot_top), pos2(rect.right(), rect.bottom() - tokens::META_LINE));
     painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.0, t.line_strong));
     let most = chain.trail.iter().map(|(_, rate)| *rate).max().unwrap_or(0);
     let end_ms = look.now_ms.max(chain.trail.last().map_or(0, |(at, _)| *at));
@@ -77,14 +81,18 @@ pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, ceiling: &Ceil
         pos2(plot.right() - back * plot.width(), plot.bottom() - rate as f32 / top * plot.height())
     };
     let peak_y = plot.bottom() - guide as f32 / top * plot.height();
-    painter.line_segment([pos2(plot.left(), peak_y), pos2(plot.right(), peak_y)], Stroke::new(1.0, t.line));
+    // Dashed, so the guide reads apart from the floor line and the speed line.
+    let guide_stroke = Stroke::new(1.0, t.line_strong);
+    let dashed = |from: Pos2, to: Pos2| painter.extend(Shape::dashed_line(&[from, to], guide_stroke, 4.0, 3.0));
+    dashed(pos2(plot.left(), peak_y), pos2(plot.right(), peak_y));
     let key = match (ceiling.rate, ceiling.limited) {
         (0, _) => "chain.peak",
         (_, true) => "chain.ceiling_limit",
         (_, false) => "chain.ceiling_full",
     };
     let peak = i18n::fill(i18n::text(voice, key), &[&format::rate(voice, guide)]);
-    painter.text(pos2(plot.left(), peak_y - 2.0), Align2::LEFT_BOTTOM, &peak, small, t.muted);
+    let words = painter.text(pos2(rect.right(), key_y), Align2::RIGHT_CENTER, &peak, small, t.muted);
+    dashed(pos2(words.left() - 20.0, key_y), pos2(words.left() - 6.0, key_y));
     let accent = t.info;
     let mut points: Vec<Pos2> = chain.trail.iter().copied().map(point).collect();
     if let Some(last) = points.last().copied() {
