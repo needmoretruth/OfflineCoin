@@ -329,7 +329,8 @@ fn boards_given_the_date_stamp_true_times_and_the_apps_first_block_is_ordinary()
 
     let joined = join(&folder, &coin, boards);
     println!("the app took {boards} blocks in {:?}", joined.took);
-    assert!(joined.took < Duration::from_secs(10), "{:?}", joined.took);
+    // About 4 seconds on a quiet machine in a debug build; the bound leaves room for a busy one.
+    assert!(joined.took < Duration::from_secs(20), "{:?}", joined.took);
     assert_eq!(joined.mined_early, 0, "the app mined before it took the chain");
     // "3분 전", not "26시간 전": the board's last block reads seconds before the app's first,
     // well inside the 90 seconds after which a block may take the floor.
