@@ -79,7 +79,9 @@ pub fn listed(voice: Voice, now_ms: u64, then_ms: u64, told: Told) -> String {
         (true, Told::Stacked) => format!("{}\n{}", clock(now_ms, then_ms), ago(voice, now_ms, then_ms)),
         (true, Told::Short) => ago(voice, now_ms, then_ms),
         (false, Told::Stacked) => clock(now_ms, then_ms).replacen(' ', "\n", 1),
-        (false, _) => clock(now_ms, then_ms),
+        // A narrow column keeps the date whole; the row's detail has the time.
+        (false, Told::Short) => clock(now_ms, then_ms).split(' ').next().unwrap_or_default().to_string(),
+        (false, Told::Line) => clock(now_ms, then_ms),
     }
 }
 
@@ -230,6 +232,7 @@ mod tests {
         assert_eq!(listed(voice, now, earlier, Told::Short), "3 s ago");
         assert_eq!(listed(voice, now, yesterday, Told::Line), "2026-11-03 08:00");
         assert_eq!(listed(voice, now, yesterday, Told::Stacked), "2026-11-03\n08:00");
-        assert_eq!(listed(voice, now, yesterday, Told::Short), "2026-11-03 08:00");
+        // Home's narrow column keeps an older row's date whole; its detail has the time.
+        assert_eq!(listed(voice, now, yesterday, Told::Short), "2026-11-03");
     }
 }
