@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 
 /// The limit the person sets on Home.
 const LIMIT: u64 = 2_000;
-/// A node reads its speed once a second, and the cap hands out a second's hashes in hundredths,
-/// so one reading may run a little over while the mean holds.
-const READING_SLACK: f64 = 1.10;
+/// Every speed is read over its last five seconds from the windows its cap hands hashes out in,
+/// so no reading stands above the limit while the miners keep to it, not even for a second.
+const READING_SLACK: f64 = 1.0;
 const MEAN_SLACK: f64 = 1.03;
 
 /// Every miner's measured speed on this computer together, as the nodes last said it.
@@ -268,7 +268,10 @@ fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     wait_until(&mut window, |app| app.snapshot().full_rate != one);
     let wide = settle_threads(&mut window, pid, |now| now + 1 >= alone + all);
     println!("miner threads: {alone} on one, {wide} on {all}");
-    assert!(wide + 1 >= alone + all, "the added miner mines on every core too: {alone} then {wide}");
+    let says = |app: &App| app.snapshot().local[0].status.as_ref().map_or(0, |status| status.threads);
+    assert!(wide + 1 >= alone + all, "the added miner mines on every core too: {alone} then {wide}, it says {}", says(window.state()));
+    // Its own status line, once a second, says the same count the system shows.
+    wait_until(&mut window, |app| says(app) == all);
     let highest = window.state().snapshot().full_rate;
     window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);
@@ -367,8 +370,9 @@ fn breakdown(window: &Window) -> Vec<(String, u32)> {
 }
 
 /// This app mines, one miner beside it mines alone and another works in the pool this app runs.
-/// After fifty blocks the network's speed read from the blocks is within 30 % of what the miners
-/// measured, and the breakdown names this computer, its miners and the pool, adding to 100 %.
+/// After fifty blocks Mining shows the average the blocks read beside the mean the miners measured
+/// over the same time, with a sentence on why when they stand apart, and the breakdown names this
+/// computer, its miners and the pool, adding to 100 %.
 #[test]
 fn the_network_shows_its_speed_and_who_found_the_blocks() {
     const LIMIT: u64 = 30_000;
@@ -398,14 +402,27 @@ fn the_network_shows_its_speed_and_who_found_the_blocks() {
     }
     let measured = readings.iter().sum::<u64>() / readings.len().max(1) as u64;
     let snap = window.state().snapshot();
-    // Over the sixty blocks kept, at least the fifty the measure asks for; the twenty block figure
-    // beside it moves more with luck.
-    let estimate = snap.node.chain.hashrate_average;
-    let blocks = snap.node.chain.latest.len() - 1;
-    println!("network {estimate} over {blocks} blocks, {} over 20, against {measured} measured over {} readings", snap.node.chain.hashrate_all, readings.len());
-    assert!(blocks >= 50, "the average reads {blocks} blocks");
-    let off = (estimate as f64 - measured as f64).abs() / measured as f64;
-    assert!(off <= 0.30, "the network's speed {estimate} is {:.0} % off the measured {measured}", off * 100.0);
+    // The average reads the blocks of the last ten minutes, at least the fifty made here, and
+    // beside it the mean this computer measured over the same time. The blocks read lower than the
+    // hashes made: work on a parent already beaten and blocks that lost a race make no block, and
+    // fifty blocks scatter by a seventh. So the screen does not claim they agree; it shows both
+    // and says why they stand apart.
+    let average = snap.node.chain.average.expect("an average over the blocks made");
+    let beside = average.measured.expect("every block was found here, so the same time was measured");
+    println!(
+        "network {} over {} blocks in {} ms, measured {beside} over the same time, {measured} read by the test over {} readings; off {:?} %, luck {} %",
+        average.rate,
+        average.blocks,
+        average.span_ms,
+        readings.len(),
+        average.off(),
+        average.scatter()
+    );
+    assert!(average.blocks >= 50, "the average reads {} blocks", average.blocks);
+    let drift = (beside as f64 - measured as f64).abs() / measured as f64;
+    assert!(drift <= 0.10, "the mean shown beside the average, {beside}, is the miners' measured speed {measured}");
+    // The same miners' work: a unit or a span read wrong would stand far beyond both causes.
+    assert!((0.5..=1.5).contains(&(average.rate as f64 / beside as f64)), "the blocks read {} against {beside} measured", average.rate);
 
     for (mode, lang, you, pool, name) in [(Mode::Basic, Lang::Ko, "나", "내 풀", "budget-network-ko-basic"), (Mode::Expert, Lang::En, "You", "Your pool", "budget-network-en-expert")] {
         speak(&mut window, mode, lang);
@@ -431,12 +448,75 @@ fn the_network_shows_its_speed_and_who_found_the_blocks() {
         let mining = figures_agree(&mut window, "page.mining", LIMIT);
         // The long average stands only on Mining, saying how late it follows a change; on Home's
         // small card, beside the speed now and the share, it would read as a contradiction.
-        let (average, late) = if lang == Lang::Ko { ("블록 평균", "늦게 따라옴") } else { ("-block average", "Lags a change") };
-        assert!(!texts_with(&window, average).is_empty() && !texts_with(&window, late).is_empty(), "Mining shows the average and its lag");
+        let (average, beside, why) =
+            if lang == Lang::Ko { ("블록 평균", "같은 시간 잰 속도", "블록으로 본 속도가") } else { ("-block average", "Measured average", "The block average is") };
+        assert!(!texts_with(&window, average).is_empty() && !texts_with(&window, beside).is_empty(), "Mining shows the average and the mean measured beside it");
+        // Two figures a twentieth or more apart, as the frame drawn showed them, come with the
+        // sentence that says why.
+        let apart = window.state().snapshot().node.chain.average.and_then(|average| average.off()).is_some_and(|off| off.abs() >= 5);
+        assert_eq!(!texts_with(&window, why).is_empty(), apart, "the reason shows when the figures stand apart: {:?}", texts_with(&window, why));
         save(&mut window, name);
         let home = figures_agree(&mut window, "page.home", LIMIT);
         assert!(texts_with(&window, average).is_empty(), "Home leaves the average to Mining: {:?}", texts_with(&window, average));
         save(&mut window, &format!("{name}-home"));
         println!("{lang:?}: Home {home}, Mining {mining}");
+    }
+}
+
+/// The owner's scene: Korean expert, a limit, the thread cap at one and one added miner, all real
+/// processes. For a minute, read twice a second, no speed shown stands above the cap shown beside
+/// it, this app's or the miner's, and together they stay under the limit, while the mean keeps
+/// close to it: the five second readings hide no overshoot and no lost speed.
+#[test]
+fn a_shown_speed_never_stands_above_its_shown_cap() {
+    let mut settings = quiet_settings();
+    settings.mine_on_start = true;
+    settings.mode = Mode::Expert;
+    settings.language = Lang::Ko;
+    settings.theme = Theme::Dark;
+    settings.mining_threads = 1;
+    settings.port = port_of_scene(68);
+    let mut window = harness(app(scratch("budget-span"), settings, Some(node_program())), SIZES[0]);
+    wait_until(&mut window, |app| app.snapshot().node.mining && app.snapshot().full_rate > 0);
+    // Under the highest speed on one thread, so the limit is what holds the miners back.
+    let limit = (window.state().snapshot().full_rate / 2).clamp(1_000, 60_000);
+    window.state().send(Command::SetCap(limit));
+    let spec = NodeSpec { name: "miner-a".into(), memory_mib: 64, disk_mib: 64, mining: true, ..Preset::Custom.spec(0) };
+    window.state().send(Command::AddNode(Box::new(spec)));
+    wait_for_miners(&mut window, 1);
+    // Once both run at their parts: the first five seconds of a part read its own start.
+    wait_until(&mut window, |app| {
+        let snap = app.snapshot();
+        snap.budget.limit == limit && snap.node.cap > 0 && snap.local.iter().filter_map(|view| view.status.as_ref()).all(|status| status.hashrate > 0)
+    });
+    let started = Instant::now();
+    let mut sums = Vec::new();
+    let mut over = Vec::new();
+    while started.elapsed() < Duration::from_secs(60) {
+        window.run_steps(1);
+        let snap = window.state().snapshot();
+        let mut parts = vec![("this app".to_string(), snap.node.hashrate, snap.node.cap)];
+        for view in &snap.local {
+            if let Some(status) = view.status.as_ref().filter(|status| status.mining) {
+                parts.push((view.spec.name.clone(), status.hashrate, status.cap));
+            }
+        }
+        over.extend(parts.iter().filter(|(_, rate, cap)| rate > cap).cloned());
+        sums.push(parts.iter().map(|(_, rate, _)| rate).sum::<u64>());
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let most = sums.iter().copied().max().unwrap_or(0);
+    let mean = sums.iter().sum::<u64>() / sums.len().max(1) as u64;
+    println!("a minute at limit {limit}: {} readings, highest {most}, mean {mean}, over a cap {over:?}", sums.len());
+    assert!(over.is_empty(), "a speed shown above its cap: {over:?}");
+    assert!(most <= limit, "together {most} above the limit {limit}");
+    assert!(mean as f64 >= limit as f64 * 0.85, "the mean {mean} fell well under the limit {limit}");
+
+    // What the owner sees, in his words and in the plain ones.
+    for (mode, name) in [(Mode::Expert, "budget-mining-limit-miner-ko-expert"), (Mode::Basic, "budget-mining-limit-miner-ko-basic-span")] {
+        speak(&mut window, mode, Lang::Ko);
+        window.state_mut().open("page.mining");
+        window.run_steps(SETTLE_STEPS);
+        save(&mut window, name);
     }
 }
