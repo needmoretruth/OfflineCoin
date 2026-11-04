@@ -3,7 +3,7 @@
 use super::measure::{Measured, Meter};
 use super::spawn::{limits_of, memory_limit_bytes, Enforcement};
 use super::{NodeSpec, WalletChoice};
-use crate::core::NodeView;
+use crate::core::{NodeView, Verdict};
 use crate::settings::Paths;
 use olc_platform::{platform, Hold};
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,8 @@ pub struct ChildStatus {
     pub offline: bool,
     /// The newest blocks of its chain. Said in an experiment only.
     pub chain: Vec<ChainBlock>,
+    /// What it last said of blocks and payments it was given, oldest first.
+    pub verdicts: Vec<Verdict>,
 }
 
 /// One block as an experiment draws it.
@@ -104,6 +106,7 @@ impl ChildStatus {
             shares: Vec::new(),
             offline: false,
             chain: Vec::new(),
+            verdicts: view.verdicts.clone(),
         }
     }
 }
@@ -335,6 +338,11 @@ impl Supervisor {
         let (sender, lines) = channel();
         *node.board_lines.lock().ok()? = Some(sender);
         Some(LocalLink { input: node.input.clone(), lines })
+    }
+
+    /// The last status line of a node, without measuring it.
+    pub fn status(&self, id: u32) -> Option<ChildStatus> {
+        self.running.get(&id)?.status.lock().ok()?.clone()
     }
 
     pub fn pid(&self, id: u32) -> Option<u32> {

@@ -10,6 +10,7 @@ mod measure;
 mod preset;
 mod spawn;
 mod supervisor;
+pub mod trouble;
 
 pub use child::run_node;
 pub use measure::{is_running, Measured};

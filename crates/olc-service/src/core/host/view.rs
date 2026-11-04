@@ -116,6 +116,7 @@ impl Worker {
             wallet: wallet_part,
             channels: super::super::host_channels::view_of(&self.state),
             connections: super::super::host_channels::peers_now(&self.state, runner),
+            verdicts: self.state.verdicts.lock().map(|kept| kept.1.iter().cloned().collect()).unwrap_or_default(),
         };
         runner.card.mining = view.mining;
         runner.card.hashrate = view.hashrate;

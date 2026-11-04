@@ -82,6 +82,23 @@ pub struct NodeView {
     pub connections: super::host_peers::PeersView,
     /// Seed words to write down and wallets shared with others.
     pub wallet: super::host_wallet::WalletView,
+    /// What this node last said of blocks and payments handed to it, oldest first. The screen
+    /// never shows these; the Lab's bug exploiter reads them from a node's status line to learn
+    /// that its trick was refused and which rule the node named.
+    pub verdicts: Vec<Verdict>,
+}
+
+/// What a node said of one block or payment it was handed: taken, or refused for a rule. The node
+/// repeats the newest few in each status line, so a reader that looks once a second misses none.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Verdict {
+    /// Counts up over the node's life, so a reader can tell the ones it has already seen.
+    pub number: u64,
+    /// A block, or else a payment.
+    pub block: bool,
+    /// The rule it broke, as the node's `ChainError` names it, or nothing when it was taken.
+    pub refused: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

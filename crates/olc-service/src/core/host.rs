@@ -87,7 +87,13 @@ pub(super) struct State {
     other_tips: Mutex<Vec<Hash>>,
     /// The wallet's password: whether it has one, and the seal while it is open.
     pub(super) purse: Mutex<super::wallet_lock::LockState>,
+    /// What this node said of blocks and payments handed to it, with a running count. The Lab's
+    /// bug exploiter reads the newest from the status line; the screen ignores them.
+    pub(super) verdicts: Mutex<(u64, VecDeque<super::snapshot::Verdict>)>,
 }
+
+/// The newest verdicts kept, so a reader looking once a second catches each one.
+const KEPT_VERDICTS: usize = 32;
 
 pub struct Host {
     pub runner: Arc<Mutex<Runner>>,
@@ -164,6 +170,7 @@ impl Host {
             channels: Mutex::default(),
             other_tips: Mutex::default(),
             purse: Mutex::new(super::wallet_lock::LockState::read(&plan.wallet_folder)),
+            verdicts: Mutex::default(),
         });
         let worker = Worker {
             runner: runner.clone(),
@@ -440,7 +447,9 @@ impl Worker {
     }
 
     fn keep(&mut self, runner: &mut Runner, asked: &mut Asked) {
-        while runner.engine.take_event().is_some() {}
+        while let Some(event) = runner.engine.take_event() {
+            self.note_verdict(event);
+        }
         while let Some((peer, hello)) = runner.take_hello() {
             if let Ok(mut heard) = self.state.heard.lock() {
                 if heard.len() >= MAX_HEARD {
@@ -465,6 +474,34 @@ impl Worker {
         } else if asked.peers.elapsed() >= ASK_PEERS_EVERY {
             asked.peers = Instant::now();
             runner.ask_who_on(TCP_LINK);
+        }
+    }
+
+    /// Keeps what the node said of a block or payment handed to it, so the Lab's bug exploiter
+    /// reads from a running node, never from the side that sent the trick, whether it was refused
+    /// and the rule the node named. Other events the screen already reads from the view.
+    fn note_verdict(&self, event: olc_node::Event) {
+        use olc_node::Event::{BlockAccepted, BlockRejected, TxAccepted, TxRejected};
+        // A block the node mines itself (`Mined`) is not a judgement on a block handed to it, so it
+        // is left out: were it kept, a block found while a trick is in flight could be read as the
+        // node taking the trick.
+        let verdict = match event {
+            BlockAccepted { .. } => Some((true, None)),
+            BlockRejected { reason } => Some((true, Some(format!("{reason:?}")))),
+            TxAccepted => Some((false, None)),
+            TxRejected { reason } => Some((false, Some(format!("{reason:?}")))),
+            _ => None,
+        };
+        let Some((block, refused)) = verdict else {
+            return;
+        };
+        if let Ok(mut kept) = self.state.verdicts.lock() {
+            kept.0 += 1;
+            let number = kept.0;
+            if kept.1.len() >= KEPT_VERDICTS {
+                kept.1.pop_front();
+            }
+            kept.1.push_back(super::snapshot::Verdict { number, block, refused });
         }
     }
 
