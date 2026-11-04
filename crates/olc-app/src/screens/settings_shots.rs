@@ -58,6 +58,8 @@ fn every_setting_says_when_it_takes_hold() {
     picture(&mut window, "settings-reset-basic-en-dark");
     press(&mut window, "Cancel", 0);
     assert!(window.query_by_label("Reset to defaults").is_some());
+    let version = format!("OLC Core {}", env!("CARGO_PKG_VERSION"));
+    assert!(window.query_by_label(&version).is_some(), "Settings say which version runs");
 
     // Expert adds threads, the broadcast, the port, which waits for the next start, the ports
     // to look on and the ESP-NOW card, and compares the two modes.

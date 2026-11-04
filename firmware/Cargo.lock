@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "olc-control"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "olc-crypto",
  "postcard",
@@ -1850,7 +1850,7 @@ dependencies = [
 
 [[package]]
 name = "olc-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "olc-crypto",
  "postcard",
@@ -1859,7 +1859,7 @@ dependencies = [
 
 [[package]]
 name = "olc-crypto"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "k256",
  "ripemd",
@@ -1905,7 +1905,7 @@ dependencies = [
 
 [[package]]
 name = "olc-lang"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "olc-core",
  "olc-crypto",
@@ -1913,14 +1913,14 @@ dependencies = [
 
 [[package]]
 name = "olc-logo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
 ]
 
 [[package]]
 name = "olc-node"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "olc-core",
  "olc-crypto",
@@ -1932,14 +1932,14 @@ dependencies = [
 
 [[package]]
 name = "olc-pow"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "olc-core",
 ]
 
 [[package]]
 name = "olc-wallet"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "k256",
  "olc-core",

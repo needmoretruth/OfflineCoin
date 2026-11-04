@@ -98,7 +98,8 @@ fn facts(ui: &mut Ui, cx: &Cx) {
         };
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
-            ui.add(Label::new(RichText::new(cx.say(key)).size(tokens::META).color(t.muted)).selectable(false).truncate());
+            // A long name or large text goes to a second line rather than losing its end.
+            ui.add(Label::new(RichText::new(cx.say(key)).size(tokens::META).color(t.muted)).selectable(false).wrap());
             ui.label(strong_text(format::number(*count)));
         });
     });

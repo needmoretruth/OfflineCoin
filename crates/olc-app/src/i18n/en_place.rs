@@ -12,7 +12,7 @@ pub const WORDS: &[(&str, &str)] = &[
         "A block is like a page of a notebook everyone keeps the same copy of. A new page is added only when someone solves the puzzle for it.",
     ),
     ("home.blocks_more", "Each box is a block, the newest on the left, with the miner that found it under it. That miner gets the block's reward, and payments that are waiting go into the next block."),
-    ("home.found", "Blocks you found"),
+    ("home.found", "Your blocks"),
     ("home.miners_here", "Other miners"),
     ("home.see_all", "See all"),
     ("mining.computer", "Miners on this computer"),

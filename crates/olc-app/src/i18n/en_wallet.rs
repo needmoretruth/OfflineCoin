@@ -10,6 +10,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("history.joined", "Coins joined"),
     ("history.joined_line", "{} coins ({}) joined into one, fee {}"),
     ("history.joined_short", "{} coins joined into one"),
+    ("history.joined_total", "Total {}"),
+    ("history.joined_fee", "Fee {}"),
     ("history.to_self_line", "To my other address, {}"),
     ("history.waiting", "Waiting"),
     ("history.ripe_in", "Blocks until spendable: {}"),

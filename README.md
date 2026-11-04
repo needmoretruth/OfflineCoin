@@ -35,21 +35,23 @@ Your computer may warn you the first time you open it.
 
 1. Open **OLC Core** and answer the short questions.
 2. Press **Start mining**. Your computer starts looking for coins.
-3. When it finds a block, coins appear on the Home page.
+3. When it finds a block, coins appear on the Home page. The speed buttons there set how hard your computer works.
 
 To get coins from someone, press **Receive** and give them your address. To pay someone, press **Send**.
 
 ## With other people
 
-Pick **Two computers** when OLC Core asks what you'll mine with. If your computer asks whether the app may use the network, say yes.
+If your computer asks whether OLC Core may use the network, say yes.
 
 Anyone on the same Wi-Fi opens OLC Core, goes to **Coins** and presses **Join**. No internet needed.
 
 You can make your own coin too. On the **Coins** page, press **New coin**, then give it a name and your own rules.
 
-- **Swap** trades your coin for someone else's coin, with nobody in the middle.
-- **Channels** pay at once, even to people you share no channel with, as Lightning does for Bitcoin.
-- **Shared wallets** under **Settings** need signatures from several people before coins leave it.
+- **Mine together** on the **Mining** page runs a pool. Other computers and your boards mine in it, and each is paid for the work it sent.
+- On the **Payments** page, **Swap** trades your coin for someone else's coin, with nobody in the middle.
+- **Channels** on the same page pay at once, even to people you share no channel with, as Lightning does for Bitcoin.
+- **Shared wallets** on the **Wallet** page need signatures from several people before coins leave it.
+- The **Lab** lets you try a 51% attack on a practice coin on your own computer.
 
 ## ESP32 boards
 
@@ -59,7 +61,7 @@ There's a separate version of OfflineCoin for ESP32 boards. Once it's set up, a 
 
 - OLC Core shows 12 words when it makes your wallet. Write them on paper. With those words your wallet comes back on any computer, and without them or a backup your coins are gone.
 - Anyone who sees your words or gets your wallet file can spend your coins, so keep them to yourself.
-- A wallet made before version 0.2.0 has no words yet. Go to **Settings**, **Seed words** to make them and move your coins to them.
+- A wallet made before version 0.2.0 has no words yet. Go to **Wallet**, **Seed words** to make them and move your coins to them.
 
 ## A word from the developer (more than a word)
 

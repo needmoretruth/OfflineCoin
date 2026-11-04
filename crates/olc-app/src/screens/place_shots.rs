@@ -29,6 +29,8 @@ fn wait_long(window: &mut Window, what: &str, seconds: u64, done: impl Fn(&Snaps
     loop {
         window.run_steps(1);
         if done(&window.state().snapshot()) {
+            // The state can arrive after the frame was drawn: draw it before anyone looks.
+            window.run_steps(3);
             return;
         }
         assert!(start.elapsed() < Duration::from_secs(seconds), "waited {seconds} s for {what}");
