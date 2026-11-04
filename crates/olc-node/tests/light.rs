@@ -375,6 +375,29 @@ fn a_shelf_fills_from_what_the_log_holds_and_follows_a_reorganisation() {
     assert!(same(node.chain()));
 }
 
+/// When a shorter branch with more work wins, the tip steps back and the shelf, which only ever
+/// puts a header over another, keeps the old branch's headers above the new tip. The chain must
+/// not answer from them: the app's view read the old tip as still on the best chain, above the
+/// tip, and its service stopped.
+#[test]
+fn no_height_above_the_tip_has_a_block_whatever_the_shelf_holds() {
+    let shelf = Shelved::default();
+    let drive = flash(STATE_SIZE * 2 + 4 * 1024 * 1024);
+    let mut keep = keep_on(&drive, None);
+    keep.shelf = Some(Box::new(shelf.clone()));
+    let chain = Chain::open(test_coin(), plugins(), keep);
+    let mut node = Engine::on_chain(chain, Wallet::from_secret([1; 32]).unwrap());
+    let mut clock = 1_000;
+    mine_on(&mut node, 40, &mut clock);
+    let tip = node.chain().blocks_from(40, 1)[0].header;
+    let mut left = shelf.clone();
+    left.put(41, &tip);
+    left.put(42, &tip);
+    assert_eq!(node.chain().id_at(40), Some(tip.id()));
+    assert_eq!(node.chain().id_at(41), None, "height 41 is above the tip");
+    assert_eq!(node.chain().id_at(42), None, "height 42 is above the tip");
+}
+
 #[test]
 fn a_pruned_node_says_when_it_no_longer_holds_what_is_asked() {
     let mut clock = 1_000;

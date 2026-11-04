@@ -21,7 +21,13 @@ impl Chain {
         }
     }
 
+    /// The best chain's header at `height`. The shelf only puts a header over another, so after a
+    /// shorter branch with more work wins it still holds the old branch above the tip: nothing
+    /// above the tip is read from it.
     pub(crate) fn shelved(&self, height: u64) -> Option<BlockHeader> {
+        if height > self.height() {
+            return None;
+        }
         self.shelf.as_ref()?.get(height)
     }
 

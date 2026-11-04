@@ -221,7 +221,7 @@ impl ChainWatch {
         let old = std::mem::replace(&mut self.tip, tip);
         let height = chain.height();
         match on_best(chain, &old) {
-            Some(at) if !self.blocks.is_empty() && height - at <= SHARE_WINDOW as u64 => {
+            Some(at) if !self.blocks.is_empty() && at <= height && height - at <= SHARE_WINDOW as u64 => {
                 let fresh = chain.blocks_from(at + 1, (height - at) as usize);
                 let rows = fresh.iter().enumerate().map(|(index, block)| MinedBlock::of(at + 1 + index as u64, block));
                 self.blocks.extend(rows);
