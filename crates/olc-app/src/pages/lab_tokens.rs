@@ -44,9 +44,9 @@ fn coins(units: u64) -> String {
 }
 
 /// The one line under a token, and its colour.
-pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color32) {
+pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> (String, Color32) {
     if member.ended.is_some() {
-        return (text(voice, "net.wait_start").to_string(), t.bad);
+        return (text(voice, "net.ended").to_string(), t.bad);
     }
     if member.paused {
         let key = if member.kind.mines() || member.kind.speed().is_some() { "net.paused" } else { "net.cut_off" };
@@ -62,6 +62,8 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color3
     let expert = voice.mode == Mode::Expert;
     let say = |key: &str, value: u64| fill(text(voice, key), &[&value.to_string()]);
     let shown = match member.kind {
+        // In a pool the pool finds the blocks: a member counts the shares it handed in.
+        Kind::Miner if member.pool.is_some() => say("net.shares", line.accepted),
         Kind::Miner | Kind::Attacker if expert => format!("{} H/s · {}", status.hashrate, say("net.found", status.blocks_mined)),
         Kind::Miner | Kind::Attacker => say("net.found", status.blocks_mined),
         Kind::Pool => say("net.members", line.workers.len() as u64),
@@ -74,11 +76,16 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color3
         Kind::Sender | Kind::Exploiter => match member.waits {
             Some(key) => text(voice, key).to_string(),
             None if member.kind == Kind::Exploiter => say("net.refused_count", member.tricks.iter().filter(|row| row.refused).count() as u64),
-            None => String::new(),
+            None => say("net.sent", sent_by(state, member.id)),
         },
     };
     let colour = if member.kind == Kind::Spammer && line.waiting_bytes > line.max_block_bytes { t.warn } else { t.muted };
     (shown, colour)
+}
+
+/// Payments this sender made since it was added.
+pub fn sent_by(state: &NetState, id: u32) -> u64 {
+    state.events.iter().filter(|event| matches!(event.what, What::Paid { from, .. } if from == id)).count() as u64
 }
 
 /// At most three lines that say what it holds and does now.

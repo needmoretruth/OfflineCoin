@@ -144,17 +144,22 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
         painter.circle_stroke(centre, *radius, Stroke::new(if lit { 3.0 } else { 2.0 }, colour));
     }
     let mut act = None;
-    for member in &state.members {
+    // Pools first: what is registered later takes the pointer, so a miner inside a ring keeps its
+    // own clicks and drags.
+    let pools = state.members.iter().filter(|member| member.kind == Kind::Pool);
+    let others = state.members.iter().filter(|member| member.kind != Kind::Pool);
+    for member in pools.chain(others) {
         let Some(centre) = spot(member.id) else {
             continue;
         };
         let pool_radius = places.rings.get(&member.id).copied();
         let reach = pool_radius.unwrap_or(TOKEN);
         let hit = Rect::from_center_size(centre, vec2(reach * 2.0, reach * 2.0));
-        let label = name(voice, member);
+        // Named with its line, so a screen reader says what it does as the map shows it.
+        let (line, _) = status_line(t, voice, member, state);
+        let label = if line.is_empty() { name(voice, member) } else { format!("{}, {line}", name(voice, member)) };
         let response = ui.interact(hit, ui.scope_id().with(("lab-token", member.id)), Sense::click_and_drag());
-        let shown_label = label.clone();
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &shown_label));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
         if response.drag_started() && member.kind == Kind::Miner {
             view.dragging = Some(member.id);
         }
@@ -178,14 +183,14 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
                 if selected {
                     painter.circle_stroke(centre, radius + 4.0, Stroke::new(2.5, t.info));
                 }
-                text_under(&painter, t, voice, member, centre + vec2(0.0, radius + 4.0));
+                text_under(&painter, t, voice, member, state, centre + vec2(0.0, radius + 4.0));
             }
             None => {
-                token(ui, &painter, t, member, drawn_at, selected || response.hovered());
+                token(&painter, t, member, drawn_at, selected || response.hovered());
                 if selected {
                     painter.circle_stroke(drawn_at, TOKEN + 5.0, Stroke::new(2.5, t.info));
                 }
-                text_under(&painter, t, voice, member, drawn_at + vec2(0.0, TOKEN + 4.0));
+                text_under(&painter, t, voice, member, state, drawn_at + vec2(0.0, TOKEN + 4.0));
             }
         }
     }
@@ -199,7 +204,7 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
     act
 }
 
-fn token(ui: &Ui, painter: &egui::Painter, t: &Tokens, member: &Member, centre: Pos2, lifted: bool) {
+fn token(painter: &egui::Painter, t: &Tokens, member: &Member, centre: Pos2, lifted: bool) {
     let mut colour = glyphs::fill(t, member.kind);
     if member.paused {
         colour = colour.gamma_multiply(0.45);
@@ -218,12 +223,11 @@ fn token(ui: &Ui, painter: &egui::Painter, t: &Tokens, member: &Member, centre: 
     if member.ended.is_some() {
         painter.circle_stroke(centre, TOKEN + 2.0, Stroke::new(2.0, t.bad));
     }
-    let _ = ui;
 }
 
-fn text_under(painter: &egui::Painter, t: &Tokens, voice: Voice, member: &Member, top: Pos2) {
+fn text_under(painter: &egui::Painter, t: &Tokens, voice: Voice, member: &Member, state: &NetState, top: Pos2) {
     painter.text(top, Align2::CENTER_TOP, name(voice, member), FontId::proportional(12.5), t.text);
-    let (line, colour) = status_line(t, voice, member);
+    let (line, colour) = status_line(t, voice, member, state);
     if !line.is_empty() {
         painter.text(top + vec2(0.0, 16.0), Align2::CENTER_TOP, line, FontId::proportional(11.5), colour);
     }

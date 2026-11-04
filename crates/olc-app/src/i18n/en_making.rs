@@ -20,14 +20,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.making_already", "Blocks are being made already."),
     ("notice.making_in_pool", "This computer mines in a pool now. Leave the pool, then try again."),
     ("notice.making_light", "This computer keeps block summaries only, so it cannot mine."),
-    ("lab2.make_title", "Make blocks now"),
-    ("lab2.make_about", "Mines blocks on the Lab's own coin at full speed. The next run starts from them."),
-    ("lab2.make_count", "Blocks"),
-    ("lab2.make", "Make blocks"),
-    ("lab2.making", "Making blocks: {} of {}"),
-    ("lab2.made", "Made {} blocks. The Lab's coin is at block {}."),
-    ("lab2.make_failed", "The blocks were not made: {}"),
-    ("lab2.make_details", "The Lab keeps its miners running after this, so the next run uses the same coin and the blocks made here. Remove them below when you are done."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -37,5 +29,4 @@ pub const EXPERT: &[(&str, &str)] = &[
     ),
     ("notice.chain_closed", "The chain is still opening. Try again in a moment."),
     ("notice.making_light", "A headers-only node cannot mine. Turn light mode off first."),
-    ("lab2.make_about", "Mines on the Lab coin with every miner capped off, until the chain is N blocks longer."),
 ];

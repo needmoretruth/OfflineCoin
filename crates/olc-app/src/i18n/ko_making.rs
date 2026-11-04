@@ -20,14 +20,6 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.making_already", "이미 블록을 만드는 중입니다."),
     ("notice.making_in_pool", "이 컴퓨터는 지금 풀에서 채굴 중입니다. 풀에서 나온 뒤 다시 해 보세요."),
     ("notice.making_light", "이 컴퓨터는 블록 요약만 받고 있어서 채굴할 수 없습니다."),
-    ("lab2.make_title", "블록 바로 만들기"),
-    ("lab2.make_about", "실험용 코인에 블록을 최대 속도로 만듭니다. 다음 실험은 여기서 이어집니다."),
-    ("lab2.make_count", "블록 수"),
-    ("lab2.make", "블록 만들기"),
-    ("lab2.making", "블록 만드는 중: {}/{}"),
-    ("lab2.made", "블록 {}개를 만들었습니다. 실험용 코인은 지금 블록 {}입니다."),
-    ("lab2.make_failed", "블록을 만들지 못했습니다: {}"),
-    ("lab2.make_details", "만든 뒤에도 실험실 채굴기는 계속 켜져 있어서, 다음 실험이 같은 코인과 여기서 만든 블록을 그대로 씁니다. 다 쓰면 아래에서 지우세요."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -37,5 +29,4 @@ pub const EXPERT: &[(&str, &str)] = &[
     ),
     ("notice.chain_closed", "체인을 아직 여는 중입니다. 잠시 뒤 다시 해 보세요."),
     ("notice.making_light", "헤더만 받는 노드는 채굴할 수 없습니다. 먼저 라이트 모드를 끄세요."),
-    ("lab2.make_about", "실험용 코인의 채굴기를 상한 없이 돌려 체인이 N블록 길어질 때까지 채굴합니다."),
 ];
