@@ -60,37 +60,39 @@ impl Runs {
         self.run.as_ref().is_some_and(|run| run.ids.contains(&id) || run.public.contains(&id))
     }
 
-    /// Every trick on every target, one after another on a thread of its own: two at once on
-    /// one node could mix their verdicts. A busy network can keep a node from answering in time,
-    /// or move its tip while a trick block is built on the old one, so a trick with no verdict
-    /// for its own rule is tried again a few times; what it got last is what is said.
+    /// Every trick on every target. Each target has a thread of its own that tries the tricks
+    /// one after another, since two at once on one node could mix their verdicts; the targets go
+    /// side by side, or a network of eight nodes would wait twenty minutes for its last answer.
+    /// A busy network can keep a node from answering in time, or move its tip while a trick block
+    /// is built on the old one, so a trick with no verdict for its own rule is tried again a few
+    /// times; what it got last is what is said.
     pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, targets: Vec<(u32, SocketAddr)>, funds: PathBuf) {
         let (answers, inbox) = channel();
-        let verdicts = Arc::clone(&self.verdicts);
-        thread::spawn(move || {
-            for trick in Trick::ALL {
-                for (target, address) in &targets {
-                    // The network runs on while a trick waits: honest blocks and payments the node
-                    // takes would be read as the trick's verdict, so only refusals are passed on.
-                    // A trick a node takes then shows as unanswered, never as refused.
-                    let seen = || {
-                        let all = verdicts.lock().ok().and_then(|all| all.get(target).cloned()).unwrap_or_default();
-                        all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
-                    };
-                    let mut outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+        for (target, address) in targets {
+            let (answers, verdicts, coin, funds) = (answers.clone(), Arc::clone(&self.verdicts), coin.clone(), funds.clone());
+            thread::spawn(move || {
+                // The network runs on while a trick waits: honest blocks and payments the node
+                // takes would be read as the trick's verdict, so only refusals are passed on.
+                // A trick a node takes then shows as unanswered, never as refused.
+                let seen = || {
+                    let all = verdicts.lock().ok().and_then(|all| all.get(&target).cloned()).unwrap_or_default();
+                    all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
+                };
+                for trick in Trick::ALL {
+                    let mut outcome = try_trick(trick, &coin, address, &funds, &target.to_string(), &seen);
                     for _ in 1..TRICK_TRIES {
                         if outcome.as_ref().is_ok_and(TrickOutcome::refused_as_expected) {
                             break;
                         }
                         thread::sleep(TRICK_AGAIN);
-                        outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+                        outcome = try_trick(trick, &coin, address, &funds, &target.to_string(), &seen);
                     }
-                    if answers.send((*target, trick, outcome)).is_err() {
+                    if answers.send((target, trick, outcome)).is_err() {
                         return;
                     }
                 }
-            }
-        });
+            });
+        }
         self.tricks.push((exploiter, inbox));
     }
 }

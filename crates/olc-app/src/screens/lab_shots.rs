@@ -14,6 +14,8 @@ const BASIC_KO: Voice = Voice { lang: Lang::Ko, mode: Mode::Basic };
 const EXPERT_EN: Voice = Voice { lang: Lang::En, mode: Mode::Expert };
 
 /// Every "+ kind" and every setup is on the Lab's first view, in both modes and languages.
+/// Spam payments sent before its pile is the one on the map.
+const SPAM_SEEN: f64 = 100.0;
 /// Attacks a person may press before the race is won.
 const ATTACK_TRIES: usize = 3;
 
@@ -61,6 +63,11 @@ fn add_and_see(run: &mut LabRun, kind: Kind, number: u32) -> String {
 }
 
 /// The receiver's panel line: payments received, settled and undone.
+/// The spam's own payments, not what an attack sent back to wait, fill more than a block.
+fn spam_piled(run: &LabRun, spammer: &str) -> bool {
+    run.count(spammer).is_some_and(|sent| sent >= SPAM_SEEN) && run.line_numbers("net.pile_over").is_some()
+}
+
 fn receiver_counts(run: &LabRun) -> Option<(f64, f64, f64)> {
     match run.line_numbers("net.fact_receiver")?.as_slice() {
         [got, settled, undone, ..] => Some((*got, *settled, *undone)),
@@ -125,7 +132,7 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     let again = run.say("net.again_attack");
     for _ in 0..ATTACK_TRIES {
         run.wait(600, "the receiver's payment is undone, or the attack ended", |run| undone(run) || !run.has_button(stop));
-        if undone(run) {
+        if undone(&run) {
             break;
         }
         run.select(&attacker);
@@ -138,9 +145,8 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     run.shoot("04-attack-undone");
     run.select(&receiver);
     // 5. Spam: the waiting list grows past what a block holds.
-    add_and_see(&mut run, Kind::Spammer, 1);
-    let piled = |run: &LabRun| run.line_numbers("net.pile_over").is_some();
-    run.wait(240, "the waiting list passes a block", piled);
+    let spammer = add_and_see(&mut run, Kind::Spammer, 1);
+    run.wait(240, "the spam passes a block", |run| spam_piled(run, &spammer));
     run.shoot("05-spam");
     // 6. A bug exploiter: each trick refused by every node, with the rule named.
     let exploiter = add_and_see(&mut run, Kind::Exploiter, 1);
@@ -255,8 +261,8 @@ fn every_setup_is_one_click_in_expert_english() {
                 assert!(!run.labels().iter().any(|label| label.starts_with(fixed)), "{scene:?} failed: {:?}", run.labels());
             }
             Scene::Spam => {
-                let piled = |run: &LabRun| run.line_numbers("net.pile_over").is_some();
-                run.wait(240, "the waiting list passes a block", piled);
+                let spammer = run.named(Kind::Spammer, 1);
+                run.wait(240, "the spam passes a block", |run| spam_piled(run, &spammer));
             }
             Scene::Exploit => {
                 let exploiter = run.named(Kind::Exploiter, 1);
