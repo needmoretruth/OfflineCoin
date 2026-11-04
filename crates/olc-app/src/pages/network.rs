@@ -108,7 +108,6 @@ pub fn card_of(ui: &mut Ui, cx: &Cx, still: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::core::{ChainView, Miner, Reading, Share};
 
     /// This computer's share is its measured speed over the network's, whatever share of the
