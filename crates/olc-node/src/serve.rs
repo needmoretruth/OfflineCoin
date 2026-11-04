@@ -81,19 +81,20 @@ impl Engine {
         if self.chain.id_at(position) != Some(id) || position < self.chain.oldest_held() {
             return None;
         }
-        let last = (position + BLOCKS_AHEAD as u64).min(self.chain.height());
-        // Blocks already on the way are not sent twice. A peer that asks again from where it
-        // asked before has lost one on the way, and gets them all again.
-        let first = match self.ahead {
-            Some((peer, asked, sent)) if peer == from && asked < position && sent > position => sent + 1,
-            _ => position + 1,
+        let height = self.chain.height();
+        // The usual answer always, which a peer that dropped what was on the way, or lost a
+        // block of it, needs; then the blocks after those on the way, up to the window.
+        let usual = (position + BLOCKS_AT_ONCE as u64).min(height);
+        let mut blocks = self.chain.blocks_from(position + 1, (usual - position) as usize);
+        let on_the_way = match self.ahead {
+            Some((peer, _, sent)) if peer == from && sent > usual => sent,
+            _ => usual,
         };
-        let blocks = match first <= last {
-            true => self.chain.blocks_from(first, (last + 1 - first) as usize),
-            false => Vec::new(),
-        };
-        let sent = first + blocks.len() as u64 - 1;
-        self.ahead = Some((from, position, sent.max(position)));
+        let last = (position + BLOCKS_AHEAD as u64).min(height);
+        if on_the_way < last {
+            blocks.extend(self.chain.blocks_from(on_the_way + 1, (last - on_the_way) as usize));
+        }
+        self.ahead = Some((from, position, last.max(on_the_way)));
         Some(blocks)
     }
 
