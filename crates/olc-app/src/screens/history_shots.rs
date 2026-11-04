@@ -128,6 +128,11 @@ fn receive_and_send(window: &mut Window, folder: Option<&Path>, suffix: &str, si
         window.query_all_by_label(&sign).last().expect("the slip's sign button").click_accesskit();
         window.run_steps(2);
         let _ = super::wait_for_notice(window, "notice.sent");
+        // Both people are new, so Send offers to save them as contacts; this person says not now.
+        window.run_steps(SETTLE_STEPS);
+        let later = word(window, "contacts.not_now");
+        window.query_all_by_label(&later).last().expect("Send offers to save the new addresses").click_accesskit();
+        window.run_steps(SETTLE_STEPS);
     } else {
         tap(window, "common.back");
     }

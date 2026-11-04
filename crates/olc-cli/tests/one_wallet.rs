@@ -152,7 +152,9 @@ fn sample(word: &str, home: &Path) -> String {
         "disconnect" => "disconnect 99".into(),
         "ban" => "ban 192.0.2.7 1d".into(),
         "unban" => "unban 192.0.2.7".into(),
-        "words" | "shared" => word.to_string(),
+        // `wallet` alone says how the lock stands; its other words read hidden passwords first.
+        "words" | "shared" | "wallet" | "contacts" => word.to_string(),
+        "contact" => format!("contact add Mina {somebody}"),
         // A signature is base64, which reads like code to this test, so the line asks for a key
         // this wallet does not hold.
         "sign-message" => format!("sign-message --address {somebody} hello"),

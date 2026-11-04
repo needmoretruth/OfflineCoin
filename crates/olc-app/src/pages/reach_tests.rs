@@ -19,6 +19,8 @@ const FILES: &[(&str, &[&str])] = &[
             "shared_wallets.rs",
             "message_sign.rs",
             "locks.rs",
+            "wallet_seal.rs",
+            "wallet_contacts.rs",
         ],
     ),
     (LAB, &["lab.rs", "lab_view.rs", "lab_boards.rs"]),
