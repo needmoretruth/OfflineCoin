@@ -8,7 +8,7 @@ use olc_service::core::door::Door;
 use olc_service::core::host_peers::Carried;
 use olc_service::core::{
     device_kind, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
-    Command, Desk, Host, NodeView, Notice, Personal, Plan,
+    Command, Desk, Host, Maker, NodeView, Notice, Personal, Plan,
 };
 use olc_store::NodeSettings;
 use std::fs;
@@ -127,6 +127,8 @@ struct NodeDesk<'a> {
     lines: &'a Receiver<String>,
     /// The nodes `--connect` named, called again on `scan`.
     known: &'a [String],
+    /// Blocks `generate` is making.
+    maker: &'a mut Maker,
 }
 
 /// A notice as the answer to a typed word.
@@ -230,6 +232,10 @@ impl Desk for NodeDesk<'_> {
                 Err(OWN_COIN.to_string())
             }
             Command::Swap(_) => Err(SWAPS_IN_CORE.to_string()),
+            Command::Chain(order) => {
+                let (key, detail, good) = self.maker.order(self.host, order);
+                said(key, detail, good)
+            }
             _ => Err(APP_ONLY.to_string()),
         }
     }
@@ -281,6 +287,7 @@ pub fn run(args: &Args) -> Result<(), String> {
         eprintln!("Another node runs on this wallet, so olc words from other terminals go to it.");
     }
     let mut shown = None;
+    let mut maker = Maker::default();
     let mut typing_open = true;
     let mut heard = 0;
     loop {
@@ -293,8 +300,7 @@ pub fn run(args: &Args) -> Result<(), String> {
         match typed {
             Ok(line) if line.trim().is_empty() => {}
             Ok(line) => {
-                let mut desk =
-                    NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known };
+                let mut desk = NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known, maker: &mut maker };
                 let line = crate::joined_line(&line);
                 match run_line(&mut desk, &line) {
                     Ok(answer) => println!("{answer}"),
@@ -306,8 +312,12 @@ pub fn run(args: &Args) -> Result<(), String> {
             Err(RecvTimeoutError::Disconnected) => typing_open = false,
         }
         if let Some(door) = &door {
-            let mut desk = NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known };
+            let mut desk = NodeDesk { host: &host, directory: &directory, lines: &lines, known: &known, maker: &mut maker };
             door.serve(&mut desk);
+        }
+        // Each block `generate` made is a line of this node's log, as its height is.
+        for (key, detail, good) in maker.step(&host) {
+            println!("{}", Notice { number: 0, key, detail, good }.sentence());
         }
         host.take_radio_notes().iter().for_each(|note| eprintln!("{note}"));
         print_moves(&host);

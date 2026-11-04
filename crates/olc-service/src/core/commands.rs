@@ -172,6 +172,8 @@ pub enum Command {
         to: String,
     },
     Pool(super::pool_plan::PoolOrder),
+    /// The waiting payments, this wallet's coins, or blocks made now.
+    Chain(super::making::ChainOrder),
     NodePay {
         id: u32,
         to: String,
@@ -198,6 +200,7 @@ impl Command {
                 | Self::ForkBack
                 | Self::MoveBoard(_)
                 | Self::Pool(_)
+                | Self::Chain(_)
                 | Self::Lock(_)
                 | Self::Channel(_)
                 | Self::Swap(_)

@@ -3,11 +3,10 @@ mod cap_test;
 mod real;
 
 pub use cap_test::CapTest;
-pub use olc_board::{Args, BoardState, Connection, LentHeard, Seen};
+pub use olc_board::{Args, BoardState, Connection, Extra, LentHeard, Seen};
 pub use olc_board::manager::{BoardRow, ExtraRun, LineError, StartError};
 pub use real::RealFleet;
 
-use olc_board::Extra;
 use olc_control::BoardId;
 use olc_node::{Hello, Runner};
 use std::collections::BTreeSet;

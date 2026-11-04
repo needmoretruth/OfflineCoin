@@ -4,6 +4,7 @@ use super::board_action::BoardAction;
 use super::commands::{Command, LockOrder, Personal};
 use super::host_locks::{check_lock, hash_lock_for, time_lock_for, two_of_two_for};
 use super::snapshot::BoardView;
+use super::words_chain as chain;
 use super::words_channels as ch;
 use super::words_pool as pool;
 use super::words_swap::swap;
@@ -93,6 +94,9 @@ pub const WORDS: &[Word] = &[
     Word { name: "disconnect", usage: "disconnect NUMBER    end one connection", run: ch::disconnect },
     Word { name: "ban", usage: "ban ADDRESS [1h|1d]  keep an address out for an hour or a day", run: ch::ban },
     Word { name: "unban", usage: "unban ADDRESS        let a banned address back", run: ch::unban },
+    Word { name: "mempool", usage: "mempool              payments waiting for a block, as getrawmempool", run: chain::mempool },
+    Word { name: "coins", usage: "coins                this wallet's coins and their confirmations, as listunspent", run: chain::coins },
+    Word { name: "generate", usage: "generate N|stop      mine N blocks now at full speed, as generatetoaddress", run: chain::generate },
     Word { name: "swap", usage: "swap offer COIN GIVE TAKE [--wait MINUTES] | accept TEXT | answer TEXT | cancel ID | list", run: swap },
     Word { name: "words", usage: "words [written|new [korean]|restore WORD...|move]  seed words to write down, restore from, or move older coins to", run: words_wallet::words },
     Word { name: "sign-message", usage: "sign-message [--address ADDRESS] TEXT  sign a message with a key", run: words_wallet::sign_message },

@@ -55,6 +55,8 @@ pub(super) struct State {
     cap: AtomicU64,
     /// Threads that mine. One is the node's own thread.
     threads: AtomicUsize,
+    /// Mining rests once the chain is this high, or never when 0: `generate` makes no more than asked.
+    mine_to: AtomicU64,
     hashrate: AtomicU64,
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
@@ -134,6 +136,7 @@ impl Host {
             mining: AtomicBool::new(plan.mining),
             cap: AtomicU64::new(plan.cap),
             threads: AtomicUsize::new(1),
+            mine_to: AtomicU64::new(0),
             hashrate: AtomicU64::new(0),
             stop: AtomicBool::new(false),
             opening: AtomicBool::new(true),
@@ -285,6 +288,16 @@ impl Host {
         self.state.cap.store(cap, Ordering::Relaxed);
     }
 
+    /// The threads it mines on.
+    pub fn threads(&self) -> usize {
+        self.state.threads.load(Ordering::Relaxed)
+    }
+
+    /// Mining rests once the chain reaches `height`; `None` lifts it.
+    pub fn mine_to(&self, height: Option<u64>) {
+        self.state.mine_to.store(height.unwrap_or(0), Ordering::Relaxed);
+    }
+
     /// Mines on this many threads, under the same cap.
     pub fn set_threads(&self, threads: usize) {
         self.state.threads.store(threads.max(1), Ordering::Relaxed);
@@ -390,7 +403,9 @@ impl Worker {
                 super::host_channels::pump(&self.state, &mut runner);
                 runner.step(now);
                 // Work from outside goes first, on every thread; a node catching up does not mine.
-                let free = runner.engine.syncing_to().is_none() && runner.engine.light().is_none();
+                let mine_to = self.state.mine_to.load(Ordering::Relaxed);
+                let below = mine_to == 0 || runner.engine.chain().height() < mine_to;
+                let free = runner.engine.syncing_to().is_none() && runner.engine.light().is_none() && below;
                 if let Some((header, difficulty)) = outside {
                     let found = self.crew.follow(header, difficulty);
                     if let Ok(mut shares) = self.state.shares.lock() {

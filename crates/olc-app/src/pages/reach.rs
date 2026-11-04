@@ -111,6 +111,21 @@ pub const CLI_ROWS: &[Row] = &[
     row("pool-stop", MINING, "Mining together, stop", "PoolOrder::Stop"),
     row("pool-join", MINING, "Mining together, join a pool", "PoolOrder::Join"),
     row("pool-leave", MINING, "Mining together, leave", "PoolOrder::Leave"),
+    row("coins", WALLET, "Receive and prove, addresses", "keys.balance"),
+    expert(
+        "mempool",
+        RECORDS,
+        "Waiting for a block",
+        "records_detail::waiting",
+        "Payment ids and fee rates; a person follows their own payment in the history",
+    ),
+    expert(
+        "generate",
+        MINING,
+        "Terminal only",
+        "",
+        "It makes test blocks at full speed, as Bitcoin Core's generate; mining's switch is the place for a person",
+    ),
     expert(
         "lab-stop",
         LAB,
