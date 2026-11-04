@@ -8,6 +8,7 @@ use crate::core::{unix_ms, Activity, ActivityKind, Snapshot};
 use crate::i18n::{self, Lang, Mode, Voice};
 use crate::pages::history::{blocks_to_ripe, confirmations, every_row, signed_amount, SETTLED};
 use crate::ui::format;
+use egui::accesskit::Role;
 use egui::{Color32, FontId, TextStyle};
 use egui_kittest::kittest::{By, NodeT, Queryable};
 use olc_core::CoinConfig;
@@ -60,37 +61,60 @@ fn drawn_whole(window: &Window, text: &str, font: &FontId, place: &str) {
     }
 }
 
-/// A row's time is drawn whole, with how long ago or, where the column is narrow, the clock alone.
+/// A row's time is drawn whole, on one line or two, inside its row: today's with how long ago,
+/// an older one's with its date.
 #[track_caller]
-fn time_whole(window: &Window, clock: &str, font: &FontId, place: &str) {
+fn time_whole(window: &Window, heads: &[String], font: &FontId, place: &str) {
     let mut drawn = 0;
     // A label keeps its words in the value, as kittest reads them.
-    for node in window.query_all(By::new().predicate(|node| node.value().is_some_and(|text| text.starts_with(clock)))) {
+    let begins = |text: &str| heads.iter().any(|head| text.starts_with(head.as_str()));
+    for node in window.query_all(By::new().predicate(|node| node.value().is_some_and(|text| begins(&text)))) {
         let text = node.accesskit_node().value().unwrap_or_default().to_string();
         let wanted = whole(window, &text, font.clone());
         assert!(node.rect().width() + ROUNDING >= wanted, "{place}: {text} is cut to {} of {wanted}", node.rect().width());
+        inside_row(window, node.rect(), &text, place);
         drawn += 1;
     }
-    assert!(drawn > 0, "{place} shows the time {clock}");
+    assert!(drawn > 0, "{place} shows the time as {heads:?}");
 }
 
-/// The join's words are whole where they fit. Too narrow, they are the short form with no amounts,
-/// whose count stands whole: a cut never falls inside a number. Home's narrow list has the short form.
+/// A cell's words stand inside the row they belong to, however many lines they take.
 #[track_caller]
-fn join_readable(window: &Window, coins_in: usize, font: &FontId, place: &str, narrow: bool) {
-    let count = format::number(u128::try_from(coins_in).unwrap_or(u128::MAX));
+fn inside_row(window: &Window, rect: egui::Rect, text: &str, place: &str) {
+    let row = window.query_all(By::new().predicate(|node| node.role() == Role::Button));
+    let row = row.map(|node| node.rect()).find(|row| row.contains(rect.center()));
+    let row = row.unwrap_or_else(|| panic!("{place}: no row holds {text}"));
+    assert!(rect.top() + ROUNDING >= row.top() && rect.bottom() <= row.bottom() + ROUNDING, "{place}: {text} at {rect:?} spills out of its row at {row:?}");
+}
+
+/// Home's narrow list says a join in its short form, with no amounts, and its count stands whole:
+/// a cut never falls inside a number. The full list keeps every word of it, on more lines if it
+/// needs them, all inside its row.
+#[track_caller]
+fn join_readable(window: &Window, item: &Activity, font: &FontId, place: &str, narrow: bool) {
+    let count = format::number(u128::try_from(item.coins_in).unwrap_or(u128::MAX));
     let short = i18n::fill(word(window, "history.joined_short"), &[&count]);
     let head = &short[..short.find(&count).map_or(short.len(), |at| at + count.len())];
     let node = window.query_all(By::new().predicate(|node| node.value().is_some_and(|text| text.starts_with(head)))).next();
     let node = node.unwrap_or_else(|| panic!("{place} shows the join as {head}"));
-    let text = node.accesskit_node().value().unwrap_or_default().to_string();
+    // The full list holds an amount to its ticker with a space that does not break.
+    let text = node.accesskit_node().value().unwrap_or_default().replace('\u{a0}', " ");
     let width = node.rect().width() + ROUNDING;
-    if text == short {
+    if narrow {
+        assert_eq!(text, short, "{place}: Home's narrow list says the join short");
         assert!(width >= whole(window, head, font.clone()), "{place}: the count in {text} is cut to {width}");
-    } else {
-        assert!(!narrow, "{place}: Home's narrow list says the join short, not {text}");
-        assert!(width >= whole(window, &text, font.clone()), "{place}: {text} is cut to {width}");
+        return;
     }
+    // The words name the whole that was joined and the fee, and the cell is wide enough for each
+    // amount and its ticker on one line, so a line breaks between words and never inside one.
+    let fee = item.fee.unwrap_or(0);
+    let rect = node.rect();
+    for units in [item.amount + fee, fee] {
+        let amount = format::coins(units, "OLC");
+        assert!(text.contains(&amount), "{place}: the join names {amount} in {text}");
+        assert!(width >= whole(window, &amount, font.clone()), "{place}: {amount} breaks in a cell {width} wide");
+    }
+    inside_row(window, rect, &text, place);
 }
 
 /// The words a row's status says, worked out apart from the page. A waiting row's tag is painted
@@ -137,9 +161,22 @@ fn the_history_status_stands_whole_at_1280_and_at_150_percent() {
                         drawn_whole(&window, &status, &body, &place);
                     }
                     drawn_whole(&window, &signed_amount(item, "OLC"), &medium, &place);
-                    time_whole(&window, &format::clock(unix_ms(), item.time_ms), &body, &place);
+                    // Today's rows keep how long ago beside an older row's date, on one line or
+                    // over it. Home's narrower list may say how long ago alone, a second or two
+                    // before this look.
+                    let now = unix_ms();
+                    let clock = format::clock(now, item.time_ms);
+                    let mut heads = match format::today(now, item.time_ms) {
+                        true => vec![format!("{clock} · "), format!("{clock}\n")],
+                        false => vec![clock.split(' ').next().unwrap_or_default().to_string()],
+                    };
+                    if page == "page.home" {
+                        let voice = Voice { lang: language, mode };
+                        heads.extend((0..3).map(|back| format::ago(voice, now - back * 1_000, item.time_ms)));
+                    }
+                    time_whole(&window, &heads, &body, &place);
                     if item.kind == ActivityKind::Joined {
-                        join_readable(&window, item.coins_in, &body, &place, page == "page.home");
+                        join_readable(&window, item, &body, &place, page == "page.home");
                     }
                 }
                 if let Some(folder) = &folder {

@@ -19,7 +19,7 @@ use crate::ui::Icon;
 use egui::{vec2, Align, Label, Layout, RichText, Ui};
 
 /// The tools' column beside the rows.
-const TOOLS_WIDTH: f32 = 400.0;
+const TOOLS_WIDTH: f32 = 360.0;
 /// What a switch at the end of a row takes, with its edge.
 const SWITCH_ROOM: f32 = 48.0;
 /// A switch is shorter than a button: this lowers its middle to a button's in the rows around it.

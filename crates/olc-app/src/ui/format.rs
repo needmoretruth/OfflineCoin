@@ -52,6 +52,37 @@ pub fn ago(voice: Voice, now_ms: u64, then_ms: u64) -> String {
     i18n::fill(i18n::text(voice, key), &[&number(count.into())])
 }
 
+/// Whether a moment fell on this computer's today.
+pub fn today(now_ms: u64, then_ms: u64) -> bool {
+    use chrono::{Local, TimeZone};
+    let day = |ms: u64| Local.timestamp_millis_opt(i64::try_from(ms).unwrap_or(i64::MAX)).single().map(|at| at.date_naive());
+    day(now_ms).is_some() && day(now_ms) == day(then_ms)
+}
+
+/// How a list writes each row's moment in its column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Told {
+    /// Today's clock time and how long ago on one line, an older one's date and time.
+    Line,
+    /// The same on two lines, where one is too wide and rows can grow: the clock over how long
+    /// ago, the date over the time.
+    Stacked,
+    /// How long ago alone for today's, where a column is narrow and a row holds one line.
+    Short,
+}
+
+/// A moment in a list, decided for its own row, so an older row's date leaves today's rows
+/// their clock time and how long ago.
+pub fn listed(voice: Voice, now_ms: u64, then_ms: u64, told: Told) -> String {
+    match (today(now_ms, then_ms), told) {
+        (true, Told::Line) => when(voice, now_ms, then_ms),
+        (true, Told::Stacked) => format!("{}\n{}", clock(now_ms, then_ms), ago(voice, now_ms, then_ms)),
+        (true, Told::Short) => ago(voice, now_ms, then_ms),
+        (false, Told::Stacked) => clock(now_ms, then_ms).replacen(' ', "\n", 1),
+        (false, _) => clock(now_ms, then_ms),
+    }
+}
+
 /// The clock time of a moment on this computer: the time alone today, with the date before.
 pub fn clock(now_ms: u64, then_ms: u64) -> String {
     use chrono::{Local, TimeZone};
@@ -185,5 +216,20 @@ mod tests {
         assert_eq!(ago(ko, 60_000, 48_000), "12초 전");
         let shown = when(voice, 1_800_000_000_000, 1_799_999_990_000);
         assert!(shown.ends_with(" · 10 s ago") && shown.len() == "00:00:00 · 10 s ago".len(), "{shown}");
+    }
+
+    /// Each row of a list says its own time: an older row's date leaves today's rows as they are.
+    #[test]
+    fn a_listed_moment_is_decided_for_its_own_row() {
+        use chrono::{Local, TimeZone};
+        let at = |day, hour| Local.with_ymd_and_hms(2026, 11, day, hour, 0, 0).single().map_or(0, |at| at.timestamp_millis().unsigned_abs());
+        let (now, earlier, yesterday) = (at(4, 12), at(4, 12) - 3_000, at(3, 8));
+        let voice = Voice::default();
+        assert_eq!(listed(voice, now, earlier, Told::Line), "11:59:57 · 3 s ago");
+        assert_eq!(listed(voice, now, earlier, Told::Stacked), "11:59:57\n3 s ago");
+        assert_eq!(listed(voice, now, earlier, Told::Short), "3 s ago");
+        assert_eq!(listed(voice, now, yesterday, Told::Line), "2026-11-03 08:00");
+        assert_eq!(listed(voice, now, yesterday, Told::Stacked), "2026-11-03\n08:00");
+        assert_eq!(listed(voice, now, yesterday, Told::Short), "2026-11-03 08:00");
     }
 }
