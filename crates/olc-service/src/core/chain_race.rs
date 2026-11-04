@@ -311,9 +311,9 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
         Miner::Away(_) | Miner::Pool(_) | Miner::Unknown => false,
     };
     let heard: u64 = counted().filter_map(|named| named.hashrate).sum::<u64>() + pool_away;
-    view.network = speed_now(&view.latest, now_ms, &measured);
+    view.network = speed_now(&view.latest, now_ms, measured);
     view.hashrate_all = view.network.map_or(heard, |reading| heard + reading.others_rate).max(view.hashrate_here);
-    view.average = recent_average(&view.latest, now_ms, &view.trail, &measured);
+    view.average = recent_average(&view.latest, now_ms, &view.trail, measured);
     view.expected_ms = (view.hashrate_all > 0 && node.difficulty > 0)
         .then(|| u64::try_from(u128::from(node.difficulty) * 1_000 / u128::from(view.hashrate_all)).unwrap_or(u64::MAX));
     view.average_ms = average_of(&view.latest);
