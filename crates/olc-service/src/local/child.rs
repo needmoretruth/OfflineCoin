@@ -179,6 +179,7 @@ fn status_of(host: &Host, lab: bool, shares: bool, side: &mut LabSide) -> ChildS
     let mut status = ChildStatus::from_view(&view);
     // The balance leaves out a reward still too young to spend; the Lab says it is coming.
     status.lab = side.line(host).map(|line| super::lab_side::LabLine { maturing: view.maturing, ..line });
+    status.threads = host.hashing_threads();
     if shares {
         status.shares = host.take_shares().iter().map(|header| hex(&header.encode())).collect();
     }

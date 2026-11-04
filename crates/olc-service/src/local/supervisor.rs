@@ -15,7 +15,7 @@ use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const FIRST_PORT: u16 = 7100;
 const QUIT_WAIT: Duration = Duration::from_secs(2);
@@ -57,6 +57,8 @@ pub struct ChildStatus {
     /// Headers found on work from outside since the last line.
     #[serde(default)]
     pub shares: Vec<String>,
+    /// The threads it hashes on now, as it took the count; 0 while it does not mine.
+    pub threads: usize,
     /// Keeping to itself, as a board does when told `offline on`. Said in an experiment only.
     pub offline: bool,
     /// The newest blocks of its chain. Said in an experiment only.
@@ -106,6 +108,7 @@ impl ChildStatus {
             half: None,
             public: view.keys.first().map_or_else(String::new, |key| key.public.clone()),
             shares: Vec::new(),
+            threads: 0,
             offline: false,
             chain: Vec::new(),
             lab: None,
@@ -138,6 +141,40 @@ struct Running {
     errors: JoinHandle<VecDeque<String>>,
     meter: Meter,
     _hold: Option<Hold>,
+    told: Told,
+}
+
+/// What a node was last told to hash at and on, and when it was last told.
+struct Told {
+    cap: Option<u64>,
+    threads: Option<usize>,
+    at: Instant,
+}
+
+/// A node whose status still says another cap or thread count this long after it was told is told
+/// again. Its status comes once a second, so a node that took the line says so well before.
+const TELL_AGAIN: Duration = Duration::from_secs(3);
+
+impl Told {
+    fn note(&mut self, line: &str) {
+        match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+            ["limit", cap] => self.cap = cap.parse().ok(),
+            ["threads", threads] => self.threads = threads.parse().ok(),
+            _ => return,
+        }
+        self.at = Instant::now();
+    }
+
+    /// The lines a node with `status` has yet to take, once it has had time to: a cap it does not
+    /// keep, or a thread count its hashing crew does not run while it hashes.
+    fn untaken(&self, status: &ChildStatus, now: Instant) -> Vec<String> {
+        if now.saturating_duration_since(self.at) < TELL_AGAIN {
+            return Vec::new();
+        }
+        let cap = self.cap.filter(|cap| *cap != status.cap).map(|cap| format!("limit {cap}"));
+        let threads = self.threads.filter(|threads| status.threads > 0 && *threads != status.threads);
+        cap.into_iter().chain(threads.map(|threads| format!("threads {threads}"))).collect()
+    }
 }
 
 pub struct Supervisor {
@@ -312,6 +349,7 @@ impl Supervisor {
                 errors,
                 meter,
                 _hold: hold,
+                told: Told { cap: None, threads: None, at: Instant::now() },
             },
         );
         Ok(())
@@ -339,10 +377,34 @@ impl Supervisor {
         ids.into_iter().for_each(|id| self.stop(id));
     }
 
+    /// Writes `line` to the node. A cap or a thread count is kept as told, so a node that has not
+    /// taken it is told again (see [`Supervisor::reap`]).
     pub fn send(&mut self, id: u32, line: &str) -> Result<(), String> {
         let node = self.running.get_mut(&id).ok_or("not_running")?;
+        node.told.note(line);
         let mut input = node.input.lock().map_err(|_| "not_running".to_string())?;
         writeln!(input, "{line}").map_err(|error| error.to_string())
+    }
+
+    /// Tells again every node whose status, read after it was told, still says another cap or
+    /// another thread count: a line written once is not a line the node took.
+    fn tell_again(&mut self) {
+        let now = Instant::now();
+        for node in self.running.values_mut() {
+            let Some(status) = node.status.lock().ok().and_then(|status| status.clone()) else {
+                continue;
+            };
+            let lines = node.told.untaken(&status, now);
+            if lines.is_empty() {
+                continue;
+            }
+            node.told.at = now;
+            if let Ok(mut input) = node.input.lock() {
+                for line in lines {
+                    let _ = writeln!(input, "{line}");
+                }
+            }
+        }
     }
 
     /// The node as a board an experiment can drive: lines go in as `board <line>`, and the
@@ -371,8 +433,10 @@ impl Supervisor {
             .unwrap_or_default()
     }
 
-    /// Notices processes that ended, as a kill would.
+    /// Notices processes that ended, as a kill would, and tells again what a running one has
+    /// not taken.
     pub fn reap(&mut self) {
+        self.tell_again();
         let mut gone = Vec::new();
         for (id, node) in &mut self.running {
             if let Ok(Some(exit)) = node.child.try_wait() {
@@ -444,4 +508,28 @@ impl olc_board::BoardLink for LocalLink {
 /// Where the node of `spec` listens, for those connecting to it.
 pub fn address_of(spec: &NodeSpec) -> String {
     format!("127.0.0.1:{}", port_of(spec.id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A thread count written to a miner that still hashes on its old count is written again once
+    /// the miner has had time to take it; a miner that took it, or does not hash, is left alone.
+    #[test]
+    fn a_count_the_miner_did_not_take_is_told_again() {
+        let start = Instant::now();
+        let mut told = Told { cap: None, threads: None, at: start };
+        told.note("threads 12");
+        told.note("limit 59868");
+        let hashing = |threads, cap| ChildStatus { threads, cap, mining: true, ..ChildStatus::default() };
+        let later = told.at + TELL_AGAIN;
+        assert!(told.untaken(&hashing(1, 59_868), told.at).is_empty(), "too soon to say it was not taken");
+        assert_eq!(told.untaken(&hashing(1, 59_868), later), ["threads 12"]);
+        assert_eq!(told.untaken(&hashing(12, 65_520), later), ["limit 59868"]);
+        assert!(told.untaken(&hashing(12, 59_868), later).is_empty());
+        assert!(told.untaken(&hashing(0, 59_868), later).is_empty(), "a miner that does not hash runs no crew");
+        told.note("mine on");
+        assert_eq!(told.at + TELL_AGAIN, later, "only a cap or a count starts the wait again");
+    }
 }
