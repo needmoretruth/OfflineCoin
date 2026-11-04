@@ -120,7 +120,9 @@ fn a_persons_own_data_opens_and_mines_inside_their_limit() {
     let parts: Vec<_> = snap.local.iter().map(|view| (view.spec.name.clone(), view.status.as_ref().map(|status| (status.mining, status.hashrate, status.cap)))).collect();
     println!("mining a minute: highest {most}, mean {mean} against {ceiling}; this app {} of cap {}; miners {parts:?}", snap.node.hashrate, snap.node.cap);
     assert!(mean as f64 <= ceiling as f64 * 1.03, "the miners mean {mean}, over {ceiling}");
-    assert!(most as f64 <= ceiling as f64 * 1.10, "the miners read {most}, over {ceiling}");
+    // Every speed is a five second average under its own cap, so no reading stands above the
+    // ceiling while the miners keep to it.
+    assert!(most <= ceiling, "the miners read {most}, over {ceiling}");
 
     let threads = crate::settings::cores();
     let wide = highest_on(&mut window, threads);
@@ -130,10 +132,10 @@ fn a_persons_own_data_opens_and_mines_inside_their_limit() {
 
     let chain = &window.state().snapshot().node.chain;
     println!(
-        "network: this computer {}, all {}, average {}, share {:?}, read from {:?}",
+        "network: this computer {}, all {}, average {:?}, share {:?}, read from {:?}",
         chain.hashrate_here,
         chain.hashrate_all,
-        chain.hashrate_average,
+        chain.average,
         chain.share(),
         chain.network
     );

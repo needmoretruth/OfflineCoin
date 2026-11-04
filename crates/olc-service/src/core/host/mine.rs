@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use super::speed::Windows;
 
 const BATCH: u32 = 5_000;
 /// A block's time moves on and the waiting payments are taken in again this often.
@@ -52,44 +53,18 @@ struct Shared {
     job: Mutex<Option<Job>>,
     round: AtomicU64,
     found: Mutex<Vec<Job>>,
-    counted: AtomicU64,
     cap: AtomicU64,
-    /// The start of this second and the hashes granted in it.
-    window: Mutex<(Instant, u64)>,
+    /// The cap's windows and the hashes granted in each, which the speed is read from.
+    windows: Mutex<Windows>,
 }
 
 impl Shared {
     /// Hashes a thread may try now. The cap is for all threads together.
     fn grant(&self) -> u32 {
         let cap = self.cap.load(Ordering::Relaxed);
-        if cap == 0 {
-            return BATCH;
-        }
         // A batch bigger than the cap allows in a window would overrun it.
-        let batch = u32::try_from(cap / 100).map_or(BATCH, |share| share.clamp(1, BATCH));
-        let Ok(mut window) = self.window.lock() else {
-            return 0;
-        };
-        let mut elapsed = window.0.elapsed().as_millis() as u64;
-        if elapsed >= 1_000 {
-            *window = (Instant::now(), 0);
-            elapsed = 0;
-        }
-        let allowed = cap.saturating_mul(elapsed) / 1_000;
-        // A crew held up by a block or a busy machine does not race to make up the whole lag at the
-        // end of the second: a reading across two seconds would land half again above the cap.
-        // At most a twentieth of a second's hashes wait to be made up.
-        let most_behind = (cap / 20).max(u64::from(batch));
-        if allowed.saturating_sub(window.1) > most_behind {
-            window.1 = allowed - most_behind;
-        }
-        // A batch goes only once the time has earned all of it, so a second never holds more than
-        // the cap: a batch handed out ahead at each second's start read a hundredth over it.
-        if window.1 + u64::from(batch) > allowed {
-            return 0;
-        }
-        window.1 += u64::from(batch);
-        batch
+        let batch = if cap == 0 { BATCH } else { u32::try_from(cap / 100).map_or(BATCH, |share| share.clamp(1, BATCH)) };
+        self.windows.lock().map_or(0, |mut windows| windows.grant(cap, batch, Instant::now()))
     }
 }
 
@@ -115,9 +90,8 @@ impl Default for Crew {
                 job: Mutex::new(None),
                 round: AtomicU64::new(0),
                 found: Mutex::new(Vec::new()),
-                counted: AtomicU64::new(0),
                 cap: AtomicU64::new(0),
-                window: Mutex::new((Instant::now(), 0)),
+                windows: Mutex::new(Windows::new(Instant::now())),
             }),
             hands: Vec::new(),
             block: None,
@@ -143,13 +117,18 @@ impl Crew {
         }
     }
 
+    /// The threads that hash now.
+    pub(super) fn size(&self) -> usize {
+        self.hands.len()
+    }
+
     pub(super) fn set_cap(&self, cap: u64) {
         self.shared.cap.store(cap, Ordering::Relaxed);
     }
 
-    /// Hashes tried since the last call.
-    pub(super) fn take_counted(&self) -> u64 {
-        self.shared.counted.swap(0, Ordering::Relaxed)
+    /// Hashes a second over the last five seconds, never above the cap.
+    pub(super) fn speed(&self) -> u64 {
+        self.shared.windows.lock().map_or(0, |windows| windows.speed(Instant::now()))
     }
 
     /// Adds a block the threads sealed, and keeps them on the newest block to seal.
@@ -191,6 +170,9 @@ impl Crew {
 
     /// Stops the threads from trying, as when mining is off or the node catches up.
     pub(super) fn rest(&mut self) {
+        if let Ok(mut windows) = self.shared.windows.lock() {
+            windows.restart(Instant::now());
+        }
         if self.block.take().is_some() || self.outside.take().is_some() {
             self.basis = None;
             self.publish(None);
@@ -261,7 +243,6 @@ fn work(shared: &Shared, stop: &AtomicBool, start: u32) {
             continue;
         }
         let sealed = ProofOfWork.try_meet(&mut job.header, job.difficulty, granted);
-        shared.counted.fetch_add(u64::from(granted), Ordering::Relaxed);
         if sealed {
             if let Ok(mut found) = shared.found.lock() {
                 if found.len() >= MOST_FOUND {
@@ -299,12 +280,10 @@ mod tests {
         crew.set_cap(cap);
         crew.resize(threads);
         crew.publish(Some((header(u64::MAX), u64::MAX, false)));
-        thread::sleep(Duration::from_millis(100));
-        crew.take_counted();
         thread::sleep(run);
-        let counted = crew.take_counted();
+        let speed = crew.speed();
         crew.rest();
-        counted * 1_000 / run.as_millis() as u64
+        speed
     }
 
     #[test]
@@ -318,12 +297,12 @@ mod tests {
     /// whole lag, so a one second reading that straddles two windows stays near the cap.
     #[test]
     fn a_crew_that_fell_behind_makes_up_only_a_little() {
-        let crew = Crew::default();
-        crew.set_cap(10_000);
-        *crew.shared.window.lock().unwrap() = (Instant::now() - Duration::from_millis(900), 0);
+        let start = Instant::now();
+        let mut windows = Windows::new(start);
+        windows.grant(10_000, 100, start);
         let mut granted = 0;
         loop {
-            let batch = crew.shared.grant();
+            let batch = windows.grant(10_000, 100, start + Duration::from_millis(900));
             if batch == 0 {
                 break;
             }

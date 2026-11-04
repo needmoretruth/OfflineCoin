@@ -23,6 +23,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod mine;
+mod speed;
 mod view;
 
 const IDLE_SLEEP: Duration = Duration::from_millis(5);
@@ -58,6 +59,8 @@ pub(super) struct State {
     /// Mining rests once the chain is this high, or never when 0: `generate` makes no more than asked.
     mine_to: AtomicU64,
     hashrate: AtomicU64,
+    /// The threads the crew runs now; 0 while mining is off.
+    hashing_threads: AtomicUsize,
     stop: AtomicBool,
     switch: Mutex<Option<Switch>>,
     /// A chain is on its way in, and the node's thread says nothing until it is.
@@ -146,6 +149,7 @@ impl Host {
             threads: AtomicUsize::new(1),
             mine_to: AtomicU64::new(0),
             hashrate: AtomicU64::new(0),
+            hashing_threads: AtomicUsize::new(0),
             stop: AtomicBool::new(false),
             opening: AtomicBool::new(true),
             switch: Mutex::new(Some(Switch {
@@ -298,7 +302,12 @@ impl Host {
         self.state.cap.store(cap, Ordering::Relaxed);
     }
 
-    /// The threads it mines on.
+    /// The threads its crew runs now, as it last took the count: 0 while mining is off.
+    pub fn hashing_threads(&self) -> usize {
+        self.state.hashing_threads.load(Ordering::Relaxed)
+    }
+
+    /// The threads it was told to mine on.
     pub fn threads(&self) -> usize {
         self.state.threads.load(Ordering::Relaxed)
     }
@@ -387,8 +396,6 @@ struct Worker {
 
 impl Worker {
     fn run(mut self) {
-        let mut window = Instant::now();
-        let mut hashes = 0u64;
         let mut viewed = Instant::now();
         let mut asked = Asked {
             all: Instant::now(),
@@ -403,6 +410,7 @@ impl Worker {
             // to build a block and add it, and links and reports never wait behind the hashing.
             let outside = self.state.work.lock().ok().and_then(|work| *work);
             self.crew.resize(if wanted || outside.is_some() { threads.max(1) } else { 0 });
+            self.state.hashing_threads.store(self.crew.size(), Ordering::Relaxed);
             self.crew.set_cap(cap);
             let shared = self.runner.clone();
             if let Ok(mut runner) = shared.lock() {
@@ -434,16 +442,9 @@ impl Worker {
                     self.publish(&mut runner);
                 }
             }
-            hashes += self.crew.take_counted();
-            // The window's length when its hashes are counted: a step that held the chain for a
-            // while in between would otherwise count its hashes against a shorter time.
-            let elapsed_ms = window.elapsed().as_millis() as u64;
-            if elapsed_ms >= 1_000 {
-                let rate = hashes * 1_000 / elapsed_ms;
-                self.state.hashrate.store(rate, Ordering::Relaxed);
-                hashes = 0;
-                window = Instant::now();
-            }
+            // The speed over the last five seconds, read from the cap's own windows, so a reading
+            // never stands above the cap the crew keeps to.
+            self.state.hashrate.store(self.crew.speed(), Ordering::Relaxed);
             thread::sleep(IDLE_SLEEP);
         }
     }
