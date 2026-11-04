@@ -1,6 +1,6 @@
 //! The node's clock against the chain's: the time a block it mines carries, and a block too far
 //! ahead of a clock that knows the date, which waits until it is not.
-use crate::engine::Engine;
+use crate::engine::{Engine, PeerId};
 use olc_core::timing::DATED_CLOCK_FROM_MS;
 use olc_core::{Block, BlockHeader};
 
@@ -60,14 +60,25 @@ impl Engine {
 
     /// True for the first moments of a computer whose tip is too old to be its network's: it
     /// gives its peers time to say what they hold before it mines a block at the floor on a tip
-    /// they left long ago. A node alone mines once the moment has passed.
+    /// they left long ago. It ends early once every peer it has heard has told its tip and none
+    /// holds more work: there is nothing left to hear. A peer that spoke but told no tip keeps the
+    /// whole moment, and a node alone mines once the moment has passed.
     /// `device_ms` is the time a block would be made at.
     pub(crate) fn looking_around(&self, device_ms: u64) -> bool {
         let Some(started) = self.started_ms.filter(|_| self.clock_is_dated()) else {
             return false;
         };
         let tip_age = device_ms.saturating_sub(self.chain.tip_header().time_ms);
-        device_ms.saturating_sub(started) < LOOK_AROUND_MS && tip_age > STALE_TIP_MS
+        let early = device_ms.saturating_sub(started) < LOOK_AROUND_MS && tip_age > STALE_TIP_MS;
+        early && !self.heard_everyone()
+    }
+
+    /// True when every peer heard from has told its tip, and this node holds at least the work
+    /// of each.
+    fn heard_everyone(&self) -> bool {
+        let own = self.chain.total_work();
+        let told = |peer: &PeerId| self.told.get(peer).is_some_and(|work| *work <= own);
+        !self.peers.is_empty() && self.peers.keys().all(told)
     }
 
     /// True when `block` is further ahead of this clock than its coin allows. As Bitcoin Core's

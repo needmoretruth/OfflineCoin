@@ -43,7 +43,9 @@ pub struct Engine {
     /// Added to the device clock. Boards have no real-time clock, so they follow the chain.
     pub(crate) clock_offset_ms: u64,
     pub(crate) now_ms: u64,
-    peers: BTreeMap<PeerId, u64>,
+    pub(crate) peers: BTreeMap<PeerId, u64>,
+    /// The work each peer's tip holds, as it last told it.
+    pub(crate) told: BTreeMap<PeerId, u128>,
     refused: Refused,
     pub(crate) sync: Sync,
     pub(crate) sent: VecDeque<Hash>,
@@ -100,6 +102,7 @@ impl Engine {
             clock_offset_ms: 0,
             now_ms: 0,
             peers: BTreeMap::new(),
+            told: BTreeMap::new(),
             refused: Refused::default(),
             sync: Sync::default(),
             sent: VecDeque::new(),
@@ -190,6 +193,7 @@ impl Engine {
     /// A peer turned out to be one already known by another id.
     pub fn forget_peer(&mut self, peer: PeerId) {
         self.peers.remove(&peer);
+        self.told.remove(&peer);
     }
 
     pub fn address(&self) -> Address {
@@ -242,6 +246,8 @@ impl Engine {
         }
         self.peers
             .retain(|_, seen| device_ms.saturating_sub(*seen) < PEER_TIMEOUT_MS);
+        let peers = &self.peers;
+        self.told.retain(|peer, _| peers.contains_key(peer));
         self.follow_chain_clock(device_ms);
         if device_ms.saturating_sub(self.last_announce_ms) >= ANNOUNCE_EVERY_MS {
             self.last_announce_ms = device_ms;
@@ -279,6 +285,9 @@ impl Engine {
                 height,
                 work,
             } => {
+                if genesis == self.chain.genesis_id() {
+                    self.told.insert(from, work);
+                }
                 if genesis != self.chain.genesis_id() || work <= self.chain.total_work() {
                     return;
                 }

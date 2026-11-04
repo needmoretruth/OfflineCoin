@@ -73,6 +73,38 @@ fn a_computer_on_an_old_tip_hears_its_peers_before_it_mines() {
     assert!(fresh.mine(1_000_000, now), "a fresh tip mines at once");
 }
 
+/// Neighbours on this computer answer in milliseconds. Once every one has told its tip and none
+/// holds more, there is nothing left to hear: the computer mines within a second, not after the
+/// whole moment.
+#[test]
+fn a_computer_whose_peers_all_told_their_tips_mines_within_a_second() {
+    let mut computer = engine(1);
+    let started = genesis_time(&computer) + 26 * 3_600_000;
+    computer.tick(started);
+    for (peer, seed) in [(7, 8), (8, 9)] {
+        computer.on_message(peer, engine(seed).tip_message());
+    }
+    computer.tick(started + 200);
+    assert!(computer.mine(1_000_000, started + 200), "waited though every peer had told its tip");
+}
+
+/// A neighbour that spoke but told no tip yet may hold the network's newer blocks: the computer
+/// keeps the whole moment for it, then mines.
+#[test]
+fn a_silent_peer_keeps_the_whole_moment() {
+    let mut computer = engine(1);
+    let started = genesis_time(&computer) + 26 * 3_600_000;
+    computer.tick(started);
+    computer.on_message(7, engine(8).tip_message());
+    computer.on_message(9, Message::Who);
+    computer.tick(started + 9_000);
+    assert!(!computer.mine(1_000_000, started + 9_000), "mined before the silent peer told its tip");
+    computer.on_message(9, Message::Who);
+    computer.on_message(7, engine(8).tip_message());
+    computer.tick(started + 10_000);
+    assert!(computer.mine(1_000_000, started + 10_000), "the moment passed");
+}
+
 /// Carries messages between two nodes in trips: what each sends in one trip arrives in the next,
 /// as over a wire with a delay, a cable to a computer or TCP when `fast`. Says how many trips
 /// the chain took. Every `lose`th block sent goes missing; a second passes every 50 trips.
