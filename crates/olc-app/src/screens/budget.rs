@@ -221,11 +221,12 @@ fn figures_agree(window: &mut Window, page: &str, cap: u64) -> String {
         if seen {
             let top = ceiling(&snap, cap);
             println!("{page}: this computer {here} under {top}, network {all}, share {share}, read from {:?}", chain.network);
-            assert!(all >= here, "{page}: the network {all} reads below this computer {here}");
             assert!(here as f64 <= top as f64 * 1.02, "{page}: this computer {here} is above its ceiling {top}");
-            // Twelve blocks scatter by about 30 %; blocks from before a fourfold drop read four
-            // times over.
-            assert!(all as f64 <= here as f64 * 2.0, "{page}: the network {all} still reads the old speed against {here}");
+            // Every miner on this coin is on this computer and measured: the network's speed is
+            // their measured sum, not a dozen blocks read with a third's scatter, and the share
+            // is 100 % with nothing to be off by.
+            assert_eq!(chain.network.map(|reading| reading.others), Some(0), "{page}: a block of a miner not measured");
+            assert_eq!((all, chain.share()), (here, Some((100, 0))), "{page}: the network is this computer alone");
             return format!("{here_text} · {all_text} · {share}");
         }
         assert!(started.elapsed() < Duration::from_secs(20), "{page} never showed {here_text}, {all_text} and {share} in one frame");
@@ -314,10 +315,11 @@ fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     for (mode, lang, tag) in [(Mode::Basic, Lang::Ko, "ko-basic"), (Mode::Expert, Lang::En, "en-expert")] {
         speak(&mut window, mode, lang);
         window.state_mut().settings_mut().text_percent = 150;
-        // The size is read through the zoom, so the zoom has to land first. The window stays
-        // 1280 by 800 pixels, so a page has two thirds of the points it has at normal text.
+        // The size is read through the zoom, so the zoom has to land first. The window is 1280
+        // pixels wide, two thirds of the points normal text has, and tall enough to hold the
+        // speed line, which large text pushes below the first 800 pixels.
         window.run_steps(2);
-        window.set_size(egui::vec2(SIZES[0].0 as f32, SIZES[0].1 as f32) / 1.5);
+        window.set_size(egui::vec2(SIZES[0].0 as f32, 2_400.0) / 1.5);
         for page in ["page.home", "page.mining"] {
             window.state_mut().open(page);
             window.run_steps(SETTLE_STEPS);

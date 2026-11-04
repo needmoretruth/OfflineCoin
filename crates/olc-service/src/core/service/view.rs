@@ -1,5 +1,5 @@
 //! The snapshot the window reads: the node, the boards, the computers around and what runs here.
-use super::super::chain_race::{complete, other_tips, InPool};
+use super::super::chain_race::{complete, other_tips, InPool, InPools};
 use super::super::pool_view::PoolView;
 use super::super::coins::coin_folder;
 use super::super::host_parts::unix_ms;
@@ -12,16 +12,19 @@ use crate::discovery::{group, Identity};
 use crate::fleet::BoardRow;
 use std::sync::Arc;
 
-/// The miners here that work in a pool now, beside the pool they work in.
-fn in_pools(pool: &PoolView) -> Vec<InPool> {
+/// The miners here that work in a pool now, beside the pool they work in, and the speed this app's
+/// pool hears from members on other computers.
+fn in_pools(pool: &PoolView) -> InPools {
     let working = pool.links.iter().filter(|link| link.view.link == olc_pool::Link::Working);
-    working
+    let links = working
         .map(|link| InPool {
             worker: link.join.who,
             here: link.here,
             payee: link.view.payee.map(|address| olc_wallet::format_address(&address)),
         })
-        .collect()
+        .collect();
+    let away = pool.workers.iter().filter(|row| row.online && row.here.is_none()).map(|row| row.speed).sum();
+    InPools { links, away: if pool.running { away } else { 0 } }
 }
 
 impl Service {

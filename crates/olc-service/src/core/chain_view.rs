@@ -98,14 +98,19 @@ impl Branch {
     }
 }
 
-/// What the network's speed was read from: this many blocks, over this long up to now. A change
-/// of speed shows in full once the span has passed since it.
+/// What the network's speed was read from: this many blocks, over this long up to now. Miners
+/// whose speed this app measures count by that speed; the blocks others found count as their work
+/// over the span, so a change of their speed shows in full once the span has passed since it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reading {
     pub blocks: usize,
     pub span_ms: u64,
-    /// What those blocks alone say, before the floor of this computer's own speed.
+    /// What those blocks alone say, whoever found them, before anything measured.
     pub rate: u64,
+    /// Of those blocks, the ones found by miners whose speed this app does not measure.
+    pub others: usize,
+    /// Their work over the span: the part of the network's speed that is read, not measured.
+    pub others_rate: u64,
 }
 
 /// One miner's part of the latest blocks.
@@ -134,9 +139,10 @@ pub struct ChainView {
     /// (unix ms, rate) over the last ten minutes.
     pub trail: Vec<(u64, u64)>,
     pub hashrate_here: u64,
-    /// The network's speed now: the work of the latest blocks over their time up to now, as
-    /// Bitcoin's getnetworkhashps reads it, and never below `hashrate_here`, since the network
-    /// holds this computer. With too few blocks for that, the speeds this computer hears.
+    /// The network's speed now: the measured speed of every miner this app knows, and for the
+    /// latest blocks others found, their work over their time up to now, as Bitcoin's
+    /// getnetworkhashps reads it. Never below `hashrate_here`, since the network holds this
+    /// computer. With too few blocks to tell who else mines, the speeds this computer hears.
     pub hashrate_all: u64,
     /// The blocks and the time that speed was read from; `None` while too few blocks are kept.
     pub network: Option<Reading>,
@@ -157,6 +163,25 @@ impl ChainView {
     /// How many blocks the shares count.
     pub fn window(&self) -> u32 {
         self.shares.iter().map(|share| share.blocks).sum()
+    }
+
+    /// This computer's part of the network's speed in whole percent, and in whole points how far
+    /// off it may be. `None` while too few blocks tell who else mines. With every block found by
+    /// miners whose speed is measured, the part is exact. Otherwise the others' speed is read
+    /// from their k blocks, off by about one part in √k, and moves the part by its share of the
+    /// whole as much: twice that holds about nine readings in ten.
+    pub fn share(&self) -> Option<(u64, u64)> {
+        let reading = self.network?;
+        let (here, all) = (u128::from(self.hashrate_here), u128::from(self.hashrate_all));
+        let percent = u64::try_from((here * 100).checked_div(all)?).unwrap_or(100).min(100);
+        if reading.others == 0 {
+            return Some((percent, 0));
+        }
+        // Speeds stay far below 2^53, where a float holds every whole number.
+        let part = |rate: u64| rate as f64 / self.hashrate_all as f64;
+        let scatter = f64::from(u32::try_from(reading.others).unwrap_or(u32::MAX)).sqrt();
+        let error = 200.0 * part(self.hashrate_here) * part(reading.others_rate) / scatter;
+        Some((percent, error.ceil() as u64))
     }
 }
 
