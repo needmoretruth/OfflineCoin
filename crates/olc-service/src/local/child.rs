@@ -177,7 +177,7 @@ fn status_of(host: &Host, lab: bool) -> ChildStatus {
 /// `olc-core node ...`: runs until told to stop or until its input closes.
 pub fn run_node(words: Vec<String>) -> Result<(), String> {
     let words = parse(words)?;
-    let text = std::fs::read_to_string(&words.coin).map_err(|error| error.to_string())?;
+    let text = olc_store::read_replaced(std::path::Path::new(&words.coin)).map_err(|error| error.to_string())?;
     let coin = coin_file::from_json(&text)?;
     let host = Host::start(
         Plan {

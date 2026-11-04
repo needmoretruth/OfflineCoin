@@ -6,6 +6,6 @@ pub fn load(path: Option<&str>) -> Result<CoinConfig, String> {
     let Some(path) = path else {
         return Ok(CoinConfig::olc());
     };
-    let text = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+    let text = olc_store::read_replaced(std::path::Path::new(path)).map_err(|error| format!("{path}: {error}"))?;
     coin_file::from_json(&text).map_err(|error| format!("{path}: {error}"))
 }

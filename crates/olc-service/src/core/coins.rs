@@ -1,7 +1,7 @@
 //! Coin amounts as people type them, and the coin files this app keeps.
 use crate::settings::{Paths, Settings};
 use olc_core::CoinConfig;
-use olc_store::{coin_file, replace_file};
+use olc_store::{coin_file, read_replaced, replace_file};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -49,7 +49,7 @@ pub fn save_coin(paths: &Paths, coin: &CoinConfig) -> Result<PathBuf, String> {
 }
 
 pub fn load_coin(paths: &Paths, name: &str) -> Option<CoinConfig> {
-    let text = fs::read_to_string(paths.coin(name).join(COIN_FILE)).ok()?;
+    let text = read_replaced(&paths.coin(name).join(COIN_FILE)).ok()?;
     coin_file::from_json(&text).ok()
 }
 
@@ -87,7 +87,7 @@ pub fn bring_old_blocks(paths: &Paths, coin: &CoinConfig) {
 
 /// Reads a coin someone gave as a file.
 pub fn read_coin_file(path: &str) -> Result<CoinConfig, String> {
-    let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+    let text = read_replaced(Path::new(path)).map_err(|error| format!("{path}: {error}"))?;
     coin_file::from_json(&text).map_err(|error| format!("{path}: {error}"))
 }
 
@@ -145,7 +145,7 @@ mod tests {
             thread::spawn(move || {
                 let mut cut = 0;
                 while !done.load(Ordering::Relaxed) {
-                    let text = fs::read_to_string(&file).unwrap_or_default();
+                    let text = read_replaced(&file).unwrap_or_default();
                     cut += usize::from(coin_file::from_json(&text).is_err());
                 }
                 cut

@@ -78,6 +78,22 @@ pub fn replace_file(file: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::rename(&fresh, file).map_err(|error| error.to_string())
 }
 
+/// Reads a file another program may be replacing with [`replace_file`] at the same moment. Windows
+/// can refuse to open a file for an instant while one is renamed over it, so a refusal is tried
+/// again a few times; a file that is not there is not.
+pub fn read_replaced(file: &Path) -> std::io::Result<String> {
+    let mut tries = 0;
+    loop {
+        match fs::read_to_string(file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound && tries < 20 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            read => return read,
+        }
+    }
+}
+
 /// The headers a light node saved. Each one is checked again as it is taken back.
 pub fn load_headers(directory: &Path) -> Vec<BlockHeader> {
     let bytes = fs::read(directory.join(HEADERS)).unwrap_or_default();

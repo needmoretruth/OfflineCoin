@@ -145,11 +145,14 @@ fn a_running_coin_forks_at_a_height_and_a_node_on_the_old_rules_ignores_it() {
     assert_eq!(forked.rules_at(from_height - 1).reward, coin().rules.reward);
 
     let mut local_height = 0;
-    wait_for("the sides did not pass the height", || {
+    // On one tip, so a block both found at the same height has been settled between them.
+    wait_for("the sides did not pass the height on one tip", || {
         let snap = core.snapshot();
-        local_height = snap.local.first().and_then(|view| view.status.as_ref()).map_or(0, |status| status.height);
+        let local = snap.local.first().and_then(|view| view.status.as_ref());
+        local_height = local.map_or(0, |status| status.height);
         snap.node.height >= from_height + 3
             && local_height >= from_height + 2
+            && local.is_some_and(|status| status.tip == snap.node.tip.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
             && height_of(&mut old_node, &old_spec) >= from_height + 3
     });
 
