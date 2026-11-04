@@ -76,7 +76,8 @@ pub fn figures(ui: &mut Ui, cx: &Cx, with_average: bool) {
 
 /// One line on why the block average stands apart from the mean this computer measured, when it
 /// is shown beside it (more blocks than the speed now reads) and a twentieth or more apart: below
-/// by more than luck explains, the work that made no block; otherwise the luck of that many blocks.
+/// by more than luck explains, the work that made no block; above by more, a change of speed or
+/// difficulty the average still follows; otherwise the luck of that many blocks.
 fn why_apart(cx: &Cx, now_reads: usize) -> Option<String> {
     let average = cx.snap.node.chain.average.filter(|average| average.blocks > now_reads)?;
     let off = average.off()?;
@@ -88,6 +89,7 @@ fn why_apart(cx: &Cx, now_reads: usize) -> Option<String> {
     Some(match off < 0 {
         true if apart > average.scatter() => cx.fill("net.apart_lost", &[&percent]),
         true => cx.fill("net.apart_low", &[&percent, &blocks, &scatter]),
+        false if apart > average.scatter() => cx.fill("net.apart_moved", &[&percent]),
         false => cx.fill("net.apart_high", &[&percent, &blocks, &scatter]),
     })
 }

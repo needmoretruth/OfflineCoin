@@ -27,6 +27,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.apart_lost", "The blocks read {}% below what was measured. Work done before a new block reached a miner, and blocks that lost a race, end up in no block."),
     ("net.apart_low", "The blocks read {}% below what was measured. A speed read from {} blocks moves by about {}% with luck."),
     ("net.apart_high", "The blocks read {}% above what was measured. A speed read from {} blocks moves by about {}% with luck."),
+    ("net.apart_moved", "The blocks read {}% above what was measured, more than luck explains. Speed or the work a block takes changed a lot while these blocks were made, and the average is still catching up."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -48,4 +49,5 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("net.apart_lost", "The block average is {}% under the measured hashrate. Work on a block already found elsewhere, before it arrived, and orphaned blocks count in no block."),
     ("net.apart_low", "The block average is {}% under the measured hashrate. An estimate from {} blocks varies by about {}% with luck."),
     ("net.apart_high", "The block average is {}% over the measured hashrate. An estimate from {} blocks varies by about {}% with luck."),
+    ("net.apart_moved", "The block average is {}% over the measured hashrate, more than luck explains. Hashrate or difficulty changed a lot within these blocks, and the average is still catching up."),
 ];
