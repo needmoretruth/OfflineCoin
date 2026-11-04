@@ -1,6 +1,7 @@
 //! The two chains of a Lab run as rows of lit blocks, one above the other. Blocks at the same
 //! height stand in the same column, so the moment the rows part and the race between them can be
 //! seen. Each block has the light and shadow of the block strip, so both read as the same thing.
+use super::lab_tokens::number;
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab::{LabKind, Mark, Picture, Row, Side};
 use crate::ui::chain;
@@ -101,7 +102,7 @@ fn blocks(ui: &mut Ui, t: &Tokens, columns: Columns, marks: &[Mark], shared: &[M
             ui.painter().text(
                 pos2(place.center().x, place.bottom() + 2.0),
                 Align2::CENTER_TOP,
-                format!("#{}", mark.height),
+                format!("#{}", number(mark.height)),
                 FontId::proportional(11.0),
                 t.muted,
             );

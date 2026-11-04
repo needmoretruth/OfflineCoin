@@ -85,14 +85,16 @@ impl LabRun {
         self.labels().into_iter().find(|label| label.contains(fixed)).map(|label| numbers(&label))
     }
 
-    /// Presses the button with these words, bringing it into view first, as a person scrolls to it.
+    /// Presses the button with these words, or the choice in a row of choices, bringing it into
+    /// view first, as a person scrolls to it.
     pub fn press(&mut self, label: &str) {
-        let find = |window: &Window| window.query(By::new().role(Role::Button).label(label)).is_some();
-        assert!(find(&self.window), "no button {label:?} on the screen; buttons: {:?}", self.buttons());
-        self.window.get_by_role_and_label(Role::Button, label).scroll_to_me();
+        let find = |window: &Window, role: Role| window.query(By::new().role(role).label(label)).is_some();
+        let role = [Role::Button, Role::Tab].into_iter().find(|role| find(&self.window, *role));
+        let role = role.unwrap_or_else(|| panic!("no button {label:?} on the screen; buttons: {:?}", self.buttons()));
+        self.window.get_by_role_and_label(role, label).scroll_to_me();
         // The page glides to it over several frames; a click before it stops would miss.
         self.window.run_steps(SCROLL_STEPS);
-        self.window.get_by_role_and_label(Role::Button, label).click();
+        self.window.get_by_role_and_label(role, label).click();
         self.window.run_steps(2);
         self.clicks += 1;
     }
@@ -121,6 +123,28 @@ impl LabRun {
         self.window.get_by_role_and_label(Role::Button, &label).click();
         self.window.run_steps(2);
         self.clicks += 1;
+    }
+
+    /// Clicks a slider `part` of the way along, as a person clicks its track.
+    pub fn slide(&mut self, label: &str, part: f32) {
+        self.window.get_by_role_and_label(Role::Slider, label).scroll_to_me();
+        self.window.run_steps(SCROLL_STEPS);
+        let rect = self.window.get_by_role_and_label(Role::Slider, label).rect();
+        let at = egui::pos2(rect.left() + (rect.width() - 2.0) * part.clamp(0.0, 1.0) + 1.0, rect.center().y);
+        self.window.hover_at(at);
+        self.window.run_steps(1);
+        self.window.drag_at(at);
+        self.window.run_steps(1);
+        self.window.drop_at(at);
+        self.window.run_steps(2);
+        self.clicks += 1;
+    }
+
+    /// Every line that holds the fixed words of `key`.
+    pub fn lines_with(&self, key: &str) -> Vec<String> {
+        let template = self.say(key);
+        let fixed = template.split("{}").max_by_key(|part| part.len()).unwrap_or(template).trim();
+        self.labels().into_iter().filter(|label| label.contains(fixed)).collect()
     }
 
     /// Drags a token onto another, as a person drags a miner into a pool.
@@ -255,23 +279,27 @@ impl LabRun {
 /// Node processes of the run named `name` still alive, found by the place in their command line.
 /// Linux only: elsewhere none are found.
 fn processes_of(name: &str) -> usize {
-    let needle = format!("{name}/lab");
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return 0;
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().chars().all(|c| c.is_ascii_digit()))
-        .filter_map(|entry| std::fs::read(entry.path().join("cmdline")).ok())
-        .filter(|line| String::from_utf8_lossy(line).contains(&needle))
-        .count()
+    crate::local::lab_net::processes_with(&format!("{name}/lab"))
 }
 
 /// The numbers in a line, decimals kept.
 pub(super) fn numbers(line: &str) -> Vec<f64> {
+    // The app marks thousands with a comma between digits: 1,234 is one number.
+    let chars: Vec<char> = line.chars().collect();
+    let digit = |at: Option<&char>| at.is_some_and(char::is_ascii_digit);
+    let line: String = (0..chars.len())
+        .filter(|&at| !(chars[at] == ',' && at > 0 && digit(chars.get(at - 1)) && digit(chars.get(at + 1))))
+        .map(|at| chars[at])
+        .collect();
     line.split(|c: char| !(c.is_ascii_digit() || c == '.'))
         .map(|part| part.trim_matches('.'))
         .filter(|part| !part.is_empty())
         .filter_map(|part| part.parse().ok())
         .collect()
+}
+
+#[test]
+fn a_number_with_its_thousands_marked_reads_as_one() {
+    assert_eq!(numbers("몫 1,234개 보냄, 블록 5개"), vec![1_234.0, 5.0]);
+    assert_eq!(numbers("3, 4 and 12,500 H/s"), vec![3.0, 4.0, 12_500.0]);
 }

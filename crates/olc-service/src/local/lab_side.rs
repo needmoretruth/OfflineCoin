@@ -14,8 +14,12 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Payments to this wallet the line carries, newest last.
-const KEPT_INCOMING: usize = 8;
+/// How long a payment to this wallet stays on the line: longer than an attack races and comes
+/// back, so a payment a hidden chain undoes is still there to be seen gone, however many other
+/// payments came meanwhile.
+const KEEP_INCOMING_FOR: Duration = Duration::from_secs(600);
+/// The most payments the line carries, newest last, whatever their age.
+const KEPT_INCOMING: usize = 256;
 /// One spam payment: a thousandth of a coin, at the lowest fee rate a payment may pay.
 const SPAM_AMOUNT: u64 = 100_000;
 const SPAM_RATE: u64 = 1;
@@ -132,7 +136,8 @@ pub struct LabSide {
     offered: Option<Instant>,
     spam_sent: u64,
     incoming: BTreeMap<String, Incoming>,
-    order: Vec<String>,
+    /// Each payment on the line and when it was first seen, oldest first.
+    order: Vec<(String, Instant)>,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -181,6 +186,8 @@ impl LabSide {
                 self.seat().order(host, PoolOrder::Join(join));
             }
             ["pool", "leave"] => self.seat().order(host, PoolOrder::Leave(Who::Own)),
+            // A pool turned bad keeps what it owes its workers, the coins it attacks with.
+            ["pool", "hold", on] => self.seat().seat.hold = *on == "on",
             ["spam", rate] => self.spam = rate.parse().unwrap_or(0),
             ["connect", address] => host.connect((*address).to_string()),
             ["pay", to, amount, rate] => return Some(pay(host, to, amount, rate)),
@@ -340,15 +347,17 @@ impl LabSide {
                 }
             }
         }
+        let now = Instant::now();
         for (id, amount) in seen {
             if !self.incoming.contains_key(&id) {
-                self.order.push(id.clone());
+                self.order.push((id.clone(), now));
                 self.incoming.insert(id.clone(), Incoming { id, amount, height: None, gone: false });
             }
         }
-        while self.order.len() > KEPT_INCOMING {
-            let old = self.order.remove(0);
-            self.incoming.remove(&old);
+        let old = |order: &[(String, Instant)]| order.first().is_some_and(|(_, at)| now.duration_since(*at) > KEEP_INCOMING_FOR);
+        while old(&self.order) || self.order.len() > KEPT_INCOMING {
+            let (gone, _) = self.order.remove(0);
+            self.incoming.remove(&gone);
         }
         for entry in self.incoming.values_mut() {
             let Some(id) = unhash(&entry.id) else {
@@ -372,7 +381,7 @@ impl LabSide {
         }
         self.watch_incoming(host);
         let mut line = LabLine { spam_sent: self.spam_sent, ..LabLine::default() };
-        line.incoming = self.order.iter().filter_map(|id| self.incoming.get(id).cloned()).collect();
+        line.incoming = self.order.iter().filter_map(|(id, _)| self.incoming.get(id).cloned()).collect();
         if let Some(seat) = &self.seat {
             let view = seat.seat.view();
             line.pool_port = view.running.then_some(view.port);

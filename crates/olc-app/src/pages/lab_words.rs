@@ -1,4 +1,5 @@
 //! One plain sentence for each step of a Lab run.
+use super::lab_tokens::number;
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab::{LabKind, LabState, Phase};
 use olc_lab::Step;
@@ -28,20 +29,20 @@ pub fn step_words(voice: Voice, kind: LabKind, step: &Step) -> String {
         (LabKind::Split, Step::LinedUp { .. }) => say("lab2.step_split_lined"),
         (_, Step::Paid { .. }) => say("lab2.step_paid"),
         (_, Step::Dark) => say("lab2.step_dark"),
-        (_, Step::Confirmed { depth, of }) => with("lab2.step_confirmed", &[&depth.to_string(), &of.to_string()]),
+        (_, Step::Confirmed { depth, of }) => with("lab2.step_confirmed", &[&number(*depth), &number(*of)]),
         (_, Step::SpentAgain { .. }) => say("lab2.step_spent"),
         (_, Step::Heavier) => say("lab2.step_heavier"),
-        (_, Step::GaveUp { behind }) => with("lab2.step_gave_up", &[&behind.to_string()]),
+        (_, Step::GaveUp { behind }) => with("lab2.step_gave_up", &[&number(*behind)]),
         (_, Step::Revealed) => say("lab2.step_revealed"),
-        (_, Step::Replaced { blocks, hidden_won: true, .. }) => with("lab2.step_replaced_won", &[&blocks.to_string()]),
-        (_, Step::Replaced { blocks, hidden_won: false, .. }) => with("lab2.step_replaced_lost", &[&blocks.to_string()]),
+        (_, Step::Replaced { blocks, hidden_won: true, .. }) => with("lab2.step_replaced_won", &[&number(*blocks)]),
+        (_, Step::Replaced { blocks, hidden_won: false, .. }) => with("lab2.step_replaced_lost", &[&number(*blocks)]),
         (_, Step::Refused) => say("lab2.step_refused"),
         (_, Step::Gone) => say("lab2.step_gone"),
         (_, Step::Stays) => say("lab2.step_stays"),
         (_, Step::Cut { .. }) => say("lab2.step_cut"),
         (_, Step::Rejoined) => say("lab2.step_rejoined"),
-        (_, Step::Settled { left_won: true, blocks, .. }) => with("lab2.step_settled_left", &[&blocks.to_string()]),
-        (_, Step::Settled { left_won: false, blocks, .. }) => with("lab2.step_settled_right", &[&blocks.to_string()]),
+        (_, Step::Settled { left_won: true, blocks, .. }) => with("lab2.step_settled_left", &[&number(*blocks)]),
+        (_, Step::Settled { left_won: false, blocks, .. }) => with("lab2.step_settled_right", &[&number(*blocks)]),
     }
 }
 

@@ -19,6 +19,7 @@ impl Keeper {
         if self.supervisor.is_none() {
             return;
         }
+        self.limits();
         for at in 0..self.members.len() {
             let member = self.members[at].clone();
             let waits = match member.kind {
@@ -31,6 +32,7 @@ impl Keeper {
                 Kind::Spammer => self.funded(&member).or_else(|| self.spam(&member)),
                 Kind::Exploiter => self.funded(&member).or_else(|| self.tricks(&member)),
                 Kind::Attacker => self.attack_when_ready(&member),
+                Kind::Pool if member.bad => self.attack_when_ready(&member),
                 Kind::Pool => self.members.iter().all(|other| other.pool != Some(member.id)).then_some("net.wait_pool"),
                 _ => None,
             };
@@ -42,7 +44,7 @@ impl Keeper {
         self.heal();
     }
 
-    fn tell(&mut self, id: u32, topic: &'static str, line: String) {
+    pub(super) fn tell(&mut self, id: u32, topic: &'static str, line: String) {
         if self.told.get(&(id, topic)) != Some(&line) {
             self.send(id, &line);
             self.told.insert((id, topic), line);
@@ -159,8 +161,13 @@ impl Keeper {
     /// The attacker attacks once a receiver and honest miners are there and it holds the coins it
     /// pays; afterwards it mines honestly until asked again.
     fn attack_when_ready(&mut self, member: &Member) -> Option<&'static str> {
-        if member.busy || self.attacked.contains(&member.id) {
+        if member.busy || member.raced {
             return None;
+        }
+        // A pool's power is its miners'; a bad miner's is its own speed.
+        let crew = if member.kind == Kind::Pool { self.crew_of(member.id) } else { Vec::new() };
+        if member.kind == Kind::Pool && crew.is_empty() {
+            return Some("net.wait_pool");
         }
         if self.runs.running() {
             return Some("net.wait_run");
@@ -168,10 +175,12 @@ impl Keeper {
         let Some(victim) = self.members.iter().find(|other| other.kind == Kind::Receiver && other.status.is_some()).map(|other| other.id) else {
             return Some("net.wait_receiver");
         };
+        // Everyone else mining is the public side, other bad miners waiting their turn included.
         let public: Vec<u32> = self
             .members
             .iter()
-            .filter(|other| other.kind == Kind::Miner && !other.paused && other.status.is_some())
+            .filter(|other| other.kind.mines() && other.id != member.id && !crew.contains(&other.id))
+            .filter(|other| !other.paused && other.status.is_some())
             .map(|other| other.id)
             .collect();
         if public.is_empty() {
@@ -196,10 +205,10 @@ impl Keeper {
         if member.paused {
             return None;
         }
-        let helper =
-            self.members.iter().find(|other| other.kind == Kind::Attacker && other.id != member.id && other.status.is_some()).map(|other| other.id);
-        self.attacked.insert(member.id);
-        if let Err(error) = self.start_attack(member.id, victim, helper, public) {
+        if let Some(raced) = self.member_mut(member.id) {
+            raced.raced = true;
+        }
+        if let Err(error) = self.start_attack(member.id, victim, crew, public) {
             self.error = Some(error);
         }
         None

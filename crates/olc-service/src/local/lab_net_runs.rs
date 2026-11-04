@@ -107,18 +107,22 @@ impl Keeper {
         self.member(id).and_then(Member::address).map(str::to_string)
     }
 
-    pub(super) fn start_attack(&mut self, attacker: u32, victim: u32, helper: Option<u32>, public: Vec<u32>) -> Result<(), String> {
-        let mut ids = vec![attacker, victim];
-        ids.extend(helper);
-        let links: Vec<Box<dyn BoardLink>> = ids.iter().filter_map(|id| self.link(*id)).collect();
+    /// An attack with exactly the hashing behind it: the attacker's own, or a pool's `crew`,
+    /// against everyone in `public`.
+    pub(super) fn start_attack(&mut self, attacker: u32, victim: u32, crew: Vec<u32>, public: Vec<u32>) -> Result<(), String> {
+        let links: Vec<Box<dyn BoardLink>> = [attacker, victim].iter().filter_map(|id| self.link(*id)).collect();
+        let crew_links: Vec<Box<dyn BoardLink>> = crew.iter().filter_map(|id| self.link(*id)).collect();
         let public_links: Vec<Box<dyn BoardLink>> = public.iter().filter_map(|id| self.link(*id)).collect();
-        if links.len() != ids.len() || public_links.len() != public.len() {
+        if links.len() != 2 || crew_links.len() != crew.len() || public_links.len() != public.len() {
             return Err("net.failed".into());
         }
+        let attacker_mines = self.member(attacker).is_some_and(|member| member.kind.mines());
+        let mut ids = vec![attacker, victim];
+        ids.extend(&crew);
         // The pools the honest miners work in are theirs too.
         let pools: Vec<u32> = public.iter().filter_map(|id| self.member(*id)?.pool).collect();
         let sides = Sides {
-            strong: [Some(attacker), helper].into_iter().flatten().filter_map(|id| self.address(id)).collect(),
+            strong: [attacker].iter().chain(&crew).filter_map(|id| self.address(*id)).collect(),
             other: public.iter().chain(&pools).chain([&victim]).filter_map(|id| self.address(*id)).collect(),
             payment: None,
             spend: None,
@@ -130,9 +134,14 @@ impl Keeper {
             journal: Journal::at(journal),
             timeout: Duration::from_secs(900),
             give_up_behind: 6,
+            // Lab blocks come every few seconds: one block of lead loses to a public block
+            // found during the reveal about as often as it wins, so it waits for two.
+            reveal_lead: 2,
             race_limit: Duration::from_secs(180),
             public: public_links,
             victim_mines: false,
+            crew: crew_links,
+            attacker_mines,
         };
         self.begin(LabKind::Attack, ids, public, sides, move |say, watch, stop| {
             olc_lab::attack_with(links, options, say, watch, stop).map(Some)
@@ -274,7 +283,8 @@ impl Keeper {
             LabKind::Attack => {
                 let mut victim_side: Vec<&LocalView> = honest.iter().collect();
                 victim_side.extend(all.get(1));
-                let attacker_side: Vec<&LocalView> = [all.first(), all.get(2)].into_iter().flatten().collect();
+                // The attacker, then a pool's miners.
+                let attacker_side: Vec<&LocalView> = all.first().into_iter().chain(all.iter().skip(2)).collect();
                 Picture { upper: sides.row(all.get(1), &victim_side, total), lower: sides.row(all.first(), &attacker_side, total), replaced: Vec::new() }
             }
             LabKind::Split => {
@@ -310,6 +320,9 @@ impl Keeper {
             for member in &mut self.members {
                 member.busy = false;
             }
+            if kind == LabKind::Attack {
+                self.tell_race(ids[0]);
+            }
         }
     }
 
@@ -326,9 +339,10 @@ impl Keeper {
         let reached = lead >= target;
         let everyone = self.members.iter().all(|member| member.height() >= target);
         if reached && (everyone || since.elapsed() > MAKE_LAG + Duration::from_secs(count / 10)) {
-            let (speed, paused) = self.member(maker).map_or((0, false), |member| (member.speed, member.paused));
+            let paused = self.member(maker).is_some_and(|member| member.paused);
             self.send(maker, "board mine-to 0");
-            self.send(maker, &format!("board limit {speed}"));
+            // Its own limit goes back on the next turn.
+            self.told.remove(&(maker, "limit"));
             if paused {
                 self.send(maker, "board mine off");
             }

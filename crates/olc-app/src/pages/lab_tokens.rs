@@ -4,8 +4,14 @@
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, Trick};
 use crate::settings::Mode;
+use crate::ui::format;
 use crate::ui::tokens::Tokens;
 use egui::Color32;
+
+/// A count, a height or a speed as the app writes every number, its thousands marked.
+pub fn number(value: impl TryInto<u128>) -> String {
+    format::number(value.try_into().unwrap_or_default())
+}
 
 pub fn kind_key(kind: Kind) -> &'static str {
     match kind {
@@ -22,9 +28,29 @@ pub fn kind_key(kind: Kind) -> &'static str {
     }
 }
 
-/// Its kind and its number among its kind: "Miner 2".
+/// Its kind and its number among its kind: "Miner 2", or "Bad pool 1" once a pool turned bad.
 pub fn name(voice: Voice, member: &Member) -> String {
-    format!("{} {}", text(voice, kind_key(member.kind)), member.number)
+    let kind = if member.kind == Kind::Pool && member.bad { "net.kind_bad_pool" } else { kind_key(member.kind) };
+    format!("{} {}", text(voice, kind), member.number)
+}
+
+/// The share of all hashing an attacker really has now, in percent, as the nodes measure it: a
+/// bad miner's own, a bad pool's miners'. `None` while nobody hashes.
+pub fn power(member: &Member, state: &NetState) -> Option<u64> {
+    let rate = |other: &Member| other.status.as_ref().map_or(0, |status| status.hashrate);
+    let total: u64 = state.members.iter().filter(|other| other.kind.mines()).map(rate).sum();
+    let own: u64 = match member.kind {
+        Kind::Pool => state.members.iter().filter(|other| other.pool == Some(member.id)).map(rate).sum(),
+        _ => rate(member),
+    };
+    (own * 100).checked_div(total)
+}
+
+/// The rule an attacker's share answers to, plainly: over half replaces blocks, under half
+/// rarely catches up. A pool has no speed of its own: its miners are its power.
+fn rule(voice: Voice, share: u64, pool: bool) -> String {
+    let under = if pool { "net.rule_under_pool" } else { "net.rule_under" };
+    text(voice, if share > 50 { "net.rule_over" } else { under }).to_string()
 }
 
 fn lab(member: &Member) -> crate::local::lab_side::LabLine {
@@ -38,7 +64,7 @@ pub(super) fn coins(voice: Voice, units: u64) -> String {
 }
 
 /// The one line under a token, and its colour.
-pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color32) {
+pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> (String, Color32) {
     if member.ended.is_some() {
         return (text(voice, "net.ended").to_string(), t.bad);
     }
@@ -46,19 +72,22 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member) -> (String, Color3
         let key = if member.kind.mines() || member.kind.speed().is_some() { "net.paused" } else { "net.cut_off" };
         return (text(voice, key).to_string(), t.muted);
     }
-    if member.busy && member.kind == Kind::Attacker {
-        return (text(voice, "net.attacking").to_string(), t.bad);
+    let attacker = member.kind == Kind::Attacker || (member.kind == Kind::Pool && member.bad);
+    if attacker {
+        let share = number(power(member, state).unwrap_or(0));
+        let key = if member.busy { "net.attacking" } else { "net.power" };
+        return (fill(text(voice, key), &[&share]), t.bad);
     }
     let Some(status) = &member.status else {
         return (text(voice, "net.wait_start").to_string(), t.muted);
     };
     let line = lab(member);
     let expert = voice.mode == Mode::Expert;
-    let say = |key: &str, value: u64| fill(text(voice, key), &[&value.to_string()]);
+    let say = |key: &str, value: u64| fill(text(voice, key), &[&number(value)]);
     let shown = match member.kind {
         // In a pool the pool finds the blocks: a member counts the shares it handed in.
         Kind::Miner if member.pool.is_some() => say("net.shares", line.accepted),
-        Kind::Miner | Kind::Attacker if expert => format!("{} H/s · {}", status.hashrate, say("net.found", status.blocks_mined)),
+        Kind::Miner | Kind::Attacker if expert => format!("{} · {}", format::rate(voice, status.hashrate), say("net.found", status.blocks_mined)),
         Kind::Miner | Kind::Attacker => say("net.found", status.blocks_mined),
         Kind::Pool => say("net.members", line.workers.len() as u64),
         Kind::Full => say("net.holds_all", status.height),
@@ -87,7 +116,7 @@ pub fn tricks(voice: Voice, member: &Member, state: &NetState) -> Vec<(String, S
             continue;
         }
         let refused = rows.iter().filter(|row| row.refused).count();
-        let counted = fill(text(voice, "net.fact_trick"), &[&rows.len().to_string(), &refused.to_string()]);
+        let counted = fill(text(voice, "net.fact_trick"), &[&number(rows.len()), &number(refused)]);
         lines.push((text(voice, trick.key()).to_string(), format!("{counted} {}", text(voice, trick.rule_key()))));
     }
     if !lines.is_empty() && state.members.iter().any(|other| other.kind == Kind::Light) {
@@ -110,46 +139,53 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
                 let paid = member.received.from_pool;
                 facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(voice, paid)]));
             }
-            None => facts.push(with("net.fact_miner", &[&status.blocks_mined.to_string(), &coins(voice, status.balance)])),
+            None => facts.push(with("net.fact_miner", &[&number(status.blocks_mined), &coins(voice, status.balance)])),
         },
         Kind::Attacker => {
-            let total: u64 = state.members.iter().filter_map(|other| other.status.as_ref()).map(|other| other.hashrate).sum();
-            let share = (status.hashrate * 100).checked_div(total).unwrap_or(0);
-            facts.push(with("net.fact_attacker", &[&share.to_string(), &coins(voice, status.balance)]));
+            let share = power(member, state).unwrap_or(0);
+            facts.push(with("net.fact_attacker", &[&number(share), &coins(voice, status.balance)]));
+            facts.push(rule(voice, share, false));
+        }
+        Kind::Pool if member.bad => {
+            let share = power(member, state).unwrap_or(0);
+            let crew = state.members.iter().filter(|other| other.pool == Some(member.id)).count();
+            facts.push(with("net.fact_bad_pool", &[&number(crew), &number(share)]));
+            facts.push(rule(voice, share, true));
+            facts.push(with("net.fact_held", &[&coins(voice, status.balance)]));
         }
         Kind::Pool => {
-            facts.push(with("net.fact_pool", &[&line.workers.len().to_string(), &line.pool_found.to_string()]));
+            facts.push(with("net.fact_pool", &[&number(line.workers.len()), &number(line.pool_found)]));
             for worker in line.workers.iter().take(2) {
                 let who = state
                     .members
                     .iter()
                     .find(|other| other.address() == Some(worker.address.as_str()))
                     .map_or_else(|| worker.address.chars().take(10).collect(), |other| name(voice, other));
-                facts.push(with("net.fact_worker", &[&who, &worker.accepted.to_string(), &coins(voice, worker.paid)]));
+                facts.push(with("net.fact_worker", &[&who, &number(worker.accepted), &coins(voice, worker.paid)]));
             }
         }
-        Kind::Full => facts.push(with("net.fact_full", &[&status.height.to_string()])),
-        Kind::Pruned => facts.push(with("net.fact_pruned", &[&line.oldest_held.to_string()])),
-        Kind::Light => facts.push(with("net.fact_light", &[&status.headers.unwrap_or(status.height).to_string()])),
-        Kind::Sender => facts.push(with("net.fact_sender", &[&member.received.sent.to_string(), &coins(voice, status.balance)])),
+        Kind::Full => facts.push(with("net.fact_full", &[&number(status.height)])),
+        Kind::Pruned => facts.push(with("net.fact_pruned", &[&number(line.oldest_held)])),
+        Kind::Light => facts.push(with("net.fact_light", &[&number(status.headers.unwrap_or(status.height))])),
+        Kind::Sender => facts.push(with("net.fact_sender", &[&number(member.received.sent), &coins(voice, status.balance)])),
         Kind::Receiver => {
             let got = member.received;
-            facts.push(with("net.fact_receiver", &[&got.payments.to_string(), &got.settled.to_string(), &got.undone.to_string()]));
+            facts.push(with("net.fact_receiver", &[&number(got.payments), &number(got.settled), &number(got.undone)]));
         }
-        Kind::Spammer => facts.push(with("net.fact_spammer", &[&line.spam_sent.to_string(), &(line.waiting_bytes / 1024).to_string()])),
+        Kind::Spammer => facts.push(with("net.fact_spammer", &[&number(line.spam_sent), &number(line.waiting_bytes.div_ceil(1024))])),
         Kind::Exploiter => {
             let rows = &member.tricks;
             if let Some(newest) = rows.last() {
                 let tried = Trick::ALL.iter().filter(|trick| rows.iter().any(|row| row.trick == **trick)).count();
                 let nodes: std::collections::BTreeSet<u32> = rows.iter().map(|row| row.by).collect();
                 let refused = rows.iter().filter(|row| row.refused).count();
-                facts.push(with("net.fact_tricks", &[&tried.to_string(), &nodes.len().to_string(), &refused.to_string()]));
+                facts.push(with("net.fact_tricks", &[&number(tried), &number(nodes.len()), &number(refused)]));
                 facts.push(text(voice, newest.trick.key()).to_string());
                 let through = rows.iter().filter(|row| !row.refused && row.failed.is_none()).count();
                 let failed = rows.iter().filter(|row| row.failed.is_some()).count();
                 facts.push(match (through, failed) {
-                    (1.., _) => with("net.trick_let_through", &[&through.to_string()]),
-                    (0, 1..) => with("net.trick_failed", &[&failed.to_string()]),
+                    (1.., _) => with("net.trick_let_through", &[&number(through)]),
+                    (0, 1..) => with("net.trick_failed", &[&number(failed)]),
                     _ => text(voice, newest.trick.rule_key()).to_string(),
                 });
             }

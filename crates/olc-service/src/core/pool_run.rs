@@ -83,6 +83,8 @@ pub struct PoolSeat {
     switched_off: Vec<SwitchedOff>,
     /// Payouts owed, kept beside the wallet until they go out.
     owing: Owing,
+    /// Payouts wait while set: a pool turned bad in the Lab keeps its workers' coins.
+    pub hold: bool,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -408,7 +410,7 @@ impl PoolSeat {
     /// The payout turn, every few seconds: what is owed from before, then the running pool's ripe
     /// blocks. Both wait while the wallet is locked and stay owed in a file until they go out.
     fn pay_turn(&mut self, host: &Host) {
-        if self.paid_at.is_some_and(|paid| paid.elapsed() < PAY_EVERY) {
+        if self.hold || self.paid_at.is_some_and(|paid| paid.elapsed() < PAY_EVERY) {
             return;
         }
         let Ok(mut runner) = host.ready() else {

@@ -35,10 +35,17 @@ struct Plan {
     keep_caps: bool,
     /// The victim mines the public chain. Off, it only receives and watches.
     victim_mines: bool,
+    /// The attacker mines itself. A pool does not: its crew mines for it.
+    attacker_mines: bool,
+    /// How many of the boards beside the victim are the attacker's crew, listed first.
+    crew: usize,
     /// The attacker gives up this many blocks behind the public chain. 0 never gives up.
     give_up_behind: u64,
     /// The attacker gives up after racing this long.
     race_limit: Duration,
+    /// How many blocks ahead the private chain must be before it comes back. With fast blocks a
+    /// lead of one can be tied by a public block found while the hidden ones travel.
+    reveal_lead: u64,
     watch: Watch,
 }
 
@@ -50,10 +57,17 @@ pub struct AttackOptions {
     pub timeout: Duration,
     pub give_up_behind: u64,
     pub race_limit: Duration,
+    /// Blocks the private chain must lead by before it comes back; 1 is as soon as it is heavier.
+    pub reveal_lead: u64,
     /// Honest miners beside the victim, which mine the public chain.
     pub public: Vec<Box<dyn BoardLink>>,
     /// The victim mines too, as with two boards. Off, it only receives.
     pub victim_mines: bool,
+    /// Miners whose work reaches the attacker, a pool's workers: their speed is the attacker's,
+    /// and they mine and stop with it.
+    pub crew: Vec<Box<dyn BoardLink>>,
+    /// The attacker mines itself. A pool only builds blocks from its crew's work.
+    pub attacker_mines: bool,
 }
 
 fn no_watch() -> Watch {
@@ -75,8 +89,11 @@ impl Plan {
             poll: Duration::from_secs(2),
             keep_caps: false,
             victim_mines: true,
+            attacker_mines: true,
+            crew: 0,
             give_up_behind: 0,
             race_limit: Duration::MAX,
+            reveal_lead: 1,
             watch: no_watch(),
         })
     }
@@ -133,8 +150,11 @@ pub fn attack_with(
         poll: Duration::from_millis(500),
         keep_caps: true,
         victim_mines: options.victim_mines,
+        attacker_mines: options.attacker_mines,
+        crew: options.crew.len(),
         give_up_behind: options.give_up_behind,
         race_limit: options.race_limit,
+        reveal_lead: options.reveal_lead.max(1),
         watch,
     };
     let mut links = links.into_iter();
@@ -144,7 +164,8 @@ pub fn attack_with(
     let mut attacker = Board::new("attacker", attacker);
     let mut victim = Board::new("victim", victim);
     let mut helper = links.next().map(|link| Board::new("helper", link));
-    let mut public: Vec<Board> = options.public.into_iter().map(|link| Board::new("honest", link)).collect();
+    let crew = options.crew.into_iter().map(|link| Board::new("crew", link));
+    let mut public: Vec<Board> = crew.chain(options.public.into_iter().map(|link| Board::new("honest", link))).collect();
     attack_among(&mut attacker, &mut victim, helper.as_mut(), &mut public, &plan, &say, &stop)
 }
 
@@ -160,7 +181,8 @@ fn attack(
     attack_among(attacker, victim, helper, &mut [], plan, say, stop)
 }
 
-/// The same with honest miners beside the victim, put back as they were too.
+/// The same with other miners, put back as they were too: the attacker's crew first, then the
+/// honest miners beside the victim.
 fn attack_among(
     attacker: &mut Board,
     victim: &mut Board,
@@ -189,11 +211,13 @@ fn attack_among(
         plan.journal
             .remember(&board.address, board.restore_lines())?;
     }
+    let (crew, honest) = public.split_at_mut(plan.crew.min(public.len()));
     let mut race = Race {
         attacker,
         victim,
         helper: helper.as_deref_mut(),
-        public: &mut *public,
+        crew,
+        public: honest,
         plan,
         say,
         stop,
@@ -221,42 +245,6 @@ fn attack_among(
     result.and_then(|outcome| restored.map(|()| outcome))
 }
 
-/// A run that died left this board changed, so it starts from its true state.
-fn put_back_leftovers(board: &mut Board, plan: &Plan, say: &Say) -> Result<(), String> {
-    let address = board.status()?.address;
-    let left = plan.journal.pending();
-    let Some(entry) = left.iter().find(|entry| entry.address == address) else {
-        return Ok(());
-    };
-    entry.lines.iter().try_for_each(|line| board.send(line))?;
-    plan.journal.forget(&address);
-    say("A run that died left this board changed. It is back as it was.".to_string());
-    Ok(())
-}
-
-fn restore(board: &mut Board, saved: &Status) -> Result<(), String> {
-    let mut last = Err("The board did not answer.".to_string());
-    for _ in 0..RESTORE_TRIES {
-        let sent = saved
-            .restore_lines()
-            .iter()
-            .try_for_each(|line| board.send(line));
-        last = sent.and_then(|()| {
-            // Two reads: the first may have been printed before the commands ran.
-            board.status()?;
-            board.status()
-        });
-        if let Ok(now) = &last {
-            if (now.offline, now.limit, now.mining) == (saved.offline, saved.limit, saved.mining) {
-                return Ok(());
-            }
-        }
-    }
-    last.and(Err(
-        "A board did not go back to its saved state.".to_string()
-    ))
-}
-
 fn short(id: &str) -> &str {
     id.get(..12).unwrap_or(id)
 }
@@ -271,6 +259,8 @@ struct Race<'a> {
     attacker: &'a mut Board,
     victim: &'a mut Board,
     helper: Option<&'a mut Board>,
+    /// Miners whose work goes to the attacker.
+    crew: &'a mut [Board],
     /// Honest miners beside the victim.
     public: &'a mut [Board],
     plan: &'a Plan,
@@ -330,7 +320,7 @@ impl Race<'_> {
     fn measure_power(&mut self) -> Result<(), String> {
         say!(self, "\n1. Hash power");
         let together = self.helper.is_some() || self.plan.keep_caps;
-        for (board, mines) in [(&mut *self.attacker, true), (&mut *self.victim, self.plan.victim_mines)] {
+        for (board, mines) in [(&mut *self.attacker, self.plan.attacker_mines), (&mut *self.victim, self.plan.victim_mines)] {
             if !together {
                 board.set_limit(0)?;
             }
@@ -339,7 +329,7 @@ impl Race<'_> {
             }
             board.set_offline(false)?;
         }
-        for board in self.public.iter_mut() {
+        for board in self.public.iter_mut().chain(self.crew.iter_mut()) {
             board.set_mining(true)?;
             board.set_offline(false)?;
         }
@@ -363,6 +353,9 @@ impl Race<'_> {
         for _ in 0..POWER_SAMPLES {
             self.pause()?;
             attacker += self.attacker.status()?.hashrate;
+            for board in self.crew.iter_mut() {
+                attacker += board.status()?.hashrate;
+            }
             if let Some(helper) = &mut self.helper {
                 attacker += helper.status()?.hashrate;
             }
@@ -407,17 +400,25 @@ impl Race<'_> {
         }
         loop {
             if self.same_tip()? {
-                self.attacker.set_mining(false)?;
+                self.side_mining(false)?;
                 if self.same_tip()? {
                     let height = self.attacker.status()?.height;
                     say!(self, "\n   Both boards agree at height {height}");
                     (self.plan.watch)(Step::LinedUp { height });
                     return Ok(());
                 }
-                self.attacker.set_mining(true)?;
+                self.side_mining(true)?;
             }
             self.pause()?;
         }
+    }
+
+    /// The attacker's side mines or stops: the attacker when it mines itself, and its crew.
+    fn side_mining(&mut self, on: bool) -> Result<(), String> {
+        if self.plan.attacker_mines {
+            self.attacker.set_mining(on)?;
+        }
+        self.crew.iter_mut().try_for_each(|board| board.set_mining(on))
     }
 
     fn same_tip(&mut self) -> Result<bool, String> {
@@ -518,7 +519,7 @@ impl Race<'_> {
         let id = self.attacker_pays(own_address)?;
         say!(self, "   private spend {}", short(&id));
         (self.plan.watch)(Step::SpentAgain { spend: id.clone() });
-        self.attacker.set_mining(true)?;
+        self.side_mining(true)?;
         if let Some(helper) = &mut self.helper {
             helper.set_mining(true)?;
         }
@@ -546,7 +547,8 @@ impl Race<'_> {
                     victim.hashrate
                 );
             }
-            let heavier = attacker.work > victim.work;
+            let ahead = attacker.height >= victim.height + self.plan.reveal_lead;
+            let heavier = attacker.work > victim.work && ahead;
             if heavier && matches!(self.attacker.tx(spend)?, Place::Height(_)) {
                 say!(self, "   the private chain is heavier");
                 (self.plan.watch)(Step::Heavier);
@@ -565,5 +567,7 @@ impl Race<'_> {
 }
 
 mod back;
+mod keep;
+use keep::{put_back_leftovers, restore};
 #[cfg(test)]
 mod tests;

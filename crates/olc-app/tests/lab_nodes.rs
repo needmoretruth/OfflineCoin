@@ -3,7 +3,7 @@
 //! more of real mining, so they wait for `--ignored`:
 //! `cargo test -p olc-app --test lab_nodes -- --ignored --test-threads 1`.
 use olc_app::local::is_running;
-use olc_app::local::lab::{use_place, LabKind, Phase};
+use olc_app::local::lab::{use_place, Phase};
 use olc_app::local::lab_net::{Kind, LabNet, Member, NetState, Order, Scene, Trick, What};
 use std::collections::BTreeSet;
 use olc_lab::{Outcome, Step};
@@ -156,28 +156,146 @@ fn a_payment_reaches_the_receiver_and_settles() {
     assert!(receiver.status.as_ref().is_some_and(|status| status.balance > 0));
 }
 
+/// What each node measures it hashes now, by member.
+fn rate(state: &NetState, id: u32) -> u64 {
+    state.members.iter().find(|member| member.id == id).and_then(|member| member.status.as_ref()).map_or(0, |status| status.hashrate)
+}
+
+/// The attacker's share of all hashing as the attack measured it, in percent.
+fn measured_share(run: &olc_app::local::lab::LabState) -> Option<u64> {
+    run.frames.iter().find_map(|frame| match frame.step {
+        Step::Power { attacker, victim } => (attacker * 100).checked_div(attacker + victim),
+        _ => None,
+    })
+}
+
+/// The races that ended: attacker, whether it won, its share, how far behind it gave up.
+fn races(state: &NetState) -> Vec<(u32, bool, u64, u64)> {
+    state
+        .events
+        .iter()
+        .filter_map(|event| match event.what {
+            What::Raced { by, won, share, behind } => Some((by, won, share, behind)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A bad miner starts as any miner does, at the same modest speed: its power is what a person
+/// gives it. Before, it started at one and a half times all the honest miners together.
 #[test]
 #[ignore]
-fn the_hidden_chain_undoes_the_receivers_payment() {
+fn a_new_bad_miner_starts_at_a_miners_speed() {
+    place("net-attacker-speed");
+    let net = LabNet::start();
+    for kind in [Kind::Miner, Kind::Miner, Kind::Miner, Kind::Attacker] {
+        net.order(Order::Add(kind));
+    }
+    let state = wait_for(&net, Duration::from_secs(90), "four hashing", |state| {
+        state.members.len() == 4 && state.members.iter().all(|member| rate(state, member.id) > 0)
+    });
+    let attacker = &of(&state, Kind::Attacker)[0];
+    let miner = &of(&state, Kind::Miner)[0];
+    assert_eq!(attacker.speed, miner.speed, "a bad miner starts at a miner's speed");
+    let total: u64 = state.members.iter().map(|member| rate(&state, member.id)).sum();
+    let share = rate(&state, attacker.id) * 100 / total.max(1);
+    println!("bad miner {} H/s of {total} H/s: {share}%", rate(&state, attacker.id));
+    assert!((15..=35).contains(&share), "one of four equal miners holds about a quarter, not {share}%");
+}
+
+/// The one-click attack is a fair race, not a set win: one bad miner near 60 % of all hashing and
+/// one near 30 %. Each attacks in turn with exactly what it has, and each race is told with the
+/// share it really had.
+#[test]
+#[ignore]
+fn the_attack_scene_races_a_strong_and_a_weak_bad_miner() {
     place("net-attack");
     let net = LabNet::start();
     net.order(Order::Scene(Scene::Attack));
-    let state = wait_for(&net, Duration::from_secs(420), "the attack ended", |state| {
+    let state = wait_for(&net, Duration::from_secs(90), "five running and hashing", |state| {
+        state.members.len() == 5 && state.members.iter().filter(|member| member.kind.mines()).all(|member| rate(state, member.id) > 0)
+    });
+    let total: u64 = state.members.iter().map(|member| rate(&state, member.id)).sum();
+    let shares: Vec<u64> = of(&state, Kind::Attacker).iter().map(|member| rate(&state, member.id) * 100 / total.max(1)).collect();
+    println!("bad miners hold {shares:?} % of {total} H/s");
+    assert_eq!(shares.len(), 2, "two bad miners");
+    assert!((50..=70).contains(&shares[0]) && (20..=40).contains(&shares[1]), "near 60 % and near 30 %: {shares:?}");
+    let state = wait_for(&net, Duration::from_secs(1200), "both bad miners raced", |state| races(state).len() >= 2);
+    let receiver = of(&state, Kind::Receiver)[0].id;
+    for (by, won, share, behind) in races(&state) {
+        println!("bad miner {by}: {share}% of all hashing, won {won}, gave up {behind} behind");
+        assert!(share > 0, "the race says the share it had");
+    }
+    let undone = state.events.iter().any(|event| matches!(event.what, What::Undone { at, .. } if at == receiver));
+    let won = races(&state).iter().any(|(_, won, _, _)| *won);
+    assert_eq!(undone, won, "a payment goes exactly when a hidden chain won");
+}
+
+/// A pool turned bad attacks with exactly its miners' power: three of four equal miners work in
+/// it, so it holds three quarters of all hashing, and the receiver's payment is undone.
+#[test]
+#[ignore]
+fn a_pool_turned_bad_attacks_with_its_miners_power() {
+    place("net-bad-pool");
+    let net = LabNet::start();
+    for kind in [Kind::Miner, Kind::Miner, Kind::Miner, Kind::Miner, Kind::Pool, Kind::Receiver] {
+        net.order(Order::Add(kind));
+    }
+    let state = wait_for(&net, Duration::from_secs(90), "six running", |state| state.members.len() == 6 && state.members.iter().all(|member| member.status.is_some()));
+    let pool = of(&state, Kind::Pool)[0].id;
+    for miner in of(&state, Kind::Miner).iter().take(3) {
+        net.order(Order::Join(miner.id, Some(pool)));
+    }
+    net.order(Order::Bad(pool, true));
+    let state = wait_for(&net, Duration::from_secs(900), "the bad pool's attack ended", |state| {
         state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed))
     });
     let run = state.experiment.clone().unwrap_or_default();
     for line in &run.lines {
         println!("{line}");
     }
-    assert_eq!(run.kind, Some(LabKind::Attack));
+    let share = measured_share(&run).unwrap_or(0);
+    assert!(share >= 60, "the pool attacked with its miners' power, {share}%");
     assert_eq!(run.outcome, Some(Outcome::Gone), "{:?}", run.error);
-    assert!(run.reached(|step| matches!(step, Step::Replaced { .. })));
     let receiver = of(&state, Kind::Receiver)[0].id;
-    wait_for(&net, Duration::from_secs(20), "the receiver saw it undone", |state| {
-        let undone = state.events.iter().any(|event| matches!(event.what, What::Undone { at, .. } if at == receiver));
-        let replaced = state.events.iter().any(|event| matches!(event.what, What::Replaced { at, .. } if at == receiver));
-        undone && replaced
+    wait_for(&net, Duration::from_secs(30), "the race and the undone payment are told", |state| {
+        let told = races(state).iter().any(|(by, won, _, _)| *by == pool && *won);
+        told && state.events.iter().any(|event| matches!(event.what, What::Undone { at, .. } if at == receiver))
     });
+}
+
+/// What the miners measure they hash together.
+fn hashing(state: &NetState) -> u64 {
+    state.members.iter().map(|member| rate(state, member.id)).sum()
+}
+
+/// The person's speed limit holds the Lab's miners together: past it every miner slows by the same
+/// part, so their shares stay what the person chose, and without it each hashes at its own speed.
+#[test]
+#[ignore]
+fn the_lab_keeps_its_miners_under_the_persons_limit() {
+    place("net-budget");
+    let net = LabNet::start();
+    net.order(Order::Budget(12_000));
+    for _ in 0..3 {
+        net.order(Order::Add(Kind::Miner));
+    }
+    let limits = |state: &NetState| state.members.iter().map(|member| member.limit).collect::<Vec<_>>();
+    let state = wait_for(&net, Duration::from_secs(60), "three miners at 4,000 under 12,000", |state| {
+        limits(state) == vec![4_000; 3] && (11_000..=12_600).contains(&hashing(state))
+    });
+    println!("three miners set to 8,000 hash {} H/s under a limit of 12,000", hashing(&state));
+    net.order(Order::Budget(6_000));
+    let state = wait_for(&net, Duration::from_secs(60), "each slowed to 2,000 under 6,000", |state| {
+        limits(state) == vec![2_000; 3] && (5_000..=6_300).contains(&hashing(state))
+    });
+    println!("under 6,000 they hash {} H/s", hashing(&state));
+    assert!(state.members.iter().all(|member| member.speed == 8_000), "each keeps the speed the person chose");
+    net.order(Order::Budget(0));
+    let state = wait_for(&net, Duration::from_secs(60), "each at its own 8,000 with no limit", |state| {
+        limits(state) == vec![8_000; 3] && hashing(state) > 20_000
+    });
+    println!("with no limit they hash {} H/s", hashing(&state));
 }
 
 /// The owner's scene as a person builds it by hand: three miners, two of them in a pool, a sender
@@ -197,10 +315,18 @@ fn the_bad_miner_undoes_a_payment_in_a_network_built_by_hand() {
     }
     net.order(Order::Add(Kind::Sender));
     net.order(Order::Add(Kind::Receiver));
-    wait_for(&net, Duration::from_secs(300), "a payment settled", |state| {
+    let state = wait_for(&net, Duration::from_secs(300), "a payment settled", |state| {
         state.events.iter().any(|event| matches!(event.what, What::Settled { at, .. } if of(state, Kind::Receiver).iter().any(|receiver| receiver.id == at)))
     });
+    // The sender pays as often as it can: many payments come while the attack races, and the
+    // receiver must still see the attack's payment undone.
+    net.order(Order::Speed(of(&state, Kind::Sender)[0].id, 30));
+    let receiver = of(&state, Kind::Receiver)[0].id;
     net.order(Order::Add(Kind::Attacker));
+    // It starts at a miner's speed, a quarter of all. The person slides it to the most, 40,000
+    // of 64,000 H/s, before it has the coins to attack.
+    let state = wait_for(&net, Duration::from_secs(60), "the bad miner is on the map", |state| !of(state, Kind::Attacker).is_empty());
+    net.order(Order::Speed(of(&state, Kind::Attacker)[0].id, 40_000));
     let state = wait_for(&net, Duration::from_secs(600), "the attack ended", |state| {
         state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed))
     });
@@ -209,6 +335,11 @@ fn the_bad_miner_undoes_a_payment_in_a_network_built_by_hand() {
         println!("{line}");
     }
     assert_eq!(run.outcome, Some(Outcome::Gone), "{:?}", run.error);
+    let state = wait_for(&net, Duration::from_secs(60), "the receiver counts the payment undone", |state| {
+        state.members.iter().any(|member| member.id == receiver && member.received.undone >= 1)
+    });
+    let sent = of(&state, Kind::Sender)[0].received.sent;
+    println!("the sender paid {sent} times while the receiver kept the undone payment in view");
     net.order(Order::Clear);
 }
 

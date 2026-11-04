@@ -36,11 +36,20 @@ pub struct Lab {
     /// What this computer carries before the network starts, measured now and then.
     room: Option<(Instant, Room)>,
     boards: BoardLab,
+    /// The person's speed limit as last seen: everything OLC Core runs stays under it.
+    cap: u64,
 }
 
 impl Lab {
+    /// A network starts under the person's speed limit, which holds the Lab's miners together.
     fn order(&mut self, order: Order) {
-        self.net.get_or_insert_with(LabNet::start).order(order);
+        let cap = self.cap;
+        let net = self.net.get_or_insert_with(|| {
+            let net = LabNet::start();
+            net.order(Order::Budget(cap));
+            net
+        });
+        net.order(order);
     }
 
     /// Every participant stops: the page was left.
@@ -66,13 +75,21 @@ impl Lab {
 
     pub fn show(&mut self, ui: &mut Ui, cx: &mut Cx) {
         let (t, voice) = (cx.t, cx.voice());
+        self.cap = cx.settings.hash_cap;
         let state = self.state();
         if self.net.is_some() {
             ui.ctx().request_repaint_after(REDRAW);
+            if state.budget != self.cap {
+                self.order(Order::Budget(self.cap));
+            }
         }
         explain::short(ui, t, text(voice, "net.intro"));
         ui.add_space(tokens::GAP);
-        let mut asked = card(ui, t, |ui| lab_palette::draw(ui, t, voice, &state.room, state.members.len()));
+        let hashing = (state.budget > 0).then(|| {
+            let asked: u64 = state.members.iter().filter(|member| member.kind.mines() && !member.paused).map(|member| member.speed).sum();
+            (asked, state.budget)
+        });
+        let mut asked = card(ui, t, |ui| lab_palette::draw(ui, t, voice, &state.room, state.members.len(), hashing));
         ui.add_space(tokens::GAP);
         asked = asked.or(card(ui, t, |ui| self.map_and_panel(ui, t, voice, &state)));
         if let Some(error) = &state.error {

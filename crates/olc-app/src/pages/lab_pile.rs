@@ -1,6 +1,7 @@
 //! The payments waiting for a block, as a pile on the map: a small square for each, those the next
 //! block takes in the colour of a block and the rest in yellow, and how full the next block would
 //! be against the most a block may hold.
+use super::lab_tokens::number;
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState};
 use crate::ui::tokens::Tokens;
@@ -32,7 +33,7 @@ pub fn waiting(state: &NetState) -> (usize, u64, u64) {
 }
 
 fn kb(bytes: u64) -> String {
-    bytes.div_ceil(1024).to_string()
+    number(bytes.div_ceil(1024))
 }
 
 /// Draws the pile in `rect`, and names it for whoever reads the screen out.
@@ -42,9 +43,9 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState, rect: Rect)
     let next = bytes.min(most);
     // As many as fit the next block, by their share of the bytes.
     let fits = if bytes <= most { count } else { (count as u64 * most / bytes.max(1)) as usize };
-    let title = fill(text(voice, "net.pile"), &[&count.to_string()]);
+    let title = fill(text(voice, "net.pile"), &[&number(count)]);
     let full = fill(text(voice, "net.pile_next"), &[&kb(next), &kb(most)]);
-    let over = (count > fits).then(|| fill(text(voice, "net.pile_over"), &[&(count - fits).to_string()]));
+    let over = (count > fits).then(|| fill(text(voice, "net.pile_over"), &[&number(count - fits)]));
     let said = [Some(title.clone()), Some(full.clone()), over.clone()].into_iter().flatten().collect::<Vec<_>>().join(" ");
     let response = ui.interact(rect, ui.scope_id().with("lab-pile"), Sense::hover());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));

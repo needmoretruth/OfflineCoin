@@ -3,7 +3,7 @@
 //! height and who found it. The payments still waiting are the pile on the map, and the blocks a
 //! chain with more work replaced are in the attack's own picture. Buttons make blocks at once.
 use super::lab_pile::shown;
-use super::lab_tokens::name;
+use super::lab_tokens::{name, number};
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, NetState, Order};
 use crate::ui::chain;
@@ -37,7 +37,7 @@ fn block(ui: &mut Ui, t: &Tokens, colour: Color32, full: f32, height: u64, finde
         chain::draw_box(&painter.with_clip_rect(lit.intersect(cell)), face, depth, &look, 1.0);
     }
     let under = face.center_bottom() + vec2(-depth / 2.0, 3.0);
-    painter.text(under, Align2::CENTER_TOP, format!("#{height}"), FontId::proportional(10.5), t.muted);
+    painter.text(under, Align2::CENTER_TOP, format!("#{}", number(height)), FontId::proportional(10.5), t.muted);
     let mut job = LayoutJob::simple_singleline(finder.to_string(), FontId::proportional(10.5), t.soft);
     job.wrap = TextWrapping { max_width: CELL - 4.0, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     let galley = painter.layout_job(job);
@@ -50,7 +50,7 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState) -> Option<O
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(text(voice, "net.blocks")).strong().color(t.text));
         if let Some(member) = member {
-            ui.label(RichText::new(fill(text(voice, "net.height"), &[&member.height().to_string()])).color(t.muted));
+            ui.label(RichText::new(fill(text(voice, "net.height"), &[&number(member.height())])).color(t.muted));
         }
     });
     let Some(member) = member else {
@@ -106,7 +106,7 @@ fn make(ui: &mut Ui, t: &Tokens, voice: Voice, state: &NetState) -> Option<Order
             }
         }
         if let Some((made, asked)) = state.making {
-            ui.label(RichText::new(fill(text(voice, "net.making"), &[&made.to_string(), &asked.to_string()])).color(t.text));
+            ui.label(RichText::new(fill(text(voice, "net.making"), &[&number(made), &number(asked)])).color(t.text));
         }
     });
     order

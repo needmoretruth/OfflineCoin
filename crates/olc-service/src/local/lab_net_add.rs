@@ -4,8 +4,6 @@ use crate::local::supervisor::address_of;
 
 /// The share a pool asks of its miners: at the usual speed a miner hands in about two a second.
 pub const SHARE_DIFFICULTY: u64 = 4_000;
-/// The attacker starts with this many times the honest miners' speed: three fifths of all.
-const ATTACKER_TIMES: f64 = 1.5;
 
 impl Keeper {
     pub(super) fn add(&mut self, kind: Kind) -> Result<u32, String> {
@@ -26,11 +24,10 @@ impl Keeper {
         };
         let id = self.next_id;
         self.next_id += 1;
-        let speed = match kind {
-            Kind::Attacker => self.attacker_speed(),
-            _ => kind.speed().map_or(0, |speed| speed.presets[1]),
-        };
-        let spec = spec_of(id, kind, number, speed);
+        // A bad miner starts as any miner does: its power is what a person gives it.
+        let speed = Self::start_speed(kind);
+        let limit = if kind.mines() { self.limit_for(speed, speed) } else { 0 };
+        let spec = spec_of(id, kind, number, limit);
         let links = self.dial_for();
         let peers: Vec<String> = links.iter().filter_map(|id| self.address_of_member(*id)).collect();
         let coin = self.coin.clone().ok_or("net.failed")?;
@@ -49,6 +46,7 @@ impl Keeper {
             kind,
             number,
             speed,
+            limit,
             paused: false,
             pool: None,
             links,
@@ -59,15 +57,10 @@ impl Keeper {
             tricks: Vec::new(),
             received: Received::default(),
             busy: false,
+            bad: false,
+            raced: false,
         });
         Ok(id)
-    }
-
-    /// Half again the honest miners' speed, so the attacker holds three fifths of all hashing.
-    fn attacker_speed(&self) -> u64 {
-        let honest: u64 = self.members.iter().filter(|member| member.kind == Kind::Miner && !member.paused).map(|member| member.speed).sum();
-        let range = Kind::Attacker.speed().unwrap_or(Speed { least: 1_000, most: 40_000, presets: [4_000, 8_000, 16_000] });
-        ((honest as f64 * ATTACKER_TIMES) as u64).clamp(range.presets[1], range.most)
     }
 
     /// The first participant, which everyone dials, and the newest one, so the map stays a web.
@@ -127,7 +120,7 @@ impl Keeper {
             return self.pause(id, false);
         }
         if kind.mines() {
-            self.send(id, &format!("board limit {speed}"));
+            self.limits();
         }
         Ok(())
     }
@@ -138,16 +131,15 @@ impl Keeper {
         if member.busy {
             return Err("net.busy".into());
         }
-        let (kind, speed) = (member.kind, member.speed);
+        let kind = member.kind;
         if let Some(member) = self.member_mut(id) {
             member.paused = paused;
         }
+        // One stopping or starting changes what the others may use under the person's limit.
+        self.limits();
         match kind {
             Kind::Miner | Kind::Attacker if paused => self.send(id, "board mine off"),
-            Kind::Miner | Kind::Attacker => {
-                self.send(id, &format!("board limit {speed}"));
-                self.send(id, "board mine on");
-            }
+            Kind::Miner | Kind::Attacker => self.send(id, "board mine on"),
             // The spammer's rate is told again on the next turn.
             Kind::Sender | Kind::Spammer => {}
             _ => self.send(id, if paused { "board offline on" } else { "board offline off" }),
@@ -158,11 +150,13 @@ impl Keeper {
     pub(super) fn again(&mut self, id: u32) -> Result<(), String> {
         let member = self.member(id).ok_or("net.gone")?;
         match member.kind {
-            Kind::Attacker => {
+            Kind::Attacker | Kind::Pool => {
                 if self.runs.running() {
                     return Err("net.busy".into());
                 }
-                self.attacked.remove(&id);
+                if let Some(member) = self.member_mut(id) {
+                    member.raced = false;
+                }
             }
             Kind::Exploiter => {
                 self.tried.remove(&id);
@@ -207,13 +201,18 @@ impl Keeper {
                 }
             }
             Scene::Split => self.split_asked = true,
+            Scene::Attack => {
+                let attackers: Vec<u32> = added.iter().filter(|(kind, _)| *kind == Kind::Attacker).map(|(_, id)| *id).collect();
+                self.fair_speeds(&miners, &attackers);
+            }
             _ => {}
         }
         self.scene = Some(scene);
         Ok(())
     }
 
-    /// The first miner mines uncapped until the chain is `count` blocks longer.
+    /// The first miner mines as fast as it can, or as the person's limit leaves it, until the
+    /// chain is `count` blocks longer.
     pub(super) fn make_blocks(&mut self, count: u64) -> Result<(), String> {
         if self.runs.running() || self.runs.making.is_some() {
             return Err("net.busy".into());
@@ -222,7 +221,7 @@ impl Keeper {
         let (id, from) = (miner.id, miner.height());
         let count = count.clamp(1, super::super::lab::MOST_BLOCKS);
         self.send(id, &format!("board mine-to {}", from + count));
-        self.send(id, "board limit 0");
+        self.send(id, &format!("board limit {}", self.maker_limit(id)));
         self.send(id, "board mine on");
         self.runs.making = Some((0, count));
         self.runs.maker = Some((id, from, Instant::now()));

@@ -5,7 +5,7 @@
 //! Blocks and payments come often, so only the newest of them is a line. When several nodes do the
 //! same thing together (refuse one trick, drop the same blocks) that is one line naming them, and a
 //! warning stays a few seconds however much happens after it, so a person can read it.
-use super::lab_tokens::name;
+use super::lab_tokens::{name, number};
 use crate::i18n::{fill, text, Lang, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, What};
 use crate::settings::Mode;
@@ -48,7 +48,7 @@ fn subject(voice: Voice, name: &str) -> String {
     let ends_closed = match name.chars().last() {
         // Read as a number: 이, 사, 오 and 구 end open.
         Some(digit @ '0'..='9') => !matches!(digit, '2' | '4' | '5' | '9'),
-        Some(c @ '가'..='힣') => (c as u32 - '가' as u32) % 28 != 0,
+        Some(c @ '가'..='힣') => !(c as u32 - '가' as u32).is_multiple_of(28),
         _ => true,
     };
     format!("{name}{}", if ends_closed { "이" } else { "가" })
@@ -79,7 +79,7 @@ pub(super) fn told(state: &NetState, what: &What) -> bool {
 }
 
 fn warning(what: &What) -> bool {
-    matches!(what, What::Undone { .. } | What::Replaced { .. })
+    matches!(what, What::Undone { .. } | What::Replaced { .. } | What::Raced { .. })
 }
 
 /// Whether two moments are told as one, and who the later one adds.
@@ -151,7 +151,7 @@ fn names(voice: Voice, state: &NetState, who: &[u32]) -> Option<String> {
     let named: Vec<String> = who.iter().filter_map(|id| state.members.iter().find(|member: &&Member| member.id == *id)).map(|member| name(voice, member)).collect();
     let first = named.first()?;
     let said = match named.len() {
-        count if count > NAMED => fill(text(voice, "net.say_more"), &[first, &(count - 1).to_string()]),
+        count if count > NAMED => fill(text(voice, "net.say_more"), &[first, &number(count - 1)]),
         _ => named.join(", "),
     };
     Some(subject(voice, &said))
@@ -161,12 +161,16 @@ fn names(voice: Voice, state: &NetState, who: &[u32]) -> Option<String> {
 fn sentence(voice: Voice, state: &NetState, line: &Line) -> Option<(String, bool)> {
     let named = |id: u32| state.members.iter().find(|member: &&Member| member.id == id).map(|member| name(voice, member));
     let said = match line.what {
-        What::Block { finder: Some(finder), height, .. } => fill(text(voice, "net.say_block"), &[&subject(voice, &named(*finder)?), &height.to_string()]),
+        What::Block { finder: Some(finder), height, .. } => fill(text(voice, "net.say_block"), &[&subject(voice, &named(*finder)?), &number(*height)]),
         What::Paid { from, to: Some(to), amount } => fill(text(voice, "net.say_paid"), &[&subject(voice, &named(*from)?), &named(*to)?, &coins(voice, *amount)]),
         What::Payout { from, to, amount } => fill(text(voice, "net.say_payout"), &[&subject(voice, &named(*from)?), &named(*to)?, &coins(voice, *amount)]),
         What::Settled { at, .. } => fill(text(voice, "net.say_settled"), &[&named(*at)?, &coins(voice, line.amount)]),
         What::Undone { at, .. } => fill(text(voice, "net.say_undone"), &[&named(*at)?, &coins(voice, line.amount)]),
-        What::Replaced { blocks, .. } => fill(text(voice, "net.say_replaced"), &[&names(voice, state, &line.who)?, &blocks.to_string()]),
+        What::Replaced { blocks, .. } => fill(text(voice, "net.say_replaced"), &[&names(voice, state, &line.who)?, &number(*blocks)]),
+        What::Raced { by, won: true, share, .. } => fill(text(voice, "net.say_won"), &[&subject(voice, &named(*by)?), &number(*share)]),
+        What::Raced { by, won: false, share, behind } => {
+            fill(text(voice, "net.say_lost"), &[&subject(voice, &named(*by)?), &number(*share), &number(*behind)])
+        }
         What::Refused { from, trick, rule, .. } => {
             let mut why = text(voice, trick.rule_key()).to_string();
             if voice.mode == Mode::Expert && !rule.is_empty() {

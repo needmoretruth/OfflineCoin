@@ -2,7 +2,7 @@
 //! most three controls: its speed (a stop and three presets, and a slider), where a miner mines
 //! (alone or in a pool) or one action of its own, and remove.
 use super::lab_glyphs as glyphs;
-use super::lab_tokens::{facts, name, tricks};
+use super::lab_tokens::{facts, name, number, tricks};
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, Order, Phase};
 use crate::ui::tokens::{self, Tokens};
@@ -34,9 +34,13 @@ fn speed(ui: &mut Ui, t: &Tokens, voice: Voice, held: &mut Held, member: &Member
     let mut order = None;
     ui.horizontal(|ui| {
         ui.label(RichText::new(text(voice, "net.speed")).color(t.soft));
-        let shown = if member.paused { text(voice, "net.paused").to_string() } else { fill(text(voice, speed_key(member.kind)), &[&member.speed.to_string()]) };
+        let shown = if member.paused { text(voice, "net.paused").to_string() } else { fill(text(voice, speed_key(member.kind)), &[&number(member.speed)]) };
         ui.label(RichText::new(shown).strong().color(t.text));
     });
+    if member.kind.mines() && !member.paused && member.limit < member.speed {
+        let now = crate::ui::format::rate(voice, member.limit);
+        ui.label(RichText::new(fill(text(voice, "net.speed_capped"), &[&now])).color(t.soft).size(tokens::META));
+    }
     let presets = [
         (Preset::Stop, text(voice, "net.preset_stop").to_string()),
         (Preset::At(0), text(voice, "net.preset_slow").to_string()),
@@ -90,9 +94,18 @@ fn action(ui: &mut Ui, t: &Tokens, voice: Voice, member: &Member, state: &NetSta
     let (key, shown) = match member.kind {
         Kind::Attacker => {
             let ended = state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed));
-            ("net.again_attack", ended && !member.busy)
+            ("net.again_attack", member.raced && ended && !member.busy)
         }
         Kind::Exploiter => ("net.again_tricks", member.waits.is_none()),
+        // A pool can turn bad and attack with its miners' power, and turn honest again.
+        Kind::Pool => {
+            let key = if member.bad { "net.turn_honest" } else { "net.turn_bad" };
+            if button_on(ui, t, text(voice, key), ButtonKind::Plain, enabled).clicked() {
+                return Some(Order::Bad(member.id, !member.bad));
+            }
+            let ended = state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed));
+            ("net.again_attack", member.bad && member.raced && ended && !member.busy)
+        }
         Kind::Full | Kind::Pruned | Kind::Light | Kind::Receiver => {
             let key = if member.paused { "net.reconnect" } else { "net.cut" };
             let clicked = button_on(ui, t, text(voice, key), ButtonKind::Plain, enabled).clicked();

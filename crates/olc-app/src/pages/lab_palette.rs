@@ -1,7 +1,7 @@
 //! The row of "+ kind" tiles that each add one participant, the one-click setups, "clear all",
 //! and how many more this computer carries.
 use super::lab_glyphs as glyphs;
-use super::lab_tokens::kind_key;
+use super::lab_tokens::{kind_key, number};
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Limit, Order, Room, Scene, MOST};
 use crate::ui::tokens::{self, Tokens};
@@ -46,7 +46,9 @@ fn tile(ui: &mut Ui, t: &Tokens, voice: Voice, kind: Kind, enabled: bool) -> boo
 }
 
 /// The tiles, the setups and "clear all". Returns what was pressed.
-pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize) -> Option<Order> {
+/// `hashing` is what the miners were set to together and the person's speed limit, when one
+/// is set.
+pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize, hashing: Option<(u64, u64)>) -> Option<Order> {
     let mut order = None;
     ui.label(RichText::new(text(voice, "net.add")).color(t.soft).size(tokens::META));
     ui.horizontal_wrapped(|ui| {
@@ -71,7 +73,14 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, room: &Room, running: usize) 
         }
     });
     ui.add_space(4.0);
-    let (line, colour) = room_line(t, voice, room);
+    let (mut line, colour) = room_line(t, voice, room);
+    // Past the limit every miner slows by the same part; below it, what is left.
+    let rate = |value: u64| crate::ui::format::rate(voice, value);
+    match hashing {
+        Some((asked, limit)) if asked > limit => line = format!("{line} {}", fill(text(voice, "net.hash_scaled"), &[&rate(limit)])),
+        Some((asked, limit)) => line = format!("{line} {}", fill(text(voice, "net.hash_room"), &[&rate(limit - asked)])),
+        None => {}
+    }
     ui.label(RichText::new(line).color(colour).size(tokens::META));
     order
 }
@@ -82,12 +91,12 @@ fn room_line(t: &Tokens, voice: Voice, room: &Room) -> (String, egui::Color32) {
         let line = match room.limit {
             Limit::Memory => text(voice, "net.room_memory").to_string(),
             Limit::Cores => text(voice, "net.room_cores").to_string(),
-            Limit::Map => fill(text(voice, "net.room_map"), &[&MOST.to_string()]),
+            Limit::Map => fill(text(voice, "net.room_map"), &[&number(MOST)]),
         };
         return (line, t.warn);
     }
     // Expert words also say the free memory and the cores.
-    let values = [room.more.to_string(), room.running.to_string(), crate::core::group_thousands(u128::from(room.free_mib)), room.cores.to_string()];
+    let values = [number(room.more), number(room.running), number(room.free_mib), number(room.cores)];
     let line = fill(text(voice, "net.room"), &values.iter().map(String::as_str).collect::<Vec<_>>());
     (line, t.muted)
 }

@@ -18,13 +18,15 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 pub use super::lab::{Frame, LabKind, LabState, Mark, Phase, Picture as Drawing, Row, Side};
-pub use super::lab_room::{Limit, Room, MOST};
+pub use super::lab_room::{processes_with, Limit, Room, MOST};
 pub use super::trouble::Trick;
 
 #[path = "lab_net_add.rs"]
 mod add;
 #[path = "lab_net_look.rs"]
 mod look;
+#[path = "lab_net_power.rs"]
+mod power;
 #[path = "lab_net_roles.rs"]
 mod roles;
 #[path = "lab_net_runs.rs"]
@@ -132,6 +134,8 @@ pub struct Member {
     /// Its number among those of its kind, from 1.
     pub number: u32,
     pub speed: u64,
+    /// What it really hashes at: its speed, or under the person's limit the same part as all.
+    pub limit: u64,
     pub paused: bool,
     /// The pool it works in, for a miner.
     pub pool: Option<u32>,
@@ -146,6 +150,10 @@ pub struct Member {
     pub tricks: Vec<TrickRow>,
     /// It takes part in the experiment running now, so its controls wait.
     pub busy: bool,
+    /// A pool turned bad: it keeps its miners' coins and attacks with their power.
+    pub bad: bool,
+    /// It attacked once and mines honestly since: a person can start it again.
+    pub raced: bool,
     /// Payments it received since it was added, counted as they come: its node keeps only the
     /// newest few.
     pub received: Received,
@@ -213,6 +221,9 @@ pub enum What {
     Settled { at: u32, amount: u64 },
     /// A payment a receiver held in a block is on no chain any more.
     Undone { at: u32, amount: u64 },
+    /// An attack ended: whether the hidden chain won, the attacker's share of all hashing as it
+    /// was measured, in percent, and how many blocks behind it gave up.
+    Raced { by: u32, won: bool, share: u64, behind: u64 },
 }
 
 /// The one-click setups.
@@ -236,7 +247,7 @@ impl Scene {
             Scene::Race => &[Kind::Miner, Kind::Miner, Kind::Miner],
             Scene::Pool => &[Kind::Miner, Kind::Miner, Kind::Miner, Kind::Pool],
             Scene::Payment => &[Kind::Miner, Kind::Miner, Kind::Sender, Kind::Receiver],
-            Scene::Attack => &[Kind::Miner, Kind::Miner, Kind::Receiver, Kind::Attacker],
+            Scene::Attack => &[Kind::Miner, Kind::Miner, Kind::Receiver, Kind::Attacker, Kind::Attacker],
             Scene::Split => &[Kind::Miner, Kind::Miner, Kind::Miner],
             Scene::Spam => &[Kind::Miner, Kind::Miner, Kind::Sender, Kind::Receiver, Kind::Spammer],
             Scene::Exploit => &[Kind::Miner, Kind::Miner, Kind::Full, Kind::Light, Kind::Exploiter],
@@ -261,8 +272,12 @@ pub enum Order {
     StopExperiment,
     /// Takes away the card of the experiment that ended.
     Forget,
-    /// Makes this many blocks now with the first miner, uncapped.
+    /// Makes this many blocks now with the first miner, as fast as the hash limit lets it.
     MakeBlocks(u64),
+    /// The most the Lab's miners may hash together, from the person's limit; 0 is none.
+    Budget(u64),
+    /// A pool turns bad and attacks with its miners' power, or turns honest again.
+    Bad(u32, bool),
     End,
 }
 
@@ -278,6 +293,8 @@ pub struct NetState {
     pub room: Room,
     pub error: Option<String>,
     pub max_block_bytes: u64,
+    /// The most the miners may hash together; 0 is no limit.
+    pub budget: u64,
     /// Blocks no chain holds any more, newest last, by id.
     pub replaced: Vec<String>,
 }
@@ -357,8 +374,7 @@ struct Keeper {
     settled: BTreeSet<(u32, String)>,
     undone: BTreeSet<(u32, String)>,
     runs: runs::Runs,
-    /// Attackers that attacked, and bug exploiters that tried their tricks.
-    attacked: BTreeSet<u32>,
+    /// Bug exploiters that tried their tricks.
     tried: BTreeSet<u32>,
     split_asked: bool,
     scene: Option<Scene>,
@@ -369,6 +385,7 @@ struct Keeper {
     room_at: Option<Instant>,
     room: Room,
     error: Option<String>,
+    budget: u64,
 }
 
 impl Keeper {
@@ -397,7 +414,6 @@ impl Keeper {
             settled: BTreeSet::new(),
             undone: BTreeSet::new(),
             runs: runs::Runs::default(),
-            attacked: BTreeSet::new(),
             tried: BTreeSet::new(),
             split_asked: false,
             scene: None,
@@ -407,6 +423,7 @@ impl Keeper {
             room_at: None,
             room: Room::measure(0),
             error: None,
+            budget: 0,
         }
     }
 
@@ -450,6 +467,12 @@ impl Keeper {
             }
             Order::Scene(scene) => self.scene(scene),
             Order::MakeBlocks(count) => self.make_blocks(count),
+            Order::Budget(cap) => {
+                self.budget = cap;
+                self.limits();
+                Ok(())
+            }
+            Order::Bad(id, bad) => self.turn_bad(id, bad),
             Order::StopExperiment => {
                 self.stop_run();
                 Ok(())
@@ -511,6 +534,7 @@ impl Keeper {
             room: self.room,
             error: self.error.clone(),
             max_block_bytes: lab_coin().rules.max_block_bytes,
+            budget: self.budget,
             replaced: self.replaced.iter().cloned().collect(),
         };
         if let Ok(mut shared) = self.shared.lock() {

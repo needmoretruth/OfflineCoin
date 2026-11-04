@@ -6,7 +6,7 @@
 //! mark on the node; the sentence for each is under the map. A miner dragged into a pool joins it.
 use super::lab_glyphs as glyphs;
 use super::lab_places::{places, Places, BADGE, TOKEN, WORDS_GAP, WORDS_WIDTH};
-use super::lab_tokens::{name, status_line};
+use super::lab_tokens::{name, number, status_line};
 use crate::i18n::{text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, What};
 use crate::ui::tokens::{self, Tokens};
@@ -63,8 +63,8 @@ struct Words {
 }
 
 impl Words {
-    fn of(painter: &Painter, t: &Tokens, voice: Voice, member: &Member) -> Self {
-        let (line, colour) = status_line(t, voice, member);
+    fn of(painter: &Painter, t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> Self {
+        let (line, colour) = status_line(t, voice, member, state);
         let line = (!line.is_empty()).then(|| one_line(painter, line, 11.5, colour));
         Self { name: one_line(painter, name(voice, member), 12.5, t.text), line }
     }
@@ -119,7 +119,12 @@ pub fn draw(ui: &mut Ui, t: &Tokens, voice: Voice, view: &mut MapView, state: &N
     let over_pool = view.dragging.and(pointer).and_then(|pointer| places.rings.iter().find(|(_, ring)| ring.contains(pointer)).map(|(pool, _)| *pool));
     for (pool, ring) in &places.rings {
         let lit = over_pool == Some(*pool);
-        let colour = if lit { t.info } else { glyphs::fill(t, Kind::Pool) };
+        let bad = state.members.iter().any(|member| member.id == *pool && member.bad);
+        let colour = match (lit, bad) {
+            (true, _) => t.info,
+            (false, true) => t.bad,
+            (false, false) => glyphs::fill(t, Kind::Pool),
+        };
         let round = CornerRadius::same((ring.width().min(ring.height()) / 2.0).min(255.0) as u8);
         painter.rect_filled(*ring, round, colour.gamma_multiply(0.12));
         painter.rect_stroke(*ring, round, Stroke::new(if lit { 3.0 } else { 2.0 }, colour), StrokeKind::Inside);
@@ -155,14 +160,14 @@ fn tokens_on(
             continue;
         };
         let ring = places.rings.get(&member.id).copied();
-        let words = Words::of(&painter, t, voice, member);
+        let words = Words::of(&painter, t, voice, member, state);
         let (shape, words_top) = match ring {
             Some(ring) => (Rect::from_center_size(ring.center_top(), vec2(BADGE, BADGE) * 2.0).union(ring), ring.center_bottom() + vec2(0.0, WORDS_GAP)),
             None => (Rect::from_center_size(centre, vec2(TOKEN, TOKEN) * 2.0), centre + vec2(0.0, TOKEN + WORDS_GAP)),
         };
         // The token and the words under it answer the hand alike, and are what a reader names.
         let hit = shape.union(words.rect(words_top));
-        let (line, _) = status_line(t, voice, member);
+        let (line, _) = status_line(t, voice, member, state);
         let label = if line.is_empty() { name(voice, member) } else { format!("{}, {line}", name(voice, member)) };
         let response = ui.interact(hit, ui.scope_id().with(("lab-token", member.id)), Sense::click_and_drag());
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -182,7 +187,7 @@ fn tokens_on(
             // The ring is the pool; its shape sits on the ring's top edge.
             Some(ring) => {
                 let badge = ring.center_top();
-                painter.circle_filled(badge, BADGE, glyphs::fill(t, Kind::Pool));
+                painter.circle_filled(badge, BADGE, if member.bad { t.bad } else { glyphs::fill(t, Kind::Pool) });
                 glyphs::paint(&painter, Kind::Pool, badge, 16.0, glyphs::ink(t, Kind::Pool));
                 if selected {
                     let round = CornerRadius::same((ring.width().min(ring.height()) / 2.0 + 3.0).min(255.0) as u8);
@@ -300,7 +305,7 @@ fn marks(painter: &Painter, t: &Tokens, view: &MapView, places: &Places, now: f6
             }
             What::Replaced { at, blocks } => {
                 if let Some(at) = spot(*at) {
-                    let count = blocks.to_string();
+                    let count = number(*blocks);
                     mark(at, t.warn, part, &|badge| {
                         painter.text(badge, Align2::CENTER_CENTER, &count, FontId::proportional(10.5), t.warn);
                     });
@@ -323,6 +328,16 @@ fn marks(painter: &Painter, t: &Tokens, view: &MapView, places: &Places, now: f6
             What::Undone { at, .. } => {
                 if let Some(at) = spot(*at) {
                     mark(at, t.warn, part, &|badge| glyphs::cross(painter, badge, 11.0, t.warn));
+                }
+            }
+            // The attacker's share as it raced: red when the hidden chain won, quiet when it lost.
+            What::Raced { by, won, share, .. } => {
+                if let Some(at) = spot(*by) {
+                    let colour = if *won { t.bad } else { t.soft };
+                    let shown = format!("{share}%");
+                    mark(at, colour, part, &|badge| {
+                        painter.text(badge, Align2::CENTER_CENTER, &shown, FontId::proportional(9.0), colour);
+                    });
                 }
             }
             _ => {}

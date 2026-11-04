@@ -58,6 +58,18 @@ impl Room {
     }
 }
 
+/// How many processes on this computer carry `needle` in their command line. The Lab's tests
+/// count with it the node processes a run left behind.
+pub fn processes_with(needle: &str) -> usize {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    let Ok(mut system) = sysinfo::System::new() else {
+        return 0;
+    };
+    let only_commands = ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always);
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, only_commands);
+    system.processes().values().filter(|process| process.cmd().iter().any(|part| part.to_string_lossy().contains(needle))).count()
+}
+
 fn available_mib() -> u64 {
     match sysinfo::System::new() {
         Ok(mut system) => {

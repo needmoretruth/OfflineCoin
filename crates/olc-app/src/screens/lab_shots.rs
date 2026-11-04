@@ -34,8 +34,9 @@ fn every_kind_and_setup_is_one_click_from_the_first_view() {
                 assert!(window.query_by_label(&label).is_some(), "no {label} in {mode:?} {lang:?}");
             }
             for scene in Scene::ALL {
+                // The boards' own experiment in expert mode may carry the same name.
                 let label = i18n::text(voice, scene_key(scene));
-                assert!(window.query_by_label(label).is_some(), "no {label} in {mode:?} {lang:?}");
+                assert!(window.query_all_by_label(label).next().is_some(), "no {label} in {mode:?} {lang:?}");
             }
         }
     }
@@ -60,6 +61,74 @@ fn add_and_see(run: &mut LabRun, kind: Kind, number: u32) -> String {
         run.shoot(&format!("kind-{}", format!("{kind:?}").to_lowercase()));
     }
     name
+}
+
+/// The bad miner races with the speed it has. Under half it usually loses and the line under the
+/// map says why; the person then slides its speed to the most and attacks again, until the
+/// receiver's payment is undone. Pictures: the race, what was told, the strong race, the end.
+fn attack_until_undone(run: &mut LabRun, attacker: &str, receiver: &str) {
+    let (stop, again, speed) = (run.say("lab2.stop"), run.say("net.again_attack"), run.say("net.speed"));
+    let undone = |run: &LabRun| receiver_counts(run).is_some_and(|(_, _, undone)| undone >= 1.0) && run.line_numbers("net.say_undone").is_some();
+    let told = |run: &LabRun| run.line_numbers("net.say_won").is_some() || run.line_numbers("net.say_lost").is_some();
+    run.wait(240, "the attack starts", |run| run.has_button(stop));
+    run.pass(4);
+    run.window.get_by_role_and_label(egui::accesskit::Role::Button, stop).scroll_to_me();
+    run.shoot("04-attack-race");
+    run.wait(600, "the race ends and is told", |run| !run.has_button(stop) && told(run));
+    run.shoot("04-attack-told");
+    for _ in 0..ATTACK_TRIES {
+        if undone(run) {
+            break;
+        }
+        run.select(attacker);
+        run.slide(speed, 1.0);
+        run.wait(60, "the attack can start again", |run| run.has_button(again));
+        // Its share is measured, not set: the token shows it once the node hashes faster.
+        run.wait(60, "the bad miner holds more than half", |run| run.count(attacker).is_some_and(|share| share > 50.0));
+        run.shoot("04-attack-faster");
+        run.press(again);
+        run.wait(240, "the attack starts again", |run| run.has_button(stop));
+        run.pass(4);
+        run.shoot("04-attack-strong-race");
+        run.select(receiver);
+        run.wait(600, "the receiver's payment is undone, or the attack ended", |run| undone(run) || !run.has_button(stop));
+        if !undone(run) {
+            // What the run said at its end: the outcome and its steps.
+            let more = run.say("explain.details");
+            if run.has_button(more) {
+                run.press(more);
+            }
+            println!("attack ended without undoing: {:?}", run.labels());
+        }
+    }
+    assert!(undone(run), "the attack never undid the payment");
+    run.shoot("04-attack-undone");
+}
+
+/// A pool turns bad by one click: its ring goes red, its panel says the real share of its
+/// miners, and once it holds enough coins it races with that share. Turned honest after.
+fn bad_pool_races(run: &mut LabRun, pool: &str) {
+    run.select(pool);
+    let before = run.clicks;
+    run.press(run.say("net.turn_bad"));
+    assert_eq!(run.clicks - before, 1, "a pool turns bad in one click");
+    let bad_pool = format!("{} 1", run.say("net.kind_bad_pool"));
+    run.wait(30, "the pool shows its power", |run| run.token(&bad_pool).is_some() && run.line_numbers("net.fact_bad_pool").is_some());
+    run.shoot("04-bad-pool");
+    let stop = run.say("lab2.stop");
+    run.wait(300, "the bad pool's attack starts", |run| run.has_button(stop));
+    run.pass(4);
+    run.shoot("04-bad-pool-race");
+    let told = |run: &LabRun| run.lines_with("net.say_won").into_iter().chain(run.lines_with("net.say_lost")).any(|line| line.contains(&bad_pool));
+    run.wait(600, "the bad pool's race is told", |run| !run.has_button(stop) && told(run));
+    run.shoot("04-bad-pool-told");
+    let honest = run.say("net.turn_honest");
+    if !run.has_button(honest) {
+        run.select(&bad_pool);
+    }
+    run.press(honest);
+    run.wait(30, "the pool is honest again", |run| run.token(pool).is_some());
+    run.select(pool);
 }
 
 /// The receiver's panel line: payments received, settled and undone.
@@ -115,35 +184,14 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     run.select(&receiver);
     run.wait(120, "a payment settles", |run| receiver_counts(run).is_some_and(|(_, settled, _)| settled >= 1.0));
     run.shoot("03-payment-settled");
-    // 4. A bad miner: the hidden chain lands and the receiver's payment is undone.
+    // 4. A bad miner joins at a miner's speed, a quarter of all: its race usually fails and the
+    //    line under the map says why. The person slides it up past half and attacks again, and
+    //    the receiver's payment is undone.
     let attacker = add_and_see(&mut run, Kind::Attacker, 1);
-    let stop = run.say("lab2.stop");
-    run.wait(240, "the attack starts", |run| run.has_button(stop));
-    for moment in 1..=3 {
-        run.pass(3);
-        if run.has_button(stop) {
-            run.window.get_by_role_and_label(egui::accesskit::Role::Button, stop).scroll_to_me();
-            run.shoot(&format!("04-attack-race-{moment}"));
-        }
-    }
-    // The receiver's count, and the sentence under the map that says whose payment went. A real
-    // attacker can lose the race; a person then presses the attack again, and so does this.
-    let undone = |run: &LabRun| receiver_counts(run).is_some_and(|(_, _, undone)| undone >= 1.0) && run.line_numbers("net.say_undone").is_some();
-    let again = run.say("net.again_attack");
-    for _ in 0..ATTACK_TRIES {
-        run.wait(600, "the receiver's payment is undone, or the attack ended", |run| undone(run) || !run.has_button(stop));
-        if undone(&run) {
-            break;
-        }
-        run.select(&attacker);
-        run.wait(60, "the attack can start again", |run| run.has_button(again));
-        run.press(again);
-        run.wait(240, "the attack starts again", |run| run.has_button(stop));
-        run.select(&receiver);
-    }
-    assert!(undone(&run), "the attack never undid the payment");
-    run.shoot("04-attack-undone");
+    attack_until_undone(&mut run, &attacker, &receiver);
     run.select(&receiver);
+    // 4b. The pool turns bad with its two miners' power, less than half: its race fails.
+    bad_pool_races(&mut run, &pool);
     // 5. Spam: the waiting list grows past what a block holds.
     let spammer = add_and_see(&mut run, Kind::Spammer, 1);
     run.wait(240, "the spam passes a block", |run| spam_piled(run, &spammer));
@@ -206,16 +254,11 @@ fn every_kind_does_its_part_in_expert_english() {
     counts(&mut run, &receiver, 1.0, 120);
     let spammer = add_and_see(&mut run, Kind::Spammer, 1);
     counts(&mut run, &spammer, 1.0, 120);
-    add_and_see(&mut run, Kind::Attacker, 1);
-    let stop = run.say("lab2.stop");
-    run.wait(240, "the attack starts", |run| run.has_button(stop));
-    run.pass(4);
-    run.window.get_by_role_and_label(egui::accesskit::Role::Button, stop).scroll_to_me();
-    run.shoot("04-attack-race");
+    let attacker = add_and_see(&mut run, Kind::Attacker, 1);
     run.select(&receiver);
-    run.wait(600, "the receiver's payment is undone", |run| receiver_counts(run).is_some_and(|(_, _, undone)| undone >= 1.0));
-    run.shoot("04-attack-undone");
+    attack_until_undone(&mut run, &attacker, &receiver);
     run.select(&receiver);
+    bad_pool_races(&mut run, &pool);
     let exploiter = add_and_see(&mut run, Kind::Exploiter, 1);
     every_trick_refused(&mut run, &exploiter);
     fits(&mut run, &miners[1]);
@@ -253,7 +296,16 @@ fn every_setup_is_one_click_in_expert_english() {
                 run.select(&receiver);
                 run.wait(120, "a payment settles", |run| receiver_counts(run).is_some_and(|(_, settled, _)| settled >= 1.0));
             }
-            Scene::Attack | Scene::Split => {
+            // A fair race: the bad miner near 60 % and the one near 30 % each race in turn.
+            Scene::Attack => {
+                let told = std::cell::RefCell::new(std::collections::BTreeSet::new());
+                run.wait(1200, "both bad miners raced", |run| {
+                    told.borrow_mut().extend(run.lines_with("net.say_won").into_iter().chain(run.lines_with("net.say_lost")));
+                    told.borrow().len() >= 2
+                });
+                println!("{:#?}", told.borrow());
+            }
+            Scene::Split => {
                 run.wait(240, "the run starts", |run| run.has_button(stop));
                 run.wait(600, "the run ends", |run| !run.has_button(stop));
                 let failed = run.say("lab2.failed");

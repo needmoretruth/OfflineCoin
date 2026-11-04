@@ -71,8 +71,11 @@ fn plan(timeout: Duration) -> Plan {
         poll: Duration::from_millis(1),
         keep_caps: false,
         victim_mines: true,
+        attacker_mines: true,
+        crew: 0,
         give_up_behind: 0,
         race_limit: Duration::MAX,
+        reveal_lead: 1,
         watch: no_watch(),
     }
 }
