@@ -443,7 +443,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.shared", "공동 지갑"),
     ("settings.shared_about", "여러 사람이 함께 서명해서 쓰는 지갑입니다."),
     ("notice.words", "{}"),
-    ("notice.words_written", "확인했습니다. 설정의 복구 단어에서 다시 볼 수 있습니다."),
+    ("notice.words_written", "확인했습니다. 지갑의 복구 단어에서 다시 볼 수 있습니다."),
     ("notice.words_made", "단어를 만들었습니다. 적어 두세요. 새 주소 {}"),
     ("notice.words_restored", "되살렸습니다. 주소 {}"),
     ("notice.no_words", "이 지갑에는 아직 단어가 없습니다."),

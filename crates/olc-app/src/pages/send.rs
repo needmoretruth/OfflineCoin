@@ -18,7 +18,9 @@ use std::collections::BTreeSet;
 /// People one payment pays at most here, which keeps the sheet on one screen.
 const MOST_PEOPLE: usize = 8;
 /// What the password prompt takes under the choices while the wallet is locked.
-const UNLOCK_HEIGHT: f32 = 210.0;
+const UNLOCK_HEIGHT: f32 = 170.0;
+/// The Next button, for a press that waits for the wallet to open.
+const NEXT: u8 = 0;
 
 /// How fast an expert wants the payment in a block.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -366,14 +368,19 @@ impl SendSheet {
             }
         });
         ui.add_space(tokens::GAP);
+        let mut entered = false;
         if waits {
-            self.unlock.show(ui, cx);
+            entered = self.unlock.ask(ui, cx);
             ui.add_space(tokens::GAP);
         }
         let mut done = false;
         ui.horizontal(|ui| {
             let filled = self.people.iter().all(|(to, amount)| !to.trim().is_empty() && !amount.trim().is_empty());
-            if button_on(ui, t, cx.say("send.next"), Kind::Main, filled && !waits).clicked() {
+            // One press: Next opens a locked wallet with the password above and goes on to the slip.
+            let ready = filled && (!waits || self.unlock.typed());
+            let pressed = button_on(ui, t, cx.say("send.next"), Kind::Main, ready).clicked() || (ready && entered);
+            let opened = self.unlock.opened(cx, NEXT);
+            if pressed || opened {
                 self.tried = true;
                 let payments: Option<Vec<(String, u64)>> = self.people.iter().zip(&units).map(|((to, _), units)| {
                     let to = to.trim();
@@ -381,7 +388,9 @@ impl SendSheet {
                     fine.then_some(())?;
                     Some((to.to_string(), (*units)?))
                 }).collect();
-                if let (Some(payments), true) = (payments, enough) {
+                // The password goes only with a payment that is ready, so a typo keeps it typed.
+                let payments = payments.filter(|_| enough && (opened || self.unlock.press(cx, NEXT)));
+                if let Some(payments) = payments {
                     if own {
                         let addresses: Vec<String> = payments.iter().map(|(address, _)| address.clone()).collect();
                         contacts::offer_after_paying(ui, cx, &addresses);

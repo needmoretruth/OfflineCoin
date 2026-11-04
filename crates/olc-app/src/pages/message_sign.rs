@@ -44,14 +44,18 @@ impl MessageSheet {
         ui.add_space(tokens::GAP);
         // Checking needs no key. Signing needs the wallet open.
         let locked = super::wallet_seal::locked(cx);
+        let mut entered = false;
         if locked {
-            self.unlock.show(ui, cx);
+            entered = self.unlock.ask(ui, cx);
             ui.add_space(tokens::GAP);
         }
         let mut done = false;
         ui.horizontal(|ui| {
             let written = !self.message.is_empty() && !self.address.trim().is_empty();
-            if button_on(ui, t, cx.say("sign.sign"), Kind::Main, written && !locked).clicked() {
+            // One press: Sign opens a locked wallet with the password above and signs.
+            let ready = written && (!locked || self.unlock.typed());
+            let pressed = button_on(ui, t, cx.say("sign.sign"), Kind::Main, ready).clicked() || (ready && entered);
+            if (pressed && self.unlock.press(cx, 0)) || self.unlock.opened(cx, 0) {
                 let (address, message) = (self.address.trim().to_string(), self.message.clone());
                 wallet(cx, WalletOrder::SignMessage { address, message });
             }

@@ -102,10 +102,26 @@ pub struct UnlockPrompt {
     password: String,
     seconds: Option<u64>,
     wrong: Wrong,
+    /// The sheet's button that was pressed while the wallet was locked, waiting for it to open.
+    waiting: Option<u8>,
 }
 
 impl UnlockPrompt {
+    /// The password, the time to keep the wallet open and a button that opens it, for a sheet
+    /// whose work is the opening itself.
     pub fn show(&mut self, ui: &mut Ui, cx: &Cx) {
+        let field = self.ask(ui, cx);
+        ui.add_space(4.0);
+        let typed = self.typed();
+        let pressed = button_on(ui, cx.t, cx.say("seal.open"), Kind::Main, typed).clicked();
+        if typed && (pressed || field) {
+            self.unlock(cx);
+        }
+    }
+
+    /// The password and the time to keep the wallet open, with no button: the sheet's own button
+    /// opens the wallet and goes on, through [`UnlockPrompt::press`]. True when Enter was pressed.
+    pub fn ask(&mut self, ui: &mut Ui, cx: &Cx) -> bool {
         let t = cx.t;
         meta(ui, cx.say("seal.ask"), t);
         ui.add_space(4.0);
@@ -114,18 +130,50 @@ impl UnlockPrompt {
         ui.add_space(4.0);
         meta(ui, cx.say("seal.keep"), t);
         let times: Vec<(u64, String)> = TIMES.iter().map(|seconds| (*seconds, time_text(cx, *seconds))).collect();
-        let seconds = self.seconds.unwrap_or(OPEN_FOR);
-        if let Some(picked) = segments(ui, t, &times, Some(seconds)) {
+        if let Some(picked) = segments(ui, t, &times, Some(self.seconds.unwrap_or(OPEN_FOR))) {
             self.seconds = Some(picked);
         }
-        ui.add_space(4.0);
-        let typed = !self.password.is_empty();
-        let pressed = button_on(ui, t, cx.say("seal.open"), Kind::Main, typed).clicked();
-        if typed && (pressed || entered(ui, &field)) {
-            self.wrong.sent(cx);
-            let password = Password(std::mem::take(&mut self.password));
-            password_order(cx, PasswordOrder::Unlock { password, seconds });
+        entered(ui, &field)
+    }
+
+    pub fn typed(&self) -> bool {
+        !self.password.is_empty()
+    }
+
+    fn unlock(&mut self, cx: &Cx) {
+        self.wrong.sent(cx);
+        let password = Password(std::mem::take(&mut self.password));
+        password_order(cx, PasswordOrder::Unlock { password, seconds: self.seconds.unwrap_or(OPEN_FOR) });
+    }
+
+    /// A press of the sheet's button `which`. True when the wallet is open, so the work goes on
+    /// now; while it is locked the typed password opens it, and [`UnlockPrompt::opened`] goes on.
+    pub fn press(&mut self, cx: &Cx, which: u8) -> bool {
+        if !locked(cx) {
+            return true;
         }
+        if self.typed() {
+            self.waiting = Some(which);
+            self.unlock(cx);
+        }
+        false
+    }
+
+    /// True once, on the frame the wallet opened for a press of `which` that waited for it. A
+    /// wrong password ends the wait, and the line under the field says why.
+    pub fn opened(&mut self, cx: &Cx, which: u8) -> bool {
+        if self.waiting != Some(which) {
+            return false;
+        }
+        if self.wrong.0.is_some_and(|before| cx.snap.node.wallet.lock.wrong > before) {
+            self.waiting = None;
+            return false;
+        }
+        if locked(cx) {
+            return false;
+        }
+        self.waiting = None;
+        true
     }
 }
 

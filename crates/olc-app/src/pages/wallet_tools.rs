@@ -77,6 +77,23 @@ fn asks_password(ui: &mut Ui, cx: &Cx, unlock: &mut UnlockPrompt) -> bool {
     true
 }
 
+/// The password with no button of its own, for a sheet whose buttons open a locked wallet and go
+/// on in one press. True while the wallet is locked.
+fn asks_with_buttons(ui: &mut Ui, cx: &Cx, unlock: &mut UnlockPrompt) -> bool {
+    if !locked(cx) {
+        return false;
+    }
+    unlock.ask(ui, cx);
+    ui.add_space(tokens::GAP);
+    true
+}
+
+/// The buttons of the keys sheet, for a press that waits for the wallet to open.
+const IMPORT: u8 = 0;
+const NEW_KEY: u8 = 1;
+const OFFLINE_SIGN: u8 = 2;
+const EXPORT_FROM: u8 = 3;
+
 fn own(cx: &Cx, order: Personal) {
     cx.send(Command::Own(order));
 }
@@ -206,7 +223,9 @@ impl WalletTools {
                 if button(ui, t, cx.say("keys.copy"), Kind::Quiet).clicked() {
                     ui.ctx().copy_text(key.address.clone());
                 }
-                if button_on(ui, t, cx.say("keys.export"), Kind::Quiet, !locked(cx)).clicked() {
+                let which = EXPORT_FROM.saturating_add(u8::try_from(index).unwrap_or(u8::MAX));
+                let pressed = button_on(ui, t, cx.say("keys.export"), Kind::Quiet, !locked(cx) || self.unlock.typed()).clicked();
+                if (pressed && self.unlock.press(cx, which)) || self.unlock.opened(cx, which) {
                     let picker = Picker::save("keys.export", "secret", KEY_ENDING, start(cx));
                     self.filing = Some((Filing::ExportKey(index), picker));
                 }
@@ -218,20 +237,23 @@ impl WalletTools {
         }
         meta(ui, cx.say("keys.secret_note"), t);
         ui.add_space(tokens::GAP);
-        // A new key, one brought in and one taken out all need the wallet open.
-        let open = !asks_password(ui, cx, &mut self.unlock);
+        // A new key, one brought in and one taken out all need the wallet open: each button opens
+        // a locked one with the password and goes on.
+        let can = !asks_with_buttons(ui, cx, &mut self.unlock) || self.unlock.typed();
         ui.horizontal(|ui| {
             let width = ui.available_width() - 100.0;
             field(ui, &mut self.import, cx.say("keys.import_hint"), width);
-            let ready = !self.import.trim().is_empty() && open;
-            if button_on(ui, t, cx.say("keys.import"), Kind::Plain, ready).clicked() {
+            let ready = !self.import.trim().is_empty() && can;
+            let pressed = button_on(ui, t, cx.say("keys.import"), Kind::Plain, ready).clicked();
+            if (pressed && self.unlock.press(cx, IMPORT)) || self.unlock.opened(cx, IMPORT) {
                 own(cx, Personal::ImportKey(std::mem::take(&mut self.import)));
             }
         });
         ui.add_space(tokens::GAP);
         let mut done = false;
         ui.horizontal(|ui| {
-            if button_on(ui, t, cx.say("keys.new"), Kind::Plain, open).clicked() {
+            let pressed = button_on(ui, t, cx.say("keys.new"), Kind::Plain, can).clicked();
+            if (pressed && self.unlock.press(cx, NEW_KEY)) || self.unlock.opened(cx, NEW_KEY) {
                 own(cx, Personal::NewKey);
             }
             done = button(ui, t, cx.say("common.close"), Kind::Plain).clicked();
@@ -297,8 +319,9 @@ impl WalletTools {
         ui.add_space(tokens::GAP);
         section(ui, cx.say("offline.step_sign"));
         meta(ui, cx.say("offline.sign_about"), t);
-        let open = !asks_password(ui, cx, &mut self.unlock);
-        if button_on(ui, t, cx.say("offline.sign"), Kind::Plain, open).clicked() {
+        let can = !asks_with_buttons(ui, cx, &mut self.unlock) || self.unlock.typed();
+        let pressed = button_on(ui, t, cx.say("offline.sign"), Kind::Plain, can).clicked();
+        if (pressed && self.unlock.press(cx, OFFLINE_SIGN)) || self.unlock.opened(cx, OFFLINE_SIGN) {
             let picker = Picker::open("offline.sign", PAYMENT_ENDING, start(cx));
             self.filing = Some((Filing::ToSign, picker));
         }

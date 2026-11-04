@@ -118,7 +118,8 @@ impl App {
     }
 
     fn show_notice(&mut self, ui: &Ui, t: &Tokens, voice: Voice, snap: &Snapshot) {
-        let Some(notice) = &snap.notice else {
+        // Every password field says a wrong password on its own line, so it floats nowhere else.
+        let Some(notice) = snap.notice.as_ref().filter(|notice| notice.key != "notice.wrong_wallet_password") else {
             return;
         };
         let now = ui.input(|input| input.time);

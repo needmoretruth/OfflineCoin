@@ -162,25 +162,45 @@ fn lock(window: &mut Window, folder: Option<&Path>, tag: &str) {
     close(window);
 }
 
-/// Send asks for the password first; a wrong one says so and opens nothing; the right one opens
-/// the wallet, the payment goes, and Send offers to save the address it paid.
+/// Receiving works locked: a new address comes from the words' account, with no password.
+fn receive_locked(window: &mut Window, folder: Option<&Path>, tag: &str) {
+    let before = window.state().snapshot().node.address.clone();
+    tap(window, "home.receive");
+    tap_last(window, "receive.new_address");
+    wait_until(window, |app| app.snapshot().node.address != before);
+    window.run_steps(SETTLE_STEPS);
+    picture(window, folder, &format!("receive-locked-{tag}"));
+    assert!(window.state().snapshot().node.wallet.lock.open_for.is_none(), "it stayed locked");
+    close(window);
+}
+
+/// Send asks for the password in the sheet, and Next opens the wallet with it and goes on: a
+/// wrong one keeps the sheet with one line, the right one goes to the slip in the same press, the
+/// payment goes, and Send offers to save the address it paid.
 fn send_asks(window: &mut Window, folder: Option<&Path>, tag: &str) {
+    // The page's own Open buttons share the word, so the sheet is judged by what it adds.
+    let opens = |window: &Window| window.query_all_by_label(&say(window, "seal.open")).count();
+    let page_opens = opens(window);
     tap(window, "home.send");
     let stranger = someone(40);
     type_into_last(window, Role::TextInput, 3, 0, &stranger);
     type_into_last(window, Role::TextInput, 3, 1, "2");
     type_secret(window, 0, "not it");
     picture(window, folder, &format!("send-password-{tag}"));
-    tap_last(window, "seal.open");
+    assert!(opens(window) <= page_opens, "no separate open button: Next opens the wallet");
+    tap_last(window, "send.next");
     wait_until(window, |app| app.snapshot().node.wallet.lock.wrong == 1);
     window.run_steps(SETTLE_STEPS);
-    assert!(shows(window, &say(window, "notice.wrong_wallet_password")), "a wrong password says so beside the field");
+    picture(window, folder, &format!("send-wrong-{tag}"));
+    let wrong = say(window, "notice.wrong_wallet_password");
+    assert_eq!(window.query_all_by_label_contains(&wrong).count(), 1, "a wrong password says so in one line beside the field");
     assert!(window.state().snapshot().node.wallet.lock.open_for.is_none());
+    assert!(shows(window, &say(window, "seal.ask")) && !shows(window, &say(window, "send.warning")), "the sheet stays");
     type_secret(window, 0, PASSWORD);
-    tap_last(window, "seal.open");
+    tap_last(window, "send.next");
     wait_until(window, |app| app.snapshot().node.wallet.lock.open_for.is_some());
     window.run_steps(SETTLE_STEPS);
-    tap_last(window, "send.next");
+    assert!(shows(window, &say(window, "send.warning")), "the same press went on to the slip");
     tap_last(window, "send.sign");
     wait_until(window, |app| app.snapshot().notice.as_ref().is_some_and(|notice| notice.key == "notice.sent"));
     window.run_steps(SETTLE_STEPS);
@@ -198,6 +218,7 @@ fn run(scene: Scene, name: &str, tag: &str) {
     contacts(&mut window, &scene, folder, tag);
     send_picks(&mut window, &scene, folder, tag);
     lock(&mut window, folder, tag);
+    receive_locked(&mut window, folder, tag);
     send_asks(&mut window, folder, tag);
 }
 
