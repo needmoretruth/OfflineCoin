@@ -20,8 +20,12 @@ const LIVE_WATCH: Duration = Duration::from_secs(16);
 /// Two seconds between answers at a block a second, and some luck.
 const MOST_BLOCKS_BEHIND: u64 = 9;
 const OLDEST_LIVE_ROW: u64 = 15;
-/// The core publishes a few times a second and this scene looks every 300 ms.
+/// A hello on its way and this scene's look every 300 ms; the view's own lateness is measured.
 const SNAPSHOT_SLACK: Duration = Duration::from_secs(1);
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX))
+}
 
 /// A row may say it is a few seconds old on a busy machine: that is the truth, and telling it is
 /// the row's job. What it must never do is wait for the next look around, every twenty seconds.
@@ -392,7 +396,9 @@ fn a_found_coin_can_be_joined() {
         let shown = row.height.expect("a height");
         assert_fresh(row.age_secs);
         let claimed = row.age_secs.map_or(LIVE_WITHIN, |age| Duration::from_secs(age + 1));
-        let then = now.checked_sub(claimed + SNAPSHOT_SLACK).unwrap_or(start);
+        // A row's age counts from when the view was made, which a busy computer does late.
+        let made_ago = Duration::from_millis(unix_now_ms().saturating_sub(snap.made_ms));
+        let then = now.checked_sub(made_ago + claimed + SNAPSHOT_SLACK).unwrap_or(start);
         let had = seen.iter().take_while(|(at, _)| *at <= then).last().map_or(0, |(_, height)| *height);
         let last = seen.last().map_or(0, |(_, height)| *height);
         assert!(shown >= had, "{shown} shown, aged {:?}, the node had {had} by then and {last} now", row.age_secs);

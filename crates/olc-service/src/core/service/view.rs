@@ -103,6 +103,7 @@ impl Service {
             full_rate: self.full_rate,
             mine_on_start: self.settings.mine_on_start,
             folder: self.paths.root.display().to_string(),
+            made_ms: unix_ms(),
         };
         if let Ok(mut out) = self.out.lock() {
             *out = Arc::new(snapshot);
