@@ -150,7 +150,7 @@ fn paying(ui: &mut Ui, cx: &Cx) {
             cx.send(Command::Own(Personal::SetMerging(on)));
         }
         if node.merging && super::wallet_seal::locked(cx) {
-            meta(ui, cx.say("wallet_page.merge_waits"), t);
+            ui.colored_label(t.warn, RichText::new(cx.say("wallet_page.merge_waits")).size(tokens::META));
         }
         if cx.expert() {
             if let Some(on) = switch_row(ui, cx, ("pro.version_one", "pro.version_one_about"), node.version_one) {

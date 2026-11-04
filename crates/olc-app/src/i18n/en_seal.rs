@@ -98,7 +98,7 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("notice.password_changed", "Passphrase changed."),
     ("notice.pool_waits_wallet", "Wallet locked: pool payouts are pending until it is unlocked."),
     ("wallet_page.merge_waits", "Wallet locked: UTXO consolidation is pending."),
-    ("notice.words_written", "Done. Wallet, Seed phrase shows it again when you ask."),
+    ("notice.words_written", "Done. Seed phrase on the Wallet page shows it again."),
     ("words.none", "This wallet has no seed phrase yet. For now only the backup file restores it."),
     ("home.words_none", "No seed phrase yet. Until you create one, only the backup file restores your coins."),
 ];

@@ -443,7 +443,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("settings.shared", "Shared wallets"),
     ("settings.shared_about", "A wallet several people spend together."),
     ("notice.words", "{}"),
-    ("notice.words_written", "Done. Wallet, Seed words shows them again when you ask."),
+    ("notice.words_written", "Done. To see them again, open Seed words on the Wallet page."),
     ("notice.words_made", "Words made. Write them down. New address {}"),
     ("notice.words_restored", "Restored. Address {}"),
     ("notice.no_words", "This wallet has no words yet."),
