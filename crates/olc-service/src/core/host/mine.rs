@@ -75,7 +75,15 @@ impl Shared {
             *window = (Instant::now(), 0);
             elapsed = 0;
         }
-        if window.1 >= cap.saturating_mul(elapsed) / 1_000 {
+        let allowed = cap.saturating_mul(elapsed) / 1_000;
+        // A crew held up by a block or a busy machine does not race to make up the whole lag at the
+        // end of the second: a reading across two seconds would land half again above the cap.
+        // At most a twentieth of a second's hashes wait to be made up.
+        let most_behind = (cap / 20).max(u64::from(batch));
+        if allowed.saturating_sub(window.1) > most_behind {
+            window.1 = allowed - most_behind;
+        }
+        if window.1 >= allowed {
             return 0;
         }
         window.1 += u64::from(batch);
@@ -302,6 +310,24 @@ mod tests {
         let rate = grind_for(4, 40_000, Duration::from_millis(2_000));
         assert!(rate <= 44_000, "{rate} hashes a second under a cap of 40,000");
         assert!(rate >= 30_000, "{rate} hashes a second under a cap of 40,000");
+    }
+
+    /// Held up for most of a second, the crew may make up a twentieth of a second at once, not the
+    /// whole lag, so a one second reading that straddles two windows stays near the cap.
+    #[test]
+    fn a_crew_that_fell_behind_makes_up_only_a_little() {
+        let crew = Crew::default();
+        crew.set_cap(10_000);
+        *crew.shared.window.lock().unwrap() = (Instant::now() - Duration::from_millis(900), 0);
+        let mut granted = 0;
+        loop {
+            let batch = crew.shared.grant();
+            if batch == 0 {
+                break;
+            }
+            granted += u64::from(batch);
+        }
+        assert!(granted <= 1_000, "{granted} hashes at once after a stall, against 9,000 owed");
     }
 
     #[test]

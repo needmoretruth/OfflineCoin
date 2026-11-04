@@ -32,11 +32,13 @@ pub fn figures(ui: &mut Ui, cx: &Cx) {
     let unknown = cx.say("rate.unknown").to_string();
     let known = |rate: u64| if rate == 0 { unknown.clone() } else { format::rate(voice, rate) };
     let blocks = chain.latest.len().saturating_sub(1);
-    let shown = [
-        (cx.say("net.now").to_string(), known(chain.hashrate_all)),
-        (cx.fill("net.average", &[&format::number(blocks as u128)]), known(chain.hashrate_average)),
-        (cx.say("net.share").to_string(), share_percent(chain).map_or(unknown.clone(), |percent| format!("{percent}%"))),
-    ];
+    let mut shown = vec![(cx.say("net.now").to_string(), known(chain.hashrate_all))];
+    // Until more blocks are kept than the speed now reads, the average reads the same blocks and
+    // would only say the same number twice.
+    if chain.hashrate_average != chain.hashrate_all {
+        shown.push((cx.fill("net.average", &[&format::number(blocks as u128)]), known(chain.hashrate_average)));
+    }
+    shown.push((cx.say("net.share").to_string(), share_percent(chain).map_or(unknown.clone(), |percent| format!("{percent}%"))));
     Columns::new(ui, &[1.0; 3]).row(ui, |ui, index| {
         let Some((name, value)) = shown.get(index) else {
             return;
