@@ -51,6 +51,7 @@ You can make your own coin too. On the **Coins** page, press **New coin**, then 
 - On the **Payments** page, **Swap** trades your coin for someone else's coin, with nobody in the middle.
 - **Channels** on the same page pay at once, even to people you share no channel with, as Lightning does for Bitcoin.
 - **Shared wallets** on the **Wallet** page need signatures from several people before coins leave it.
+- **Contacts** on the **Wallet** page keep the addresses you pay by name, and **Lock with a password** asks for a password before coins leave this computer.
 - The **Lab** lets you try a 51% attack on a practice coin on your own computer.
 
 ## ESP32 boards

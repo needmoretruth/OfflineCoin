@@ -10,6 +10,8 @@ Notable changes for each version. How the numbers were taken is in [docs/measure
 - The Mining page lists boards heard only by radio, with the board they come through and what they are mining.
 - Console and terminal words: `mempool` lists payments waiting for a block, `coins` lists this wallet's coins with amount, confirmations and address, and `generate N` mines N blocks now at full speed (`generate stop` ends it).
 - The Lab makes a number of blocks on its practice coin at once.
+- Contacts on the Wallet page: save the addresses you pay by name, pick one in Send by typing its name, and save a new address after paying it. `olc contact add NAME ADDRESS`, `olc contacts` and `olc contact remove NAME` do the same.
+- Lock the wallet with a password, as Bitcoin Core encrypts a wallet. The keys on disk are sealed with Argon2id and ChaCha20-Poly1305. Balance, history, receiving and mining keep working while it is locked; sending, the seed words, signing and a plain backup ask for the password once and keep the wallet open for the time you pick. Pool payouts and coin merging wait until you open it. `olc wallet encrypt`, `olc wallet unlock SECONDS`, `olc wallet lock` and `olc wallet password` do the same.
 
 ### Fixed
 
