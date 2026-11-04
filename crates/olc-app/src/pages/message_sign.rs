@@ -14,6 +14,7 @@ pub struct MessageSheet {
     signature: String,
     /// The notice whose signature was taken, so a later one is taken once too.
     taken: u64,
+    unlock: super::wallet_seal::UnlockPrompt,
 }
 
 fn wallet(cx: &Cx, order: WalletOrder) {
@@ -41,10 +42,16 @@ impl MessageSheet {
         words_box(ui, &mut self.message, cx.say("sign.text"), width);
         field(ui, &mut self.signature, cx.say("sign.signature"), width);
         ui.add_space(tokens::GAP);
+        // Checking needs no key. Signing needs the wallet open.
+        let locked = super::wallet_seal::locked(cx);
+        if locked {
+            self.unlock.show(ui, cx);
+            ui.add_space(tokens::GAP);
+        }
         let mut done = false;
         ui.horizontal(|ui| {
             let written = !self.message.is_empty() && !self.address.trim().is_empty();
-            if button_on(ui, t, cx.say("sign.sign"), Kind::Main, written).clicked() {
+            if button_on(ui, t, cx.say("sign.sign"), Kind::Main, written && !locked).clicked() {
                 let (address, message) = (self.address.trim().to_string(), self.message.clone());
                 wallet(cx, WalletOrder::SignMessage { address, message });
             }

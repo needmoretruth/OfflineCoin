@@ -7,11 +7,12 @@ use olc_node::{Card, Rank};
 use olc_service::core::door::Door;
 use olc_service::core::host_peers::Carried;
 use olc_service::core::{
-    device_kind, new_coin, parse_coins, run_line, write_coin_file, BoardView, Book,
+    device_kind, new_coin, parse_coins, passwords_asked, run_line, write_coin_file, BoardView, Book,
     Command, Desk, Host, NodeView, Notice, Personal, Plan,
 };
 use olc_store::NodeSettings;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::thread;
@@ -108,12 +109,26 @@ fn start_host(args: &Args, directory: PathBuf) -> Result<Host, String> {
     Ok(host)
 }
 
+/// Typed lines, in order. The passwords a word reads come right after it, and typed at a
+/// terminal they do not show, which `wallet unlock` and `backup --password` need.
 fn typed_lines() -> Receiver<String> {
     let (sender, lines) = channel();
     thread::spawn(move || {
-        for line in std::io::stdin().lines().map_while(Result::ok) {
+        let hidden = std::io::stdin().is_terminal();
+        let mut typed = std::io::stdin().lines().map_while(Result::ok);
+        while let Some(line) = typed.next() {
+            let asked = passwords_asked(&crate::joined_line(&line));
             if sender.send(line).is_err() {
                 return;
+            }
+            for _ in 0..asked {
+                let password = match hidden {
+                    true => rpassword::read_password().ok(),
+                    false => typed.next(),
+                };
+                if password.is_none_or(|password| sender.send(password).is_err()) {
+                    return;
+                }
             }
         }
     });

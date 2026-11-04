@@ -52,6 +52,14 @@ impl Book for Folder {
     fn show_explored(&self, _text: &str) -> Result<(), String> {
         Err(NO_NODE.into())
     }
+
+    fn password_order(&self, order: &super::wallet_lock::PasswordOrder) -> Result<(&'static str, String), String> {
+        self.carry_password(order)
+    }
+
+    fn wallet_directory(&self) -> PathBuf {
+        self.directory.clone()
+    }
 }
 
 #[cfg(test)]

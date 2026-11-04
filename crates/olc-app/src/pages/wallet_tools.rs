@@ -1,7 +1,9 @@
 //! The wallet's quieter jobs, each one sheet: backup, restore, addresses, watching, and paying
 //! from a computer that stays offline. Files are chosen by looking, and nothing asks for a path.
+use super::wallet_seal::{locked, UnlockPrompt};
 use super::{Cx, Slipping};
 use crate::core::{parse_coins, Command, Personal, WalletOrder};
+use crate::ui::explain;
 use crate::ui::floating::{sheet, sheet_head};
 use crate::ui::picker::{Picked, Picker};
 use crate::ui::tokens;
@@ -28,6 +30,7 @@ pub enum Tool {
     Words,
     Shared,
     Message,
+    Seal,
 }
 
 /// What the file being chosen is for.
@@ -56,6 +59,22 @@ pub struct WalletTools {
     words: super::seed_words::WordsSheet,
     shared: super::shared_wallets::SharedSheet,
     message: super::message_sign::MessageSheet,
+    seal: super::wallet_seal::SealSheet,
+    /// The password, for a sheet whose work needs the keys of a locked wallet.
+    unlock: UnlockPrompt,
+    /// A locked wallet's backup with a password of its own, or none, which needs it open.
+    other_password: bool,
+}
+
+/// Over a sheet whose work needs the keys: the password, while the wallet is locked. True when it
+/// showed, and the work waits.
+fn asks_password(ui: &mut Ui, cx: &Cx, unlock: &mut UnlockPrompt) -> bool {
+    if !locked(cx) {
+        return false;
+    }
+    unlock.show(ui, cx);
+    ui.add_space(tokens::GAP);
+    true
 }
 
 fn own(cx: &Cx, order: Personal) {
@@ -70,6 +89,7 @@ impl WalletTools {
     pub fn open(&mut self, tool: Tool) {
         self.open = Some(tool);
         self.password.clear();
+        self.other_password = false;
     }
 
     fn password(&mut self) -> Option<String> {
@@ -82,11 +102,22 @@ impl WalletTools {
         sheet_head(ui, cx.say("backup.title"));
         meta(ui, cx.say("backup.body"), t);
         ui.add_space(4.0);
-        secret_field(ui, &mut self.password, cx.say("backup.password"), ui.available_width());
+        // A locked wallet's backup keeps its keys sealed as they are. Another password, or none,
+        // needs the keys, and so the wallet open first.
+        let sealed_copy = locked(cx) && !self.other_password;
+        if sealed_copy {
+            explain::short(ui, t, cx.say("seal.backup_locked"));
+            if button(ui, t, cx.say("seal.backup_open"), Kind::Quiet).clicked() {
+                self.other_password = true;
+            }
+        } else if !asks_password(ui, cx, &mut self.unlock) {
+            secret_field(ui, &mut self.password, cx.say("backup.password"), ui.available_width());
+        }
         ui.add_space(tokens::GAP);
         let mut done = false;
+        let ready = sealed_copy || !locked(cx);
         ui.horizontal(|ui| {
-            if button(ui, t, cx.say("backup.choose"), Kind::Main).clicked() {
+            if button_on(ui, t, cx.say("backup.choose"), Kind::Main, ready).clicked() {
                 let picker = Picker::save("backup.choose", "wallet", BACKUP_ENDING, start(cx));
                 self.filing = Some((Filing::Backup, picker));
             }
@@ -100,11 +131,15 @@ impl WalletTools {
         sheet_head(ui, cx.say("restore.title"));
         meta(ui, cx.say("restore.body"), t);
         ui.add_space(4.0);
-        secret_field(ui, &mut self.password, cx.say("restore.password"), ui.available_width());
+        // Restored keys are sealed with the rest, which needs the wallet open.
+        let waits = asks_password(ui, cx, &mut self.unlock);
+        if !waits {
+            secret_field(ui, &mut self.password, cx.say("restore.password"), ui.available_width());
+        }
         ui.add_space(tokens::GAP);
         let mut done = false;
         ui.horizontal(|ui| {
-            if button(ui, t, cx.say("restore.choose"), Kind::Main).clicked() {
+            if button_on(ui, t, cx.say("restore.choose"), Kind::Main, !waits).clicked() {
                 let picker = Picker::open("restore.choose", BACKUP_ENDING, start(cx));
                 self.filing = Some((Filing::Restore, picker));
             }
@@ -171,7 +206,7 @@ impl WalletTools {
                 if button(ui, t, cx.say("keys.copy"), Kind::Quiet).clicked() {
                     ui.ctx().copy_text(key.address.clone());
                 }
-                if button(ui, t, cx.say("keys.export"), Kind::Quiet).clicked() {
+                if button_on(ui, t, cx.say("keys.export"), Kind::Quiet, !locked(cx)).clicked() {
                     let picker = Picker::save("keys.export", "secret", KEY_ENDING, start(cx));
                     self.filing = Some((Filing::ExportKey(index), picker));
                 }
@@ -183,10 +218,12 @@ impl WalletTools {
         }
         meta(ui, cx.say("keys.secret_note"), t);
         ui.add_space(tokens::GAP);
+        // A new key, one brought in and one taken out all need the wallet open.
+        let open = !asks_password(ui, cx, &mut self.unlock);
         ui.horizontal(|ui| {
             let width = ui.available_width() - 100.0;
             field(ui, &mut self.import, cx.say("keys.import_hint"), width);
-            let ready = !self.import.trim().is_empty();
+            let ready = !self.import.trim().is_empty() && open;
             if button_on(ui, t, cx.say("keys.import"), Kind::Plain, ready).clicked() {
                 own(cx, Personal::ImportKey(std::mem::take(&mut self.import)));
             }
@@ -194,7 +231,7 @@ impl WalletTools {
         ui.add_space(tokens::GAP);
         let mut done = false;
         ui.horizontal(|ui| {
-            if button(ui, t, cx.say("keys.new"), Kind::Plain).clicked() {
+            if button_on(ui, t, cx.say("keys.new"), Kind::Plain, open).clicked() {
                 own(cx, Personal::NewKey);
             }
             done = button(ui, t, cx.say("common.close"), Kind::Plain).clicked();
@@ -260,7 +297,8 @@ impl WalletTools {
         ui.add_space(tokens::GAP);
         section(ui, cx.say("offline.step_sign"));
         meta(ui, cx.say("offline.sign_about"), t);
-        if button(ui, t, cx.say("offline.sign"), Kind::Plain).clicked() {
+        let open = !asks_password(ui, cx, &mut self.unlock);
+        if button_on(ui, t, cx.say("offline.sign"), Kind::Plain, open).clicked() {
             let picker = Picker::open("offline.sign", PAYMENT_ENDING, start(cx));
             self.filing = Some((Filing::ToSign, picker));
         }
@@ -356,6 +394,7 @@ impl WalletTools {
             Tool::Words => self.words.show(ui, cx),
             Tool::Shared => self.shared.show(ui, cx),
             Tool::Message => self.message.show(ui, cx),
+            Tool::Seal => self.seal.show(ui, cx),
         });
         let finished = self.filing(ui, cx);
         if done || finished || (outside && self.filing.is_none()) {

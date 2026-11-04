@@ -39,11 +39,15 @@ pub enum WalletError {
     KnownKey,
     /// The payment is signed, but the node's own pool would not take it.
     Refused,
+    /// The wallet's keys are sealed with a password and it is not open now.
+    Locked,
 }
 
+/// A key, with its secret only while the wallet holds it: a wallet sealed with a password keeps
+/// the public half so it still finds its coins and receives, and signs nothing until it opens.
 #[derive(Clone)]
 struct Key {
-    secret: [u8; 32],
+    secret: Option<[u8; 32]>,
     public: PublicKey,
     address: Address,
 }
@@ -53,11 +57,23 @@ impl Key {
         let public = public_key(&secret).ok_or(WalletError::BadKey)?;
         let address = address_of(&public);
         Ok(Self {
-            secret,
+            secret: Some(secret),
             public,
             address,
         })
     }
+
+    /// The secret, or [`WalletError::Locked`] while the wallet is sealed.
+    fn secret(&self) -> Result<&[u8; 32], WalletError> {
+        self.secret.as_ref().ok_or(WalletError::Locked)
+    }
+}
+
+/// Someone a person pays, by the name they gave them.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Contact {
+    pub name: String,
+    pub address: String,
 }
 
 /// The seed words a wallet's later keys come from, kept as the randomness behind them.
@@ -85,6 +101,8 @@ pub struct Wallet {
     /// Names a person gave to addresses and payments, by the address or the payment's id as
     /// text. Kept in the wallet file, which older builds read past.
     pub labels: BTreeMap<String, String>,
+    /// Other people's addresses by name, as Bitcoin Core's address book keeps them.
+    pub contacts: Vec<Contact>,
 }
 
 impl Wallet {
@@ -96,6 +114,7 @@ impl Wallet {
             earlier: Vec::new(),
             shared: Vec::new(),
             labels: BTreeMap::new(),
+            contacts: Vec::new(),
         })
     }
 
@@ -108,7 +127,33 @@ impl Wallet {
         if receiving >= keys.len() {
             return Err(WalletError::NoSuchKey);
         }
-        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new(), labels: BTreeMap::new() })
+        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new(), labels: BTreeMap::new(), contacts: Vec::new() })
+    }
+
+    /// A wallet that knows only these public keys: it finds its coins and receives, and signs
+    /// nothing. A wallet sealed with a password runs this way until it opens.
+    pub fn from_publics(publics: &[PublicKey], receiving: usize) -> Result<Self, WalletError> {
+        let keys: Vec<Key> = publics.iter().map(|public| Key { secret: None, public: *public, address: address_of(public) }).collect();
+        if receiving >= keys.len() {
+            return Err(WalletError::NoSuchKey);
+        }
+        Ok(Self { keys, receiving, seed: None, earlier: Vec::new(), shared: Vec::new(), labels: BTreeMap::new(), contacts: Vec::new() })
+    }
+
+    /// This wallet without its secrets or words: what stays in memory while it is locked.
+    pub fn locked(&self) -> Self {
+        let keys = self.keys.iter().map(|key| Key { secret: None, ..key.clone() }).collect();
+        Self { keys, receiving: self.receiving, seed: None, earlier: Vec::new(), shared: self.shared.clone(), labels: self.labels.clone(), contacts: self.contacts.clone() }
+    }
+
+    /// Whether every key's secret is here, so the wallet can sign.
+    pub fn is_open(&self) -> bool {
+        self.keys.iter().all(|key| key.secret.is_some())
+    }
+
+    /// Whether any key's secret is here, so the wallet holds something to keep sealed.
+    pub fn holds_secrets(&self) -> bool {
+        self.keys.iter().any(|key| key.secret.is_some())
     }
 
     /// Adds a key and returns its number.
@@ -144,7 +189,7 @@ impl Wallet {
 
     /// The secret key with this number, to back up. Callers must keep it off every network.
     pub fn export_secret(&self, index: usize) -> Option<[u8; 32]> {
-        self.keys.get(index).map(|key| key.secret)
+        self.keys.get(index).and_then(|key| key.secret)
     }
 
     /// The address that receives.
@@ -321,7 +366,7 @@ impl Wallet {
         let key = self.keys.iter().find(|key| key.address == *owner);
         let key = key.ok_or(WalletError::NoSuchKey)?;
         let digest = tx.signature_hash(index, &key.address, coin);
-        let signature = sign(&key.secret, &digest).ok_or(WalletError::BadKey)?;
+        let signature = sign(key.secret()?, &digest).ok_or(WalletError::BadKey)?;
         let input = tx.inputs.get_mut(index).ok_or(WalletError::NoSuchKey)?;
         input.unlock = alpha::unlock_data(&key.public, &signature);
         Ok(())
@@ -496,6 +541,27 @@ mod tests {
         assert_eq!(chain.check_tx(&tx, chain.height() + 1), Ok(100));
         mine(&mut chain, &bob.address(), &[tx]);
         assert_eq!(bob.balance(&chain), reward / 2);
+    }
+
+    /// A locked wallet finds its coins and receives, and every way of signing says it is locked.
+    #[test]
+    fn a_locked_wallet_counts_its_coins_and_signs_nothing() {
+        let (alice, bob) = wallets();
+        let mut chain = chain(config());
+        for _ in 0..3 {
+            mine(&mut chain, &alice.address(), &[]);
+        }
+        let locked = alice.locked();
+        assert!(!locked.is_open() && !locked.holds_secrets());
+        assert_eq!(locked.balance(&chain), alice.balance(&chain));
+        assert_eq!(locked.address(), alice.address());
+        assert_eq!(locked.export_secret(0), None);
+        assert_eq!(locked.pay(&chain, bob.address(), 1, 100, &[]), Err(WalletError::Locked));
+        assert_eq!(locked.sign_message(&alice.address(), "hello"), None);
+        let publics: Vec<PublicKey> = alice.keys().map(|(_, public)| public).collect();
+        let watching = Wallet::from_publics(&publics, 0).unwrap();
+        assert_eq!(watching.address(), alice.address());
+        assert!(alice.pay(&chain, bob.address(), 1, 100, &[]).is_ok());
     }
 
     #[test]

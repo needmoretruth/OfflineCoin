@@ -26,6 +26,7 @@ pub struct WordsSheet {
     typed: [String; 2],
     wrong: bool,
     restore: String,
+    unlock: super::wallet_seal::UnlockPrompt,
 }
 
 fn wallet(cx: &Cx, order: WalletOrder) {
@@ -217,6 +218,12 @@ impl WordsSheet {
             }
         }
         sheet_head(ui, cx.say("words.heading"));
+        // A locked wallet's words are sealed with its keys, and so is everything this sheet does.
+        if super::wallet_seal::locked(cx) {
+            self.unlock.show(ui, cx);
+            ui.add_space(tokens::GAP);
+            return button(ui, t, cx.say("common.close"), Kind::Plain).clicked();
+        }
         // The words, earlier words and the coins to move can be taller than a small window: the
         // title and the close button keep their room and the rest scrolls.
         let room = (ui.ctx().content_rect().height() - 200.0).max(300.0);

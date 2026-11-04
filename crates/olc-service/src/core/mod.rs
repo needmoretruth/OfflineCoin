@@ -31,6 +31,12 @@ pub mod host_peers;
 mod host_parts;
 mod host_wallet;
 mod wallet_orders;
+mod wallet_contacts;
+mod wallet_lock;
+mod words_lock;
+pub use wallet_contacts::{ContactOrder, MOST_NAME as MOST_CONTACT_NAME};
+pub use wallet_lock::{LockView, Password, PasswordOrder, OPEN_AT_MOST, OPEN_FOR};
+pub use words_lock::{new_password, passwords_asked};
 mod ops;
 #[cfg(test)]
 mod ops_tests;

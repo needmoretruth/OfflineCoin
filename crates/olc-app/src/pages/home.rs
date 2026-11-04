@@ -266,6 +266,8 @@ impl Home {
         if closed {
             self.open = None;
         }
+        // Send here offers to save a new address too, once its payment went.
+        super::wallet_contacts::offer(ui, cx);
     }
 }
 

@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 
 impl Worker {
     pub(super) fn publish(&mut self, runner: &mut Runner) {
+        super::super::wallet_lock::tick(&self.state, runner, &self.wallet_folder);
         let engine = &runner.engine;
         let chain = engine.chain();
         let status = engine.status();
@@ -57,7 +58,11 @@ impl Worker {
             activity.extend(missed);
         }
         activity.extend(self.history.items().take(RECENT).cloned());
-        let wallet_part = super::super::host_wallet::wallet_view(engine, &activity, &self.history, pool.all);
+        let mut wallet_part = super::super::host_wallet::wallet_view(engine, &activity, &self.history, pool.all);
+        let (lock, sealed_words) = super::super::wallet_lock::view(&self.state);
+        // A locked wallet's words are sealed, and still there.
+        wallet_part.has_words |= sealed_words.is_some_and(|words| words.has);
+        wallet_part.lock = lock;
         let view = NodeView {
             coin: Some(chain.config().clone()),
             genesis: chain.genesis_id(),

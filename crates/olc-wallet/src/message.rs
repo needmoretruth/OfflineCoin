@@ -44,7 +44,7 @@ impl Wallet {
     /// not hold that key.
     pub fn sign_message(&self, address: &Address, message: &str) -> Option<String> {
         let key = self.keys.iter().find(|key| key.address == *address)?;
-        let signing = SigningKey::from_bytes(&key.secret.into()).ok()?;
+        let signing = SigningKey::from_bytes(&(*key.secret().ok()?).into()).ok()?;
         let (signature, recovery) = signing.sign_prehash_recoverable(&message_hash(message)).ok()?;
         let mut bytes = Vec::with_capacity(65);
         bytes.push(COMPRESSED + recovery.to_byte());

@@ -1,24 +1,25 @@
 //! A wallet on disk, and its backups. A backup with a password goes through Argon2id and
 //! ChaCha20-Poly1305 from audited crates. Nothing here prints a key.
-use argon2::Argon2;
+use crate::sealed::{self, WALLET_LOCKED};
+use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use olc_platform::platform;
 use olc_wallet::seed::{Mnemonic, WordList};
 use olc_wallet::shared::Shared;
-use olc_wallet::{SeedRecord, Wallet};
+use olc_wallet::{Contact, SeedRecord, Wallet};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-const DAMAGED_WALLET: &str = "The wallet file is damaged.";
-const WALLET_FILE: &str = "wallet.json";
-const OLD_KEY_FILE: &str = "wallet.key";
+pub(crate) const DAMAGED_WALLET: &str = "The wallet file is damaged.";
+pub(crate) const WALLET_FILE: &str = "wallet.json";
+pub(crate) const OLD_KEY_FILE: &str = "wallet.key";
 
 #[derive(Serialize, Deserialize)]
-struct Keys {
+pub(crate) struct Keys {
     keys: Vec<String>,
     receiving: usize,
     /// Older builds read past these two.
@@ -31,27 +32,34 @@ struct Keys {
     /// Names of addresses and payments. Older builds read past it and drop it when they save.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     labels: BTreeMap<String, String>,
+    /// Other people's addresses by name. Older builds read past it as they do names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    contacts: Vec<Contact>,
 }
 
 /// What a backup file holds. With a password only the sealed fields are set.
 #[derive(Serialize, Deserialize)]
-struct Backup {
-    olc_wallet_backup: u32,
+pub(crate) struct Backup {
+    pub(crate) olc_wallet_backup: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    keys: Option<Keys>,
+    pub(crate) keys: Option<Keys>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    salt: Option<String>,
+    pub(crate) salt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nonce: Option<String>,
+    pub(crate) nonce: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    sealed: Option<String>,
+    pub(crate) sealed: Option<String>,
+    /// A backup of a locked wallet copies its sealed keys as they are. Names, contacts and shared
+    /// wallets that changed since they were sealed ride beside them, as in the wallet file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) newer: Option<sealed::Readable>,
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn unhex(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn unhex(text: &str) -> Option<Vec<u8>> {
     if !text.is_ascii() || !text.len().is_multiple_of(2) {
         return None;
     }
@@ -68,19 +76,25 @@ pub fn format_secret(secret: &[u8; 32]) -> String {
     hex(secret)
 }
 
-fn keys_of(wallet: &Wallet) -> Keys {
+/// Every key with its secret. A locked wallet has none to give, and saying so beats a file that
+/// quietly lost them.
+pub(crate) fn keys_of(wallet: &Wallet) -> Result<Keys, String> {
+    if !wallet.is_open() {
+        return Err(WALLET_LOCKED.to_string());
+    }
     let secrets = (0..wallet.key_count()).filter_map(|index| wallet.export_secret(index));
-    Keys {
+    Ok(Keys {
         keys: secrets.map(|secret| hex(&secret)).collect(),
         receiving: wallet.receiving(),
         seed: wallet.seed.clone(),
         shared: wallet.shared.clone(),
         earlier: wallet.earlier.clone(),
         labels: wallet.labels.clone(),
-    }
+        contacts: wallet.contacts.clone(),
+    })
 }
 
-fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
+pub(crate) fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
     let parsed: Option<Vec<[u8; 32]>> = keys.keys.iter().map(|text| parse_secret(text)).collect();
     let secrets = parsed.ok_or("A key in the wallet file is damaged.")?;
     let mut wallet = Wallet::from_secrets(&secrets, keys.receiving).map_err(|_| "A key is not valid.".to_string())?;
@@ -88,18 +102,19 @@ fn wallet_of(keys: &Keys) -> Result<Wallet, String> {
     wallet.shared = keys.shared.clone();
     wallet.earlier = keys.earlier.clone();
     wallet.labels = keys.labels.clone();
+    wallet.contacts = keys.contacts.clone();
     Ok(wallet)
 }
 
 /// Writes through a new file, so a cut leaves the old one whole. Only the owner can read it.
-fn write_private(path: &Path, text: &str) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, text: &str) -> Result<(), String> {
     let temporary = path.with_extension("new");
     let _ = fs::remove_file(&temporary);
     platform().write_private(&temporary, text.as_bytes()).map_err(|error| error.to_string())?;
     fs::rename(&temporary, path).map_err(|error| error.to_string())
 }
 
-fn random<const SIZE: usize>() -> Result<[u8; SIZE], String> {
+pub(crate) fn random<const SIZE: usize>() -> Result<[u8; SIZE], String> {
     let mut bytes = [0u8; SIZE];
     getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
     Ok(bytes)
@@ -122,6 +137,10 @@ pub fn load_wallet(directory: &Path) -> Result<Wallet, String> {
     let path = directory.join(WALLET_FILE);
     match fs::read_to_string(&path) {
         Ok(text) => {
+            // A wallet sealed with a password starts locked, as Bitcoin Core's does.
+            if let Some(file) = sealed::parse(&text)? {
+                return sealed::locked_wallet(&file);
+            }
             let keys: Keys = serde_json::from_str(&text).map_err(|_| DAMAGED_WALLET)?;
             return wallet_of(&keys);
         }
@@ -142,8 +161,13 @@ pub fn load_wallet(directory: &Path) -> Result<Wallet, String> {
     Ok(wallet)
 }
 
+/// Saves the wallet. A sealed file keeps its sealed keys and takes only what a locked wallet may
+/// change; an open sealed wallet saves through [`sealed::save_open`] with its seal.
 pub fn save_wallet(directory: &Path, wallet: &Wallet) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(&keys_of(wallet)).map_err(|error| error.to_string())?;
+    if let Some(file) = sealed::read(directory)? {
+        return sealed::save_locked(directory, wallet, file);
+    }
+    let text = serde_json::to_string_pretty(&keys_of(wallet)?).map_err(|error| error.to_string())?;
     write_private(&directory.join(WALLET_FILE), &text)
 }
 
@@ -151,34 +175,50 @@ pub const WRONG_PASSWORD: &str = "Wrong password, or the backup is damaged.";
 pub const NEEDS_PASSWORD: &str = "This backup needs its password.";
 pub const NOT_A_BACKUP: &str = "This is not a wallet backup.";
 
-fn password_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+/// Argon2id with the costs written out, so a newer crate with other defaults still opens every
+/// file sealed before it. They are the defaults of argon2 0.5, which sealed the first backups.
+pub(crate) fn password_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+    let params = Params::new(19 * 1024, 2, 1, Some(32)).map_err(|error| error.to_string())?;
     let mut key = [0u8; 32];
-    Argon2::default()
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
         .hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|error| error.to_string())?;
     Ok(key)
 }
 
-/// Writes a backup of every key to `path`, sealed when there is a password.
+/// Seals `plain` under `key` with a fresh nonce: ChaCha20-Poly1305, for backups and wallets alike.
+pub(crate) fn seal_bytes(key: &[u8; 32], plain: &[u8]) -> Result<([u8; 12], Vec<u8>), String> {
+    let nonce: [u8; 12] = random()?;
+    let sealed = ChaCha20Poly1305::new(&Key::from(*key))
+        .encrypt(&Nonce::from(nonce), plain)
+        .map_err(|_| "The keys could not be sealed.")?;
+    Ok((nonce, sealed))
+}
+
+/// The plain bytes, or `None` when the key is wrong or the bytes changed.
+pub(crate) fn open_bytes(key: &[u8; 32], nonce: &[u8; 12], sealed: &[u8]) -> Option<Vec<u8>> {
+    ChaCha20Poly1305::new(&Key::from(*key)).decrypt(&Nonce::from(*nonce), sealed).ok()
+}
+
+/// Writes a backup of every key to `path`, sealed when there is a password. A locked wallet has
+/// no keys to give: its backup is [`sealed::back_up_locked`].
 pub fn back_up(wallet: &Wallet, path: &Path, password: Option<&str>) -> Result<(), String> {
-    let keys = keys_of(wallet);
+    let keys = keys_of(wallet)?;
     let mut backup = Backup {
         olc_wallet_backup: 1,
         keys: None,
         salt: None,
         nonce: None,
         sealed: None,
+        newer: None,
     };
     match password.filter(|password| !password.is_empty()) {
         None => backup.keys = Some(keys),
         Some(password) => {
             let salt: [u8; 16] = random()?;
-            let nonce: [u8; 12] = random()?;
-            let key = password_key(password, &salt)?;
-            let plain = serde_json::to_vec(&keys).map_err(|error| error.to_string())?;
-            let sealed = ChaCha20Poly1305::new(&Key::from(key))
-                .encrypt(&Nonce::from(nonce), plain.as_slice())
-                .map_err(|_| "The backup could not be sealed.")?;
+            let key = zeroize::Zeroizing::new(password_key(password, &salt)?);
+            let plain = zeroize::Zeroizing::new(serde_json::to_vec(&keys).map_err(|error| error.to_string())?);
+            let (nonce, sealed) = seal_bytes(&key, &plain)?;
             backup.salt = Some(hex(&salt));
             backup.nonce = Some(hex(&nonce));
             backup.sealed = Some(hex(&sealed));
@@ -204,12 +244,14 @@ pub fn restore(path: &Path, password: Option<&str>) -> Result<Wallet, String> {
     let nonce = unhex(nonce).and_then(|nonce| <[u8; 12]>::try_from(nonce).ok());
     let nonce = nonce.ok_or_else(damaged)?;
     let sealed = unhex(sealed).ok_or_else(damaged)?;
-    let key = password_key(password.ok_or(NEEDS_PASSWORD)?, &salt)?;
-    let plain = ChaCha20Poly1305::new(&Key::from(key))
-        .decrypt(&Nonce::from(nonce), sealed.as_slice())
-        .map_err(|_| WRONG_PASSWORD)?;
+    let key = zeroize::Zeroizing::new(password_key(password.ok_or(NEEDS_PASSWORD)?, &salt)?);
+    let plain = zeroize::Zeroizing::new(open_bytes(&key, &nonce, &sealed).ok_or(WRONG_PASSWORD)?);
     let keys: Keys = serde_json::from_slice(&plain).map_err(|_| damaged())?;
-    wallet_of(&keys)
+    let mut wallet = wallet_of(&keys)?;
+    if let Some(newer) = backup.newer {
+        newer.put_in(&mut wallet);
+    }
+    Ok(wallet)
 }
 
 #[cfg(test)]

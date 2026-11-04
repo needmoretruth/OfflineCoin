@@ -46,6 +46,8 @@ mod shared_wallets;
 pub mod setup;
 pub(crate) mod speed;
 mod wallet;
+mod wallet_contacts;
+mod wallet_seal;
 mod wallet_tools;
 
 use crate::core::{Command, Core, Snapshot};

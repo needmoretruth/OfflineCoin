@@ -6,9 +6,10 @@ use super::host::Host;
 use super::host_locks::{failure_key, wallet_key, NO_WATCHED};
 use olc_core::{BlockHeader, Tx};
 use olc_node::{Rank, Runner, Status};
+use super::wallet_lock::PasswordOrder;
 use olc_store::{
-    back_up, format_secret, new_secret, parse_secret, restore, save_wallet, NodeSettings,
-    NEEDS_PASSWORD, NOT_A_BACKUP, WRONG_PASSWORD,
+    back_up, back_up_locked, format_secret, new_secret, parse_secret, restore, NodeSettings, NEEDS_PASSWORD,
+    NOT_A_BACKUP, WALLET_LOCKED, WRONG_PASSWORD,
 };
 use olc_platform::platform;
 use olc_wallet::{format_address, parse_address, Unsigned, Wallet, WalletError};
@@ -68,6 +69,10 @@ pub trait Book {
     fn prepared(&self, to: &str, units: u64, fee: u64) -> Result<String, String>;
     /// Sends a signed payment, given as JSON. The answer says which payment left.
     fn send_signed(&self, signed: &str) -> Result<String, String>;
+    /// Seals, opens, locks or changes the wallet's password.
+    fn password_order(&self, order: &PasswordOrder) -> Result<(&'static str, String), String>;
+    /// The folder the wallet file is in.
+    fn wallet_directory(&self) -> std::path::PathBuf;
 
     /// Follows an address without its key, now and after a restart.
     fn watch(&self, text: &str) -> Result<(), String> {
@@ -148,16 +153,24 @@ pub trait Book {
 
     /// Writes one key to a file only its owner can read. It never goes to the screen or a log.
     fn export_key(&self, index: usize, path: &Path) -> Result<(), String> {
-        let secret = self.wallet_view(|wallet| wallet.export_secret(index))?;
+        let (secret, open) = self.wallet_view(|wallet| (wallet.export_secret(index), wallet.is_open()))?;
+        if !open {
+            return Err(WALLET_LOCKED.to_string());
+        }
         let secret = secret.ok_or("No such key")?;
         let text = format!("{}\n", format_secret(&secret));
         platform().write_private(path, text.as_bytes()).map_err(|error| error.to_string())
     }
 
+    /// A locked wallet's backup keeps its keys sealed with the wallet's password, so it needs no
+    /// password now. One with its own password, or none, needs the keys and so an open wallet.
     fn back_up(&self, path: &Path, password: Option<&str>) -> Result<(), String> {
         // A password's hash takes a while, and mining should not wait for it.
         let wallet = self.wallet_view(Wallet::clone)?;
-        back_up(&wallet, path, password)
+        match (wallet.is_open(), password) {
+            (false, None) => back_up_locked(&self.wallet_directory(), path),
+            _ => back_up(&wallet, path, password),
+        }
     }
 
     /// Adds the keys in a backup to this wallet and says how many were new.
@@ -181,6 +194,11 @@ pub trait Book {
                     wallet.shared.push(shared.clone());
                 }
             }
+            // Names and contacts come along too, without changing any this wallet already has.
+            for (of, name) in &backup.labels {
+                wallet.labels.entry(of.clone()).or_insert_with(|| name.clone());
+            }
+            super::wallet_contacts::take_in(wallet, &backup.contacts);
             Ok(added)
         })
     }
@@ -313,7 +331,7 @@ pub trait Book {
 }
 
 impl Host {
-    fn on_runner<R>(&self, job: impl FnOnce(&mut Runner) -> R) -> Result<R, String> {
+    pub(super) fn on_runner<R>(&self, job: impl FnOnce(&mut Runner) -> R) -> Result<R, String> {
         let mut runner = self.ready()?;
         Ok(job(&mut runner))
     }
@@ -333,6 +351,7 @@ impl Host {
                     return (key, detail, false);
                 }
                 let key = match error.as_str() {
+                    WALLET_LOCKED => "notice.wallet_locked",
                     WRONG_PASSWORD => "notice.wrong_password",
                     NEEDS_PASSWORD => "notice.needs_password",
                     NOT_A_BACKUP => "notice.not_a_backup",
@@ -359,9 +378,23 @@ impl Book for Host {
         let folder = self.wallet_folder();
         self.on_runner(|runner| {
             let wallet = runner.engine.wallet_mut();
-            let done = job(wallet)?;
-            save_wallet(&folder, wallet).map(|()| done)
+            // What could not be saved does not stay in memory either: a locked wallet given a
+            // secret key would otherwise hold one its file can never keep.
+            let before = wallet.clone();
+            let saved = job(wallet).and_then(|done| super::wallet_lock::save(&self.state, &folder, wallet).map(|()| done));
+            if saved.is_err() {
+                *wallet = before;
+            }
+            saved
         })?
+    }
+
+    fn password_order(&self, order: &PasswordOrder) -> Result<(&'static str, String), String> {
+        self.carry_password(order)
+    }
+
+    fn wallet_directory(&self) -> std::path::PathBuf {
+        self.wallet_folder()
     }
 
     fn live<R>(&self, job: impl FnOnce(&mut Runner) -> R) -> Result<Option<R>, String> {

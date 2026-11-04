@@ -1,6 +1,7 @@
 //! The sheet that sends: one or more people in one payment, a name for it, and for an expert
 //! the fee rate and the coins it spends. Nothing leaves before the slip is signed.
 use super::money::{balance_of, can_pay, coin_of, named_field, parse_request, problem, shared_wallet, wallet_row};
+use super::wallet_contacts as contacts;
 use super::Cx;
 use crate::core::{parse_coins, BoardAction, BoardView, Command, FeeLevels, LockOrder, Personal, WalletOrder};
 use crate::ui::explain::{self, Choice};
@@ -16,6 +17,8 @@ use std::collections::BTreeSet;
 
 /// People one payment pays at most here, which keeps the sheet on one screen.
 const MOST_PEOPLE: usize = 8;
+/// What the password prompt takes under the choices while the wallet is locked.
+const UNLOCK_HEIGHT: f32 = 210.0;
 
 /// How fast an expert wants the payment in a block.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,6 +41,7 @@ pub struct SendSheet {
     typed_rate: String,
     choosing: bool,
     chosen: BTreeSet<String>,
+    unlock: super::wallet_seal::UnlockPrompt,
 }
 
 impl SendSheet {
@@ -195,9 +199,10 @@ impl SendSheet {
         let to = payments[0].0.clone();
         let shared = board.is_none().then(|| shared_wallet(&to)).flatten();
         for (address, units) in payments {
-            let shown = match &shared {
-                Some(shared) => cx.fill("send.to_shared", &[&shared.need.to_string(), &shared.keys.len().to_string()]),
-                None => format!("{}  {}", format::short_address(address), format::coins(*units, ticker)),
+            let shown = match (&shared, contacts::name_of(cx, address)) {
+                (Some(shared), _) => cx.fill("send.to_shared", &[&shared.need.to_string(), &shared.keys.len().to_string()]),
+                (None, Some(name)) => format!("{name}  {}  {}", format::short_address(address), format::coins(*units, ticker)),
+                (None, None) => format!("{}  {}", format::short_address(address), format::coins(*units, ticker)),
             };
             rows.push((cx.say("send.to").to_string(), shown));
         }
@@ -258,7 +263,12 @@ impl SendSheet {
         }
         let width = ui.available_width();
         let (to, amount) = &mut self.people[at];
-        named_field(ui, t, cx.say("send.to_hint"), to, "olc...", width);
+        let hint = match cx.snap.node.wallet.contacts.is_empty() {
+            true => "send.to_hint",
+            false => "contacts.to_hint",
+        };
+        named_field(ui, t, cx.say(hint), to, "olc...", width);
+        contacts::suggest(ui, cx, to);
         if let Some((address, units, note)) = parse_request(to) {
             *to = address;
             if let Some(units) = units {
@@ -320,8 +330,13 @@ impl SendSheet {
         }
         let fee = if own { self.fee(cx, total, min_fee) } else { min_fee };
         let enough = total > 0 && total + fee <= spendable;
-        // People and choices scroll inside the sheet, so its title and buttons stay on screen.
-        let room = (ui.ctx().content_rect().height() - 260.0).max(240.0);
+        // A board signs with its own key. This wallet signs with its own, so while it is locked
+        // the password comes first, under the choices, before the slip.
+        let waits = board.is_none() && super::wallet_seal::locked(cx);
+        // People and choices scroll inside the sheet, so its title, the password and the buttons
+        // stay on screen.
+        let asking = if waits { UNLOCK_HEIGHT } else { 0.0 };
+        let room = (ui.ctx().content_rect().height() - 260.0 - asking).max(160.0);
         let shared: &Cx = cx;
         egui::ScrollArea::vertical().id_salt("send-body").max_height(room).show(ui, |ui| {
             let mut gone = None;
@@ -351,10 +366,14 @@ impl SendSheet {
             }
         });
         ui.add_space(tokens::GAP);
+        if waits {
+            self.unlock.show(ui, cx);
+            ui.add_space(tokens::GAP);
+        }
         let mut done = false;
         ui.horizontal(|ui| {
             let filled = self.people.iter().all(|(to, amount)| !to.trim().is_empty() && !amount.trim().is_empty());
-            if button_on(ui, t, cx.say("send.next"), Kind::Main, filled).clicked() {
+            if button_on(ui, t, cx.say("send.next"), Kind::Main, filled && !waits).clicked() {
                 self.tried = true;
                 let payments: Option<Vec<(String, u64)>> = self.people.iter().zip(&units).map(|((to, _), units)| {
                     let to = to.trim();
@@ -363,6 +382,10 @@ impl SendSheet {
                     Some((to.to_string(), (*units)?))
                 }).collect();
                 if let (Some(payments), true) = (payments, enough) {
+                    if own {
+                        let addresses: Vec<String> = payments.iter().map(|(address, _)| address.clone()).collect();
+                        contacts::offer_after_paying(ui, cx, &addresses);
+                    }
                     *cx.slip = Some(self.slip(cx, &payments, fee));
                     done = true;
                 }

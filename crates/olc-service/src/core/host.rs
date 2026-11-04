@@ -83,6 +83,8 @@ pub(super) struct State {
     pub(super) tcp: TcpControl,
     /// Tips other miners hold, where the node looks for a branch racing its own.
     other_tips: Mutex<Vec<Hash>>,
+    /// The wallet's password: whether it has one, and the seal while it is open.
+    pub(super) purse: Mutex<super::wallet_lock::LockState>,
 }
 
 pub struct Host {
@@ -158,6 +160,7 @@ impl Host {
             half_spend: Mutex::default(),
             channels: Mutex::default(),
             other_tips: Mutex::default(),
+            purse: Mutex::new(super::wallet_lock::LockState::read(&plan.wallet_folder)),
         });
         let worker = Worker {
             runner: runner.clone(),

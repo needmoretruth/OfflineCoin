@@ -238,7 +238,11 @@ impl Desk for Terminal {
             Command::Own(order) if order.needs_a_node() => self.through_core(Command::Own(order)),
             Command::Own(order) => match self.folder.carry_out(order) {
                 Ok((key, detail)) => Ok(Notice { number: 0, key, detail, good: true }.sentence()),
-                Err(why) => Err(plain_detail(&why).to_string()),
+                // A wallet's failure is a notice's key, said here as its sentence.
+                Err(why) => Err(match super::wallet_orders::wallet_failure(&why) {
+                    Some((key, detail)) => Notice { number: 0, key, detail, good: false }.sentence(),
+                    None => plain_detail(&why).to_string(),
+                }),
             },
             // A coin put under a lock or spent from one leaves like any payment, or not at all.
             Command::Pay { .. } | Command::Lock(_) => self.send_and_stay(command),

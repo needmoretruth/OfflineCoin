@@ -56,6 +56,8 @@ fn groups(expert: bool) -> Vec<(&'static str, Vec<Row>)> {
             "wallet_page.safe",
             vec![
                 row("settings.words", "settings.words_about", "common.open", Opens::Tool(Tool::Words)),
+                // Its line and its button say how the lock stands, so they have no fixed key.
+                row("seal.row", "", "", Opens::Tool(Tool::Seal)),
                 row("settings.backup", "settings.backup_about", "settings.backup_go", Opens::Tool(Tool::Backup)),
                 row("settings.restore", "settings.restore_about", "settings.restore_go", Opens::Tool(Tool::Restore)),
             ],
@@ -82,6 +84,7 @@ enum Money {
 pub struct WalletPage {
     history: HistoryList,
     tools: WalletTools,
+    contacts: super::wallet_contacts::ContactsCard,
     locks: Locks,
     in_locks: bool,
     money: Option<Money>,
@@ -90,15 +93,18 @@ pub struct WalletPage {
 /// A tool's name and line on the left, its button on the right. True when the button is pressed.
 fn tool_row(ui: &mut Ui, cx: &Cx, keys: (&str, &str, &str)) -> bool {
     let t = cx.t;
-    let go = cx.say(keys.2);
+    let (name, about, go) = match keys.1.is_empty() {
+        true => (super::wallet_seal::row_name(cx), super::wallet_seal::row_about(cx), super::wallet_seal::row_go(cx)),
+        false => (cx.say(keys.0), cx.say(keys.1).to_string(), cx.say(keys.2)),
+    };
     let room = ui.available_width() - widgets::button_width(ui, go) - tokens::GAP;
     let pressed = ui
         .horizontal_top(|ui| {
             ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(room);
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.add(Label::new(RichText::new(cx.say(keys.0)).color(t.text)).wrap());
-                explain::short(ui, t, cx.say(keys.1));
+                ui.add(Label::new(RichText::new(name).color(t.text)).wrap());
+                explain::short(ui, t, &about);
             });
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| button(ui, t, go, Kind::Plain).clicked()).inner
         })
@@ -158,6 +164,9 @@ impl WalletPage {
         for (heading, rows) in groups(cx.expert()) {
             if heading == "wallet_page.more" {
                 paying(ui, cx);
+            }
+            if heading == "wallet_page.others" {
+                self.contacts.show(ui, cx);
             }
             card(ui, t, |ui| {
                 section(ui, cx.say(heading));
@@ -284,5 +293,6 @@ impl Page for WalletPage {
         }
         self.tools.show(ui, cx);
         self.money_sheet(ui, cx);
+        super::wallet_contacts::offer(ui, cx);
     }
 }

@@ -85,6 +85,7 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
         LockFailure::Lock(LockError::Wallet(WalletError::ZeroAmount)) => {
             ("lock.too_small", String::new())
         }
+        LockFailure::Lock(LockError::Wallet(WalletError::Locked)) => ("notice.wallet_locked", String::new()),
         LockFailure::Lock(LockError::Wallet(_)) => ("lock.no_key", String::new()),
         LockFailure::NoCoin => ("lock.no_coin", String::new()),
         LockFailure::NeedsBlocks => ("lock.needs_blocks", String::new()),
@@ -100,13 +101,14 @@ pub fn fault_of_lock(failure: &LockFailure) -> (&'static str, String) {
 }
 
 /// Every way a wallet says no, for reading its name back from a detail written before.
-const WALLET_ERRORS: [WalletError; 6] = [
+const WALLET_ERRORS: [WalletError; 7] = [
     WalletError::BadKey,
     WalletError::NotEnoughCoins,
     WalletError::ZeroAmount,
     WalletError::NoSuchKey,
     WalletError::KnownKey,
     WalletError::Refused,
+    WalletError::Locked,
 ];
 
 /// Why a wallet said no, as a sentence.
@@ -118,6 +120,7 @@ pub fn wallet_words(error: &WalletError) -> &'static str {
         WalletError::NoSuchKey => "This wallet has no such key.",
         WalletError::KnownKey => "This wallet already holds that key.",
         WalletError::Refused => "The payment could not join the queue. Send less, or try after the next block.",
+        WalletError::Locked => "The wallet is locked. Open it with its password first.",
     }
 }
 
@@ -130,6 +133,7 @@ pub fn wallet_key(error: &WalletError) -> &'static str {
         WalletError::NoSuchKey => "notice.no_such_key",
         WalletError::KnownKey => "notice.known_key",
         WalletError::Refused => "notice.pay_refused",
+        WalletError::Locked => "notice.wallet_locked",
     }
 }
 

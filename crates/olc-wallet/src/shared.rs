@@ -192,12 +192,15 @@ impl SharedSpend {
 
     /// Adds every signature this wallet's keys can make. Says how many keys signed.
     pub fn fill(&mut self, wallet: &Wallet) -> usize {
-        let held = self.shared.held_by(wallet);
+        // A locked wallet's keys sign nothing, and leave what is there as it was.
+        let held: Vec<usize> = self.shared.held_by(wallet).into_iter().filter(|at| {
+            wallet.keys.iter().any(|key| key.public.as_slice() == self.shared.keys[*at].as_slice() && key.secret.is_some())
+        }).collect();
         for input in 0..self.signatures.len() {
             let digest = self.digest(input);
             for at in &held {
                 let key = wallet.keys.iter().find(|key| key.public.as_slice() == self.shared.keys[*at].as_slice());
-                let signature = key.and_then(|key| sign(&key.secret, &digest));
+                let signature = key.and_then(|key| sign(key.secret().ok()?, &digest));
                 self.signatures[input][*at] = signature.map(|signature| signature.to_vec());
             }
         }

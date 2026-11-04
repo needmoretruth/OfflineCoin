@@ -6,7 +6,7 @@ mod logo;
 mod node;
 
 use olc_board::{Args, Extra};
-use olc_service::core::{run_words, usage, Folder, Terminal};
+use olc_service::core::{run_words, usage, BoardView, Command, Desk, Folder, Terminal};
 use olc_service::local::run_node;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -36,7 +36,11 @@ pub const EXTRAS: &[&dyn Extra] = &[&olc_lab::Lab];
 
 /// Typed at a terminal, a password does not show. A script can still pipe one in.
 fn asked_password() -> Result<String, String> {
-    print!("Password: ");
+    asked("Password: ")
+}
+
+fn asked(prompt: &str) -> Result<String, String> {
+    print!("{prompt}");
     std::io::stdout().flush().map_err(|error| error.to_string())?;
     if std::io::stdin().is_terminal() {
         return rpassword::read_password().map_err(|error| error.to_string());
@@ -104,8 +108,43 @@ fn terminal(args: &Args) -> Result<Terminal, String> {
     Ok(terminal)
 }
 
+/// What each password the wallet's words read is for, in the order they read them.
+fn prompts(args: &Args) -> Vec<&'static str> {
+    const AGAIN: &str = "The new password again: ";
+    match (args.command(), args.word(1)) {
+        (Some("wallet"), Some("encrypt")) => vec!["New password: ", AGAIN],
+        (Some("wallet"), Some("unlock")) => vec!["Wallet password: "],
+        (Some("wallet"), Some("password")) => vec!["Current password: ", "New password: ", AGAIN],
+        _ => Vec::new(),
+    }
+}
+
+/// The terminal, asking out of sight for each password a word reads, by what it is for.
+struct Asking {
+    terminal: Terminal,
+    prompts: std::vec::IntoIter<&'static str>,
+}
+
+impl Desk for Asking {
+    fn command(&mut self, command: Command) -> Result<String, String> {
+        self.terminal.command(command)
+    }
+
+    fn boards(&mut self) -> Result<Vec<BoardView>, String> {
+        self.terminal.boards()
+    }
+
+    fn password(&mut self) -> Result<String, String> {
+        match self.prompts.next() {
+            Some(prompt) => asked(prompt),
+            None => self.terminal.password(),
+        }
+    }
+}
+
 fn action(args: &Args) -> Result<(), String> {
-    match run_words(&mut terminal(args)?, args) {
+    let mut desk = Asking { terminal: terminal(args)?, prompts: prompts(args).into_iter() };
+    match run_words(&mut desk, args) {
         Some(answer) => {
             println!("{}", answer?);
             Ok(())

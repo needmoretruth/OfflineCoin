@@ -22,6 +22,7 @@ pub(super) fn pay_fault(error: &PayError) -> (&'static str, String) {
         PayError::Wallet(WalletError::NotEnoughCoins) => ("notice.not_enough", String::new()),
         PayError::Wallet(WalletError::Refused) => ("notice.pay_refused", String::new()),
         PayError::Wallet(WalletError::ZeroAmount) => ("notice.bad_amount", String::new()),
+        PayError::Wallet(WalletError::Locked) => ("notice.wallet_locked", String::new()),
         PayError::Stopped | PayError::Wallet(_) => ("notice.pay_failed", String::new()),
     }
 }

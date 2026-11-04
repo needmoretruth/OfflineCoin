@@ -10,7 +10,7 @@ use olc_core::{Address, Hash};
 use olc_node::shared::{SharedDone, SharedFailure};
 use olc_node::Engine;
 use olc_wallet::shared::{SharedError, SharedSpend};
-use olc_wallet::{format_address, parse_address, SeedRecord, Wallet};
+use olc_wallet::{format_address, parse_address, Contact, SeedRecord, Wallet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
@@ -98,6 +98,10 @@ pub struct WalletView {
     /// Names of addresses and payments, by address or payment id.
     pub labels: BTreeMap<String, String>,
     pub fees: FeeLevels,
+    /// Other people's addresses by name, sorted by name.
+    pub contacts: Vec<Contact>,
+    /// Whether the wallet has a password, and how long it stays open.
+    pub lock: super::wallet_lock::LockView,
 }
 
 fn words_of(record: &SeedRecord) -> Option<Words> {
@@ -204,6 +208,8 @@ pub(super) fn wallet_view(engine: &Engine, activity: &[Activity], history: &Hist
         coins: coin_list,
         labels: wallet.labels.clone(),
         fees: FeeLevels::read(engine.chain(), engine.pool()),
+        contacts: wallet.contacts.clone(),
+        lock: super::wallet_lock::LockView::default(),
     }
 }
 
@@ -236,6 +242,9 @@ impl Host {
             return ("notice.not_enough", String::new(), false);
         };
         let wallet = runner.engine.wallet();
+        if !wallet.is_open() {
+            return ("notice.wallet_locked", String::new(), false);
+        }
         let from = keys_outside_words(wallet);
         let named = word_addresses(wallet);
         let to = wallet.keys().map(|(address, _)| address).find(|address| named.contains(address));
@@ -286,6 +295,9 @@ impl Host {
         let Ok(mut runner) = self.ready() else {
             return ("notice.shared_refused", String::new(), false);
         };
+        if !runner.engine.wallet().is_open() {
+            return ("notice.wallet_locked", String::new(), false);
+        }
         let Some(shared) = runner.engine.wallet().shared.get(wallet).cloned() else {
             return ("notice.shared_bad", String::new(), false);
         };
@@ -299,6 +311,9 @@ impl Host {
         let Ok(mut runner) = self.ready() else {
             return ("notice.shared_refused", String::new(), false);
         };
+        if !runner.engine.wallet().is_open() {
+            return ("notice.wallet_locked", String::new(), false);
+        }
         let done = runner.engine.sign_shared(text);
         drop(runner);
         self.shared_went(done)

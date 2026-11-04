@@ -185,7 +185,7 @@ impl Wallet {
 
     fn signature(&self, address: &str, digest: &Hash) -> Option<Vec<u8>> {
         let key = self.key_of(address)?;
-        Some(sign(&key.secret, digest)?.to_vec())
+        Some(sign(key.secret().ok()?, digest)?.to_vec())
     }
 
     fn public_of(&self, address: &str) -> Option<Vec<u8>> {

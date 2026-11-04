@@ -1,6 +1,8 @@
 //! Seed words, signed messages and shared wallets: what a person does with their wallet beyond
 //! keys. These work on a node's folder as well as on a running node.
 use super::ops::Book;
+use super::wallet_contacts::ContactOrder;
+use super::wallet_lock::PasswordOrder;
 use olc_core::Address;
 use olc_store::new_words;
 use olc_wallet::message::verify_message;
@@ -38,6 +40,10 @@ pub enum WalletOrder {
     Label { of: String, name: String },
     /// Stops following an address watched without its key.
     Unwatch(String),
+    /// Seals, opens, locks or changes the wallet's password.
+    Password(PasswordOrder),
+    /// Adds, renames, removes or lists other people's addresses.
+    Contact(ContactOrder),
 }
 
 pub const NO_WORDS: &str = "notice.no_words";
@@ -53,7 +59,17 @@ pub fn words_fault(error: &SeedError) -> (&'static str, String) {
 }
 
 /// Every failure here, so [`wallet_failure`] can read one back as a notice.
-const FAILURES: [&str; 14] = [
+const FAILURES: &[&str] = &[
+    "notice.wallet_locked",
+    "notice.wrong_wallet_password",
+    "notice.already_sealed",
+    "notice.not_sealed",
+    "notice.empty_password",
+    "notice.node_on_wallet",
+    "notice.unlock_needs_node",
+    "notice.contact_name_bad",
+    "notice.contact_name_taken",
+    "notice.no_contact",
     "notice.bad_amount",
     "notice.not_enough",
     "notice.pay_refused",
@@ -145,10 +161,14 @@ pub(super) fn carry_in_folder(directory: std::path::PathBuf, order: WalletOrder)
 pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Result<(&'static str, String), String> {
     match order {
         WalletOrder::ShowWords => {
-            let (words, earlier) = book.wallet_view(|wallet| {
+            let (words, earlier, open) = book.wallet_view(|wallet| {
                 let earlier: Vec<String> = wallet.earlier.iter().filter_map(|record| record.mnemonic()).map(|words| words.phrase()).collect();
-                (wallet.seed.as_ref().and_then(|seed| seed.mnemonic()), earlier)
+                (wallet.seed.as_ref().and_then(|seed| seed.mnemonic()), earlier, wallet.is_open())
             })?;
+            // A locked wallet's words are sealed with its keys.
+            if !open {
+                return Err(LOCKED.to_string());
+            }
             let mut shown = words.ok_or(NO_WORDS)?.phrase();
             // Words this wallet had before still bring their coins back, so they show too.
             for phrase in earlier {
@@ -158,6 +178,9 @@ pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Re
             Ok(("notice.words", shown))
         }
         WalletOrder::WordsWritten => book.wallet_change(|wallet| {
+            if !wallet.is_open() {
+                return Err(LOCKED.to_string());
+            }
             let seed = wallet.seed.as_mut().ok_or(NO_WORDS)?;
             seed.written = true;
             Ok(("notice.words_written", String::new()))
@@ -183,6 +206,9 @@ pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Re
         }
         WalletOrder::SignMessage { address, message } => {
             let signed = book.wallet_view(|wallet| {
+                if !wallet.is_open() {
+                    return Err(LOCKED.to_string());
+                }
                 let address = address_or_receiving(wallet, &address)?;
                 wallet.sign_message(&address, &message).ok_or_else(|| "notice.no_such_key".to_string())
             })??;
@@ -232,8 +258,13 @@ pub(super) fn carry_wallet<B: Book + ?Sized>(book: &B, order: WalletOrder) -> Re
             book.change_settings(|settings| settings.watched.retain(|known| parse_address(known) != Some(address)))?;
             Ok(("notice.saved", String::new()))
         }
+        WalletOrder::Password(order) => book.password_order(&order),
+        WalletOrder::Contact(order) => super::wallet_contacts::carry_contact(book, order),
     }
 }
+
+/// What every order that needs the keys says while the wallet is locked.
+const LOCKED: &str = "notice.wallet_locked";
 
 /// A name is a few words, as Bitcoin Core's label field is.
 const MOST_LABEL: usize = 60;

@@ -3053,6 +3053,7 @@ dependencies = [
  "qrcode",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -3069,6 +3070,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
