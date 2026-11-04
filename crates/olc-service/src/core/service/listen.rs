@@ -91,9 +91,13 @@ impl Service {
             settings: &mut self.settings.pool,
         };
         // A board switched off for never taking the pool's work stays off after a restart.
-        if self.pool.step(&mut cx) {
-            drop(hellos);
+        let switched = self.pool.step(&mut cx);
+        drop(hellos);
+        if switched {
             self.save();
+        }
+        if let Some(key) = self.pool.take_notice() {
+            self.say(key, String::new(), true);
         }
     }
 

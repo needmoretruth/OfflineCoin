@@ -6,6 +6,7 @@
 //! and sends back the shares the miner found.
 use super::host::Host;
 use super::pool_lend::{lend, lent_name, relay_name, take_lent, Said, Watch};
+use super::pool_owed::Owing;
 use super::pool_plan::{pool_address, worker_part, Join, PoolOrder, PoolSettings, Who};
 use super::pool_view::{choices, link_trouble, reach, short_address, FoundRow, LinkRow, PoolView, SwitchedOff, WorkerRow};
 use crate::fleet::{BoardRow, FleetPort};
@@ -80,6 +81,8 @@ pub struct PoolSeat {
     /// The chain's tip at the pool's last turn.
     tip: Option<olc_core::Hash>,
     switched_off: Vec<SwitchedOff>,
+    /// Payouts owed, kept beside the wallet until they go out.
+    owing: Owing,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -154,6 +157,11 @@ impl PoolSeat {
         self.view.clone()
     }
 
+    /// The notice for a person when payouts start to wait for the wallet, once.
+    pub fn take_notice(&mut self) -> Option<&'static str> {
+        self.owing.take_notice()
+    }
+
     /// Why the last order failed, in the words the system gave.
     pub fn failure(&self) -> String {
         self.error.as_ref().map(|(_, detail)| detail.clone()).unwrap_or_default()
@@ -213,8 +221,11 @@ impl PoolSeat {
 
     /// Stops the pool here. The miners that worked in it go back to the pools they had joined.
     fn stop(&mut self, cx: &mut PoolCx) {
-        if self.running.take().is_none() {
+        let Some(running) = self.running.take() else {
             return;
+        };
+        if let (Ok(runner), Ok(pool)) = (cx.host.ready(), running.pool.lock()) {
+            self.owing.stopping(&runner.engine, &pool);
         }
         let here: Vec<Who> = self.links.iter().filter(|(_, link)| link.here).map(|(who, _)| *who).collect();
         for who in here {
@@ -311,6 +322,7 @@ impl PoolSeat {
                 }
             }
         }
+        self.pay_turn(cx.host);
         let mining = !self.links.contains_key(&Who::Own) || cx.host.view().mining;
         for (who, link) in &mut self.links {
             link.hand_work(*who, mining, cx);
@@ -387,14 +399,24 @@ impl PoolSeat {
             pool.block_added(id, added);
         }
         pool.refresh(&runner.engine, now);
-        if self.paid_at.is_none_or(|paid| paid.elapsed() >= PAY_EVERY) {
-            self.paid_at = Some(Instant::now());
-            pool.pay(&mut runner.engine);
-        }
         let tip = runner.engine.chain().tip();
         let moved = self.tip.is_some_and(|before| before != tip);
         self.tip = Some(tip);
         moved
+    }
+
+    /// The payout turn, every few seconds: what is owed from before, then the running pool's ripe
+    /// blocks. Both wait while the wallet is locked and stay owed in a file until they go out.
+    fn pay_turn(&mut self, host: &Host) {
+        if self.paid_at.is_some_and(|paid| paid.elapsed() < PAY_EVERY) {
+            return;
+        }
+        let Ok(mut runner) = host.ready() else {
+            return;
+        };
+        self.paid_at = Some(Instant::now());
+        let mut pool = self.running.as_ref().and_then(|running| running.pool.lock().ok());
+        self.owing.turn(&host.wallet_folder(), &mut runner.engine, pool.as_deref_mut());
     }
 
     fn refresh_view(&mut self, cx: &mut PoolCx) {
@@ -415,6 +437,7 @@ impl PoolSeat {
             fixed_difficulty: settings.fixed_difficulty,
             error: self.error.clone(),
             switched_off: self.switched_off.clone(),
+            waits_for_wallet: self.owing.waits(),
             ..PoolView::default()
         };
         let rows = cx.fleet.map(|fleet| fleet.board_rows()).unwrap_or_default();
@@ -479,6 +502,7 @@ impl PoolSeat {
                     state: block.state,
                     pool_fee: block.pool_fee,
                     secs_ago: now.saturating_sub(block.found_ms) / 1_000,
+                    held: block.held,
                     parts: splits.iter().find(|(height, ..)| *height == block.height).map(|(_, _, split)| split.parts.clone()).unwrap_or_default(),
                 })
                 .collect();

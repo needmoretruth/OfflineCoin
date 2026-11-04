@@ -95,6 +95,8 @@ pub(crate) struct Found {
     pub(crate) state: BlockState,
     pub(crate) credits: crate::ledger::Credits,
     pub(crate) split: Option<Split>,
+    /// Ripe, but its payment waits for the locked wallet to open.
+    pub(crate) held: bool,
 }
 
 /// Blocks and the coins they brought, as one count.
@@ -119,6 +121,8 @@ pub struct BlockView {
     pub state: BlockState,
     /// The pool's fee, once paid.
     pub pool_fee: u64,
+    /// Ripe, but its payment waits for the locked wallet to open.
+    pub held: bool,
 }
 
 pub struct Pool {
@@ -336,6 +340,7 @@ impl Pool {
             state: BlockState::Sent,
             credits: self.ledger.close_round(),
             split: None,
+            held: false,
         });
         self.sealed_on = Some(block.header.previous);
         self.outbox.push(block);
@@ -403,6 +408,7 @@ impl Pool {
             found_ms: found.found_ms,
             state: found.state,
             pool_fee: found.split.as_ref().map_or(0, |split| split.pool_fee),
+            held: found.held,
         });
         rows.collect()
     }

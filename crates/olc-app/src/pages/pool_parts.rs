@@ -101,8 +101,9 @@ fn last_share(cx: &Cx, secs: Option<u64>) -> String {
     }
 }
 
-fn state_of(t: &Tokens, state: BlockState) -> (&'static str, Color32) {
-    match state {
+fn state_of(t: &Tokens, row: &FoundRow) -> (&'static str, Color32) {
+    match row.state {
+        BlockState::Waiting if row.held => ("pool.state_held", t.warn),
         BlockState::Sent => ("pool.state_sent", t.soft),
         BlockState::Waiting => ("pool.state_waiting", t.info),
         BlockState::Paid => ("pool.state_paid", t.good),
@@ -122,7 +123,7 @@ pub fn found_blocks(ui: &mut Ui, cx: &Cx, view: &PoolView) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(cx.fill("pool.block", &[&format::number(row.height.into())])).strong());
             ui.label(format::payout(cx.voice(), row.value, cx.ticker()));
-            let (key, colour) = state_of(t, row.state);
+            let (key, colour) = state_of(t, row);
             tag(ui, cx.say(key), colour, t);
             meta(ui, &format::ago(cx.voice(), row.secs_ago.saturating_mul(1_000), 0), t);
         });

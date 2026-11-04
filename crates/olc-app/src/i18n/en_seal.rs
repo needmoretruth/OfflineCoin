@@ -62,6 +62,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.contact_name_taken", "Another contact has that name."),
     ("notice.contact_known", "That address is saved already, as {}."),
     ("notice.no_contact", "No contact has that name."),
+    ("notice.pool_waits_wallet", "The wallet is locked, so payouts wait. They go out when you open it."),
+    ("wallet_page.merge_waits", "The wallet is locked, so merging waits."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -94,4 +96,9 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("notice.wallet_opened", "Wallet unlocked."),
     ("notice.wallet_locked_now", "Wallet locked."),
     ("notice.password_changed", "Passphrase changed."),
+    ("notice.pool_waits_wallet", "Wallet locked: pool payouts are pending until it is unlocked."),
+    ("wallet_page.merge_waits", "Wallet locked: UTXO consolidation is pending."),
+    ("notice.words_written", "Done. Wallet, Seed phrase shows it again when you ask."),
+    ("words.none", "This wallet has no seed phrase yet. For now only the backup file restores it."),
+    ("home.words_none", "No seed phrase yet. Until you create one, only the backup file restores your coins."),
 ];

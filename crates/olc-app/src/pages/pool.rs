@@ -103,6 +103,7 @@ impl PoolTab {
         }
         card(ui, t, |ui| {
             section(ui, cx.say("pool.run_here"));
+            waits_line(ui, cx, view);
             explain::short(ui, t, cx.say("pool.about"));
             explain::details(ui, t, "pool-how", (cx.say("explain.details"), cx.say("explain.hide")), |ui| {
                 how_it_works(ui, cx, form.last_shares);
@@ -263,6 +264,7 @@ fn running(ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
         }
         ui.add_space(tokens::GAP);
         totals(ui, cx, view);
+        waits_line(ui, cx, view);
         ui.add_space(tokens::GAP);
         if button(ui, t, cx.say("pool.stop"), Kind::Plain).clicked() {
             cx.send(Command::Pool(PoolOrder::Stop));
@@ -278,6 +280,15 @@ fn running(ui: &mut Ui, cx: &mut Cx, view: &PoolView) {
         section(ui, cx.say("pool.found_title"));
         found_blocks(ui, cx, view);
     });
+}
+
+/// Payouts the locked wallet holds back, said where a person running the pool looks: they wait
+/// and go out once the wallet opens, so nobody wonders where their coins went.
+fn waits_line(ui: &mut Ui, cx: &Cx, view: &PoolView) {
+    if view.waits_for_wallet {
+        ui.add_space(tokens::GAP);
+        ui.colored_label(cx.t.warn, cx.say("notice.pool_waits_wallet"));
+    }
 }
 
 /// The numbers a person checks first. Coins paid out is the paid column added up, so what the

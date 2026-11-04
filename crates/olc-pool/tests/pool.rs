@@ -4,13 +4,24 @@ mod common;
 
 use common::{address, node, start_ms, user, Miner};
 use olc_node::Engine;
-use olc_pool::{BlockState, FoundTotal, Payout, Plan, Pool};
+use olc_pool::{pay_owed, BlockState, FoundTotal, Payout, Plan, Pool};
 
 const SHARE_DIFFICULTY: u64 = 32;
 
 /// Mines `blocks` blocks for the pool with two workers, the second sending three shares for each
 /// of the first's, then lets the coins mature, pays, and puts the payments in a block.
 fn rounds(plan: Plan, blocks: usize) -> (Pool, Engine) {
+    let (mut pool, mut pool_node, mut now) = ripe_rounds(plan, blocks);
+    assert!(!pool.pay(&mut pool_node).is_empty(), "the ripe blocks are paid");
+    now += 30_000;
+    while pool_node.status().pool > 0 {
+        pool_node.mine(100_000, now);
+    }
+    (pool, pool_node)
+}
+
+/// The rounds of [`rounds`] up to the moment the first blocks' coins can be spent, unpaid.
+fn ripe_rounds(plan: Plan, blocks: usize) -> (Pool, Engine, u64) {
     let mut pool_node = node(1);
     let grinder = node(9);
     let mut pool = Pool::new(pool_node.address(), plan);
@@ -45,12 +56,43 @@ fn rounds(plan: Plan, blocks: usize) -> (Pool, Engine) {
         now += 30_000;
         while !pool_node.mine(100_000, now) {}
     }
-    assert!(!pool.pay(&mut pool_node).is_empty(), "the ripe blocks are paid");
-    now += 30_000;
+    (pool, pool_node, now)
+}
+
+/// While the node's wallet is locked the pool's payouts wait, say so, and stay owed: kept outside
+/// the pool they outlive it, as across a restart, and go out once the wallet opens.
+#[test]
+fn payouts_wait_for_a_locked_wallet_and_go_out_once_it_opens() {
+    let plan = Plan { payout: Payout::Proportional, fee_bps: 0, fixed_difficulty: Some(SHARE_DIFFICULTY) };
+    let (mut pool, mut pool_node, mut now) = ripe_rounds(plan, 3);
+    let open = pool_node.wallet().clone();
+    *pool_node.wallet_mut() = open.locked();
+    assert!(pool.pay(&mut pool_node).is_empty(), "a locked wallet signs no payout");
+    assert!(pool.waits_for_wallet(), "and the pool says it waits for the wallet");
+    let held = pool.blocks().iter().filter(|block| block.held).count();
+    assert_eq!(held, 3, "each spendable block says it waits for the wallet");
+    let mut owed = pool.owed(&pool_node);
+    assert_eq!(owed.len(), 3, "every block found still owes its workers");
+    let owed_coins: u64 = owed.iter().flat_map(|debt| &debt.payments).map(|(_, amount)| amount).sum();
+    // The app closes: the pool is gone, the payments it owed are not.
+    drop(pool);
+    assert!(pay_owed(&mut pool_node, &mut owed), "still locked after the restart");
+    assert_eq!(owed.len(), 3);
+    *pool_node.wallet_mut() = open;
+    assert!(!pay_owed(&mut pool_node, &mut owed), "the opened wallet signs");
+    assert!(owed.len() < 3, "the ripe payouts went out");
+    for _ in 0..4 {
+        now += 30_000;
+        while !pool_node.mine(100_000, now) {}
+        pay_owed(&mut pool_node, &mut owed);
+    }
+    assert!(owed.is_empty(), "every payout went out as its block ripened");
     while pool_node.status().pool > 0 {
+        now += 30_000;
         pool_node.mine(100_000, now);
     }
-    (pool, pool_node)
+    let held = pool_node.chain().balance(&address(2)) + pool_node.chain().balance(&address(3));
+    assert_eq!(held, owed_coins, "each worker holds what it was owed");
 }
 
 /// Every block's coins add up, and each worker holds in the chain exactly what the pool says it paid.

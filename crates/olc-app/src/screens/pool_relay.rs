@@ -104,7 +104,7 @@ fn paid(live: &Snapshot, fee_bps: u32) -> Snapshot {
     stage.pool.reach = vec!["127.0.0.1:3333".into()];
     stage.pool.workers = workers.collect();
     let parts = SHARES.iter().map(|(worker, shares)| (format!("olc1example.{worker}"), shares * per_share)).collect();
-    stage.pool.found = vec![FoundRow { height: 1_204, value: BLOCK, state: BlockState::Paid, pool_fee: fee, secs_ago: 40, parts }];
+    stage.pool.found = vec![FoundRow { height: 1_204, value: BLOCK, state: BlockState::Paid, pool_fee: fee, secs_ago: 40, held: false, parts }];
     stage
 }
 

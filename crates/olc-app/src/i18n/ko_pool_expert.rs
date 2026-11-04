@@ -15,6 +15,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.relay_untrusted", "{}에서 일을 넘겼다는 답이 없어 껐습니다. 그 보드가 이 앱의 제어 키를 믿지 않거나 이 보드를 직접 듣지 못합니다."),
     ("pool.through", "{} 경유"),
     ("pool.state_waiting", "성숙 대기"),
+    ("pool.state_held", "잠금 해제 대기"),
     ("pool.state_lost", "고아 블록"),
     ("pool.m_prop", "PROP"),
     ("pool.m_pplns", "PPLNS"),

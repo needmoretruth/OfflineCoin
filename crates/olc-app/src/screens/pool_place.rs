@@ -143,6 +143,7 @@ fn running_pool(live: &Snapshot) -> Snapshot {
         state: BlockState::Paid,
         pool_fee: 0,
         secs_ago,
+        held: false,
         parts: vec![(me.clone(), my_part), ("olc1example.Kitchen".into(), other_part)],
     };
     stage.pool.found = vec![block(41, 95), block(28, 610)];

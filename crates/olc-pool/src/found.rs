@@ -1,9 +1,11 @@
 //! The node's side of the pool: new templates, the blocks the pool found, and paying for them once
 //! their coins can be spent, with one ordinary payment per block.
-use crate::ledger::split;
+use crate::ledger::{split, Split};
+use crate::owed::Owed;
 use crate::pool::{BlockState, Pool};
 use olc_core::{Address, Block, Hash};
 use olc_node::Engine;
+use olc_wallet::WalletError;
 use std::collections::BTreeMap;
 
 impl Pool {
@@ -65,27 +67,18 @@ impl Pool {
     /// One block's payment: each worker's part to its address, the pool's own parts and its fee
     /// left where the coinbase put them. Waits when the coins are tied up elsewhere.
     fn pay_block(&mut self, engine: &mut Engine, at: usize) -> Option<Hash> {
-        let found = &self.found[at];
         let fee = engine.chain().rules().min_fee;
-        let payments_of = |shares: &crate::ledger::Split| {
-            let mut by_address: BTreeMap<Address, u64> = BTreeMap::new();
-            for (name, part) in &shares.parts {
-                let address = self.workers.get(name).map_or(self.payout, |stats| stats.address);
-                *by_address.entry(address).or_default() += part;
-            }
-            // The pool's own address already holds its parts: paying itself would only cost a fee.
-            let others = by_address.into_iter().filter(|(address, amount)| *address != self.payout && *amount > 0);
-            others.collect::<Vec<(Address, u64)>>()
-        };
-        let mut shares = split(found.value, self.plan.fee_bps, fee, &found.credits);
-        let payments = payments_of(&shares);
-        if payments.is_empty() {
-            // No payment, so no payment's fee: the pool keeps those coins too.
-            shares.pool_fee += std::mem::take(&mut shares.payment_fee);
-        }
+        let (shares, payments) = self.payments_of(at, fee);
         let id = match payments.is_empty() {
             true => [0; 32],
-            false => engine.pay_many(&payments, shares.payment_fee).ok()?,
+            false => match engine.pay_many(&payments, shares.payment_fee) {
+                Ok(id) => id,
+                Err(error) => {
+                    // A locked wallet signs nothing: the payment waits for it, and says so.
+                    self.found[at].held = error == WalletError::Locked;
+                    return None;
+                }
+            },
         };
         for (name, part) in &shares.parts {
             if let Some(stats) = self.workers.get_mut(name) {
@@ -94,8 +87,46 @@ impl Pool {
         }
         let found = &mut self.found[at];
         found.state = BlockState::Paid;
+        found.held = false;
         found.split = Some(shares);
         (!payments.is_empty()).then_some(id)
+    }
+
+    /// What a found block pays: the split of its coins, and each worker's part by address.
+    fn payments_of(&self, at: usize, fee: u64) -> (Split, Vec<(Address, u64)>) {
+        let found = &self.found[at];
+        let mut shares = split(found.value, self.plan.fee_bps, fee, &found.credits);
+        let mut by_address: BTreeMap<Address, u64> = BTreeMap::new();
+        for (name, part) in &shares.parts {
+            let address = self.workers.get(name).map_or(self.payout, |stats| stats.address);
+            *by_address.entry(address).or_default() += part;
+        }
+        // The pool's own address already holds its parts: paying itself would only cost a fee.
+        let others = by_address.into_iter().filter(|(address, amount)| *address != self.payout && *amount > 0);
+        let payments: Vec<(Address, u64)> = others.collect();
+        if payments.is_empty() {
+            // No payment, so no payment's fee: the pool keeps those coins too.
+            shares.pool_fee += std::mem::take(&mut shares.payment_fee);
+        }
+        (shares, payments)
+    }
+
+    /// Every payment the pool owes for its blocks in the chain, ripe or not, for whoever runs it
+    /// to keep: a restart or a stop forgets the blocks, and must not forget what they owe.
+    pub fn owed(&self, engine: &Engine) -> Vec<Owed> {
+        let fee = engine.chain().rules().min_fee;
+        let waiting = (0..self.found.len()).filter(|at| self.found[*at].state == BlockState::Waiting);
+        let owed = waiting.filter_map(|at| {
+            let (shares, payments) = self.payments_of(at, fee);
+            let found = &self.found[at];
+            (!payments.is_empty()).then_some(Owed { height: found.height, block: found.id, payments, fee: shares.payment_fee })
+        });
+        owed.collect()
+    }
+
+    /// Whether a ripe block's payment waits for the wallet to open.
+    pub fn waits_for_wallet(&self) -> bool {
+        self.found.iter().any(|found| found.state == BlockState::Waiting && found.held)
     }
 
     /// How each paid block split, newest first, for a person checking the sums: its height, its

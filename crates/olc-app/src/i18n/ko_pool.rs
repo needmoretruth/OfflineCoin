@@ -44,6 +44,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.block", "{}번 블록"),
     ("pool.state_sent", "보냄"),
     ("pool.state_waiting", "쓸 수 있을 때까지 기다리는 중"),
+    ("pool.state_held", "지갑을 열면 보냄"),
     ("pool.state_paid", "나눠 줌"),
     ("pool.state_lost", "다른 블록에 밀림"),
     ("pool.show_split", "나눈 몫 보기"),

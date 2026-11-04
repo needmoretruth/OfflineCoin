@@ -62,6 +62,8 @@ pub const WORDS: &[(&str, &str)] = &[
     ("notice.contact_name_taken", "같은 이름의 연락처가 이미 있습니다."),
     ("notice.contact_known", "이 주소는 이미 {} 이름으로 저장돼 있습니다."),
     ("notice.no_contact", "그 이름의 연락처가 없습니다."),
+    ("notice.pool_waits_wallet", "지갑이 잠겨 있어 지급을 기다립니다. 지갑을 열면 보냅니다."),
+    ("wallet_page.merge_waits", "지갑이 잠겨 있어 코인 합치기를 기다립니다."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -94,4 +96,9 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("notice.wallet_opened", "지갑 잠금을 해제했습니다."),
     ("notice.wallet_locked_now", "지갑을 잠갔습니다."),
     ("notice.password_changed", "암호를 바꿨습니다."),
+    ("notice.pool_waits_wallet", "지갑이 잠겨 있어 풀 지급이 대기 중입니다. 잠금을 풀면 보냅니다."),
+    ("wallet_page.merge_waits", "지갑이 잠겨 있어 UTXO 통합이 대기 중입니다."),
+    ("notice.words_written", "확인했습니다. 지갑의 시드 문구에서 다시 볼 수 있습니다."),
+    ("words.none", "이 지갑에는 아직 시드 문구가 없습니다. 지금은 백업 파일로만 복원할 수 있습니다."),
+    ("home.words_none", "아직 시드 문구가 없습니다. 만들기 전에는 백업 파일로만 코인을 복원할 수 있습니다."),
 ];

@@ -41,6 +41,7 @@ mod ops;
 #[cfg(test)]
 mod ops_tests;
 mod pool_lend;
+mod pool_owed;
 mod pool_plan;
 mod pool_run;
 mod pool_view;

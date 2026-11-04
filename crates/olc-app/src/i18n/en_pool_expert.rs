@@ -15,6 +15,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.relay_untrusted", "Switched off: {} never said it passed the work on. It does not trust this app's control key, or does not hear this board directly."),
     ("pool.through", "via {}"),
     ("pool.state_waiting", "Maturing"),
+    ("pool.state_held", "Pending unlock"),
     ("pool.state_lost", "Orphaned"),
     ("pool.m_prop", "Proportional"),
     ("pool.m_pplns", "PPLNS"),

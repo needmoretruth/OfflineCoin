@@ -171,6 +171,7 @@ const SENTENCES: &[(&str, &str)] = &[
     ("notice.contact_name_taken", "A contact has that name already."),
     ("notice.contact_known", "That address is saved already, as {}."),
     ("notice.no_contact", "No contact has that name."),
+    ("notice.pool_waits_wallet", "The wallet is locked, so payouts wait. They go out when it opens."),
     ("notice.zero_amount", "The amount has to be more than zero."),
     ("lock.bad_text", "That text is not a spend."),
     ("lock.immature", "Mined coins can move only after more blocks."),

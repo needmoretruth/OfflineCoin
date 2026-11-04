@@ -44,6 +44,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("pool.block", "Block {}"),
     ("pool.state_sent", "Sent"),
     ("pool.state_waiting", "Waiting until it can be spent"),
+    ("pool.state_held", "Sends when you open the wallet"),
     ("pool.state_paid", "Shared out"),
     ("pool.state_lost", "Another block won"),
     ("pool.show_split", "Who got what"),

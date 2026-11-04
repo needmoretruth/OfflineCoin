@@ -8,6 +8,7 @@
 pub mod client;
 mod found;
 pub mod ledger;
+mod owed;
 mod pool;
 pub mod server;
 pub mod session;
@@ -16,6 +17,7 @@ pub mod vardiff;
 
 pub use client::{Client, ClientView, Link, Work};
 pub use ledger::{Payout, Split, MOST_FEE_BPS, MOST_LAST_SHARES};
+pub use owed::{pay_owed, Owed};
 pub use pool::{meets, BlockState, BlockView, FoundTotal, Plan, Pool, Submitted, WorkerView, REBUILD_MS};
 pub use server::{unix_ms, Server, Shared, PORT};
 pub use session::{worker_address, Reply};

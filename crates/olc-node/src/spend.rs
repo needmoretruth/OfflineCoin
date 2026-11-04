@@ -167,10 +167,11 @@ impl Engine {
         id
     }
 
-    /// Merges small coins when a key has gathered many.
+    /// Merges small coins when a key has gathered many. A locked wallet signs nothing, so the
+    /// merge waits for it to open rather than hold coins back for signatures that never come.
     pub(crate) fn merge_coins(&mut self) {
         // While catching up, coins that look unspent may already be spent further on.
-        if !self.merging || self.signing.is_some() || self.syncing_to().is_some() {
+        if !self.merging || self.signing.is_some() || self.syncing_to().is_some() || !self.wallet.is_open() {
             return;
         }
         let reserved = self.reserved();

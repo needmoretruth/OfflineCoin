@@ -39,6 +39,8 @@ pub struct FoundRow {
     pub state: BlockState,
     pub pool_fee: u64,
     pub secs_ago: u64,
+    /// Ripe, but its payment waits for the locked wallet to open.
+    pub held: bool,
     /// Where its coins went, once paid: worker and amount.
     pub parts: Vec<(String, u64)>,
 }
@@ -88,6 +90,8 @@ pub struct PoolView {
     pub choices: Vec<Choice>,
     /// Boards heard through another that the pool switched off because they never took its work.
     pub switched_off: Vec<SwitchedOff>,
+    /// A ripe block's payout waits for the wallet to open: it goes out then.
+    pub waits_for_wallet: bool,
     /// Why the pool did not start, as a sentence's key and its detail.
     pub error: Option<(&'static str, String)>,
 }
@@ -243,8 +247,9 @@ fn link_word(link: Link) -> &'static str {
     }
 }
 
-fn found_word(state: BlockState) -> &'static str {
-    match state {
+fn found_word(row: &FoundRow) -> &'static str {
+    match row.state {
+        BlockState::Waiting if row.held => "spendable, waiting for the wallet to open",
         BlockState::Sent => "sent",
         BlockState::Waiting => "waiting to mature",
         BlockState::Paid => "paid out",
@@ -274,10 +279,13 @@ pub fn listing(view: &PoolView) -> String {
             ));
         }
         for row in &view.found {
-            lines.push(format!("  Block {}: {}, {}.", row.height, format_coins(row.value), found_word(row.state)));
+            lines.push(format!("  Block {}: {}, {}.", row.height, format_coins(row.value), found_word(row)));
         }
     } else {
         lines.push("The pool is not running.".into());
+    }
+    if view.waits_for_wallet {
+        lines.push("The wallet is locked, so payouts wait. They go out when it opens: olc wallet unlock SECONDS.".into());
     }
     for row in &view.links {
         let name = if row.label.is_empty() { "This computer" } else { row.label.as_str() };

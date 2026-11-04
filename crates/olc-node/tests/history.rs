@@ -197,6 +197,37 @@ fn a_miners_small_coins_become_one() {
     assert_eq!(node.status().balance, reward * MERGE_FROM as u64 * 4);
 }
 
+/// While the wallet is locked the merge waits: no coin is held back for signatures that cannot
+/// come, so what a payment may spend reads the same before and after each turn. Once the wallet
+/// opens, the small coins become one.
+#[test]
+fn a_locked_wallet_merges_once_it_opens() {
+    let mut node = engine(1);
+    node.set_merging(true);
+    let open = node.wallet().clone();
+    *node.wallet_mut() = open.locked();
+    let blocks = MERGE_FROM as u64 * 2;
+    for height in 0..blocks {
+        mine(&mut node, height * 1_000);
+        let spendable = node.spendable();
+        node.tick(height * 1_000);
+        assert_eq!(node.spendable(), spendable, "nothing held back for a merge at block {height}");
+        assert!(!events(&mut node).iter().any(|e| matches!(e, Event::CoinsMerged { .. })));
+    }
+    let address = node.address();
+    assert_eq!(node.chain().unspent_of(&address).len(), MERGE_FROM * 2, "the coins wait as they are");
+    *node.wallet_mut() = open;
+    let mut merged = false;
+    for height in blocks..blocks * 2 {
+        mine(&mut node, height * 1_000);
+        for _ in 0..MERGE_AT_ONCE {
+            node.tick(height * 1_000);
+        }
+        merged |= events(&mut node).iter().any(|e| matches!(e, Event::CoinsMerged { .. }));
+    }
+    assert!(merged, "the opened wallet merges");
+}
+
 #[test]
 fn with_merging_off_the_coins_stay_as_they_are() {
     let mut node = engine(1);
