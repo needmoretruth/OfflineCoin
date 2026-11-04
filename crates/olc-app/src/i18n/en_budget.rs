@@ -23,6 +23,10 @@ pub const WORDS: &[(&str, &str)] = &[
     ("net.about_measured", "Every block of the last {}, {} of them, came from miners this app measures, so their measured speeds are added up."),
     ("net.about", "Miners this app measures add their measured speed; other computers add a speed read from the last {}, from the {} blocks they found. A change of theirs shows in full after {}."),
     ("net.too_few", "The network speed shows once {} blocks are made. {} so far."),
+    ("net.average_measured", "Measured {} then"),
+    ("net.apart_lost", "The blocks read {}% below what was measured. Work done before a new block reached a miner, and blocks that lost a race, end up in no block."),
+    ("net.apart_low", "The blocks read {}% below what was measured. A speed read from {} blocks moves by about {}% with luck."),
+    ("net.apart_high", "The blocks read {}% above what was measured. A speed read from {} blocks moves by about {}% with luck."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -40,4 +44,8 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("net.about_measured", "All blocks of the last {} ({} blocks) came from miners whose hashrate is measured here, so it is their sum. A change shows at once."),
     ("net.about", "Measured hashrates are added. Other miners count as the work of their blocks in the last {} ({} blocks) over that time, as getnetworkhashps reads it. A change of theirs shows in full after {}."),
     ("net.too_few", "Network hashrate is estimated from {} blocks on. {} so far."),
+    ("net.average_measured", "Measured average {}"),
+    ("net.apart_lost", "The block average is {}% under the measured hashrate. Work on a block already found elsewhere, before it arrived, and orphaned blocks count in no block."),
+    ("net.apart_low", "The block average is {}% under the measured hashrate. An estimate from {} blocks varies by about {}% with luck."),
+    ("net.apart_high", "The block average is {}% over the measured hashrate. An estimate from {} blocks varies by about {}% with luck."),
 ];

@@ -49,14 +49,15 @@ pub fn figures(ui: &mut Ui, cx: &Cx, with_average: bool) {
         (cx.say("net.now").to_string(), format::rate(voice, chain.hashrate_all), Some(span)),
         (cx.say("net.share").to_string(), format!("{share}%"), off),
     ];
-    // Until more blocks are kept than the speed now reads, the average reads the same blocks and
-    // would only say the same number twice.
-    let blocks = chain.latest.len().saturating_sub(1);
-    if with_average && blocks > reading.blocks && chain.hashrate_average > 0 {
-        // The newest block first: the average spans from the oldest kept to the newest.
-        let spans = chain.latest.first().zip(chain.latest.last()).map_or(0, |(newest, oldest)| newest.time_ms.saturating_sub(oldest.time_ms));
-        let late = cx.fill("net.average_late", &[&span_words(cx, spans)]);
-        shown.push((cx.fill("net.average", &[&format::number(blocks as u128)]), format::rate(voice, chain.hashrate_average), Some(late)));
+    // Until it reads more blocks than the speed now, the average reads the same blocks and would
+    // only say the same number twice. Beside it, what this computer measured over the same time
+    // when it found them all, or else how late it follows a change.
+    if let Some(average) = chain.average.filter(|average| with_average && average.blocks > reading.blocks) {
+        let under = match average.measured {
+            Some(measured) => cx.fill("net.average_measured", &[&format::rate(voice, measured)]),
+            None => cx.fill("net.average_late", &[&span_words(cx, average.span_ms)]),
+        };
+        shown.push((cx.fill("net.average", &[&format::number(average.blocks as u128)]), format::rate(voice, average.rate), Some(under)));
     }
     Columns::new(ui, &[1.0; 3]).row(ui, |ui, index| {
         let Some((name, value, under)) = shown.get(index) else {
@@ -73,6 +74,24 @@ pub fn figures(ui: &mut Ui, cx: &Cx, with_average: bool) {
     });
 }
 
+/// One line on why the block average stands apart from the mean this computer measured, when it
+/// is shown beside it (more blocks than the speed now reads) and a twentieth or more apart: below
+/// by more than luck explains, the work that made no block; otherwise the luck of that many blocks.
+fn why_apart(cx: &Cx, now_reads: usize) -> Option<String> {
+    let average = cx.snap.node.chain.average.filter(|average| average.blocks > now_reads)?;
+    let off = average.off()?;
+    let apart = off.unsigned_abs();
+    if apart < 5 {
+        return None;
+    }
+    let (percent, blocks, scatter) = (apart.to_string(), format::number(average.blocks as u128), average.scatter().to_string());
+    Some(match off < 0 {
+        true if apart > average.scatter() => cx.fill("net.apart_lost", &[&percent]),
+        true => cx.fill("net.apart_low", &[&percent, &blocks, &scatter]),
+        false => cx.fill("net.apart_high", &[&percent, &blocks, &scatter]),
+    })
+}
+
 /// The card on the Mining page: the figures, then who found the latest blocks and the next one's wait.
 pub fn card_of(ui: &mut Ui, cx: &Cx, still: bool) {
     let t = cx.t;
@@ -87,6 +106,9 @@ pub fn card_of(ui: &mut Ui, cx: &Cx, still: bool) {
                 others => cx.fill("net.about", &[&span, &format::number(others as u128), &span]),
             };
             explain::short(ui, t, &about);
+            if let Some(why) = why_apart(cx, reading.blocks) {
+                explain::short(ui, t, &why);
+            }
         }
         ui.add_space(tokens::GAP_WIDE);
         ui.label(RichText::new(cx.say("mining.race")).color(t.text));

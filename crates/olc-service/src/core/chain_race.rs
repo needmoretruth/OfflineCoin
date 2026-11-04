@@ -1,7 +1,7 @@
 //! Names the miner of every block from what this computer knows: its own wallet, the miners it
 //! runs, the boards it hears. Then counts each one's share, keeps this computer's speed over ten
 //! minutes and works out when the next block should come.
-use super::chain_view::{ChainView, MinedBlock, Miner, Reading, Share, SHARE_WINDOW};
+use super::chain_view::{Average, ChainView, MinedBlock, Miner, Reading, Share, AVERAGE_SPAN_MS};
 use super::pool_plan::Who;
 use super::snapshot::{BoardView, NodeView};
 use crate::local::LocalView;
@@ -160,6 +160,24 @@ fn speed_of_blocks(latest: &[MinedBlock], count: usize) -> Option<u64> {
     u64::try_from(work * 1_000 / u128::from(span)).ok()
 }
 
+/// The recent average: the blocks of the last [`AVERAGE_SPAN_MS`], when they are at least
+/// [`FEWEST_BLOCKS`], and beside it the mean of `trail` over their time when every one of them was
+/// found by a miner this app measures and the trail reaches back to the oldest of them.
+fn recent_average(latest: &[MinedBlock], now_ms: u64, trail: &[(u64, u64)], measured: impl Fn(&Miner) -> bool) -> Option<Average> {
+    let recent = latest.iter().take_while(|block| block.time_ms.saturating_add(AVERAGE_SPAN_MS) > now_ms).count();
+    let blocks = recent.saturating_sub(1);
+    if blocks < FEWEST_BLOCKS {
+        return None;
+    }
+    let rate = speed_of_blocks(latest, blocks)?;
+    let (newest, oldest) = (latest[0].time_ms, latest[blocks].time_ms);
+    let reaches = trail.first().is_some_and(|(at, _)| *at <= oldest.saturating_add(TRAIL_STEP_MS));
+    let during: Vec<u64> = trail.iter().filter(|(at, _)| (oldest..=newest).contains(at)).map(|(_, rate)| *rate).collect();
+    let all_measured = latest[..blocks].iter().all(|block| measured(&block.miner));
+    let mean = (all_measured && reaches && !during.is_empty()).then(|| during.iter().sum::<u64>() / during.len() as u64);
+    Some(Average { blocks, span_ms: newest - oldest, rate, measured: mean })
+}
+
 /// The network's speed now: the work of the blocks of the last [`SPAN_MS`], or of the last
 /// [`FEWEST_BLOCKS`] when that holds fewer, over their time up to now, and apart the work of those
 /// whose finder is not `measured`. Counting up to now, not up to the newest block, lets a slowdown
@@ -293,10 +311,9 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
         Miner::Away(_) | Miner::Pool(_) | Miner::Unknown => false,
     };
     let heard: u64 = counted().filter_map(|named| named.hashrate).sum::<u64>() + pool_away;
-    view.network = speed_now(&view.latest, now_ms, measured);
+    view.network = speed_now(&view.latest, now_ms, &measured);
     view.hashrate_all = view.network.map_or(heard, |reading| heard + reading.others_rate).max(view.hashrate_here);
-    let enough = view.latest.len() > FEWEST_BLOCKS;
-    view.hashrate_average = speed_of_blocks(&view.latest, SHARE_WINDOW).filter(|_| enough).unwrap_or(0);
+    view.average = recent_average(&view.latest, now_ms, &view.trail, &measured);
     view.expected_ms = (view.hashrate_all > 0 && node.difficulty > 0)
         .then(|| u64::try_from(u128::from(node.difficulty) * 1_000 / u128::from(view.hashrate_all)).unwrap_or(u64::MAX));
     view.average_ms = average_of(&view.latest);
@@ -333,7 +350,7 @@ mod tests {
         assert_eq!(view.shares[1].miner, Miner::Away("olcother".into()));
         assert_eq!(view.window(), 3);
         assert_eq!(view.network, None);
-        assert_eq!((view.hashrate_all, view.hashrate_average), (100, 0));
+        assert_eq!((view.hashrate_all, view.average), (100, None));
         assert_eq!(view.expected_ms, Some(10_000));
         assert_eq!(view.average_ms, Some(1_000));
         assert_eq!(view.trail, [(50_000, 100)]);
@@ -356,7 +373,7 @@ mod tests {
         assert_eq!(view.network, Some(read));
         assert_eq!(view.expected_ms, Some(2_000));
         // Twenty blocks of 1,000 in forty seconds, as getnetworkhashps reads every block kept.
-        assert_eq!(view.hashrate_average, 500);
+        assert_eq!(view.average, Some(Average { blocks: 20, span_ms: 40_000, rate: 500, measured: None }));
     }
 
     /// Blocks every two seconds, then every second once the network doubles its speed: half a
@@ -471,7 +488,7 @@ mod tests {
         complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 50_000);
         let miners: Vec<&Miner> = view.latest.iter().map(|block| &block.miner).collect();
         assert_eq!(miners, [&Miner::OwnPool, &Miner::Pool("olcpool".into()), &Miner::You, &Miner::You]);
-        assert_eq!((view.network, view.hashrate_average), (None, 0));
+        assert_eq!((view.network, view.average), (None, None));
     }
 
     /// A miner here working in this app's pool, and this app working in another computer's pool,
@@ -518,5 +535,30 @@ mod tests {
         let hex: String = tip.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(hash_of(&hex), Some(tip));
         assert_eq!(hash_of("zz"), None);
+    }
+
+    /// A person mined yesterday and again for the last minute: the average reads only this
+    /// minute's blocks, not a span across the night, and sets beside it the mean this computer
+    /// measured over the same time, since it found every one of them.
+    #[test]
+    fn the_average_reads_recent_blocks_beside_the_measured_mean() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, mining: true, hashrate: 600, ..NodeView::default() };
+        let now = 86_400_000;
+        let today = (1..=30u64).rev().map(|at| block(100 + at, "olcmine", now - 62_000 + at * 2_000));
+        let yesterday = (1..=30u64).rev().map(|at| block(at, "olcmine", at * 2_000));
+        let mut view = ChainView { latest: today.chain(yesterday).collect(), ..ChainView::default() };
+        let mut trail = Trail::default();
+        for at in (now - 70_000..now).step_by(5_000) {
+            trail.add(at, 600);
+        }
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut trail, now);
+        let average = view.average.expect("thirty blocks this minute");
+        assert_eq!((average.blocks, average.span_ms, average.rate), (29, 58_000, 500));
+        assert_eq!(average.measured, Some(600), "the mean of what this computer measured then");
+        assert_eq!((average.off(), average.scatter()), (Some(-16), 38));
+        // A block found elsewhere in the span: nothing measured stands for it.
+        view.latest[3].payee = Some("olcaway".into());
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut trail, now);
+        assert_eq!(view.average.map(|average| average.measured), Some(None));
     }
 }

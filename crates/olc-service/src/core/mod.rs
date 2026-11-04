@@ -68,7 +68,7 @@ pub use olc_store::coin_fields::{
 pub use commands::{ChannelOrder, Command, LockOrder, Personal, StartCoin, SwapOrder};
 pub use address_index::AddressMove;
 pub use explorer::{BlockDetail, BlockRow, Explored, InputRow, NoteRow, OutputRow, PendingRow, TxRow};
-pub use chain_view::{Branch, ChainView, MinedBlock, Miner, Reading, Share, SHARE_WINDOW};
+pub use chain_view::{Average, Branch, ChainView, MinedBlock, Miner, Reading, Share, SHARE_WINDOW};
 pub use chain_race::{FEWEST_BLOCKS, SPAN_MS};
 pub use history::{Activity, ActivityKind, KEPT, RECENT};
 pub use fees::FeeLevels;

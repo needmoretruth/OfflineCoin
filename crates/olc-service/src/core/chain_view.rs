@@ -113,6 +113,43 @@ pub struct Reading {
     pub others_rate: u64,
 }
 
+/// The recent average as Bitcoin reads it from blocks, beside what this computer measured over the
+/// same time. Blocks hold only the work that made a block: hashes on a block another miner already
+/// found, before the news arrived, and blocks that lost a race leave nothing, so with several
+/// miners the blocks read lower than the miners measured, and by luck alone they stray about two
+/// parts in √n either way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Average {
+    /// The blocks read: those of the last [`AVERAGE_SPAN_MS`], up to the [`SHARE_WINDOW`] kept.
+    pub blocks: usize,
+    pub span_ms: u64,
+    /// Their work over their time.
+    pub rate: u64,
+    /// The mean speed this computer measured over the same time, when every one of those blocks
+    /// was found by a miner whose speed it measures and it measured all that time.
+    pub measured: Option<u64>,
+}
+
+/// How far back the recent average reads: the ten minutes the speed line draws. Older blocks may
+/// stand across hours nobody mined, and an average over them says nothing about now.
+pub const AVERAGE_SPAN_MS: u64 = 600_000;
+
+impl Average {
+    /// How far, in whole percent, a speed read from this many blocks strays by luck in about
+    /// nineteen readings of twenty.
+    pub fn scatter(&self) -> u64 {
+        let blocks = u32::try_from(self.blocks).unwrap_or(u32::MAX).max(1);
+        (200.0 / f64::from(blocks).sqrt()).ceil() as u64
+    }
+
+    /// The average against the measured mean in whole percent: below it when negative.
+    pub fn off(&self) -> Option<i64> {
+        let measured = i128::from(self.measured.filter(|measured| *measured > 0)?);
+        let percent = (i128::from(self.rate) - measured) * 100 / measured;
+        i64::try_from(percent).ok()
+    }
+}
+
 /// One miner's part of the latest blocks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Share {
@@ -146,8 +183,8 @@ pub struct ChainView {
     pub hashrate_all: u64,
     /// The blocks and the time that speed was read from; `None` while too few blocks are kept.
     pub network: Option<Reading>,
-    /// The work of every block in `latest` over their time, the recent average; 0 while too few.
-    pub hashrate_average: u64,
+    /// The work of the blocks of the last ten minutes over their time; `None` while too few.
+    pub average: Option<Average>,
     /// How long the next block takes at that speed and the current difficulty.
     pub expected_ms: Option<u64>,
     /// How long the last blocks really took, on average, to set beside the expected wait.
