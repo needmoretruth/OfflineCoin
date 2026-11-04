@@ -50,7 +50,7 @@ pub const WORDS: &[(&str, &str)] = &[
     ("home.coin", "Coin"),
     ("home.height", "Blocks"),
     ("home.boards", "Boards"),
-    ("home.others", "Others connected"),
+    ("home.others", "Connected"),
     ("receive.title", "Receive"),
     ("receive.body", "Show this code or copy the address."),
     ("receive.code", "Code for your address"),
