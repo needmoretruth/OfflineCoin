@@ -4,7 +4,7 @@
 use super::*;
 use crate::local::lab_picture::{replaced_between, Frame, Sides};
 use crate::core::Verdict;
-use crate::local::trouble::{try_trick, Outcome as TrickOutcome, Trick};
+use crate::local::trouble::{try_trick, Outcome as TrickOutcome, Route, Trick};
 use std::net::SocketAddr;
 use crate::local::LocalView;
 use olc_board::BoardLink;
@@ -65,8 +65,9 @@ impl Runs {
     /// side by side, or a network of eight nodes would wait twenty minutes for its last answer.
     /// A busy network can keep a node from answering in time, or move its tip while a trick block
     /// is built on the old one, so a trick with no verdict for its own rule is tried again a few
-    /// times; what it got last is what is said.
-    pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, targets: Vec<(u32, SocketAddr)>, funds: PathBuf) {
+    /// times; what it got last is what is said. Each copy of the chain comes from `own`, the
+    /// exploiter's node, which holds every block: a pruned target cannot serve the old ones.
+    pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, own: SocketAddr, targets: Vec<(u32, SocketAddr)>, funds: PathBuf) {
         let (answers, inbox) = channel();
         for (target, address) in targets {
             let (answers, verdicts, coin, funds) = (answers.clone(), Arc::clone(&self.verdicts), coin.clone(), funds.clone());
@@ -79,13 +80,14 @@ impl Runs {
                     all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
                 };
                 for trick in Trick::ALL {
-                    let mut outcome = try_trick(trick, &coin, address, &funds, &target.to_string(), &seen);
+                    let route = Route { from: own, to: address };
+                    let mut outcome = try_trick(trick, &coin, route, &funds, &target.to_string(), &seen);
                     for _ in 1..TRICK_TRIES {
                         if outcome.as_ref().is_ok_and(TrickOutcome::refused_as_expected) {
                             break;
                         }
                         thread::sleep(TRICK_AGAIN);
-                        outcome = try_trick(trick, &coin, address, &funds, &target.to_string(), &seen);
+                        outcome = try_trick(trick, &coin, route, &funds, &target.to_string(), &seen);
                     }
                     if answers.send((target, trick, outcome)).is_err() {
                         return;

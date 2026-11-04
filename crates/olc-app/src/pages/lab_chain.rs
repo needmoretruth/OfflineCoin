@@ -4,7 +4,8 @@
 //! chain with more work replaced are in the attack's own picture. Buttons make blocks at once.
 use super::lab_pile::shown;
 use super::lab_tokens::{name, number};
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
 use crate::local::lab_net::{Kind, NetState, Order};
 use crate::ui::chain;
 use crate::ui::tokens::{self, Tokens};

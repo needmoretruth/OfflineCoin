@@ -264,8 +264,16 @@ fn every_kind_does_its_part_in_expert_english() {
     run.shoot_now("03-payment-travels");
     counts(&mut run, &receiver, 1.0, 120);
     let spammer = add_and_see(&mut run, Kind::Spammer, 1);
-    counts(&mut run, &spammer, 1.0, 120);
+    run.wait(240, "the spam passes a block", |run| spam_piled(run, &spammer));
+    // Behind a pile larger than a block the attack's payment would not get in: the bad miner
+    // says so and waits, and starts once the person stops the spammer.
     let attacker = add_and_see(&mut run, Kind::Attacker, 1);
+    run.select(&attacker);
+    let pile = run.say("net.wait_pile");
+    run.wait(240, "the bad miner says the pile is in its way", |run| run.labels().iter().any(|label| label == pile));
+    run.shoot("04-attack-pile");
+    run.select(&spammer);
+    run.press(run.say("net.preset_stop"));
     run.select(&receiver);
     attack_until_undone(&mut run, &attacker, &receiver);
     run.select(&receiver);
@@ -344,11 +352,17 @@ fn every_trick_refused(run: &mut LabRun, exploiter: &str) {
     run.shoot_now("06-refused");
     run.select(exploiter);
     let all = crate::local::lab_net::Trick::ALL.len() as f64;
-    let done = |run: &LabRun| match run.line_numbers("net.fact_tricks").as_deref() {
-        Some([tried, nodes, refused, ..]) => *tried >= all && *refused >= all * *nodes,
+    // A try that could not be made is said with the node it was for. Every node answers every
+    // trick first, so a missing refusal fails here with its cause, not as a long wait.
+    let failed = |run: &LabRun| run.line_numbers("net.trick_failed").and_then(|numbers| numbers.first().copied()).unwrap_or(0.0);
+    let answered = |run: &LabRun| match run.line_numbers("net.fact_tricks").as_deref() {
+        Some([tried, nodes, refused, ..]) => *tried >= all && *refused + failed(run) >= all * *nodes,
         _ => false,
     };
-    run.wait(480, "every trick refused by every node", done);
+    run.wait(480, "every node answers every trick", answered);
+    assert!(run.lines_with("net.trick_failed").is_empty(), "tricks not tried: {:?}", run.lines_with("net.trick_failed"));
+    assert!(run.line_numbers("net.trick_let_through").is_none(), "a trick was let through: {:?}", run.labels());
+    println!("every trick refused by every node");
     run.press(run.say("net.tricks_all"));
     run.shoot("06-tricks");
     run.select(exploiter);
@@ -364,4 +378,54 @@ fn fits(run: &mut LabRun, selected: &str) {
     run.shoot("08-panel");
     run.select(selected);
     assert!(wrong.is_empty(), "these reach past the window's edge: {wrong:#?}");
+}
+
+/// A Lab left open two hours with nothing mining: a miner added by one click holds back a few
+/// seconds to hear its neighbours, as every computer does on a tip over an hour old. Its token
+/// says so meanwhile, and it then mines.
+#[test]
+#[ignore = "runs a real node process: run it by name"]
+fn a_miner_added_to_a_lab_left_idle_says_it_waits_and_then_mines() {
+    crate::local::lab::next_chain_idle_for(std::time::Duration::from_secs(2 * 60 * 60));
+    let mut run = LabRun::start("lab-net-idle", BASIC_KO);
+    let (clicked, before) = (std::time::Instant::now(), run.clicks);
+    run.add(Kind::Miner);
+    assert_eq!(run.clicks - before, 1, "one click");
+    let miner = run.named(Kind::Miner, 1);
+    let looking = format!("{miner}, {}", run.say("net.tok_looking"));
+    run.wait(30, "the miner says it waits for its neighbours", |run| run.token(&miner).is_some_and(|label| label == looking));
+    crate::local::lab::next_chain_idle_for(std::time::Duration::ZERO);
+    run.shoot("idle-looking");
+    counts(&mut run, &miner, 1.0, 40);
+    println!("from the click to its first block: {:.0?}", clicked.elapsed());
+    run.shoot("idle-mining");
+    run.close();
+}
+
+/// The same idle Lab with a full node in it: the new miner hears its one neighbour at once and
+/// has nothing left to wait for, so its token shows it hashing within five seconds of the click.
+#[test]
+#[ignore = "runs a real node process: run it by name"]
+fn a_miner_added_beside_a_neighbour_on_an_idle_lab_mines_within_seconds() {
+    crate::local::lab::next_chain_idle_for(std::time::Duration::from_secs(2 * 60 * 60));
+    let mut run = LabRun::start("lab-net-idle-near", EXPERT_EN);
+    run.add(Kind::Full);
+    let keeper = run.named(Kind::Full, 1);
+    let starting = format!("{keeper}, {}", run.say("net.wait_start"));
+    run.wait(60, "the full node started", |run| run.token(&keeper).is_some_and(|label| label != starting));
+    crate::local::lab::next_chain_idle_for(std::time::Duration::ZERO);
+    let clicked = std::time::Instant::now();
+    run.add(Kind::Miner);
+    let miner = run.named(Kind::Miner, 1);
+    // An expert miner's line starts with the speed it measures: above zero, it hashes.
+    let hashing = |run: &LabRun| run.token(&miner).and_then(|label| super::lab_net::numbers(&label).get(1).copied()).is_some_and(|speed| speed > 0.0);
+    run.wait(5, "the miner hashes", hashing);
+    println!("from the click to hashing: {:.1?}", clicked.elapsed());
+    // The line above the map counts the two at once, not after its next look at the memory.
+    let running = run.line_numbers("net.room").and_then(|numbers| numbers.get(1).copied());
+    assert_eq!(running, Some(2.0), "the room line counts both: {:?}", run.labels());
+    run.shoot("idle-near-hashing");
+    counts(&mut run, &miner, 1.0, 60);
+    println!("from the click to its first block: {:.1?}", clicked.elapsed());
+    run.close();
 }

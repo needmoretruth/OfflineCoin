@@ -2,7 +2,8 @@
 //! height stand in the same column, so the moment the rows part and the race between them can be
 //! seen. Each block has the light and shadow of the block strip, so both read as the same thing.
 use super::lab_tokens::number;
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
 use crate::local::lab::{LabKind, Mark, Picture, Row, Side};
 use crate::ui::chain;
 use crate::ui::paint;

@@ -1,8 +1,50 @@
 //! One plain sentence for each step of a Lab run.
 use super::lab_tokens::number;
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{self, text, Voice};
 use crate::local::lab::{LabKind, LabState, Phase};
 use olc_lab::Step;
+
+/// English plurals a Lab count stands before, with their singular.
+const PLURALS: [(&str, &str); 14] = [
+    ("blocks", "block"),
+    ("miners", "miner"),
+    ("times", "time"),
+    ("transactions", "transaction"),
+    ("payments", "payment"),
+    ("headers", "header"),
+    ("shares", "share"),
+    ("tricks", "trick"),
+    ("others", "other"),
+    ("summaries", "summary"),
+    ("workers", "worker"),
+    ("nodes", "node"),
+    ("cores", "core"),
+    ("participants", "participant"),
+];
+
+/// Fills a Lab line. In English a count of one takes the singular: "1 block", not "1 blocks".
+pub fn fill(template: &str, values: &[&str]) -> String {
+    singular(&i18n::fill(template, values), true)
+}
+
+/// `line` with each listed plural that follows a lone "1" in its singular, or every one of them
+/// when `after_one` is false, as a test matches a line whatever its counts.
+pub fn singular(line: &str, after_one: bool) -> String {
+    let mut before = "";
+    let words: Vec<String> = line
+        .split(' ')
+        .map(|word| {
+            let letters = word.trim_end_matches(|c: char| !c.is_alphabetic());
+            let one = !after_one || before == "1";
+            before = word;
+            match PLURALS.iter().find(|(many, _)| *many == letters) {
+                Some((_, single)) if one => format!("{single}{}", &word[letters.len()..]),
+                _ => word.to_string(),
+            }
+        })
+        .collect();
+    words.join(" ")
+}
 
 fn percent(part: u64, other: u64) -> (String, String) {
     let total = part + other;
@@ -53,6 +95,8 @@ fn why(voice: Voice, error: &str) -> String {
     let has = |words: &[&str]| words.iter().any(|word| lower.contains(word));
     let key = if has(&["stopped by hand"]) {
         "net.why_stopped"
+    } else if has(&["too long for a block"]) {
+        "net.why_block"
     } else if has(&["out of time"]) {
         "net.why_time"
     } else if has(&["not_enough", "holds only", "did not pay"]) {
@@ -126,5 +170,13 @@ mod tests {
         }
         let basic = Voice { lang: Lang::En, mode: Mode::Basic };
         assert_eq!(step_words(basic, LabKind::Attack, &steps[0]), "The attacker mines with 75% of the power and the victim with 25%.");
+    }
+
+    /// An attack whose payment stays out of the blocks says so, not only that it took long.
+    #[test]
+    fn a_payment_held_back_by_a_pile_is_named_as_the_reason() {
+        let basic = Voice { lang: Lang::Ko, mode: Mode::Basic };
+        assert_eq!(why(basic, "the payment waited too long for a block."), text(basic, "net.why_block"));
+        assert_eq!(why(basic, "out of time."), text(basic, "net.why_time"));
     }
 }

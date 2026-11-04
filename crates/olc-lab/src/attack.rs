@@ -485,6 +485,7 @@ impl Race<'_> {
     fn confirm(&mut self, payment: &str) -> Result<String, String> {
         say!(self, "\n5. The victim mines the payment");
         let mut seen = 0;
+        let started = Instant::now();
         loop {
             let status = self.victim.status()?;
             if status.height != seen {
@@ -506,6 +507,11 @@ impl Race<'_> {
                         return Ok(balance);
                     }
                 }
+            }
+            // It pays the lowest fee: behind more payments than a block holds it waits as long as
+            // they keep coming, and the race with it.
+            if started.elapsed() > self.plan.race_limit {
+                return Err("the payment waited too long for a block.".into());
             }
             self.pause()?;
         }

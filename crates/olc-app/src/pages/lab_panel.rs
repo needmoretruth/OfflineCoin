@@ -3,7 +3,8 @@
 //! (alone or in a pool) or one action of its own, and remove.
 use super::lab_glyphs as glyphs;
 use super::lab_tokens::{facts, name, number, tricks};
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
 use crate::local::lab_net::{Kind, Member, NetState, Order, Phase};
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{button_on, segments, slider, Kind as ButtonKind};

@@ -202,6 +202,17 @@ impl Keeper {
         if !shared {
             return Some("net.wait_coins");
         }
+        // Its payment pays the lowest fee, as the boards' line pays. Behind a pile larger than a
+        // block it would wait as long as a spammer keeps the pile up, and the attack with it.
+        let piled = self
+            .members
+            .iter()
+            .filter(|other| other.id == victim)
+            .filter_map(|other| other.status.as_ref()?.lab.as_ref())
+            .any(|line| line.max_block_bytes > 0 && line.waiting_bytes > line.max_block_bytes);
+        if piled {
+            return Some("net.wait_pile");
+        }
         if member.paused {
             return None;
         }
@@ -249,10 +260,12 @@ impl Keeper {
         if targets.is_empty() {
             return Some("net.wait_target");
         }
+        // Its own node holds every block, so the copies of the chain come from there.
+        let own = self.address_of_member(member.id).and_then(|address| address.parse().ok())?;
         self.tried.insert(member.id);
         let funds = self.coin.as_ref().and_then(|coin| coin.ancestors().nth(3)).map(|net| net.join("local").join(member.id.to_string()).join("wallet"));
         if let (Some(funds), Some(coin)) = (funds, self.config.clone()) {
-            self.runs.start_tricks(member.id, coin, targets, funds);
+            self.runs.start_tricks(member.id, coin, own, targets, funds);
         }
         None
     }

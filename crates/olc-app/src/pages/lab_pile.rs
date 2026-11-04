@@ -2,7 +2,8 @@
 //! block takes in the colour of a block and the rest in yellow, and how full the next block would
 //! be against the most a block may hold.
 use super::lab_tokens::number;
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
 use crate::local::lab_net::{Kind, Member, NetState};
 use crate::ui::tokens::Tokens;
 use egui::{vec2, Align2, CornerRadius, FontId, Rect, Sense, Ui};

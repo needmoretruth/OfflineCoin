@@ -124,7 +124,8 @@ fn every_task_is_a_few_clicks_from_home() {
             (clicks, scroll)
         };
         let speed = reach(&mut window, "speed", None, "rate.full");
-        let attack = reach(&mut window, "51% attack", Some("page.lab"), "lab2.start_attack");
+        // The Lab's one-click scenario: one click and the attack runs on real miners.
+        let attack = reach(&mut window, "51% attack", Some("page.lab"), "lab2.kind_attack");
         let miner = reach(&mut window, "add a miner", Some("page.mining"), "mining.add");
         let backup = reach(&mut window, "back up", Some("page.wallet"), "settings.backup_go");
         let listen = reach(&mut window, "listening", Some("page.settings"), "settings.listen_lan");

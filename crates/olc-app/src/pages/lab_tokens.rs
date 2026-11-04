@@ -1,8 +1,9 @@
 //! What each participant is called and the few facts it says: one short line under its token,
 //! and at most three lines in its panel. Basic mode counts in plain words; expert mode says
 //! heights, hash rates and the mempool.
-use crate::i18n::{fill, text, Voice};
-use crate::local::lab_net::{Kind, Member, NetState, Trick};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
+use crate::local::lab_net::{Kind, Member, NetState, Trick, TrickRow};
 use crate::settings::Mode;
 use crate::ui::format;
 use crate::ui::tokens::Tokens;
@@ -63,10 +64,36 @@ pub(super) fn coins(voice: Voice, units: u64) -> String {
     crate::ui::format::payout(voice, units, crate::local::lab::LAB_TICKER)
 }
 
-/// The one line under a token, and its colour.
+/// How many tries could not be made and on whom; an expert also reads the newest cause.
+fn failed_on<'a>(voice: Voice, rows: impl Iterator<Item = &'a TrickRow>, state: &NetState) -> String {
+    let failed: Vec<_> = rows.filter(|row| row.failed.is_some()).collect();
+    let on: std::collections::BTreeSet<u32> = failed.iter().map(|row| row.by).collect();
+    let names: Vec<String> = on.iter().filter_map(|id| state.members.iter().find(|member| member.id == *id)).map(|member| name(voice, member)).collect();
+    let said = fill(text(voice, "net.trick_failed"), &[&number(failed.len()), &names.join(", ")]);
+    match failed.last().and_then(|row| row.failed.as_deref()) {
+        Some(cause) if voice.mode == Mode::Expert => format!("{said} ({cause})"),
+        _ => said,
+    }
+}
+
+/// What a wait is called under a token, where a cell's width holds a few words; the panel says
+/// the whole sentence.
+fn wait_word(key: &'static str) -> &'static str {
+    match key {
+        "net.wait_coins" => "net.tok_wait_coins",
+        "net.wait_miner" => "net.tok_wait_miner",
+        "net.wait_receiver" => "net.tok_wait_receiver",
+        "net.wait_target" => "net.tok_wait_target",
+        "net.wait_run" => "net.tok_wait_run",
+        other => other,
+    }
+}
+
+/// The line under a token, and its colour. An expert miner's has two rows: its speed above the
+/// blocks it found.
 pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> (String, Color32) {
     if member.ended.is_some() {
-        return (text(voice, "net.ended").to_string(), t.bad);
+        return (text(voice, "net.tok_ended").to_string(), t.bad);
     }
     if member.paused {
         let key = if member.kind.mines() || member.kind.speed().is_some() { "net.paused" } else { "net.cut_off" };
@@ -75,19 +102,24 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) 
     let Some(status) = &member.status else {
         return (text(voice, "net.wait_start").to_string(), t.muted);
     };
+    let line = lab(member);
+    // A miner that started on a tip over an hour old hears its neighbours for a few seconds
+    // before it mines alone; a miner in a pool works for the pool all along.
+    if member.kind.mines() && member.pool.is_none() && line.looking {
+        return (text(voice, "net.tok_looking").to_string(), t.muted);
+    }
     let attacker = member.kind == Kind::Attacker || (member.kind == Kind::Pool && member.bad);
     if attacker {
         let share = number(power(member, state).unwrap_or(0));
         let key = if member.busy { "net.attacking" } else { "net.power" };
         return (fill(text(voice, key), &[&share]), t.bad);
     }
-    let line = lab(member);
     let expert = voice.mode == Mode::Expert;
     let say = |key: &str, value: u64| fill(text(voice, key), &[&number(value)]);
     let shown = match member.kind {
         // In a pool the pool finds the blocks: a member counts the shares it handed in.
         Kind::Miner if member.pool.is_some() => say("net.shares", line.accepted),
-        Kind::Miner | Kind::Attacker if expert => format!("{} · {}", format::rate(voice, status.hashrate), say("net.found", status.blocks_mined)),
+        Kind::Miner | Kind::Attacker if expert => format!("{}\n{}", format::rate(voice, status.hashrate), say("net.found", status.blocks_mined)),
         Kind::Miner | Kind::Attacker => say("net.found", status.blocks_mined),
         Kind::Pool => say("net.members", line.workers.len() as u64),
         Kind::Full => say("net.holds_all", status.height),
@@ -97,7 +129,7 @@ pub fn status_line(t: &Tokens, voice: Voice, member: &Member, state: &NetState) 
         Kind::Receiver => say("net.received", member.received.payments),
         Kind::Spammer => say("net.spam_sent", line.spam_sent),
         Kind::Sender | Kind::Exploiter => match member.waits {
-            Some(key) => text(voice, key).to_string(),
+            Some(key) => text(voice, wait_word(key)).to_string(),
             None if member.kind == Kind::Exploiter => say("net.refused_count", member.tricks.iter().filter(|row| row.refused).count() as u64),
             None => say("net.sent", member.received.sent),
         },
@@ -117,7 +149,11 @@ pub fn tricks(voice: Voice, member: &Member, state: &NetState) -> Vec<(String, S
         }
         let refused = rows.iter().filter(|row| row.refused).count();
         let counted = fill(text(voice, "net.fact_trick"), &[&number(rows.len()), &number(refused)]);
-        lines.push((text(voice, trick.key()).to_string(), format!("{counted} {}", text(voice, trick.rule_key()))));
+        let mut said = format!("{counted} {}", text(voice, trick.rule_key()));
+        if rows.iter().any(|row| row.failed.is_some()) {
+            said = format!("{said} {}", failed_on(voice, rows.iter().copied(), state));
+        }
+        lines.push((text(voice, trick.key()).to_string(), said));
     }
     if !lines.is_empty() && state.members.iter().any(|other| other.kind == Kind::Light) {
         lines.push((String::new(), text(voice, "net.trick_skip_light").to_string()));
@@ -185,7 +221,7 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
                 let failed = rows.iter().filter(|row| row.failed.is_some()).count();
                 facts.push(match (through, failed) {
                     (1.., _) => with("net.trick_let_through", &[&number(through)]),
-                    (0, 1..) => with("net.trick_failed", &[&number(failed)]),
+                    (0, 1..) => failed_on(voice, rows.iter(), state),
                     _ => text(voice, newest.trick.rule_key()).to_string(),
                 });
             }
@@ -193,6 +229,13 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
     }
     if let Some(key) = member.waits {
         facts.insert(0, text(voice, key).to_string());
+    }
+    // What the token says in a few words, the panel says whole.
+    if member.kind.mines() && member.pool.is_none() && line.looking {
+        facts.insert(0, text(voice, "net.fact_looking").to_string());
+    }
+    if member.ended.is_some() {
+        facts.insert(0, text(voice, "net.ended").to_string());
     }
     facts.truncate(3);
     facts
@@ -251,5 +294,89 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// One of anything reads as one: "Refused 1 time", not "Refused 1 times".
+    #[test]
+    fn a_count_of_one_reads_in_the_singular() {
+        let status = ChildStatus::default();
+        let state = NetState::default();
+        let t = crate::ui::tokens::DARK;
+        let row = |refused: bool| TrickRow {
+            trick: Trick::ALL[0],
+            by: 2,
+            refused,
+            expected: refused,
+            rule: String::new(),
+            failed: None,
+        };
+        for mode in [Mode::Basic, Mode::Expert] {
+            let voice = Voice { lang: Lang::En, mode };
+            let said = |rows: Vec<TrickRow>| {
+                let exploiter = Member { tricks: rows, ..member(Kind::Exploiter, &status) };
+                format!("{} | {}", status_line(&t, voice, &exploiter, &state).0, facts(voice, &exploiter, &state).join(" "))
+            };
+            let one = said(vec![row(true)]);
+            for many in ["1 times", "1 tricks", "1 others"] {
+                assert!(!one.contains(many), "{mode:?}: {one}");
+            }
+            assert!(one.contains("1 time"), "{mode:?}: {one}");
+            let two = said(vec![row(true), row(true)]);
+            assert!(two.contains("2 times"), "{mode:?}: {two}");
+        }
+        assert_eq!(super::super::lab_words::fill("{} blocks, {} blocks", &["1", "21"]), "1 block, 21 blocks");
+        assert_eq!(super::super::lab_words::fill("블록 {}개", &["1"]), "블록 1개");
+    }
+
+    /// A miner that started on a tip over an hour old says so for the seconds it holds back.
+    #[test]
+    fn a_miner_on_an_old_tip_says_it_waits_for_its_neighbours() {
+        let lab = crate::local::lab_side::LabLine { looking: true, ..Default::default() };
+        let status = ChildStatus { lab: Some(lab), ..ChildStatus::default() };
+        let state = NetState::default();
+        let t = crate::ui::tokens::DARK;
+        let voice = Voice { lang: Lang::Ko, mode: Mode::Basic };
+        let alone = member(Kind::Miner, &status);
+        assert_eq!(status_line(&t, voice, &alone, &state).0, "이웃 블록을 기다리는 중");
+        let pooled = Member { pool: Some(9), ..member(Kind::Miner, &status) };
+        assert_ne!(status_line(&t, voice, &pooled, &state).0, "이웃 블록을 기다리는 중");
+    }
+
+    /// Each row of the line under a token is at most as wide as its cell. A state it says alone, and a
+    /// count as high as a Lab run reaches, stand whole there in both languages and both modes.
+    #[test]
+    fn every_token_line_stands_whole_under_its_token() {
+        use crate::pages::lab_places::{LINE_SIZE, WORDS_WIDTH};
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::ui::fonts::definitions());
+        ctx.begin_pass(egui::RawInput::default());
+        let font = egui::FontId::proportional(LINE_SIZE);
+        let width = |words: &str| ctx.fonts_mut(|fonts| fonts.layout_no_wrap(words.to_string(), font.clone(), Color32::WHITE).size().x);
+        let lab = crate::local::lab_side::LabLine { accepted: 1_234, spam_sent: 1_234, oldest_held: 1_234, ..Default::default() };
+        let status = ChildStatus { height: 1_234, blocks_mined: 999, hashrate: 134_596, lab: Some(lab), ..ChildStatus::default() };
+        let state = NetState::default();
+        let t = crate::ui::tokens::DARK;
+        let mut cut = Vec::new();
+        for lang in [Lang::En, Lang::Ko] {
+            for mode in [Mode::Basic, Mode::Expert] {
+                let voice = Voice { lang, mode };
+                let said = |member: &Member, state: &NetState| status_line(&t, voice, member, state).0;
+                let mut lines: Vec<String> = Kind::ALL.iter().map(|kind| said(&member(*kind, &status), &state)).collect();
+                lines.push(said(&Member { pool: Some(9), ..member(Kind::Miner, &status) }, &state));
+                let racing = Member { busy: true, ..member(Kind::Attacker, &status) };
+                lines.push(said(&racing, &NetState { members: vec![racing.clone()], ..NetState::default() }));
+                let alone = ["net.tok_ended", "net.paused", "net.cut_off", "net.wait_start", "net.tok_looking"];
+                let waits = ["net.wait_coins", "net.wait_receiver", "net.wait_target", "net.wait_miner", "net.wait_run"];
+                lines.extend(alone.into_iter().chain(waits.into_iter().map(wait_word)).map(|key| text(voice, key).to_string()));
+                for line in lines.iter().flat_map(|line| line.lines()) {
+                    let wide = width(line);
+                    if wide > WORDS_WIDTH {
+                        cut.push(format!("{lang:?} {mode:?}: {line} ({wide:.0} of {WORDS_WIDTH:.0})"));
+                    }
+                }
+            }
+        }
+        ctx.end_pass().textures_delta.clear();
+        assert!(cut.is_empty(), "cut under a token:\n{}", cut.join("\n"));
     }
 }

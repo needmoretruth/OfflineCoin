@@ -8,16 +8,19 @@ use egui::{pos2, vec2, Pos2, Rect, Vec2};
 use std::collections::BTreeMap;
 
 pub const TOKEN: f32 = 20.0;
-/// One participant: its token with room for a mark above, and two lines of words under it.
-pub const CELL: Vec2 = vec2(124.0, 88.0);
+/// One participant: its token with room for a mark above, and under it its name and a line of up
+/// to two rows.
+pub const CELL: Vec2 = vec2(124.0, 100.0);
 /// Above the token, for the mark of what just happened to it.
 pub const ABOVE: f32 = 10.0;
 /// Between a token and its words.
 pub const WORDS_GAP: f32 = 4.0;
-/// The name and the line under a token or a ring.
-pub const WORDS: f32 = 32.0;
+/// The name and the line under a token or a ring, the line in up to two rows.
+pub const WORDS: f32 = 44.0;
 /// The widest the words under a token may be.
 pub const WORDS_WIDTH: f32 = CELL.x - 8.0;
+/// The size of the line under a token's name.
+pub const LINE_SIZE: f32 = 11.5;
 /// The pool's shape on its ring's top edge.
 pub const BADGE: f32 = 13.0;
 const GAP: f32 = 8.0;

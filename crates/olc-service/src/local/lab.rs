@@ -88,12 +88,24 @@ pub(crate) fn remove_later(folder: PathBuf) {
 /// The practice coin's ticker, beside every amount the Lab shows.
 pub const LAB_TICKER: &str = "LAB";
 
+/// How long before now the next Lab chain was made, with no block since; zero is now.
+static IDLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The next Lab network starts on a chain made `idle` ago with no block since, as a Lab left
+/// open that long with nothing mining. For tests of what a person meets then: the app never
+/// calls it, and `Duration::ZERO` puts it back.
+pub fn next_chain_idle_for(idle: Duration) {
+    let idle = u64::try_from(idle.as_millis()).unwrap_or(u64::MAX);
+    IDLE_MS.store(idle, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub(crate) fn lab_coin() -> CoinConfig {
+    let idle = IDLE_MS.load(std::sync::atomic::Ordering::SeqCst);
     CoinConfig {
         name: "OLC Lab".into(),
         ticker: LAB_TICKER.into(),
         message: "OLC Lab, this computer only".into(),
-        genesis_time_ms: crate::core::unix_ms(),
+        genesis_time_ms: crate::core::unix_ms().saturating_sub(idle),
         initial_difficulty: DIFFICULTY,
         premine: Vec::new(),
         rules: Rules {

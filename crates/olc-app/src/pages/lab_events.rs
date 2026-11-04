@@ -6,7 +6,8 @@
 //! same thing together (refuse one trick, drop the same blocks) that is one line naming them, and a
 //! warning stays a few seconds however much happens after it, so a person can read it.
 use super::lab_tokens::{name, number};
-use crate::i18n::{fill, text, Lang, Voice};
+use crate::i18n::{text, Lang, Voice};
+use super::lab_words::fill;
 use crate::local::lab_net::{Kind, Member, NetState, What};
 use crate::settings::Mode;
 use crate::ui::tokens::{self, Tokens};

@@ -12,15 +12,16 @@
 //! // `verdicts` yields the node's newest verdicts from its status line, e.g.
 //! //   || supervisor.status(node_id).map(|s| s.verdicts).unwrap_or_default()
 //! for trick in Trick::ALL {
-//!     let out: Outcome = try_trick(trick, &coin, addr, &wallet_folder, node_name, &verdicts)?;
+//!     let out: Outcome = try_trick(trick, &coin, Route { from: own, to: addr }, &wallet_folder, node_name, &verdicts)?;
 //!     // out.refused is true, out.reason is the rule the node named (e.g. "BadCoinbase"),
 //!     // out.by is which node refused it. Show trick.key() and trick.rule_key() as sentences.
 //! }
 //! ```
 //!
-//! `try_trick(trick, coin, target, funds, by, verdicts)`: builds the trick on a fresh copy of the
-//! node's chain (synced from the node over the network), sends it, and waits for the node to say
-//! what it did. `funds` is a wallet folder holding spendable coins on `coin`; it is read, never
+//! `try_trick(trick, coin, route, funds, by, verdicts)`: builds the trick on a fresh copy of the
+//! chain, synced over the network from `route.from`, a node that holds every block (a pruned node
+//! cannot serve the old ones), then turns to `route.to`, takes from it only the newest blocks it
+//! has and the copy lacks, sends the trick there, and waits for that node to say what it did. `funds` is a wallet folder holding spendable coins on `coin`; it is read, never
 //! written. `verdicts` returns the node's current verdict list, which the supervisor reads from
 //! the node's status line.
 #[path = "trouble_peer.rs"]
@@ -31,7 +32,7 @@ use trouble_peer::Peer;
 use olc_core::coin::COIN;
 use olc_core::types::{merkle_root, version_for};
 use olc_core::{
-    Block, Chain, ChainError, CoinConfig, OutPoint, Tx, TxIn, TxOut, SEQUENCE_FINAL,
+    Block, Chain, ChainError, CoinConfig, OutPoint, Tx, TxIn, TxOut, ADDRESS_LANGUAGE, SEQUENCE_FINAL,
 };
 use olc_crypto::{address_of, public_key, sign};
 use std::net::SocketAddr;
@@ -186,17 +187,29 @@ pub fn valid_block(
     send_block(&mut peer, block, by, verdicts, Trick::ExtraReward)
 }
 
-/// Commits `trick` against the node at `target` and returns what the node did about it.
+/// Where a trick's copy of the chain comes from, and the node the trick is for. They may be one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Route {
+    /// A node that holds every block.
+    pub from: SocketAddr,
+    /// The node that judges the trick.
+    pub to: SocketAddr,
+}
+
+/// Commits `trick` against the node at `route.to` and returns what the node did about it.
 pub fn try_trick(
     trick: Trick,
     coin: &CoinConfig,
-    target: SocketAddr,
+    route: Route,
     funds: &Path,
     by: &str,
     verdicts: &dyn Fn() -> Vec<Verdict>,
 ) -> Result<Outcome, String> {
-    let mut peer = Peer::connect(coin, target)?;
+    let mut peer = Peer::connect(coin, route.from)?;
     peer.catch_up()?;
+    if route.to != route.from {
+        peer.turn_to(route.to)?;
+    }
     if trick.is_block() {
         let block = build_block(trick, &peer.chain)?;
         send_block(&mut peer, block, by, verdicts, trick)
@@ -401,32 +414,27 @@ fn owned_coin(wallet: &olc_wallet::Wallet, chain: &Chain) -> Option<(olc_core::A
     None
 }
 
-/// A mature, unspent mining reward on the chain, oldest first.
+/// A mature, unspent mining reward on the chain, the oldest one.
 fn mature_coin(chain: &Chain) -> Option<OutPoint> {
     coinbase_coin(chain, true)
 }
 
-/// An unspent mining reward too young to spend: one near the tip.
+/// An unspent mining reward too young to spend: the newest one.
 fn immature_coin(chain: &Chain) -> Option<OutPoint> {
     coinbase_coin(chain, false)
 }
 
+/// Read from the unspent set, which every node keeps whole: a walk over old blocks would stop at
+/// the first one a copy no longer holds ([`Chain::block`] finds recent blocks only), and a Lab past
+/// that window would have no coin to forge against.
 fn coinbase_coin(chain: &Chain, mature: bool) -> Option<OutPoint> {
     let next = chain.height() + 1;
-    let maturity = chain.rules().coinbase_maturity;
-    let heights: Vec<u64> = (1..=chain.height()).collect();
-    let ordered: Vec<u64> = if mature { heights } else { heights.into_iter().rev().collect() };
-    for height in ordered {
-        let id = chain.id_at(height)?;
-        let block = chain.block(&id)?;
-        let coinbase = block.txs.first()?;
-        let point = OutPoint { txid: coinbase.id(), index: 0 };
-        let is_mature = next >= height.saturating_add(maturity);
-        if chain.is_unspent(&point) && is_mature == mature {
-            return Some(point);
-        }
-    }
-    None
+    let rewards = chain
+        .coins_under(ADDRESS_LANGUAGE)
+        .filter(|(_, entry)| entry.coinbase && chain.is_mature(entry, next) == mature)
+        .map(|(point, entry)| (entry.height, *point));
+    let found = if mature { rewards.min() } else { rewards.max() };
+    found.map(|(_, point)| point)
 }
 
 // --- small helpers ------------------------------------------------------------------------------

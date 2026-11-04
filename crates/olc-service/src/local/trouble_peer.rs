@@ -21,6 +21,10 @@ const QUIET: Duration = Duration::from_millis(400);
 const BLOCKS_AT_ONCE: usize = 8;
 /// Long enough for a thousand Lab blocks, a hundred and twenty-five rounds.
 const SYNC_WAIT: Duration = Duration::from_secs(120);
+/// How long two nodes may stand on different tips before a trick gives up on agreeing them; a
+/// block reaches every Lab node in well under a second.
+const TURN_WAIT: Duration = Duration::from_secs(15);
+const TURN_LOOK: Duration = Duration::from_millis(300);
 const READ_SIZE: usize = 16 * 1024;
 
 pub(super) struct Peer {
@@ -165,6 +169,31 @@ impl Peer {
             return Err(format!("{} follows a branch this copy does not.", self.target));
         }
         Ok(hello)
+    }
+
+    /// Keeps the copy and speaks to `target` from now on, once both stand on one tip. The target
+    /// may keep only recent blocks, so it is asked for no more than the newest few the copy lacks;
+    /// one a block behind is given a moment to hear of it from its neighbours.
+    pub(super) fn turn_to(&mut self, target: SocketAddr) -> Result<Hello, String> {
+        let _ = self.stream.shutdown(Shutdown::Both);
+        let (stream, heard) = dial(target, self.mark)?;
+        (self.target, self.stream, self.heard) = (target, stream, heard);
+        let until = Instant::now() + TURN_WAIT;
+        loop {
+            let hello = self.hello()?;
+            if hello.tip == self.chain.tip() {
+                return Ok(hello);
+            }
+            if !self.chain.contains(&hello.tip) {
+                if let Ok(hello) = self.catch_up() {
+                    return Ok(hello);
+                }
+            }
+            if Instant::now() > until {
+                return Err(format!("{target} stayed on another tip than the node the copy came from."));
+            }
+            thread::sleep(TURN_LOOK);
+        }
     }
 }
 

@@ -522,9 +522,12 @@ impl Keeper {
     }
 
     fn publish(&mut self) {
+        // Memory is slow to read; the count follows the participants at once.
         if self.room_at.is_none_or(|at| at.elapsed() > Duration::from_secs(2)) {
             self.room_at = Some(Instant::now());
             self.room = Room::measure(self.members.len());
+        } else {
+            self.room = Room::from_parts(self.members.len() as u64, self.room.free_mib, self.room.cores);
         }
         let state = NetState {
             members: self.members.clone(),

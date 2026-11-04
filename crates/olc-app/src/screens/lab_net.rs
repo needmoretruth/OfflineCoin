@@ -7,6 +7,7 @@ use crate::i18n::{self, Lang, Mode, Voice};
 use crate::local::lab::use_place;
 use crate::local::lab_net::Kind;
 use crate::pages::lab_tokens::kind_key;
+use crate::pages::lab_words::singular;
 use crate::settings::Theme;
 use egui::accesskit::Role;
 use egui_kittest::kittest::{By, NodeT, Queryable};
@@ -80,9 +81,7 @@ impl LabRun {
 
     /// The numbers in the first line that holds the fixed words of `key`.
     pub fn line_numbers(&self, key: &str) -> Option<Vec<f64>> {
-        let template = self.say(key);
-        let fixed = template.split("{}").max_by_key(|part| part.len()).unwrap_or(template).trim();
-        self.labels().into_iter().find(|label| label.contains(fixed)).map(|label| numbers(&label))
+        self.lines_with(key).first().map(|label| numbers(label))
     }
 
     /// Presses the button with these words, or the choice in a row of choices, bringing it into
@@ -118,11 +117,11 @@ impl LabRun {
         let label = self.token(name).unwrap_or_else(|| panic!("no token {name}"));
         self.window.get_by_role_and_label(Role::Button, &label).scroll_to_me();
         self.window.run_steps(SCROLL_STEPS);
-        // Its line may have changed while the page moved.
+        // Its line may have changed while the page moved. Pressed near its top: a pool's middle
+        // holds a miner, whose panel a press there opens.
         let label = self.token(name).unwrap_or_else(|| panic!("no token {name}"));
-        self.window.get_by_role_and_label(Role::Button, &label).click();
-        self.window.run_steps(2);
-        self.clicks += 1;
+        let rect = self.window.get_by_role_and_label(Role::Button, &label).rect();
+        self.click_at(rect.center_top() + egui::vec2(0.0, 8.0));
     }
 
     /// Clicks a slider `part` of the way along, as a person clicks its track.
@@ -130,7 +129,11 @@ impl LabRun {
         self.window.get_by_role_and_label(Role::Slider, label).scroll_to_me();
         self.window.run_steps(SCROLL_STEPS);
         let rect = self.window.get_by_role_and_label(Role::Slider, label).rect();
-        let at = egui::pos2(rect.left() + (rect.width() - 2.0) * part.clamp(0.0, 1.0) + 1.0, rect.center().y);
+        self.click_at(egui::pos2(rect.left() + (rect.width() - 2.0) * part.clamp(0.0, 1.0) + 1.0, rect.center().y));
+    }
+
+    /// Presses and lets go at one spot, as a hand clicks there.
+    fn click_at(&mut self, at: egui::Pos2) {
         self.window.hover_at(at);
         self.window.run_steps(1);
         self.window.drag_at(at);
@@ -140,11 +143,12 @@ impl LabRun {
         self.clicks += 1;
     }
 
-    /// Every line that holds the fixed words of `key`.
+    /// Every line that holds the fixed words of `key`, a count of one in the singular or not.
     pub fn lines_with(&self, key: &str) -> Vec<String> {
         let template = self.say(key);
         let fixed = template.split("{}").max_by_key(|part| part.len()).unwrap_or(template).trim();
-        self.labels().into_iter().filter(|label| label.contains(fixed)).collect()
+        let fixed = singular(fixed, false);
+        self.labels().into_iter().filter(|label| singular(label, false).contains(&fixed)).collect()
     }
 
     /// Drags a token onto another, as a person drags a miner into a pool.

@@ -5,7 +5,7 @@
 //! and its miners, and a refusal, a payment settled or undone and blocks replaced leave a short
 //! mark on the node; the sentence for each is under the map. A miner dragged into a pool joins it.
 use super::lab_glyphs as glyphs;
-use super::lab_places::{places, Places, BADGE, TOKEN, WORDS_GAP, WORDS_WIDTH};
+use super::lab_places::{places, Places, BADGE, LINE_SIZE, TOKEN, WORDS_GAP, WORDS_WIDTH};
 use super::lab_tokens::{name, number, status_line};
 use crate::i18n::{text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, What};
@@ -59,27 +59,31 @@ fn one_line(painter: &Painter, words: String, size: f32, colour: Color32) -> Arc
 /// The name and the line under a token, laid out.
 struct Words {
     name: Arc<Galley>,
-    line: Option<Arc<Galley>>,
+    /// The line under the name, a row for each of its parts.
+    rows: Vec<Arc<Galley>>,
 }
 
 impl Words {
     fn of(painter: &Painter, t: &Tokens, voice: Voice, member: &Member, state: &NetState) -> Self {
         let (line, colour) = status_line(t, voice, member, state);
-        let line = (!line.is_empty()).then(|| one_line(painter, line, 11.5, colour));
-        Self { name: one_line(painter, name(voice, member), 12.5, t.text), line }
+        let rows = line.lines().filter(|row| !row.is_empty()).map(|row| one_line(painter, row.to_string(), LINE_SIZE, colour)).collect();
+        Self { name: one_line(painter, name(voice, member), 12.5, t.text), rows }
     }
 
     /// Where they reach with their top middle at `top`.
     fn rect(&self, top: Pos2) -> Rect {
-        let wide = self.line.as_ref().map_or(0.0, |line| line.size().x).max(self.name.size().x);
-        let high = 16.0 + self.line.as_ref().map_or(0.0, |line| line.size().y);
+        let wide = self.rows.iter().map(|row| row.size().x).fold(self.name.size().x, f32::max);
+        let high = 16.0 + self.rows.iter().map(|row| row.size().y).sum::<f32>();
         Rect::from_min_size(top - vec2(wide / 2.0, 0.0), vec2(wide, high))
     }
 
     fn paint(self, painter: &Painter, t: &Tokens, top: Pos2) {
         painter.galley(top - vec2(self.name.size().x / 2.0, 0.0), self.name, t.text);
-        if let Some(line) = self.line {
-            painter.galley(top + vec2(-line.size().x / 2.0, 16.0), line, t.text);
+        let mut below = 16.0;
+        for row in self.rows {
+            let high = row.size().y;
+            painter.galley(top + vec2(-row.size().x / 2.0, below), row, t.text);
+            below += high;
         }
     }
 }
@@ -168,6 +172,7 @@ fn tokens_on(
         // The token and the words under it answer the hand alike, and are what a reader names.
         let hit = shape.union(words.rect(words_top));
         let (line, _) = status_line(t, voice, member, state);
+        let line = line.replace('\n', " · ");
         let label = if line.is_empty() { name(voice, member) } else { format!("{}, {line}", name(voice, member)) };
         let response = ui.interact(hit, ui.scope_id().with(("lab-token", member.id)), Sense::click_and_drag());
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));

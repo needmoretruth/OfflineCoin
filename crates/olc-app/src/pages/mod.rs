@@ -28,7 +28,7 @@ mod lab_panel;
 mod lab_strip;
 pub(crate) mod lab_tokens;
 pub(crate) mod lab_view;
-mod lab_words;
+pub(crate) mod lab_words;
 mod local;
 mod locks;
 mod mining;

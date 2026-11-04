@@ -2,7 +2,8 @@
 //! and how many more this computer carries.
 use super::lab_glyphs as glyphs;
 use super::lab_tokens::{kind_key, number};
-use crate::i18n::{fill, text, Voice};
+use crate::i18n::{text, Voice};
+use super::lab_words::fill;
 use crate::local::lab_net::{Kind, Limit, Order, Room, Scene, MOST};
 use crate::ui::tokens::{self, Tokens};
 use crate::ui::widgets::{button_on, Kind as ButtonKind};

@@ -82,6 +82,9 @@ pub struct LabLine {
     pub waiting_bytes: u64,
     /// The oldest block whose body this node still holds.
     pub oldest_held: u64,
+    /// It does not mine yet: it is catching up, or it started on a tip over an hour old and
+    /// gives its neighbours a few seconds to say what they hold.
+    pub looking: bool,
     /// Coins unspent on the whole chain, which every node but a light one keeps.
     pub unspent: u64,
     /// The newest blocks as height, bytes and payments.
@@ -409,6 +412,7 @@ impl LabSide {
             line.waiting = engine.pool().len() as u64;
             line.waiting_bytes = engine.pool().iter().map(|tx| tx.encode().len() as u64).sum();
             line.oldest_held = chain.oldest_held();
+            line.looking = engine.catching_up();
             line.unspent = chain.unspent_count() as u64;
             line.max_block_bytes = engine.rules().max_block_bytes;
             let height = chain.height();
