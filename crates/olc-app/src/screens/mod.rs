@@ -120,6 +120,8 @@ pub(super) fn wait_until(harness: &mut Window, mut done: impl FnMut(&App) -> boo
     for _ in 0..600 {
         harness.run_steps(1);
         if done(harness.state()) {
+            // The state can arrive after the frame was drawn: draw it before anyone looks.
+            harness.run_steps(3);
             return;
         }
         std::thread::sleep(Duration::from_millis(100));

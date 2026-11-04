@@ -78,6 +78,8 @@ fn wait_long(window: &mut Window, minutes: u64, mut done: impl FnMut(&crate::app
     while std::time::Instant::now() < until {
         window.run_steps(1);
         if done(window.state()) {
+            // The state can arrive after the frame was drawn: draw it before anyone looks.
+            window.run_steps(3);
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));

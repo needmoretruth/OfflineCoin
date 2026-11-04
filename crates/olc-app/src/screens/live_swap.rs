@@ -38,6 +38,8 @@ pub(super) fn wait_in(window: &mut Window, what: &str, minutes: u64, mut done: i
             panic!("{what}: {notice:?}");
         }
         if done(&snap) {
+            // The state can arrive after the frame was drawn: draw it before anyone looks.
+            window.run_steps(3);
             break;
         }
         assert!(started.elapsed() < Duration::from_secs(minutes * 60), "waited {minutes} minutes for {what}");
