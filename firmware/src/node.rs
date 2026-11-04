@@ -206,7 +206,7 @@ impl Node {
             limit => longest.min(limit.saturating_sub(self.attempts)),
         };
         // A board catching up does not hash, and must not say it does.
-        let catching_up = self.work.is_none() && self.runner.engine.syncing_to().is_some();
+        let catching_up = self.work.is_none() && self.runner.engine.catching_up();
         let held = cable_is_busy(now) || self.control.moving_image(now);
         let worked = self.mining && batch > 0 && !held && !catching_up;
         if worked {

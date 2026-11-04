@@ -60,6 +60,12 @@ pub struct Engine {
     pub(crate) held: Vec<OutPoint>,
     /// Who asked for blocks last, from where and when.
     pub(crate) answered: Option<(PeerId, Option<Hash>, u64)>,
+    /// Blocks sent ahead: to whom, the height it asked from, the height of the last one sent.
+    pub(crate) ahead: Option<(PeerId, u64, u64)>,
+    /// The message being handled came over a link that carries much at once.
+    pub(crate) fast_link: bool,
+    /// The device clock at the first turn, to give peers a moment before mining on an old tip.
+    pub(crate) started_ms: Option<u64>,
     pub(crate) history: History,
     pub(crate) fetching: Option<Fetching>,
     /// The snapshot being handed to a peer.
@@ -104,6 +110,9 @@ impl Engine {
             signing: None,
             held: Vec::new(),
             answered: None,
+            ahead: None,
+            fast_link: false,
+            started_ms: None,
             history: History::default(),
             fetching: None,
             serving: None,
@@ -226,6 +235,7 @@ impl Engine {
     /// Announces the tip now and then, which is also how peers find each other.
     pub fn tick(&mut self, device_ms: u64) {
         self.now_ms = device_ms;
+        self.started_ms.get_or_insert(device_ms);
         self.walked = false;
         if self.light_tick(device_ms) {
             return;
@@ -323,6 +333,22 @@ impl Engine {
         self.sync.behind(height, work, self.now_ms).filter(|_| self.sync.moving(self.now_ms))
     }
 
+    /// True while this node should not mine: it is catching up, or it has just started on a
+    /// tip too old to be the network's and has not heard from it yet. As Bitcoin Core refuses
+    /// `getblocktemplate` in its initial download, a block made then is made on a tip the
+    /// network left long ago.
+    pub fn catching_up(&self) -> bool {
+        self.syncing_to().is_some() || self.looking_around(self.now_ms)
+    }
+
+    /// Like [`Engine::on_message`], for a message that came over a link that carries much at
+    /// once: a cable to a computer, or TCP. A peer catching up there gets blocks sent ahead.
+    pub fn on_message_over(&mut self, from: PeerId, message: Message, fast_link: bool) {
+        self.fast_link = fast_link;
+        self.on_message(from, message);
+        self.fast_link = false;
+    }
+
     fn ask_for_blocks(&mut self) {
         let Some(peer) = self.sync.next_ask(self.chain.total_work(), self.now_ms) else {
             return;
@@ -339,7 +365,7 @@ impl Engine {
 
     /// Runs up to `attempts` sealing attempts and adds the block if one succeeds.
     pub fn mine(&mut self, attempts: u32, device_ms: u64) -> bool {
-        if self.light.is_some() || self.syncing_to().is_some() {
+        if self.light.is_some() || self.syncing_to().is_some() || self.looking_around(device_ms) {
             return false;
         }
         self.refresh_candidate(device_ms);
@@ -484,14 +510,19 @@ impl Engine {
     }
 
     pub(crate) fn announce(&mut self, except: Option<PeerId>) {
-        let message = Message::Tip {
+        let message = self.tip_message();
+        self.outbox.push_back(Outgoing::All { except, message });
+    }
+
+    /// What this node announces of its tip.
+    pub fn tip_message(&self) -> Message {
+        Message::Tip {
             genesis: self.chain.genesis_id(),
             tip: self.chain.tip(),
             previous: self.chain.tip_header().previous,
             height: self.chain.height(),
             work: self.chain.total_work(),
-        };
-        self.outbox.push_back(Outgoing::All { except, message });
+        }
     }
 
     fn refresh_candidate(&mut self, device_ms: u64) {

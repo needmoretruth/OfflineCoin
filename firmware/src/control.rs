@@ -68,6 +68,10 @@ pub struct Control {
     /// The boards that said what they are, by the address each mines to, and where each spoke
     /// from: the boards this one can pass lent work on to.
     pub heard: olc_control::lend::Heard,
+    /// When the date this board holds goes to flash.
+    pub keeping: olc_control::dated::Keeping,
+    /// The latest signed time this board passed on by radio.
+    pub date_passed: u64,
 }
 
 impl Control {
@@ -112,6 +116,8 @@ impl Control {
             signer,
             chunk_ms: 0,
             heard: Default::default(),
+            keeping: Default::default(),
+            date_passed: 0,
         }
     }
 }
@@ -153,11 +159,14 @@ impl Node {
             }
             if verdict.for_me && matches!(packet.body, Body::Lend(_)) {
                 self.lent(&packet, now);
+            } else if verdict.for_me && crate::dated::is_dated(&packet.body) {
+                self.dated(&packet, now);
             } else if verdict.for_me {
                 self.obey(packet.from, packet.body, now);
             }
         }
         self.serve_lent(now);
+        self.keep_date(now);
         if now >= self.control.beacon_ms {
             self.control.beacon_ms = now + BEACON_EVERY_MS;
             self.runner.card = self.card();

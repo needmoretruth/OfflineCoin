@@ -150,6 +150,9 @@ pub enum Body {
     },
     /// From the board on the cable: it passed signed work on to the board that mines to `worker`.
     Passed { worker: [u8; 20] },
+    /// The computer's time, for boards that have no clock of the date. See [`crate::dated`].
+    /// Builds before i21 cannot read it and pass it by.
+    Dated(crate::dated::Dated),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

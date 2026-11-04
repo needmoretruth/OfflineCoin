@@ -195,6 +195,11 @@ impl Link for SerialLink {
         Medium::Wire
     }
 
+    /// A computer reads a board's cable as fast as the board writes.
+    fn carries_much(&self) -> bool {
+        true
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         if target == Target::AllExcept(0) {
             return;

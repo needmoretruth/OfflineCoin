@@ -144,7 +144,7 @@ pub fn worn_by(at: u32) -> impl Iterator<Item = Worn> {
 }
 
 /// The chip as the wear rings see it.
-struct Nor;
+pub struct Nor;
 
 impl Settings {
     /// A stored choice stays; a board that was never told goes by the shared default.

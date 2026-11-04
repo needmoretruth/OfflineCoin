@@ -9,6 +9,7 @@ mod care;
 mod clock;
 mod commands;
 mod control;
+mod dated;
 mod flash;
 mod hangul;
 mod lend;
@@ -239,7 +240,13 @@ async fn main(spawner: Spawner) -> ! {
     let identity = store.identity();
     let counter = store.counter();
     let slot = store.running_slot();
-    let control = Control::new(me, Rng::new().random(), identity, counter, slot, signer);
+    let mut control = Control::new(me, Rng::new().random(), identity, counter, slot, signer);
+    // The last date this board knew, so a restart does not send its clock back to the tip's.
+    if let Some(saved) = dated::saved() {
+        let now = node::device_ms();
+        engine.take_date(saved, now);
+        control.keeping.learned(now, true);
+    }
 
     let mut runner = Runner::new(engine);
     runner.add_link(Box::new(RadioLink::new(espnow, runner.mark())));

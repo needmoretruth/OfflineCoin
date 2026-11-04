@@ -177,6 +177,11 @@ impl Link for UsbLink {
         Medium::Wire
     }
 
+    /// The computer on the far end reads as fast as this board writes.
+    fn carries_much(&self) -> bool {
+        true
+    }
+
     fn send(&mut self, target: Target, message: &[u8]) {
         if !self.bridged || target == Target::AllExcept(0) {
             return;

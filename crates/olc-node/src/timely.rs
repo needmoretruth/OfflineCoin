@@ -4,6 +4,13 @@ use crate::engine::Engine;
 use olc_core::timing::DATED_CLOCK_FROM_MS;
 use olc_core::{Block, BlockHeader};
 
+/// A tip this much older than a computer's clock is not its network's tip, as Bitcoin Core takes
+/// a tip a day old for its initial download. An hour is 120 blocks of 30 seconds.
+const STALE_TIP_MS: u64 = 3_600_000;
+/// How long a computer that starts on such a tip waits to hear its peers before it mines alone.
+/// Boards announce their tip every two seconds and the network's nodes answer at once.
+const LOOK_AROUND_MS: u64 = 10_000;
+
 impl Engine {
     /// True when the device clock counts from the date, as a computer's does. A board's counts
     /// from its own start.
@@ -16,9 +23,32 @@ impl Engine {
         device_ms.saturating_add(self.clock_offset_ms)
     }
 
-    /// A board has no clock of the date, so it runs at least as late as its chain's tip. A
-    /// computer keeps its own: a block stamped ahead must not pull it along, or a few such
-    /// blocks would carry every clock as far ahead as anyone liked.
+    /// The time now, as blocks count it, by a clock at `device_ms`. A board saves this.
+    pub fn clock_at(&self, device_ms: u64) -> u64 {
+        self.chain_now(device_ms)
+    }
+
+    /// Takes the date from a source the caller trusts: the control key's signature, or what the
+    /// board itself saved before a restart. Without it a board starts a fresh chain at its genesis
+    /// time and every block it makes lags the date by as long as the coin waited for its first
+    /// block. The clock only moves forward, so an old copy of a signed time changes nothing, and
+    /// it never goes below the tip. A computer's own clock has the date and takes nothing. True
+    /// when the clock moved.
+    pub fn take_date(&mut self, dated_ms: u64, device_ms: u64) -> bool {
+        if device_ms >= DATED_CLOCK_FROM_MS || dated_ms < DATED_CLOCK_FROM_MS {
+            return false;
+        }
+        let offset = dated_ms.saturating_sub(device_ms);
+        let moved = offset > self.clock_offset_ms;
+        self.clock_offset_ms = self.clock_offset_ms.max(offset);
+        self.follow_chain_clock(device_ms);
+        moved
+    }
+
+    /// A board has no clock of the date, so it runs at least as late as its chain's tip, and from
+    /// the date once the app that controls it gave one ([`Engine::take_date`]). A computer keeps
+    /// its own: a block stamped ahead must not pull it along, or a few such blocks would carry
+    /// every clock as far ahead as anyone liked.
     pub(crate) fn follow_chain_clock(&mut self, device_ms: u64) {
         if device_ms >= DATED_CLOCK_FROM_MS {
             self.clock_offset_ms = 0;
@@ -26,6 +56,18 @@ impl Engine {
         }
         let chain_ms = self.chain.tip_header().time_ms;
         self.clock_offset_ms = self.clock_offset_ms.max(chain_ms.saturating_sub(device_ms));
+    }
+
+    /// True for the first moments of a computer whose tip is too old to be its network's: it
+    /// gives its peers time to say what they hold before it mines a block at the floor on a tip
+    /// they left long ago. A node alone mines once the moment has passed.
+    /// `device_ms` is the time a block would be made at.
+    pub(crate) fn looking_around(&self, device_ms: u64) -> bool {
+        let Some(started) = self.started_ms.filter(|_| self.clock_is_dated()) else {
+            return false;
+        };
+        let tip_age = device_ms.saturating_sub(self.chain.tip_header().time_ms);
+        device_ms.saturating_sub(started) < LOOK_AROUND_MS && tip_age > STALE_TIP_MS
     }
 
     /// True when `block` is further ahead of this clock than its coin allows. As Bitcoin Core's

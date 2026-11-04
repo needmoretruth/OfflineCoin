@@ -44,6 +44,11 @@ pub trait Link: Send {
     fn cancel(&mut self, _address: &str) {}
     /// Ends a connection that has gone silent, so its address can be dialled again.
     fn close(&mut self, _number: u32) {}
+    /// True for a link that carries much at once and loses nothing: TCP, or the cable between a
+    /// computer and a board. Blocks go ahead over it to a peer catching up.
+    fn carries_much(&self) -> bool {
+        false
+    }
     fn news(&mut self) -> Option<News> {
         None
     }
@@ -360,6 +365,7 @@ impl Runner {
     /// What the links that must connect have to say, and what to tell them.
     fn keep_connections(&mut self, now: u64) {
         let here = self.here();
+        let tip = (!self.offline).then(|| self.stamped(&self.engine.tip_message()));
         for (index, link) in self.links.iter_mut().enumerate() {
             while let Some(news) = link.news() {
                 match news {
@@ -371,8 +377,13 @@ impl Runner {
                                 }
                             }
                         }
-                        // Neither end waits for the next Hello to know who the other is.
+                        // Neither end waits for the next Hello to know who the other is, nor
+                        // for the next announcement to know what it holds, so a node that is
+                        // behind asks for blocks the moment it connects.
                         link.send(Target::Peer(number), &here);
+                        if let Some(tip) = &tip {
+                            link.send(Target::Peer(number), tip);
+                        }
                     }
                     News::Closed { number } => {
                         self.table.lost(index, number);
@@ -428,6 +439,7 @@ impl Runner {
         self.engine.tick(device_ms);
         let mut asked = Vec::new();
         for (index, link) in self.links.iter_mut().enumerate() {
+            let fast = link.carries_much();
             for _ in 0..MOST_HEARD_PER_TURN {
                 let Some((peer, bytes)) = link.receive() else {
                     break;
@@ -478,7 +490,7 @@ impl Runner {
                                 self.channel.push_back((index, neighbour, packet));
                             }
                         }
-                        Some(message) => self.engine.on_message(neighbour, message),
+                        Some(message) => self.engine.on_message_over(neighbour, message, fast),
                         None => {}
                     }
                 }
