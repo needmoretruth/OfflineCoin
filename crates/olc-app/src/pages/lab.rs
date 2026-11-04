@@ -5,6 +5,7 @@
 //! in expert mode, under the map. Leaving the page stops every participant.
 use super::lab_boards::BoardLab;
 use super::lab_chain;
+use super::lab_events;
 use super::lab_map::{self, MapAct, MapView};
 use super::lab_palette;
 use super::lab_panel::{self, Held};
@@ -30,6 +31,7 @@ const MAP_HEIGHT: f32 = 340.0;
 pub struct Lab {
     net: Option<LabNet>,
     map: MapView,
+    said: lab_events::Said,
     held: Held,
     /// What this computer carries before the network starts, measured now and then.
     room: Option<(Instant, Room)>,
@@ -120,22 +122,28 @@ impl Lab {
             (Some(member), true) => {
                 ui.horizontal_top(|ui| {
                     let map_width = ui.available_width() - PANEL_WIDTH - tokens::GAP_WIDE;
-                    ui.allocate_ui(egui::vec2(map_width, MAP_HEIGHT), |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(map_width);
                         map_act = lab_map::draw(ui, t, voice, &mut self.map, state, MAP_HEIGHT);
+                        lab_events::draw(ui, t, voice, &mut self.said, state);
                     });
                     ui.add_space(tokens::GAP);
-                    ui.allocate_ui(egui::vec2(PANEL_WIDTH, MAP_HEIGHT), |ui| {
+                    ui.vertical(|ui| {
                         ui.set_width(PANEL_WIDTH);
-                        ui.vertical(|ui| order = lab_panel::draw(ui, t, voice, &mut self.held, member, state));
+                        order = lab_panel::draw(ui, t, voice, &mut self.held, member, state);
                     });
                 });
             }
             (Some(member), false) => {
                 map_act = lab_map::draw(ui, t, voice, &mut self.map, state, MAP_HEIGHT);
+                lab_events::draw(ui, t, voice, &mut self.said, state);
                 ui.add_space(tokens::GAP);
                 order = lab_panel::draw(ui, t, voice, &mut self.held, member, state);
             }
-            (None, _) => map_act = lab_map::draw(ui, t, voice, &mut self.map, state, MAP_HEIGHT),
+            (None, _) => {
+                map_act = lab_map::draw(ui, t, voice, &mut self.map, state, MAP_HEIGHT);
+                lab_events::draw(ui, t, voice, &mut self.said, state);
+            }
         }
         let pools = state.members.iter().any(|member| member.kind == Kind::Pool);
         let alone = state.members.iter().any(|member| member.kind == Kind::Miner && member.pool.is_none());

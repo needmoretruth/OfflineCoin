@@ -85,10 +85,13 @@ pub(crate) fn remove_later(folder: PathBuf) {
     });
 }
 
+/// The practice coin's ticker, beside every amount the Lab shows.
+pub const LAB_TICKER: &str = "LAB";
+
 pub(crate) fn lab_coin() -> CoinConfig {
     CoinConfig {
         name: "OLC Lab".into(),
-        ticker: "LAB".into(),
+        ticker: LAB_TICKER.into(),
         message: "OLC Lab, this computer only".into(),
         genesis_time_ms: crate::core::unix_ms(),
         initial_difficulty: DIFFICULTY,

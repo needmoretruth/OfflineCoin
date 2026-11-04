@@ -207,7 +207,8 @@ pub enum What {
     Payout { from: u32, to: u32, amount: u64 },
     /// A node replaced blocks with those of a chain with more work.
     Replaced { at: u32, blocks: u64 },
-    Refused { by: u32, trick: Trick, rule: String },
+    /// A node refused a trick of the bug exploiter `from`, naming the rule as its chain says it.
+    Refused { from: u32, by: u32, trick: Trick, rule: String },
     /// A payment to a receiver is under enough blocks.
     Settled { at: u32, amount: u64 },
     /// A payment a receiver held in a block is on no chain any more.

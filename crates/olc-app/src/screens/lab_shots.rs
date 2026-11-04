@@ -14,6 +14,9 @@ const BASIC_KO: Voice = Voice { lang: Lang::Ko, mode: Mode::Basic };
 const EXPERT_EN: Voice = Voice { lang: Lang::En, mode: Mode::Expert };
 
 /// Every "+ kind" and every setup is on the Lab's first view, in both modes and languages.
+/// Attacks a person may press before the race is won.
+const ATTACK_TRIES: usize = 3;
+
 #[test]
 fn every_kind_and_setup_is_one_click_from_the_first_view() {
     let mut window = harness(app(scratch("lab_page"), quiet_settings(), None), SHOT_SIZE);
@@ -106,7 +109,7 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
     run.wait(120, "a payment settles", |run| receiver_counts(run).is_some_and(|(_, settled, _)| settled >= 1.0));
     run.shoot("03-payment-settled");
     // 4. A bad miner: the hidden chain lands and the receiver's payment is undone.
-    add_and_see(&mut run, Kind::Attacker, 1);
+    let attacker = add_and_see(&mut run, Kind::Attacker, 1);
     let stop = run.say("lab2.stop");
     run.wait(240, "the attack starts", |run| run.has_button(stop));
     for moment in 1..=3 {
@@ -116,14 +119,27 @@ fn a_person_builds_the_network_by_clicks_in_plain_korean() {
             run.shoot(&format!("04-attack-race-{moment}"));
         }
     }
-    run.wait(600, "the receiver's payment is undone", |run| receiver_counts(run).is_some_and(|(_, _, undone)| undone >= 1.0));
-    let replaced = run.say("net.legend_replaced");
-    assert!(run.labels().iter().any(|label| label == replaced), "the replaced blocks show under the map");
+    // The receiver's count, and the sentence under the map that says whose payment went. A real
+    // attacker can lose the race; a person then presses the attack again, and so does this.
+    let undone = |run: &LabRun| receiver_counts(run).is_some_and(|(_, _, undone)| undone >= 1.0) && run.line_numbers("net.say_undone").is_some();
+    let again = run.say("net.again_attack");
+    for _ in 0..ATTACK_TRIES {
+        run.wait(600, "the receiver's payment is undone, or the attack ended", |run| undone(run) || !run.has_button(stop));
+        if undone(run) {
+            break;
+        }
+        run.select(&attacker);
+        run.wait(60, "the attack can start again", |run| run.has_button(again));
+        run.press(again);
+        run.wait(240, "the attack starts again", |run| run.has_button(stop));
+        run.select(&receiver);
+    }
+    assert!(undone(&run), "the attack never undid the payment");
     run.shoot("04-attack-undone");
     run.select(&receiver);
     // 5. Spam: the waiting list grows past what a block holds.
     add_and_see(&mut run, Kind::Spammer, 1);
-    let piled = |run: &LabRun| run.line_numbers("net.waiting").is_some_and(|numbers| numbers.len() >= 2 && numbers[0] > numbers[1]);
+    let piled = |run: &LabRun| run.line_numbers("net.pile_over").is_some();
     run.wait(240, "the waiting list passes a block", piled);
     run.shoot("05-spam");
     // 6. A bug exploiter: each trick refused by every node, with the rule named.
@@ -239,7 +255,7 @@ fn every_setup_is_one_click_in_expert_english() {
                 assert!(!run.labels().iter().any(|label| label.starts_with(fixed)), "{scene:?} failed: {:?}", run.labels());
             }
             Scene::Spam => {
-                let piled = |run: &LabRun| run.line_numbers("net.waiting").is_some_and(|numbers| numbers.len() >= 2 && numbers[0] > numbers[1]);
+                let piled = |run: &LabRun| run.line_numbers("net.pile_over").is_some();
                 run.wait(240, "the waiting list passes a block", piled);
             }
             Scene::Exploit => {

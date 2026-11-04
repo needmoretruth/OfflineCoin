@@ -45,13 +45,39 @@ pub fn step_words(voice: Voice, kind: LabKind, step: &Step) -> String {
     }
 }
 
+/// Why a run stopped, in the person's words. The experiments say it in English for the console;
+/// an expert sees that line too.
+fn why(voice: Voice, error: &str) -> String {
+    let lower = error.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|word| lower.contains(word));
+    let key = if has(&["stopped by hand"]) {
+        "net.why_stopped"
+    } else if has(&["out of time"]) {
+        "net.why_time"
+    } else if has(&["not_enough", "holds only", "did not pay"]) {
+        "net.why_coins"
+    } else if has(&["did not reach"]) {
+        "net.why_reach"
+    } else if has(&["did not agree", "changed branch"]) {
+        "net.why_agree"
+    } else if has(&["needs a miner", "miners are needed", "boards are needed"]) {
+        "net.why_miners"
+    } else {
+        "net.why_other"
+    };
+    match voice.mode {
+        crate::settings::Mode::Expert if !error.is_empty() => format!("{} ({error})", text(voice, key)),
+        _ => text(voice, key).to_string(),
+    }
+}
+
 /// The one sentence that says where a run stands now.
 pub fn now_words(voice: Voice, state: &LabState) -> String {
     let kind = state.kind.unwrap_or(LabKind::Attack);
     match state.phase {
         Phase::Idle | Phase::Starting => text(voice, "lab2.starting").to_string(),
         Phase::Warming => text(voice, "lab2.warming").to_string(),
-        Phase::Failed => fill(text(voice, "lab2.failed"), &[state.error.as_deref().unwrap_or("")]),
+        Phase::Failed => fill(text(voice, "lab2.failed"), &[&why(voice, state.error.as_deref().unwrap_or(""))]),
         Phase::Running | Phase::Done => match state.frames.last() {
             Some(frame) => step_words(voice, kind, &frame.step),
             None => text(voice, "lab2.starting").to_string(),

@@ -1,7 +1,6 @@
 //! What each participant is called and the few facts it says: one short line under its token,
 //! and at most three lines in its panel. Basic mode counts in plain words; expert mode says
 //! heights, hash rates and the mempool.
-use crate::core::format_coins;
 use crate::i18n::{fill, text, Voice};
 use crate::local::lab_net::{Kind, Member, NetState, Trick};
 use crate::settings::Mode;
@@ -32,15 +31,10 @@ fn lab(member: &Member) -> crate::local::lab_side::LabLine {
     member.status.as_ref().and_then(|status| status.lab.clone()).unwrap_or_default()
 }
 
-fn coins(units: u64) -> String {
-    let shown = format_coins(units);
-    match shown.split_once('.') {
-        Some((whole, part)) => {
-            let part = part.trim_end_matches('0');
-            if part.is_empty() { whole.to_string() } else { format!("{whole}.{}", &part[..part.len().min(2)]) }
-        }
-        None => shown,
-    }
+/// An amount of the practice coin as every page says amounts: rounded for a plain reader, to the
+/// last unit for an expert, with the coin's ticker.
+pub(super) fn coins(voice: Voice, units: u64) -> String {
+    crate::ui::format::payout(voice, units, crate::local::lab::LAB_TICKER)
 }
 
 /// The one line under a token, and its colour.
@@ -114,14 +108,14 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
         Kind::Miner => match member.pool.and_then(|pool| state.members.iter().find(|other| other.id == pool)) {
             Some(pool) => {
                 let paid = member.received.from_pool;
-                facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(paid)]));
+                facts.push(with("net.fact_in_pool", &[&name(voice, pool), &coins(voice, paid)]));
             }
-            None => facts.push(with("net.fact_miner", &[&status.blocks_mined.to_string(), &coins(status.balance)])),
+            None => facts.push(with("net.fact_miner", &[&status.blocks_mined.to_string(), &coins(voice, status.balance)])),
         },
         Kind::Attacker => {
             let total: u64 = state.members.iter().filter_map(|other| other.status.as_ref()).map(|other| other.hashrate).sum();
             let share = (status.hashrate * 100).checked_div(total).unwrap_or(0);
-            facts.push(with("net.fact_attacker", &[&share.to_string(), &coins(status.balance)]));
+            facts.push(with("net.fact_attacker", &[&share.to_string(), &coins(voice, status.balance)]));
         }
         Kind::Pool => {
             facts.push(with("net.fact_pool", &[&line.workers.len().to_string(), &line.pool_found.to_string()]));
@@ -131,13 +125,13 @@ pub fn facts(voice: Voice, member: &Member, state: &NetState) -> Vec<String> {
                     .iter()
                     .find(|other| other.address() == Some(worker.address.as_str()))
                     .map_or_else(|| worker.address.chars().take(10).collect(), |other| name(voice, other));
-                facts.push(with("net.fact_worker", &[&who, &worker.accepted.to_string(), &coins(worker.paid)]));
+                facts.push(with("net.fact_worker", &[&who, &worker.accepted.to_string(), &coins(voice, worker.paid)]));
             }
         }
         Kind::Full => facts.push(with("net.fact_full", &[&status.height.to_string()])),
         Kind::Pruned => facts.push(with("net.fact_pruned", &[&line.oldest_held.to_string()])),
         Kind::Light => facts.push(with("net.fact_light", &[&status.headers.unwrap_or(status.height).to_string()])),
-        Kind::Sender => facts.push(with("net.fact_sender", &[&member.received.sent.to_string(), &coins(status.balance)])),
+        Kind::Sender => facts.push(with("net.fact_sender", &[&member.received.sent.to_string(), &coins(voice, status.balance)])),
         Kind::Receiver => {
             let got = member.received;
             facts.push(with("net.fact_receiver", &[&got.payments.to_string(), &got.settled.to_string(), &got.undone.to_string()]));

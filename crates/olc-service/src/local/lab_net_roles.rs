@@ -180,6 +180,19 @@ impl Keeper {
         if member.status.as_ref().map_or(0, |status| status.spendable) < ATTACK_AMOUNT * COIN * 2 {
             return Some("net.wait_coins");
         }
+        // Its coins count only on the chain the victim holds too. A bad miner just started mines
+        // alone at first; what it found there goes when it takes the others' longer chain, and it
+        // would then have nothing to pay with.
+        let tip = member.status.as_ref().map(|status| status.tip.as_str()).unwrap_or_default();
+        let shared = self
+            .members
+            .iter()
+            .filter(|other| other.id == victim)
+            .filter_map(|other| other.status.as_ref())
+            .any(|status| status.tip == tip || status.chain.iter().any(|block| block.id == tip));
+        if !shared {
+            return Some("net.wait_coins");
+        }
         if member.paused {
             return None;
         }

@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Once the first miner is this far ahead, the blocks are made even if a slow node lags.
 const MAKE_LAG: Duration = Duration::from_secs(30);
+/// Tries of one trick on one node before what it got is said.
+const TRICK_TRIES: usize = 4;
+const TRICK_AGAIN: Duration = Duration::from_secs(2);
 
 struct Run {
     kind: LabKind,
@@ -58,8 +61,9 @@ impl Runs {
     }
 
     /// Every trick on every target, one after another on a thread of its own: two at once on
-    /// one node could mix their verdicts. A trick that cannot be tried on one node is said, and
-    /// the rest go on.
+    /// one node could mix their verdicts. A busy network can keep a node from answering in time,
+    /// or move its tip while a trick block is built on the old one, so a trick with no verdict
+    /// for its own rule is tried again a few times; what it got last is what is said.
     pub fn start_tricks(&mut self, exploiter: u32, coin: CoinConfig, targets: Vec<(u32, SocketAddr)>, funds: PathBuf) {
         let (answers, inbox) = channel();
         let verdicts = Arc::clone(&self.verdicts);
@@ -73,7 +77,14 @@ impl Runs {
                         let all = verdicts.lock().ok().and_then(|all| all.get(target).cloned()).unwrap_or_default();
                         all.into_iter().filter(|verdict| verdict.refused.is_some()).collect()
                     };
-                    let outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+                    let mut outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+                    for _ in 1..TRICK_TRIES {
+                        if outcome.as_ref().is_ok_and(TrickOutcome::refused_as_expected) {
+                            break;
+                        }
+                        thread::sleep(TRICK_AGAIN);
+                        outcome = try_trick(trick, &coin, *address, &funds, &target.to_string(), &seen);
+                    }
                     if answers.send((*target, trick, outcome)).is_err() {
                         return;
                     }
@@ -344,7 +355,7 @@ impl Keeper {
                 Ok(outcome) => {
                     let rule = outcome.reason.clone().unwrap_or_default();
                     if outcome.refused {
-                        self.event(What::Refused { by: target, trick, rule: rule.clone() });
+                        self.event(What::Refused { from: exploiter, by: target, trick, rule: rule.clone() });
                     }
                     TrickRow { trick, by: target, refused: outcome.refused, expected: outcome.refused_as_expected(), rule, failed: None }
                 }

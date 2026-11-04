@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Payments to this wallet the line carries, newest last.
 const KEPT_INCOMING: usize = 8;
@@ -23,6 +23,16 @@ const SPAM_RATE: u64 = 1;
 const SPAM_SPLIT: u64 = 40;
 /// Fewer coins than this to spend from, and the spammer splits again.
 const SPAM_FEWEST: usize = 8;
+/// Small coins one payment gathers into two it can spend again.
+const SPAM_GATHER: usize = 24;
+/// The most of each second the spammer holds its node's engine.
+const SPAM_HOLD: Duration = Duration::from_millis(250);
+/// How often a node offers the payments still waiting to its neighbours again. A node passes a
+/// payment on once, when it first takes it; one lost on the way, or refused by a neighbour that
+/// was a block behind then, would wait forever, as Bitcoin's wallets know and offer again.
+const OFFER_AGAIN: Duration = Duration::from_secs(15);
+/// More waiting than this is a spam pile, which offering again would only slow.
+const OFFER_MOST: usize = 32;
 /// Newest blocks whose size the line carries.
 const SIZES_SHOWN: u64 = 14;
 
@@ -63,7 +73,8 @@ pub struct LabLine {
     /// Shares the pool took from this node.
     pub accepted: u64,
     pub incoming: Vec<Incoming>,
-    /// Bytes of payments waiting for a block.
+    /// Payments waiting for a block, and their bytes, counted at one moment.
+    pub waiting: u64,
     pub waiting_bytes: u64,
     /// The oldest block whose body this node still holds.
     pub oldest_held: u64,
@@ -113,6 +124,12 @@ pub struct LabSide {
     spam: u64,
     budget: f64,
     turned: Option<Instant>,
+    /// Coins it found free and has not spent yet: looking again costs as much as a payment.
+    spare: Vec<OutPoint>,
+    /// Time it held the engine since `held_since`, a second at most ago.
+    held: Duration,
+    held_since: Option<Instant>,
+    offered: Option<Instant>,
     spam_sent: u64,
     incoming: BTreeMap<String, Incoming>,
     order: Vec<String>,
@@ -185,43 +202,110 @@ impl LabSide {
             self.flood(host);
         } else {
             self.budget = 0.0;
+            self.offer_again(host, now);
         }
     }
 
-    /// Spends one coin a payment, so no payment waits for another, and splits its coins first.
-    fn flood(&mut self, host: &Host) {
+    /// Takes the waiting payments back and in again, which passes each to every neighbour anew.
+    /// The node checks each as it would a new one, so one a block made impossible goes.
+    fn offer_again(&mut self, host: &Host, now: Instant) {
+        if self.offered.is_some_and(|at| now.duration_since(at) < OFFER_AGAIN) {
+            return;
+        }
+        self.offered = Some(now);
         let Ok(mut runner) = host.runner.lock() else {
             return;
         };
         let engine = &mut runner.engine;
+        let waiting = engine.pool().to_vec();
+        if waiting.is_empty() || waiting.len() > OFFER_MOST || engine.light().is_some() {
+            return;
+        }
+        engine.clear_pool();
+        for tx in waiting {
+            engine.submit_tx(tx);
+        }
+    }
+
+    /// Spends one coin a payment, so no payment waits for another, and splits its coins first.
+    /// The engine is taken for one payment at a time and for at most a quarter of each second: a
+    /// payment checks itself against every one waiting, so with a full waiting list a spammer
+    /// that paid as fast as asked would keep its own node from answering any peer.
+    fn flood(&mut self, host: &Host) {
+        let now = Instant::now();
+        if self.held_since.is_none_or(|since| now.duration_since(since) >= Duration::from_secs(1)) {
+            self.held_since = Some(now);
+            self.held = Duration::ZERO;
+        }
+        if self.spare.is_empty() {
+            let took = Instant::now();
+            let Ok(mut runner) = host.runner.lock() else {
+                return;
+            };
+            self.spare = self.coins_to_flood(&mut runner.engine);
+            self.held += took.elapsed();
+        }
+        while self.budget >= 1.0 && self.held < SPAM_HOLD {
+            let Some(point) = self.spare.pop() else {
+                return;
+            };
+            self.budget -= 1.0;
+            let took = Instant::now();
+            let Ok(mut runner) = host.runner.lock() else {
+                return;
+            };
+            let own = runner.engine.wallet().address();
+            if runner.engine.pay_with(&[(own, SPAM_AMOUNT)], SPAM_RATE, &[point]).is_ok() {
+                self.spam_sent += 1;
+            }
+            self.held += took.elapsed();
+        }
+    }
+
+    /// The coins free for spam now, kept until they are spent; too few, and it splits its
+    /// largest coin. Each spam payment leaves a small coin behind, so the wallet soon holds
+    /// thousands: a split that summed or chose among all of them held the node for seconds, and
+    /// the node answered no peer meanwhile.
+    fn coins_to_flood(&self, engine: &mut olc_node::Engine) -> Vec<OutPoint> {
         let own = engine.wallet().address();
         let taken: BTreeSet<OutPoint> = engine.pool().iter().flat_map(|tx| tx.inputs.iter().map(|input| input.previous)).collect();
         let next = engine.chain().height() + 1;
         let coins = engine.coins();
-        let free: Vec<OutPoint> = coins
+        let free: Vec<(OutPoint, u64)> = coins
             .unspent_of(&own)
             .into_iter()
             .filter(|(point, entry)| !taken.contains(point) && coins.is_mature(entry, next))
             .filter(|(_, entry)| entry.output.value > SPAM_AMOUNT * 4)
-            .map(|(point, _)| point)
+            .map(|(point, entry)| (point, entry.output.value))
             .collect();
-        if free.len() < SPAM_FEWEST {
-            let spendable = engine.spendable();
-            let each = spendable / (SPAM_SPLIT + 1);
-            if each > SPAM_AMOUNT * 20 && engine.pool().iter().all(|tx| tx.outputs.len() < SPAM_SPLIT as usize) {
-                let parts: Vec<(Address, u64)> = (0..SPAM_SPLIT).map(|_| (own, each)).collect();
-                let _ = engine.pay_with(&parts, SPAM_RATE, &[]);
+        let splitting = engine.pool().iter().any(|tx| tx.outputs.len() >= SPAM_SPLIT as usize || tx.inputs.len() >= SPAM_GATHER);
+        if free.len() < SPAM_FEWEST && !splitting {
+            let largest = free.iter().max_by_key(|(_, value)| *value).copied();
+            match largest {
+                Some((point, value)) if value / (SPAM_SPLIT + 1) > SPAM_AMOUNT * 20 => {
+                    let each = value / (SPAM_SPLIT + 1);
+                    let parts: Vec<(Address, u64)> = (0..SPAM_SPLIT).map(|_| (own, each)).collect();
+                    let _ = engine.pay_with(&parts, SPAM_RATE, &[point]);
+                }
+                // No large coin left: the small ones it left behind come together again.
+                _ => {
+                    let small: Vec<(OutPoint, u64)> = coins
+                        .unspent_of(&own)
+                        .into_iter()
+                        .filter(|(point, entry)| !taken.contains(point) && coins.is_mature(entry, next))
+                        .map(|(point, entry)| (point, entry.output.value))
+                        .take(SPAM_GATHER)
+                        .collect();
+                    let total: u64 = small.iter().map(|(_, value)| *value).sum();
+                    if small.len() == SPAM_GATHER {
+                        let points: Vec<OutPoint> = small.into_iter().map(|(point, _)| point).collect();
+                        let _ = engine.pay_with(&[(own, total / 2)], SPAM_RATE, &points);
+                    }
+                }
             }
+            return Vec::new();
         }
-        for point in free {
-            if self.budget < 1.0 {
-                break;
-            }
-            self.budget -= 1.0;
-            if engine.pay_with(&[(own, SPAM_AMOUNT)], SPAM_RATE, &[point]).is_ok() {
-                self.spam_sent += 1;
-            }
-        }
+        free.into_iter().map(|(point, _)| point).collect()
     }
 
     /// Payments to this wallet: waiting, in a block, or undone when a block that held one left
@@ -313,6 +397,7 @@ impl LabSide {
         if let Ok(runner) = host.runner.lock() {
             let engine = &runner.engine;
             let chain = engine.chain();
+            line.waiting = engine.pool().len() as u64;
             line.waiting_bytes = engine.pool().iter().map(|tx| tx.encode().len() as u64).sum();
             line.oldest_held = chain.oldest_held();
             line.unspent = chain.unspent_count() as u64;
@@ -383,3 +468,4 @@ pub fn worker_name(address: &str, number: u32) -> String {
     let address = parse_address(address).map(|address| format_address(&address)).unwrap_or_default();
     format!("{address}.lab{number}")
 }
+

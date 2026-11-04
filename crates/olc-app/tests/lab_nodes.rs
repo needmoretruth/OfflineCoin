@@ -180,6 +180,38 @@ fn the_hidden_chain_undoes_the_receivers_payment() {
     });
 }
 
+/// The owner's scene as a person builds it by hand: three miners, two of them in a pool, a sender
+/// paying a receiver, then a bad miner. Its attack has to undo the receiver's payment there too.
+#[test]
+#[ignore]
+fn the_bad_miner_undoes_a_payment_in_a_network_built_by_hand() {
+    place("net-attack-by-hand");
+    let net = LabNet::start();
+    for kind in [Kind::Miner, Kind::Miner, Kind::Miner, Kind::Pool] {
+        net.order(Order::Add(kind));
+    }
+    let state = wait_for(&net, Duration::from_secs(120), "four running", |state| state.members.iter().all(|member| member.status.is_some()) && state.members.len() == 4);
+    let pool = of(&state, Kind::Pool)[0].id;
+    for miner in of(&state, Kind::Miner).iter().take(2) {
+        net.order(Order::Join(miner.id, Some(pool)));
+    }
+    net.order(Order::Add(Kind::Sender));
+    net.order(Order::Add(Kind::Receiver));
+    wait_for(&net, Duration::from_secs(300), "a payment settled", |state| {
+        state.events.iter().any(|event| matches!(event.what, What::Settled { at, .. } if of(state, Kind::Receiver).iter().any(|receiver| receiver.id == at)))
+    });
+    net.order(Order::Add(Kind::Attacker));
+    let state = wait_for(&net, Duration::from_secs(600), "the attack ended", |state| {
+        state.experiment.as_ref().is_some_and(|run| matches!(run.phase, Phase::Done | Phase::Failed))
+    });
+    let run = state.experiment.clone().unwrap_or_default();
+    for line in &run.lines {
+        println!("{line}");
+    }
+    assert_eq!(run.outcome, Some(Outcome::Gone), "{:?}", run.error);
+    net.order(Order::Clear);
+}
+
 #[test]
 #[ignore]
 fn spam_fills_the_waiting_list_and_the_blocks() {
@@ -233,6 +265,37 @@ fn the_bug_exploiter_tries_its_tricks_on_every_node() {
     }
     let flashed = state.events.iter().filter(|event| matches!(event.what, What::Refused { .. })).count();
     assert!(flashed >= exploiter.tricks.len().min(200), "each refusal shows on the map");
+}
+
+/// The owner's scene runs the bug exploiter on a busy network: payments, spam and a long chain.
+/// Each trick must still be judged by its own rule on every node, none left untried.
+#[test]
+#[ignore]
+fn the_bug_exploiter_is_judged_by_its_own_rule_on_a_busy_network() {
+    place("net-exploit-busy");
+    let net = LabNet::start();
+    for kind in [Kind::Miner, Kind::Miner, Kind::Full, Kind::Sender, Kind::Receiver, Kind::Spammer] {
+        net.order(Order::Add(kind));
+    }
+    wait_for(&net, Duration::from_secs(240), "spam and payments flowing", |state| {
+        let spam = of(state, Kind::Spammer).first().and_then(|member| Some(member.status.as_ref()?.lab.as_ref()?.spam_sent)).unwrap_or(0);
+        let paid = of(state, Kind::Receiver).first().map_or(0, |member| member.received.payments);
+        spam > 100 && paid >= 2
+    });
+    net.order(Order::Add(Kind::Exploiter));
+    let judges = 6;
+    let state = wait_for(&net, Duration::from_secs(420), "every trick tried on every node", |state| {
+        of(state, Kind::Exploiter).first().is_some_and(|member| member.tricks.len() >= Trick::ALL.len() * judges)
+    });
+    let exploiter = &of(&state, Kind::Exploiter)[0];
+    let mut wrong = Vec::new();
+    for row in &exploiter.tricks {
+        println!("{:?} on {}: refused {} for {:?}, failed {:?}", row.trick, row.by, row.refused, row.rule, row.failed);
+        if !(row.refused && row.expected) {
+            wrong.push(format!("{:?} on {}: {:?} {:?}", row.trick, row.by, row.rule, row.failed));
+        }
+    }
+    assert!(wrong.is_empty(), "{} of {} not refused for their own rule: {wrong:#?}", wrong.len(), exploiter.tricks.len());
 }
 
 #[test]
