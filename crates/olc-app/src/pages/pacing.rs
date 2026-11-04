@@ -208,7 +208,7 @@ pub fn pacing_card(ui: &mut Ui, cx: &Cx, labels: (&str, &str)) {
             change_figure(cx, rule),
         ];
         if cx.expert() {
-            let all = format::rate(voice, node.chain.hashrate_all);
+            let all = super::network::network_rate(cx);
             figures.push(Figure::Plain(cx.say("pro.network_rate"), all, cx.fill("pro.peers_count", &[&node.peers.to_string()])));
         }
         figure_grid(ui, t, &figures);

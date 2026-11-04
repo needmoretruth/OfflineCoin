@@ -178,18 +178,77 @@ fn settle_threads(window: &mut Window, pid: u32, done: impl Fn(usize) -> bool) -
     }
 }
 
+/// The highest speed or the limit the speed line stands under, as the snapshot gives them.
+fn ceiling(snap: &Snapshot, cap: u64) -> u64 {
+    if cap > 0 && cap < snap.full_rate { cap } else { snap.full_rate }
+}
+
+/// Waits from a change of speed until the network's speed reads only blocks made after it: the
+/// span the Mining page states has passed since the change. Returns how long that took.
+fn after_stated_time(window: &mut Window, since: Instant) -> Duration {
+    loop {
+        window.run_steps(1);
+        let span = window.state().snapshot().node.chain.network.map_or(u64::MAX, |reading| reading.span_ms);
+        if u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX) >= span {
+            window.run_steps(SETTLE_STEPS);
+            return since.elapsed();
+        }
+        assert!(since.elapsed() < Duration::from_secs(240), "the network's speed still reads blocks from before the change: {span} ms");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Opens `page` and reads every speed figure on it in one frame against the snapshot it was drawn
+/// from: this computer's speed under its ceiling, the network's never below it and, with only this
+/// computer mining, not far above it once the stated time has passed, and this computer's share
+/// as the one over the other. The snapshot moves on between frames, so it reads until one agrees.
+fn figures_agree(window: &mut Window, page: &str, cap: u64) -> String {
+    window.state_mut().open(page);
+    window.run_steps(SETTLE_STEPS);
+    let started = Instant::now();
+    loop {
+        window.run_steps(1);
+        let snap = window.state().snapshot();
+        let chain = &snap.node.chain;
+        let (here, all) = (chain.hashrate_here, chain.hashrate_all);
+        let share = format!("{}%", here * 100 / all.max(1));
+        let (here_text, all_text) = (format::rate(voice(window), here), format::rate(voice(window), all));
+        let line = texts_with(window, &here_text);
+        let seen = chain.network.is_some()
+            && !line.is_empty()
+            && !texts_with(window, &all_text).is_empty()
+            && texts_with(window, &share).contains(&share);
+        if seen {
+            let top = ceiling(&snap, cap);
+            println!("{page}: this computer {here} under {top}, network {all}, share {share}, read from {:?}", chain.network);
+            assert!(all >= here, "{page}: the network {all} reads below this computer {here}");
+            assert!(here as f64 <= top as f64 * 1.02, "{page}: this computer {here} is above its ceiling {top}");
+            // Twelve blocks scatter by about 30 %; blocks from before a fourfold drop read four
+            // times over.
+            assert!(all as f64 <= here as f64 * 2.0, "{page}: the network {all} still reads the old speed against {here}");
+            return format!("{here_text} · {all_text} · {share}");
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "{page} never showed {here_text}, {all_text} and {share} in one frame");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// The thread cap sets this computer's highest speed and every miner's threads at once, with one
-/// thread and with every core.
+/// thread and with every core; and once the time the Mining page states has passed after a change
+/// of threads or of the limit, every speed figure on Home and on Mining agrees.
 #[test]
 fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     let mut settings = quiet_settings();
     settings.mine_on_start = true;
     settings.hash_cap = 0;
+    settings.port = port_of_scene(66);
     settings.mode = Mode::Expert;
     settings.language = Lang::En;
     let mut window = harness(app(scratch("budget-threads"), settings, Some(node_program())), SIZES[0]);
     wait_until(&mut window, |app| app.snapshot().node.mining && app.snapshot().full_rate > 0);
     let one = window.state().snapshot().full_rate;
+    window.state().send(Command::Join { coin: Box::new(quick_coin(one)), address: None });
+    wait_in(&mut window, "the coin runs", 2, |snap| snap.node.coin.as_ref().is_some_and(|coin| coin.ticker == "NWT"));
     let spec = NodeSpec { name: "miner-a".into(), memory_mib: 64, disk_mib: 64, mining: true, wallet: WalletChoice::Own, ..Preset::Custom.spec(0) };
     window.state().send(Command::AddNode(Box::new(spec)));
     wait_for_miners(&mut window, 1);
@@ -203,40 +262,54 @@ fn the_thread_cap_moves_the_highest_speed_and_every_miner() {
     window.state_mut().open("page.settings");
     window.run_steps(SETTLE_STEPS);
     retype(&mut window, "Mining threads", &all.to_string());
-    wait_until(&mut window, |app| app.snapshot().full_rate == one * all as u64);
+    let widened = Instant::now();
+    wait_until(&mut window, |app| app.snapshot().full_rate != one);
     let wide = settle_threads(&mut window, pid, |now| now + 1 >= alone + all);
     println!("miner threads: {alone} on one, {wide} on {all}");
     assert!(wide + 1 >= alone + all, "the added miner mines on every core too: {alone} then {wide}");
+    let highest = window.state().snapshot().full_rate;
     window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);
-    let highest = format::rate(voice(&window), one * all as u64);
-    assert!(!texts_with(&window, &highest).is_empty(), "Home shows the highest speed {highest}");
+    let shown = format::rate(voice(&window), highest);
+    assert!(!texts_with(&window, &shown).is_empty(), "Home shows the highest speed {shown}");
+    let waited = after_stated_time(&mut window, widened);
+    let (home, mining) = (figures_agree(&mut window, "page.home", 0), figures_agree(&mut window, "page.mining", 0));
+    println!("{all} threads, highest {highest} against {one} on one; after {} ms: Home {home}, Mining {mining}", waited.as_millis());
 
     window.state_mut().open("page.settings");
     window.run_steps(SETTLE_STEPS);
     retype(&mut window, "Mining threads", "1");
+    let narrowed = Instant::now();
     wait_until(&mut window, |app| app.snapshot().full_rate == one);
     let narrow = settle_threads(&mut window, pid, |now| now <= alone);
     assert!(narrow <= alone, "back on one thread: {narrow} against {alone}");
     save(&mut window, "budget-threads-one-settings-en-expert");
     window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);
-    let highest = format::rate(voice(&window), one);
-    assert!(!texts_with(&window, &highest).is_empty(), "Home shows the highest speed {highest} at once");
-    // The measured speed follows within a few seconds, as each miner's window turns over.
-    let lowered = Instant::now();
-    let mut shown = window.state().snapshot().node.chain.hashrate_here;
-    while shown > one + one / 20 && lowered.elapsed() < Duration::from_secs(30) {
-        window.run_steps(1);
-        std::thread::sleep(Duration::from_millis(250));
-        shown = window.state().snapshot().node.chain.hashrate_here;
-    }
-    println!("measured {shown} under {one} after {} ms", lowered.elapsed().as_millis());
-    assert!(shown <= one + one / 20, "the measured speed {shown} came under the highest {one}");
+    let shown = format::rate(voice(&window), one);
+    assert!(!texts_with(&window, &shown).is_empty(), "Home shows the highest speed {shown} at once");
+    let waited = after_stated_time(&mut window, narrowed);
+    let (home, mining) = (figures_agree(&mut window, "page.home", 0), figures_agree(&mut window, "page.mining", 0));
+    println!("one thread; after {} ms: Home {home}, Mining {mining}", waited.as_millis());
+    save(&mut window, "budget-threads-one-mining-en-expert");
+    window.state_mut().open("page.home");
     window.run_steps(SETTLE_STEPS);
     save(&mut window, "budget-threads-one-home-en-expert");
+
+    // A limit under the highest: the miners slow to it, and the network's speed follows.
+    let limit = one / 2;
+    retype(&mut window, "Exact limit (H/s)", &limit.to_string());
+    press(&mut window, "Apply");
+    let limited = Instant::now();
+    wait_until(&mut window, |app| app.settings().hash_cap == limit);
+    let waited = after_stated_time(&mut window, limited);
+    let (home, mining) = (figures_agree(&mut window, "page.home", limit), figures_agree(&mut window, "page.mining", limit));
+    println!("limit {limit}; after {} ms: Home {home}, Mining {mining}", waited.as_millis());
     speak(&mut window, Mode::Basic, Lang::Ko);
-    save(&mut window, "budget-threads-one-home-ko-basic");
+    figures_agree(&mut window, "page.home", limit);
+    save(&mut window, "budget-threads-limit-home-ko-basic");
+    figures_agree(&mut window, "page.mining", limit);
+    save(&mut window, "budget-threads-limit-mining-ko-basic");
 }
 
 /// A coin of two second blocks, so sixty blocks come in about two minutes. At one second a pool's
@@ -331,14 +404,13 @@ fn the_network_shows_its_speed_and_who_found_the_blocks() {
         let works = if lang == Lang::Ko { "이 풀에서 일함: miner-b" } else { "Working in it: miner-b" };
         let pool_row = texts_with(&window, works);
         assert!(pool_row.iter().any(|row| row.starts_with(pool)), "the pool's row names miner-b: {pool_row:?}");
-        let share = if lang == Lang::Ko { "이 컴퓨터 몫" } else { "This computer's share" };
+        let share = if lang == Lang::Ko { "이 컴퓨터 몫" } else { "Hashrate share" };
         assert!(!texts_with(&window, share).is_empty(), "the page says this computer's share");
-        // Every miner on this coin is on this computer, so its share is all of it.
-        assert!(texts_with(&window, "100%").iter().any(|text| text == "100%"), "this computer's share reads 100 %");
+        // Every miner on this coin is on this computer: its share of the speed is the measured
+        // speed over the network's, which reads from the blocks and never below it.
+        let mining = figures_agree(&mut window, "page.mining", LIMIT);
         save(&mut window, name);
-        window.state_mut().open("page.home");
-        window.run_steps(SETTLE_STEPS);
-        let network = format::rate(voice(&window), window.state().snapshot().node.chain.hashrate_all);
-        assert!(!texts_with(&window, &network).is_empty(), "Home shows the same network speed {network}");
+        let home = figures_agree(&mut window, "page.home", LIMIT);
+        println!("{lang:?}: Home {home}, Mining {mining}");
     }
 }

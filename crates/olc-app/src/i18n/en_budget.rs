@@ -13,10 +13,12 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.pool", "Pool {}"),
     ("chain.pool_workers", "Working in it: {}"),
     ("net.title", "The whole network"),
-    ("net.now", "Whole network now"),
+    ("net.now", "Network now"),
+    ("net.now_span", "Over the last {}"),
     ("net.average", "Last {} blocks"),
-    ("net.share", "This computer's share"),
-    ("net.about", "Worked out from how fast the last blocks came, the way Bitcoin does it."),
+    ("net.share", "Computer's share"),
+    ("net.about", "Counted from the blocks of the last {}, {} of them. A change of speed shows in full after {}."),
+    ("net.too_few", "The network speed shows once {} blocks are made. {} so far."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -25,6 +27,8 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("budget.equal_part", "Equal part of the limit"),
     ("budget.own_about", "0 takes an equal part. The sum of all miners stays under this computer's limit."),
     ("net.now", "Network hashrate"),
-    ("net.average", "Average, last {} blocks"),
-    ("net.about", "Work of the last 20 blocks over their time span, as getnetworkhashps reads it."),
+    ("net.average", "{}-block average"),
+    ("net.share", "Hashrate share"),
+    ("net.about", "Work of the blocks in the last {} ({} blocks) over that time, as getnetworkhashps reads it. A change of hashrate shows in full after {}."),
+    ("net.too_few", "Network hashrate is estimated from {} blocks on. {} so far."),
 ];

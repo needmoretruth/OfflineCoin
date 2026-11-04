@@ -10,7 +10,7 @@ use super::board_lines::BoardsTold;
 use super::commands::{Command, Personal, StartCoin};
 use super::found::Found;
 use super::host::{Host, Plan};
-use super::host_parts::full_rate;
+use super::host_parts::{rate_on, rates_by_threads};
 use super::pool_run::PoolSeat;
 use olc_platform::platform;
 use super::rows::{device_kind, hostname};
@@ -20,7 +20,7 @@ use super::snapshot::{Notice, Snapshot};
 use crate::discovery::{Scanner, Shout};
 use crate::fleet::{CapTest, FleetPort};
 use crate::local::{NodeSpec, Preset, Supervisor};
-use crate::settings::{standard_threads, Paths, Settings, PORT_TRIES};
+use crate::settings::{cores, standard_threads, Paths, Settings, PORT_TRIES};
 use olc_board::{Args, Extra};
 use olc_core::{CoinConfig, Hash};
 use olc_node::Card;
@@ -128,10 +128,10 @@ struct Service {
     shout: Shout,
     found: Found,
     local: Supervisor,
-    /// Hashes a second on all mining threads together, measured at the start.
+    /// Hashes a second on the mining threads in use together, read out of `rates`.
     full_rate: u64,
-    /// What one of those threads did beside the others.
-    thread_rate: u64,
+    /// The speed on each count of threads, measured at the start before anything mines.
+    rates: Vec<u64>,
     /// This app's cap as last set from the budget, and what each added miner was last told.
     own_cap: Option<u64>,
     parts_told: std::collections::BTreeMap<u32, budget::Told>,
@@ -163,9 +163,9 @@ impl Service {
         leave_retired_olc(&paths, &mut settings);
         let coin = current_coin(&paths, &settings);
         bring_old_blocks(&paths, &coin);
-        // Measured before anything mines, on as many cores as will mine.
+        // Measured before anything mines, on each count of threads a person may choose.
         let threads = settings.threads(standard_threads());
-        let measured = full_rate(threads);
+        let rates = rates_by_threads(cores());
         let host = Host::start(
             Plan {
                 folder: paths.coin(&coin_folder(&coin)),
@@ -212,8 +212,8 @@ impl Service {
             shout: Shout::start(),
             found: Found::default(),
             local,
-            full_rate: measured,
-            thread_rate: measured / threads.max(1) as u64,
+            full_rate: rate_on(&rates, threads),
+            rates,
             own_cap: None,
             parts_told: Default::default(),
             notice: None,
@@ -504,12 +504,12 @@ impl Service {
         added
     }
 
-    /// Mining threads as the settings say, and the full rate that goes with them. The thread cap
-    /// is for every miner here, so the added ones follow it and the parts are worked out again.
+    /// Mining threads as the settings say, and the full rate measured on that many. The thread
+    /// cap is for every miner here, so the added ones follow it and the parts are worked out again.
     pub(super) fn set_threads(&mut self) {
         let threads = self.settings.threads(standard_threads());
         self.host.set_threads(threads);
-        self.full_rate = self.thread_rate * threads as u64;
+        self.full_rate = rate_on(&self.rates, threads);
         self.share_budget();
     }
 

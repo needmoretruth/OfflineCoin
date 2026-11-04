@@ -1,7 +1,7 @@
 //! Names the miner of every block from what this computer knows: its own wallet, the miners it
 //! runs, the boards it hears. Then counts each one's share, keeps this computer's speed over ten
 //! minutes and works out when the next block should come.
-use super::chain_view::{ChainView, MinedBlock, Miner, Share, SHARE_WINDOW};
+use super::chain_view::{ChainView, MinedBlock, Miner, Reading, Share, SHARE_WINDOW};
 use super::pool_plan::Who;
 use super::snapshot::{BoardView, NodeView};
 use crate::local::LocalView;
@@ -126,11 +126,21 @@ impl Trail {
     }
 }
 
-/// Blocks the measured speed and the real average read: one lucky block moves them by a
-/// twentieth, and a change of speed shows within twenty blocks. The wait itself never assumes a
-/// retarget rule: it divides the difficulty the chain asks for the next block (`next_difficulty`,
-/// which the node's status carries) by the speed.
+/// Blocks the real average time between blocks reads. The wait itself never assumes a retarget
+/// rule: it divides the difficulty the chain asks for the next block (`next_difficulty`, which
+/// the node's status carries) by the network's speed.
 pub const RECENT: usize = 20;
+
+/// Fewer blocks than this give no network speed. Block times scatter, so a speed read from n
+/// blocks is off by about one part in √n: twelve keep that under 30 %. Bitcoin's getnetworkhashps
+/// reads 120 by default, a day of its blocks; a coin here may be minutes old, so it would show
+/// nothing for most of its life. The block before the twelve marks where their time starts.
+pub const FEWEST_BLOCKS: usize = 12;
+
+/// The network's speed reads every block of this last stretch, up to now, when it holds more than
+/// [`FEWEST_BLOCKS`]; so a change of speed shows in full half a minute after it, however many
+/// blocks are kept. When blocks come slower, the last [`FEWEST_BLOCKS`] stretch it further.
+pub const SPAN_MS: u64 = 30_000;
 
 /// The average time between the last [`RECENT`] blocks.
 fn average_of(latest: &[MinedBlock]) -> Option<u64> {
@@ -148,6 +158,25 @@ fn speed_of_blocks(latest: &[MinedBlock], count: usize) -> Option<u64> {
     let span = newest.time_ms.checked_sub(oldest.time_ms).filter(|span| *span > 0)?;
     let work: u128 = latest[..latest.len() - 1].iter().map(|block| u128::from(block.difficulty)).sum();
     u64::try_from(work * 1_000 / u128::from(span)).ok()
+}
+
+/// The network's speed now: the work of the blocks of the last [`SPAN_MS`], or of the last
+/// [`FEWEST_BLOCKS`] when that holds fewer, over their time up to now. Counting up to now, not
+/// up to the newest block, lets a slowdown show before the next block comes.
+fn speed_now(latest: &[MinedBlock], now_ms: u64) -> Option<Reading> {
+    let end = now_ms.max(latest.first()?.time_ms);
+    let in_span = latest.iter().take_while(|block| block.time_ms.saturating_add(SPAN_MS) > end).count();
+    let blocks = in_span.max(FEWEST_BLOCKS).min(latest.len().saturating_sub(1));
+    if blocks < FEWEST_BLOCKS {
+        return None;
+    }
+    // The span itself when it holds the blocks and an older one lies outside it; otherwise the
+    // block before the counted ones starts their time.
+    let start = if blocks == in_span { end.saturating_sub(SPAN_MS) } else { latest[blocks].time_ms };
+    let span_ms = end.checked_sub(start).filter(|span| *span > 0)?;
+    let work: u128 = latest[..blocks].iter().map(|block| u128::from(block.difficulty)).sum();
+    let rate = u64::try_from(work * 1_000 / u128::from(span_ms)).ok()?;
+    Some(Reading { blocks, span_ms, rate })
 }
 
 /// A miner here working in a pool: the one this app runs, or another whose blocks pay `payee`.
@@ -235,11 +264,14 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
     view.trail = trail.points();
 
     // The network's speed is what the blocks took, whoever made them: a pool's workers and a
-    // stranger count as much as a miner this computer hears. Before two blocks there is nothing
-    // to read, so the speeds heard stand in.
+    // stranger count as much as a miner this computer hears. It holds this computer, so it never
+    // reads below what this computer measures. Until enough blocks are kept, the speeds heard
+    // stand in for the wait, and the screens say the network's speed is not known yet.
     let heard: u64 = known.iter().filter(|named| named.joined).filter_map(|named| named.hashrate).sum();
-    view.hashrate_all = speed_of_blocks(&view.latest, RECENT).unwrap_or(heard);
-    view.hashrate_average = speed_of_blocks(&view.latest, SHARE_WINDOW).unwrap_or(view.hashrate_all);
+    view.network = speed_now(&view.latest, now_ms);
+    view.hashrate_all = view.network.map_or(heard, |reading| reading.rate).max(view.hashrate_here);
+    let enough = view.latest.len() > FEWEST_BLOCKS;
+    view.hashrate_average = speed_of_blocks(&view.latest, SHARE_WINDOW).filter(|_| enough).unwrap_or(0);
     view.expected_ms = (view.hashrate_all > 0 && node.difficulty > 0)
         .then(|| u64::try_from(u128::from(node.difficulty) * 1_000 / u128::from(view.hashrate_all)).unwrap_or(u64::MAX));
     view.average_ms = average_of(&view.latest);
@@ -254,7 +286,8 @@ mod tests {
     }
 
     /// Two blocks of this wallet and one of an address nobody here knows: the wallet leads, the
-    /// stranger is named by address, and the wait comes from the speed the blocks took.
+    /// stranger is named by address. Three blocks are too few to read the network's speed from,
+    /// so the wait comes from the speed heard.
     #[test]
     fn shares_name_each_miner_and_the_wait_follows_the_speed() {
         let node = NodeView {
@@ -274,9 +307,9 @@ mod tests {
         assert_eq!(view.shares[0], Share { miner: Miner::You, blocks: 2, hashrate: Some(100), workers: Vec::new() });
         assert_eq!(view.shares[1].miner, Miner::Away("olcother".into()));
         assert_eq!(view.window(), 3);
-        // Two blocks of 1,000 in two seconds: 1,000 a second, more than this node's own 100.
-        assert_eq!(view.hashrate_all, 1_000);
-        assert_eq!(view.expected_ms, Some(1_000));
+        assert_eq!(view.network, None);
+        assert_eq!((view.hashrate_all, view.hashrate_average), (100, 0));
+        assert_eq!(view.expected_ms, Some(10_000));
         assert_eq!(view.average_ms, Some(1_000));
         assert_eq!(view.trail, [(50_000, 100)]);
         complete(&mut view, &node, &[], &[], &[], &mut trail, 50_000 + TRAIL_MS + 10_000);
@@ -291,14 +324,52 @@ mod tests {
         let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
         let latest: Vec<MinedBlock> = (1..=21).rev().map(|height| block(height, "olcmine", height * 2_000)).collect();
         let mut view = ChainView { latest, ..ChainView::default() };
-        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 50_000);
-        // Twenty blocks of 1,000 tries in forty seconds.
+        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 43_000);
+        // Fifteen blocks of 1,000 tries in the last thirty seconds.
         assert_eq!(view.hashrate_all, 500, "the network's speed while blocks come");
+        assert_eq!(view.network, Some(Reading { blocks: 15, span_ms: SPAN_MS, rate: 500 }));
         assert_eq!(view.expected_ms, Some(2_000));
+        // Twenty blocks of 1,000 in forty seconds, as getnetworkhashps reads every block kept.
+        assert_eq!(view.hashrate_average, 500);
+    }
+
+    /// Blocks every two seconds, then every second once the network doubles its speed: half a
+    /// minute later the speed now reads only the fast blocks, while forty blocks would still hold
+    /// slow ones. With no new block for long, the speed falls before the next one comes.
+    #[test]
+    fn the_network_speed_follows_a_change_within_its_span() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
+        let slow = (1..=20).map(|height| block(height, "olcmine", height * 2_000));
+        let fast = (21..=50).map(|height| block(height, "olcmine", 40_000 + (height - 20) * 1_000));
+        let latest: Vec<MinedBlock> = slow.chain(fast).rev().collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 70_000);
+        assert_eq!(view.hashrate_all, 1_000, "thirty fast blocks in thirty seconds");
+        assert_eq!(speed_of_blocks(&view.latest, 40), Some(800), "forty blocks still hold slow ones");
+        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 130_000);
+        // Nothing for a minute: the last twelve blocks over the seventy-two seconds since the
+        // block before them.
+        assert_eq!(view.network, Some(Reading { blocks: FEWEST_BLOCKS, span_ms: 72_000, rate: 166 }));
+        assert_eq!(view.hashrate_all, 12_000 * 1_000 / 72_000);
+    }
+
+    /// The network holds this computer, so its speed never reads below what this computer
+    /// measures, however slow the last blocks were; and twelve blocks are the fewest it reads.
+    #[test]
+    fn the_network_speed_is_never_below_this_computer() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), mining: true, hashrate: 900, difficulty: 1_000, ..NodeView::default() };
+        let latest: Vec<MinedBlock> = (1..=13).rev().map(|height| block(height, "olcmine", height * 2_000)).collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 26_000);
+        assert_eq!(view.network, Some(Reading { blocks: 12, span_ms: 24_000, rate: 500 }), "twelve blocks after the first");
+        assert_eq!(view.hashrate_all, 900, "the blocks took 500 a second, this computer measures 900");
+        view.latest.pop();
+        complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 26_000);
+        assert_eq!(view.network, None, "eleven blocks after the first are too few");
     }
 
     /// A pool's tagged blocks are the pool's: this app's pool when they pay this app's wallet,
-    /// another pool by its address otherwise. The recent average reads every block kept.
+    /// another pool by its address otherwise. Four blocks are too few for the network's speed.
     #[test]
     fn a_pools_blocks_are_named_for_the_pool() {
         let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), difficulty: 1_000, ..NodeView::default() };
@@ -308,7 +379,7 @@ mod tests {
         complete(&mut view, &node, &[], &[], &[], &mut Trail::default(), 50_000);
         let miners: Vec<&Miner> = view.latest.iter().map(|block| &block.miner).collect();
         assert_eq!(miners, [&Miner::OwnPool, &Miner::Pool("olcpool".into()), &Miner::You, &Miner::You]);
-        assert_eq!((view.hashrate_all, view.hashrate_average), (1_000, 1_000));
+        assert_eq!((view.network, view.hashrate_average), (None, 0));
     }
 
     /// A miner here working in this app's pool, and this app working in another computer's pool,

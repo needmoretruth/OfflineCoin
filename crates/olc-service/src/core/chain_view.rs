@@ -98,6 +98,16 @@ impl Branch {
     }
 }
 
+/// What the network's speed was read from: this many blocks, over this long up to now. A change
+/// of speed shows in full once the span has passed since it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reading {
+    pub blocks: usize,
+    pub span_ms: u64,
+    /// What those blocks alone say, before the floor of this computer's own speed.
+    pub rate: u64,
+}
+
 /// One miner's part of the latest blocks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Share {
@@ -124,10 +134,13 @@ pub struct ChainView {
     /// (unix ms, rate) over the last ten minutes.
     pub trail: Vec<(u64, u64)>,
     pub hashrate_here: u64,
-    /// The network's speed now: the work of the last 20 blocks over their time, as Bitcoin's
-    /// getnetworkhashps reads it. Before two blocks, the speeds this computer hears.
+    /// The network's speed now: the work of the latest blocks over their time up to now, as
+    /// Bitcoin's getnetworkhashps reads it, and never below `hashrate_here`, since the network
+    /// holds this computer. With too few blocks for that, the speeds this computer hears.
     pub hashrate_all: u64,
-    /// The same over every block in `latest`, the recent average.
+    /// The blocks and the time that speed was read from; `None` while too few blocks are kept.
+    pub network: Option<Reading>,
+    /// The work of every block in `latest` over their time, the recent average; 0 while too few.
     pub hashrate_average: u64,
     /// How long the next block takes at that speed and the current difficulty.
     pub expected_ms: Option<u64>,

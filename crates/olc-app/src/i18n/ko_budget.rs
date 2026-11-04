@@ -13,9 +13,11 @@ pub const WORDS: &[(&str, &str)] = &[
     ("chain.pool_workers", "이 풀에서 일함: {}"),
     ("net.title", "전체 네트워크"),
     ("net.now", "지금 네트워크 속도"),
+    ("net.now_span", "최근 {} 기준"),
     ("net.average", "최근 {}블록 평균"),
     ("net.share", "이 컴퓨터 몫"),
-    ("net.about", "최근 블록이 나온 빠르기로 계산합니다. 비트코인과 같은 방법입니다."),
+    ("net.about", "최근 {} 동안 나온 블록 {}개로 셉니다. 속도가 바뀌면 {} 뒤에 다 반영됩니다."),
+    ("net.too_few", "블록이 {}개 쌓이면 네트워크 속도가 보입니다. 지금 {}개입니다."),
 ];
 
 pub const EXPERT: &[(&str, &str)] = &[
@@ -25,5 +27,7 @@ pub const EXPERT: &[(&str, &str)] = &[
     ("budget.own_about", "0이면 같은 몫을 받습니다. 모든 채굴기의 합은 이 컴퓨터 제한을 넘지 않습니다."),
     ("net.now", "네트워크 해시레이트"),
     ("net.average", "최근 {}블록 평균"),
-    ("net.about", "최근 20블록의 작업량을 걸린 시간으로 나눈 값입니다. getnetworkhashps와 같습니다."),
+    ("net.share", "해시레이트 비중"),
+    ("net.about", "최근 {} 동안의 블록 {}개 작업량을 그 시간으로 나눈 값으로, getnetworkhashps와 같은 방식입니다. 해시레이트가 바뀌면 {} 뒤에 다 반영됩니다."),
+    ("net.too_few", "블록 {}개부터 네트워크 해시레이트를 추정합니다. 지금 {}개입니다."),
 ];
