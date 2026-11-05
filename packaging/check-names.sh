@@ -9,12 +9,13 @@ root=$here/..
 installers=$(grep -oh 'releases/latest/download/[^)]*' "$root/README.md" "$root/README.ko.md" \
   | sed 's#.*/##' | sort -u)
 others="OLC-Core-windows-x86_64.zip OLC-Core-macos-apple-silicon.zip OLC-Core-macos-intel.zip
-OLC-Core-linux-x86_64.tar.gz OLC-Core-linux-arm64.tar.gz olc-windows-x86_64.zip
+OLC-Core-linux-x86_64.tar.gz OLC-Core-linux-arm64.tar.gz OLC-Core-linux-aarch64.rpm
+OLC-Core-linux-aarch64.flatpak olc-windows-x86_64.zip
 olc-macos-apple-silicon.tar.gz olc-macos-intel.tar.gz olc-linux-x86_64.tar.gz olc-linux-arm64.tar.gz"
 
 count=$(echo "$installers" | wc -l)
-if [ "$count" -ne 5 ]; then
-  echo "The READMEs link to $count files, and 5 were expected." >&2
+if [ "$count" -ne 8 ]; then
+  echo "The READMEs link to $count files, and 8 were expected." >&2
   exit 1
 fi
 absent=0

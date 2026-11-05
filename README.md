@@ -23,6 +23,9 @@ OfflineCoin is a cryptocurrency that works with no internet. You mine it, check 
 | Mac with an Intel chip | [OLC Core for Intel Mac](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-macos-intel.dmg) |
 | Ubuntu, Debian or Mint | [OLC Core for Linux](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.deb) |
 | Raspberry Pi | [OLC Core for Raspberry Pi](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-arm64.deb) |
+| Fedora or openSUSE | [OLC Core for Fedora](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.rpm) |
+| Arch Linux | [OLC Core for Arch Linux](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.pkg.tar.zst) |
+| Other Linux with Flatpak | [OLC Core as a Flatpak](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.flatpak) |
 
 Other systems are on the [releases page](https://github.com/needmoretruth/OfflineCoin/releases/latest).
 

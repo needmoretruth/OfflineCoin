@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What a software center shows for the Flatpak. flatpak.sh fills in the words between @ signs. -->
+<component type="desktop-application">
+  <id>io.github.needmoretruth.OfflineCoin</id>
+  <name>OLC Core</name>
+  <summary>Run a node, mine, hold a wallet and manage boards</summary>
+  <summary xml:lang="ko">노드 실행, 채굴, 지갑, 보드 관리</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="io.github.needmoretruth">
+    <name>OfflineCoin</name>
+  </developer>
+  <description>
+    <p>OLC Core, the OfflineCoin app. It runs a node, mines, holds a wallet and manages boards, on networks with no internet.</p>
+  </description>
+  <launchable type="desktop-id">io.github.needmoretruth.OfflineCoin.desktop</launchable>
+  <url type="homepage">https://github.com/needmoretruth/OfflineCoin</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

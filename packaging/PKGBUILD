@@ -1,0 +1,23 @@
+# The Arch Linux package. arch.sh fills in the words between @ signs and runs makepkg on it.
+# The flashing tool sits beside the app, where the app looks first, and off everyone's search path.
+pkgname=olc-core
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='OLC Core, the OfflineCoin app'
+arch=(x86_64)
+url='https://github.com/needmoretruth/OfflineCoin'
+license=(Apache-2.0)
+depends=(@DEPENDS@)
+optdepends=('bluez: Bluetooth')
+install=arch.install
+# The programs are built and stripped already.
+options=(!strip !debug)
+
+package() {
+  install -Dm755 -t "$pkgdir/usr/lib/olc-core" @FOLDER@/bin/olc-core @FOLDER@/bin/espflash
+  mkdir -p "$pkgdir/usr/bin"
+  ln -s ../lib/olc-core/olc-core "$pkgdir/usr/bin/olc-core"
+  cp -R @FOLDER@/share "$pkgdir/usr/"
+  install -Dm644 -t "$pkgdir/usr/lib/udev/rules.d" @PACKAGING@/70-olc-boards.rules
+  install -Dm644 -t "$pkgdir/usr/share/licenses/olc-core" @PACKAGING@/../LICENSE
+}

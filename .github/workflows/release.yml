@@ -127,6 +127,44 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Fedora, openSUSE, Arch Linux and Flatpak take their own packages, each made from the tar.gz the
+  # .deb comes from, by that system's own tools.
+  distros:
+    name: Package for other Linux on ${{ matrix.arch }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x86_64, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-${{ matrix.target }}
+          path: built
+      - name: Read the version
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          mkdir dist
+      - name: Make the .rpm and the Arch Linux package
+        run: packaging/distro-packages.sh "built/OLC-Core-linux-${{ matrix.arch }}.tar.gz" "$VERSION" dist
+      - name: Make the Flatpak
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q flatpak flatpak-builder
+          packaging/flatpak.sh "built/OLC-Core-linux-${{ matrix.arch }}.tar.gz" "$VERSION" dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-${{ matrix.target }}-distros
+          path: dist/*
+          if-no-files-found: error
+
   # The real package on the system it is for: installed, opened, and a block mined.
   test:
     name: Try ${{ matrix.system }}
@@ -164,10 +202,43 @@ jobs:
           name: shots-${{ matrix.system }}
           path: shots/${{ matrix.system }}
 
+  # The same for the other Linux packages. Fedora and Arch Linux run in containers on Ubuntu, with
+  # the screen outside, and openSUSE and AlmaLinux install and open the .rpm too.
+  test-distros:
+    name: Try ${{ matrix.system }}
+    needs: distros
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, system: fedora-x86_64, target: x86_64-unknown-linux-gnu, script: distro.sh, package: OLC-Core-linux-x86_64.rpm, terminal: olc-linux-x86_64.tar.gz }
+          - { os: ubuntu-24.04-arm, system: fedora-aarch64, target: aarch64-unknown-linux-gnu, script: distro.sh, package: OLC-Core-linux-aarch64.rpm, terminal: olc-linux-arm64.tar.gz }
+          - { os: ubuntu-24.04, system: arch-linux-x86_64, target: x86_64-unknown-linux-gnu, script: distro.sh, package: OLC-Core-linux-x86_64.pkg.tar.zst, terminal: olc-linux-x86_64.tar.gz }
+          - { os: ubuntu-24.04, system: flatpak-x86_64, target: x86_64-unknown-linux-gnu, script: flatpak.sh, package: OLC-Core-linux-x86_64.flatpak, terminal: olc-linux-x86_64.tar.gz }
+          - { os: ubuntu-24.04-arm, system: flatpak-aarch64, target: aarch64-unknown-linux-gnu, script: flatpak.sh, package: OLC-Core-linux-aarch64.flatpak, terminal: olc-linux-arm64.tar.gz }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: package-${{ matrix.target }}*
+          path: dist
+          merge-multiple: true
+      - name: Install, open and mine
+        run: |
+          mkdir -p "shots/${{ matrix.system }}"
+          packaging/test/${{ matrix.script }} "dist/${{ matrix.package }}" "dist/${{ matrix.terminal }}" "$PWD/shots/${{ matrix.system }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: shots-${{ matrix.system }}
+          path: shots/${{ matrix.system }}
+
   # What the links promise: every file there, and every screenshot a drawn window and no blank one.
   check:
     name: Names and screenshots
-    needs: test
+    needs: [test, test-distros]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

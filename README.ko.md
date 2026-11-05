@@ -23,6 +23,9 @@
 | 인텔 맥 | [인텔 맥용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-macos-intel.dmg) |
 | 우분투, 데비안, 민트 | [리눅스용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.deb) |
 | 라즈베리파이 | [라즈베리파이용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-arm64.deb) |
+| 페도라, 오픈수세 | [페도라용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.rpm) |
+| 아치 리눅스 | [아치 리눅스용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.pkg.tar.zst) |
+| 플랫팩이 있는 다른 리눅스 | [플랫팩용 OLC Core](https://github.com/needmoretruth/OfflineCoin/releases/latest/download/OLC-Core-linux-x86_64.flatpak) |
 
 다른 시스템용 파일은 [릴리스 페이지](https://github.com/needmoretruth/OfflineCoin/releases/latest)에 있습니다.
 
