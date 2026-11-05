@@ -15,7 +15,7 @@ wait_seconds=120
 for tool in flatpak dbus-run-session Xvfb xwininfo import desktop-file-validate; do
   if ! command -v "$tool" >/dev/null; then
     sudo apt-get update -q
-    sudo apt-get install -y -q flatpak dbus xvfb x11-utils imagemagick desktop-file-utils
+    sudo apt-get install -y -q --no-install-recommends flatpak dbus xvfb x11-utils imagemagick desktop-file-utils
     break
   fi
 done

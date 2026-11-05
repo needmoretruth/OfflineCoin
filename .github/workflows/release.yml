@@ -156,8 +156,9 @@ jobs:
       - name: Make the .rpm and the Arch Linux package
         run: packaging/distro-packages.sh "built/OLC-Core-linux-${{ matrix.arch }}.tar.gz" "$VERSION" dist
       - name: Make the Flatpak
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q flatpak flatpak-builder
+          sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends flatpak flatpak-builder
           packaging/flatpak.sh "built/OLC-Core-linux-${{ matrix.arch }}.tar.gz" "$VERSION" dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
