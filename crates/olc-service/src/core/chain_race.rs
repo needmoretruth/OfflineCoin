@@ -305,8 +305,12 @@ pub fn complete(view: &mut ChainView, node: &NodeView, local: &[LocalView], boar
     let counted = || known.iter().filter(|named| named.joined && !elsewhere(&named.miner));
     let heard_of = |miner: &Miner| counted().filter(|named| named.miner == *miner).filter_map(|named| named.hashrate).sum::<u64>();
     let own_pool = working.iter().filter(|(_, pool)| *pool == Miner::OwnPool).map(|(worker, _)| heard_of(worker)).sum::<u64>() + pool_away;
+    // Measured is who it is, not what it reads this second: a miner here that is mining is
+    // measured even while its reading starts again from zero after a change of cap or threads,
+    // or its own blocks would read as a stranger's for those seconds.
+    let mining_here = |miner: &Miner| counted().any(|named| named.miner == *miner && named.hashrate.is_some());
     let measured = |miner: &Miner| match miner {
-        Miner::You | Miner::Here(_) | Miner::Board(_) => heard_of(miner) > 0,
+        Miner::You | Miner::Here(_) | Miner::Board(_) => mining_here(miner),
         Miner::OwnPool => own_pool > 0,
         Miner::Away(_) | Miner::Pool(_) | Miner::Unknown => false,
     };
@@ -413,6 +417,17 @@ mod tests {
         view.latest.pop();
         complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 26_000);
         assert_eq!((view.network, view.share()), (None, None), "eleven blocks after the first are too few");
+    }
+
+    /// Right after a change of cap or threads this app's reading starts again from zero while it
+    /// mines on: its blocks are still its own, not a stranger's read from their times.
+    #[test]
+    fn a_reading_that_starts_again_keeps_this_computers_blocks_its_own() {
+        let node = NodeView { address: "olcmine".into(), miner: "olcmine".into(), mining: true, hashrate: 0, difficulty: 1_000, ..NodeView::default() };
+        let latest: Vec<MinedBlock> = (1..=13).rev().map(|height| block(height, "olcmine", height * 2_000)).collect();
+        let mut view = ChainView { latest, ..ChainView::default() };
+        complete(&mut view, &node, &[], &[], &InPools::default(), &mut Trail::default(), 26_000);
+        assert_eq!(view.network.map(|reading| reading.others), Some(0), "no block is a stranger's");
     }
 
     /// A stranger's blocks are read from their work over the time; this computer's speed is
