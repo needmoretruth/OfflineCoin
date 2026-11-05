@@ -79,6 +79,11 @@ fn read_messages(mut stream: TcpStream, mark: Mark, heard: Sender<Message>) {
     }
 }
 
+/// A copy that starts at the first block, with the plugins every node of this app runs with.
+fn new_copy(coin: &CoinConfig) -> Chain {
+    Chain::new(coin.clone(), Plugins { consensus: Box::new(ProofOfWork), languages: olc_lang::all() })
+}
+
 fn dial(target: SocketAddr, mark: Mark) -> Result<(TcpStream, Receiver<Message>), String> {
     let stream = TcpStream::connect_timeout(&target, DIAL).map_err(|error| format!("{target}: {error}"))?;
     let _ = stream.set_nodelay(true);
@@ -98,8 +103,7 @@ impl Peer {
     pub(super) fn connect(coin: &CoinConfig, target: SocketAddr, kept: &mut Option<Chain>) -> Result<Self, String> {
         let chain = match kept.take() {
             Some(chain) => chain,
-            // The plugins every node of this app runs with.
-            None => Chain::new(coin.clone(), Plugins { consensus: Box::new(ProofOfWork), languages: olc_lang::all() }),
+            None => new_copy(coin),
         };
         let mark = network::mark_of(&chain.genesis_id());
         match dial(target, mark) {
@@ -158,8 +162,24 @@ impl Peer {
         while self.heard.try_recv().is_ok() {}
     }
 
-    /// Fetches blocks until this copy's tip is the node's, as a node catching up does.
+    /// Fetches blocks until this copy's tip is the node's, as a node catching up does. A copy kept
+    /// from a try before may hold a valid block it made at the node's height, seen first and of
+    /// the same work as the node's own, so both keep their own: the copy then starts over from the
+    /// node, and a new copy holds only what the node served.
     pub(super) fn catch_up(&mut self) -> Result<Hello, String> {
+        let hello = self.take_blocks()?;
+        if self.chain.id_at(hello.height) == Some(hello.tip) {
+            return Ok(hello);
+        }
+        self.chain = new_copy(self.chain.config());
+        let hello = self.take_blocks()?;
+        if self.chain.id_at(hello.height) != Some(hello.tip) {
+            return Err(format!("{} follows a branch this copy does not.", self.target));
+        }
+        Ok(hello)
+    }
+
+    fn take_blocks(&mut self) -> Result<Hello, String> {
         let hello = self.hello()?;
         if hello.coin.message != self.chain.config().message || hello.coin.name != self.chain.config().name {
             return Err(format!("{} runs another coin: {}.", self.target, hello.coin.name));
@@ -196,10 +216,6 @@ impl Peer {
             if Instant::now() > until {
                 return Err(format!("{} served its blocks too slowly.", self.target));
             }
-        }
-        // A copy kept from a try before may stand a block past this node, taken from the target.
-        if self.chain.id_at(hello.height) != Some(hello.tip) {
-            return Err(format!("{} follows a branch this copy does not.", self.target));
         }
         Ok(hello)
     }
