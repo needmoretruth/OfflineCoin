@@ -1,7 +1,8 @@
 # The .rpm for Fedora, openSUSE and the RHEL family, built by rpm.sh from the folder that is also the
 # Linux tar.gz. rpm reads Requires for every library the programs link against by itself. The window
 # opens more while running, which no linker records, so those come from loaded-libraries.txt as the
-# library names rpm already knows, and each system finds the package that holds them.
+# library names rpm already knows, and each system finds the package that holds them. That list names
+# the same libraries as deb-loaded.txt, which names them by their Debian packages.
 
 # The programs are built and stripped already, and carry no debug files.
 %global debug_package %{nil}
