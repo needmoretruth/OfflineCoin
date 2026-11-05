@@ -59,6 +59,8 @@ pub(super) struct State {
     /// Mining rests once the chain is this high, or never when 0: `generate` makes no more than asked.
     mine_to: AtomicU64,
     hashrate: AtomicU64,
+    /// The cap the speed above was read under.
+    hashrate_cap: AtomicU64,
     /// The threads the crew runs now; 0 while mining is off.
     hashing_threads: AtomicUsize,
     stop: AtomicBool,
@@ -149,6 +151,7 @@ impl Host {
             threads: AtomicUsize::new(1),
             mine_to: AtomicU64::new(0),
             hashrate: AtomicU64::new(0),
+            hashrate_cap: AtomicU64::new(0),
             hashing_threads: AtomicUsize::new(0),
             stop: AtomicBool::new(false),
             opening: AtomicBool::new(true),
@@ -445,6 +448,7 @@ impl Worker {
             // The speed over the last five seconds, read from the cap's own windows, so a reading
             // never stands above the cap the crew keeps to.
             self.state.hashrate.store(self.crew.speed(), Ordering::Relaxed);
+            self.state.hashrate_cap.store(cap, Ordering::Relaxed);
             thread::sleep(IDLE_SLEEP);
         }
     }

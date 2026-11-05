@@ -4,11 +4,27 @@
 //! the speed over any run of them is never above the cap. A reading over the hashes a thread
 //! happened to finish in one second, the way it was read before, could land a tenth above it.
 use std::collections::VecDeque;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// How far back the speed reads.
 pub const SPEED_SPAN: Duration = Duration::from_secs(5);
 const WINDOW_MS: u64 = 1_000;
+
+impl super::State {
+    /// The speed to show beside the cap in force. A status said right after a new cap, before the
+    /// node's thread has read the speed again, would show the speed under the old cap beside the
+    /// new one; the crew takes the new cap at its next batch, a few milliseconds on, so the speed
+    /// it hashes at by then is at most the new cap.
+    pub(super) fn speed(&self) -> u64 {
+        let (read, cap) = (self.hashrate.load(Ordering::Relaxed), self.cap.load(Ordering::Relaxed));
+        match cap {
+            0 => read,
+            cap if self.hashrate_cap.load(Ordering::Relaxed) != cap => read.min(cap),
+            _ => read,
+        }
+    }
+}
 
 pub(super) struct Windows {
     /// The windows closed within the span, oldest first: when each began and what it granted.

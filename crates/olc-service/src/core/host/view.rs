@@ -73,7 +73,7 @@ impl Worker {
             keeps: engine.keeps(),
             peers: runner.neighbour_count(),
             pool: status.pool,
-            hashrate: self.state.hashrate.load(Ordering::Relaxed),
+            hashrate: self.state.speed(),
             cap: self.state.cap.load(Ordering::Relaxed),
             mining: self.state.mining.load(Ordering::Relaxed) && engine.light().is_none(),
             light: engine.light().map(Light::status),
