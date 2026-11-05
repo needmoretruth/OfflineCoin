@@ -55,6 +55,7 @@ open_app() {
   local start
   start=$(sed -n 's/^Exec=//p' "$entry" | sed 's/ @@[^ ]*//g; s/ %[a-zA-Z]//g')
   $start &
+  opened=$!
   local waited=0
   until window; do
     sleep 1
@@ -73,7 +74,8 @@ close_app() {
     sleep 1
     gone=$((gone + 1))
   done
-  wait || true
+  # Only the app: the screen this test started runs on.
+  wait "$opened" || true
 }
 
 open_app
