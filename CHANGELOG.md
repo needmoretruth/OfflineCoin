@@ -2,6 +2,30 @@
 
 Notable changes for each version. How the numbers were taken is in [docs/measurements.md](docs/measurements.md).
 
+## [0.4.0] - 2026-11-05
+
+### Added
+
+- The Lab builds a network of real participants on this computer by clicking: miner, pool, full node, pruned node, light node, malicious miner, bug exploiter, spammer, sender and receiver. Each click starts one node process on 127.0.0.1 on the Lab's practice coin, apart from your own chain and wallet. Drag a miner into a pool to mine together. Seven scenes start in one click: a mining race, mining together in a pool, a payment, a 51% attack, a network split, a spam flood and a bug exploiter.
+- A 51% attack in the Lab is as strong as the hashing behind it. A malicious miner, or a pool you turn malicious, races with the speed it really has: with under half of all hashing it falls behind and gives up, and with more it replaces blocks and undoes a payment. Its share shows on the map, and its speed slider moves it.
+- The bug exploiter sends real invalid blocks and payments: too large a reward, the same coin spent twice, a coin that does not exist, a forged signature, a mining reward spent too early, a block timed too far ahead, a block with too little work and a block over the size limit. Every node refuses each one and names the rule.
+- Mining and Home show the network's hashrate, this computer's share of it, the recent average and who found the recent blocks: this computer, its miners, each board and each pool. Miners whose speed this app measures count by that speed, and blocks found by others are read from their work over their time, as Bitcoin Core's getnetworkhashps reads them, with how far off the share may be.
+- The app gives the boards it controls the date over its signed control path, by cable and through the radio relay, and a board keeps the last date it knew across a restart. Boards need build i21.
+
+### Changed
+
+- One hash limit for the whole computer. The limit you set holds for this app, every miner added on the Mining page and the Lab's miners together. A new miner starts at its part of the limit, shown before you add it. With no limit it starts at an equal part of the computer's highest speed, never at the whole computer.
+- The thread cap holds for every miner on this computer, and the highest speed is measured on the threads in use.
+- Speeds show the average of the last five seconds, so a speed never shows above its cap while the miner keeps to it.
+- A computer does not mine while it still takes the chain. On a tip more than an hour old it waits up to 10 seconds to hear its peers first. Taking a chain of 1,500 blocks went from about 10 seconds to about 3.
+
+### Fixed
+
+- Boards stamped every block late by the time between the coin's first block and their own start, 26 hours on the OLC of 0.3, so a computer that joined their chain found its first block at once at the lowest difficulty. Blocks stamped before 0.4.0 keep the times they carry.
+- A miner added on the Mining page mined at once on every core, outside this app's limit and thread cap.
+- Expert mode's "How blocks are paced" card showed a network hashrate of 0 while peers mined.
+- After a shorter branch with more work won, the app's figures stopped updating until it was restarted.
+
 ## [0.3.1] - 2026-11-04
 
 ### Added

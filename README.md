@@ -52,7 +52,7 @@ You can make your own coin too. On the **Coins** page, press **New coin**, then 
 - **Channels** on the same page pay at once, even to people you share no channel with, as Lightning does for Bitcoin.
 - **Shared wallets** on the **Wallet** page need signatures from several people before coins leave it.
 - **Contacts** on the **Wallet** page keep the addresses you pay by name, and **Lock with a password** asks for a password before coins leave this computer.
-- The **Lab** lets you try a 51% attack on a practice coin on your own computer.
+- The **Lab** builds a small network on your own computer by clicking: miners, pools, nodes, a malicious miner, a spammer, a sender and a receiver, all real, on a practice coin apart from your wallet. Try a mining race, a 51% attack or a bug exploiter in one click.
 
 ## ESP32 boards
 
