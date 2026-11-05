@@ -132,9 +132,17 @@ close_app
 port=$(find /dev -maxdepth 1 -name 'ttyS[0-9]*' | sort | head -n 1)
 group=$(stat -c %G "$port")
 flatpak run --command=sh "$app" -c "test -d /sys/class/tty && test -c $port"
+opens="import os; os.close(os.open('$port', os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK))"
+before=refused
+if flatpak run --command=python3 "$app" -c "$opens" 2>/dev/null; then
+  before=opened
+fi
+# Joining the group takes a new login, which sudo gives: the person's own groups, read afresh.
 sudo usermod -aG "$group" "$(id -un)"
-sg "$group" -c "flatpak run --command=python3 $app -c \"import os; os.close(os.open('$port', os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK))\""
-echo "Opened $port from inside the sandbox as a member of $group." | tee "$shots/serial.txt"
+sudo --preserve-env=HOME,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS -u "$(id -un)" \
+  flatpak run --command=python3 "$app" -c "$opens"
+echo "Before joining $group, $port was $before inside the sandbox. After, it opened." \
+  | tee "$shots/serial.txt"
 
 flatpak uninstall --user --noninteractive -y "$app"
 test ! -e "$entry"
