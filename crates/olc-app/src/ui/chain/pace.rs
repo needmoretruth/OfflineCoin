@@ -45,10 +45,15 @@ pub fn hashrate_line(ui: &mut Ui, look: &Look, chain: &ChainView, ceiling: &Ceil
     let painter = ui.painter_at(rect);
     let small = FontId::new(tokens::META, FontFamily::Proportional);
     let title = i18n::text(voice, "chain.speed");
-    painter.text(rect.left_top(), Align2::LEFT_TOP, title, small.clone(), t.soft);
     let now = format::rate(voice, chain.hashrate_here);
     let figure = FontId::new(tokens::TEXT, fonts::strong());
-    painter.text(rect.right_top(), Align2::RIGHT_TOP, &now, figure, t.text);
+    // The figure is measured first and the words take the room it leaves, wrapping onto the next
+    // line rather than running under a long number.
+    let figure_text = painter.layout_no_wrap(now.clone(), figure, t.text);
+    let room = (width - figure_text.size().x - tokens::GAP).max(width / 3.0);
+    let title_text = painter.layout(title.to_string(), small.clone(), t.soft, room);
+    painter.galley(rect.left_top(), title_text, t.soft);
+    painter.galley(pos2(rect.right() - figure_text.size().x, rect.top()), figure_text, t.text);
     let key_y = rect.top() + tokens::META_LINE + tokens::META_LINE / 2.0;
     let plot_top = rect.top() + tokens::META_LINE * 2.0 + 8.0;
     let plot = Rect::from_min_max(pos2(rect.left(), plot_top), pos2(rect.right(), rect.bottom() - tokens::META_LINE));
@@ -146,25 +151,39 @@ pub fn next_block_bar(ui: &mut Ui, look: &Look, chain: &ChainView) -> Response {
     let stacked = lines.as_ref().is_some_and(|(_, _, left, average)| {
         average.as_ref().is_some_and(|average| measure(left) + measure(average) + tokens::GAP_WIDE > width)
     });
+    // What stands beside the title: the expected wait, or why there is none. On a narrow card it
+    // takes a line of its own under the title rather than running into it.
+    let beside = match &lines {
+        Some((expected, ..)) => i18n::fill(i18n::text(voice, "chain.expected"), &[&wait(voice, *expected)]),
+        None => i18n::text(voice, if chain.latest.is_empty() { "chain.no_blocks" } else { "chain.nobody" }).to_string(),
+    };
+    let title = i18n::text(voice, "chain.next");
+    let title_width = ui.painter().layout_no_wrap(title.to_string(), text_font.clone(), t.text).size().x;
+    let crowded = title_width + measure(&beside) + tokens::GAP_WIDE > width;
+    let lifted = if crowded { tokens::META_LINE } else { 0.0 };
     let extra = if stacked { tokens::META_LINE } else { 0.0 };
-    let height = tokens::META_LINE * 2.0 + TRACK + 14.0 + extra;
+    let height = tokens::META_LINE * 2.0 + TRACK + 14.0 + extra + lifted;
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.text(rect.left_top(), Align2::LEFT_TOP, i18n::text(voice, "chain.next"), text_font, t.text);
-    let track = Rect::from_min_size(pos2(rect.left(), rect.top() + tokens::META_LINE + 6.0), vec2(width, TRACK));
+    painter.text(rect.left_top(), Align2::LEFT_TOP, title, text_font, t.text);
+    let (beside_at, beside_anchor) = if crowded {
+        (rect.left_top() + vec2(0.0, tokens::META_LINE), Align2::LEFT_TOP)
+    } else {
+        (rect.right_top(), Align2::RIGHT_TOP)
+    };
+    let track = Rect::from_min_size(pos2(rect.left(), rect.top() + tokens::META_LINE + 6.0 + lifted), vec2(width, TRACK));
     painter.rect_filled(track, TRACK / 2.0, t.hover);
     let Some((expected, since, left, average)) = lines else {
-        let said = i18n::text(voice, if chain.latest.is_empty() { "chain.no_blocks" } else { "chain.nobody" });
-        painter.text(rect.right_top(), Align2::RIGHT_TOP, said, small, t.muted);
-        return labelled(response, said);
+        painter.text(beside_at, beside_anchor, &beside, small, t.muted);
+        return labelled(response, &beside);
     };
     let part = (since as f32 / expected.max(1) as f32).min(1.0);
     let fill = Rect::from_min_size(track.min, vec2((track.width() * part).max(TRACK), TRACK));
     let colours = super::faces(t, false);
     let (start, end) = colours.bar(t);
     painter.add(paint::gradient(fill, TRACK / 2.0, start, end));
-    let expected_text = i18n::fill(i18n::text(voice, "chain.expected"), &[&wait(voice, expected)]);
-    painter.text(rect.right_top(), Align2::RIGHT_TOP, &expected_text, small.clone(), t.soft);
+    let expected_text = beside;
+    painter.text(beside_at, beside_anchor, &expected_text, small.clone(), t.soft);
     let below = track.left_bottom() + vec2(0.0, 6.0);
     painter.text(below, Align2::LEFT_TOP, &left, small.clone(), t.soft);
     if let Some(average) = &average {
@@ -182,4 +201,57 @@ pub fn next_block_bar(ui: &mut Ui, look: &Look, chain: &ChainView) -> Response {
     }
     let label = [Some(i18n::text(voice, "chain.next").to_string()), Some(expected_text), Some(left), average];
     labelled(response, &label.into_iter().flatten().collect::<Vec<_>>().join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::epaint::ClippedShape;
+
+    /// On a narrow Home card a long speed and the words beside it never run into each other, nor
+    /// the next block's title and its expected wait: the words wrap in the room the other leaves. In 0.4.0 "All miners on this computer" touched
+    /// "81,997,555 tries a second" in a window a little under 1280 wide.
+    #[test]
+    fn the_words_and_the_figure_of_the_speed_line_never_meet() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(fonts::definitions());
+        let block = crate::core::MinedBlock { time_ms: 1_000, ..Default::default() };
+        let chain = ChainView {
+            hashrate_here: 81_997_555,
+            expected_ms: Some(10_000),
+            average_ms: Some(3_000),
+            latest: vec![block],
+            ..ChainView::default()
+        };
+        let ceiling = Ceiling { rate: 82_184_601, limited: false };
+        for lang in [i18n::Lang::En, i18n::Lang::Ko] {
+            for mode in [i18n::Mode::Basic, i18n::Mode::Expert] {
+                for width in [240.0, 300.0, 344.0, 420.0] {
+                    let voice = i18n::Voice { lang, mode };
+                    let look = Look { t: &tokens::DARK, voice, still: true, now_ms: 8_000, ticker: "OLC" };
+                    ctx.begin_pass(egui::RawInput::default());
+                    egui::Area::new(egui::Id::unique("speed line")).show(&ctx, |ui| {
+                        ui.set_max_width(width);
+                        hashrate_line(ui, &look, &chain, &ceiling, 120.0);
+                        next_block_bar(ui, &look, &chain);
+                    });
+                    let mut output = ctx.end_pass();
+                    output.textures_delta.clear();
+                    let texts: Vec<Rect> = output
+                        .shapes
+                        .iter()
+                        .filter_map(|ClippedShape { shape, .. }| match shape {
+                            egui::Shape::Text(text) => Some(Rect::from_min_size(text.pos, text.galley.size())),
+                            _ => None,
+                        })
+                        .collect();
+                    for (at, one) in texts.iter().enumerate() {
+                        for other in &texts[at + 1..] {
+                            assert!(!one.intersects(*other), "{lang:?} {mode:?} at {width}: {one:?} meets {other:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
