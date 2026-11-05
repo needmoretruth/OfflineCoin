@@ -273,9 +273,17 @@ impl Host {
         }
     }
 
+    /// What the node showed when its thread last built the view, with its speed and cap read now:
+    /// a view built before a lower cap would otherwise show the old speed beside a miner just
+    /// started under the new one, and a busy machine builds it seconds apart.
     pub fn view(&self) -> NodeView {
         let view = self.state.view.lock().map(|view| view.clone()).unwrap_or_default();
-        NodeView { loading: self.state.opening.load(Ordering::Relaxed), ..view }
+        NodeView {
+            loading: self.state.opening.load(Ordering::Relaxed),
+            hashrate: self.state.speed(),
+            cap: self.state.cap.load(Ordering::Relaxed),
+            ..view
+        }
     }
 
     /// Radios the settings asked for that would not start.

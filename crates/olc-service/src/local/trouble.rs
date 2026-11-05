@@ -44,6 +44,8 @@ use std::time::{Duration, Instant};
 
 /// How long one trick waits for the node to say what it did before giving up.
 const VERDICT_WAIT: Duration = Duration::from_secs(20);
+/// How often a trick looks again whether the clock reached the chain's newest times.
+const TIME_LOOK: Duration = Duration::from_millis(500);
 const POLL: Duration = Duration::from_millis(150);
 /// Attempts per sealing batch, and how many batches before a seal is called hopeless.
 const SEAL_BATCH: u32 = 80_000;
@@ -185,6 +187,7 @@ pub fn valid_block(
     let mut peer = Peer::connect(coin, target, &mut None)?;
     peer.catch_up()?;
     let miner = address_of(&throwaway_key().1);
+    wait_for_a_valid_time(&peer.chain)?;
     let mut block = peer.chain.block_template(&miner, &[], now_ms());
     reseal(&peer.chain, &mut block)?;
     send_block(&mut peer, block, by, verdicts, Trick::ExtraReward)
@@ -307,7 +310,33 @@ fn await_verdict(
 
 // --- building the invalid blocks ----------------------------------------------------------------
 
+/// A block a node takes stands after the middle time of the blocks before it and no more than
+/// `max_ahead_ms` ahead of the node's clock. Right after many blocks were made at once their times
+/// run ahead of the clock, and an honest miner waits for its clock to reach them; a trick's block
+/// waits too, or the node refuses it for its time and not for the rule it breaks.
+fn wait_for_a_valid_time(chain: &Chain) -> Result<(), String> {
+    let ahead = chain.rules().max_ahead_ms;
+    if ahead == 0 {
+        return Ok(());
+    }
+    let until = Instant::now() + Duration::from_millis(ahead.saturating_mul(3));
+    loop {
+        let earliest = chain.earliest_time(&chain.tip());
+        let now = now_ms();
+        if earliest <= now.saturating_add(ahead / 2) {
+            return Ok(());
+        }
+        if Instant::now() > until {
+            return Err(format!("the chain's newest times stand {} s ahead of this clock.", (earliest - now) / 1_000));
+        }
+        std::thread::sleep(TIME_LOOK);
+    }
+}
+
 fn build_block(trick: Trick, chain: &Chain) -> Result<Block, String> {
+    if trick != Trick::FutureBlock {
+        wait_for_a_valid_time(chain)?;
+    }
     let miner = address_of(&throwaway_key().1);
     let mut block = chain.block_template(&miner, &[], now_ms());
     match trick {
