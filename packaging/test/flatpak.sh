@@ -91,22 +91,26 @@ tar -xzf "$terminal" -C "$work/olc" --strip-components=1
 TMPDIR=$work python3 "$here/mine.py" "$work/olc-core" "$work/olc/olc" "$shots"
 
 # A node outside the sandbox reaches the app's node inside it over the computer's network address,
-# as another computer on the network would, and takes the blocks it mines.
+# as another computer on the network would, and takes the blocks it mines. The node listens on every
+# address, as the app starts it when the network may reach it.
 address=$(hostname -I | awk '{print $1}')
 "$work/olc/olc" --data "$work/empty" save-coin "$work/coin.json"
 # The node ends when its input closes, so the input stays open until the test is done with it.
 mkfifo "$work/input"
 "$work/olc-core" node --data "$work/app" --wallet "$work/app" --coin "$work/coin.json" \
-  --port 17321 --mine --cap 0 < "$work/input" > "$work/app-node.log" &
+  --bind 0.0.0.0 --port 17321 --mine --cap 0 < "$work/input" > "$work/app-node.log" &
 node=$!
 exec 3> "$work/input"
 joined=$(timeout 120 "$work/olc/olc" node --data "$work/outside" --port 17322 \
-  --connect "$address:17321" | grep -m 1 -E '^height [1-9][0-9]* peers [1-9]' || true)
+  --connect "$address:17321" 2>&1 | tee "$work/outside.log" \
+  | grep -m 1 -E '^height [1-9][0-9]* peers [1-9]' || true)
 echo quit >&3
 exec 3>&-
 wait "$node" || true
 if [ -z "$joined" ]; then
   echo "No node outside the sandbox joined the app's node at $address." >&2
+  tail -n 20 "$work/outside.log" >&2
+  tail -c 1500 "$work/app-node.log" >&2
   exit 1
 fi
 echo "A node outside the sandbox joined the app's node at $address:17321: $joined" \
